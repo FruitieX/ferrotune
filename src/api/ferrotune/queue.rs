@@ -22,6 +22,7 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::{AppState, SessionEvent};
 use crate::db::models::{ItemType, PlayQueue, QueueSourceType, RepeatMode};
 use crate::db::queries;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
@@ -482,7 +483,7 @@ pub async fn start_queue(
                 "No songs provided".to_string(),
             )));
         }
-        queries::get_songs_by_ids_for_user(&state.pool, song_ids, user.user_id).await?
+        queries::get_songs_by_ids_for_user(&state.database, song_ids, user.user_id).await?
     } else if source_type == QueueSourceType::Playlist {
         // For playlists, use the position-aware function to handle missing entries
         let playlist_id = request
@@ -490,7 +491,7 @@ pub async fn start_queue(
             .as_deref()
             .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
         let songs_with_positions =
-            queries::get_playlist_songs_with_positions(&state.pool, playlist_id, user.user_id)
+            queries::get_playlist_songs_with_positions(&state.database, playlist_id, user.user_id)
                 .await?;
 
         // Extract text filter from filters JSON
@@ -584,7 +585,7 @@ pub async fn start_queue(
     } else {
         // Materialize songs from the source
         materialize_queue_songs(
-            &state.pool,
+            &state.database,
             user.user_id,
             source_type,
             request.source_id.as_deref(),
@@ -610,7 +611,7 @@ pub async fn start_queue(
 
     let songs = if should_filter_disabled {
         // Get disabled song IDs for this user
-        let disabled_ids = get_disabled_song_ids(&state.pool, user.user_id).await?;
+        let disabled_ids = get_disabled_song_ids(&state.database, user.user_id).await?;
 
         if disabled_ids.is_empty() {
             songs
@@ -753,7 +754,7 @@ pub async fn start_queue(
     let window = if use_lazy {
         // Lazy queue: store parameters, not song IDs
         queries::create_lazy_queue_for_session(
-            &state.pool,
+            &state.database,
             user.user_id,
             session_id,
             source_type.as_str(),
@@ -781,7 +782,7 @@ pub async fn start_queue(
         let window_songs: Vec<_> = songs[window_start..window_end].to_vec();
 
         build_lazy_queue_window(
-            &state.pool,
+            &state.database,
             user.user_id,
             &window_songs,
             window_start,
@@ -791,7 +792,7 @@ pub async fn start_queue(
     } else {
         // Regular queue: store all song IDs
         queries::create_queue_for_session(
-            &state.pool,
+            &state.database,
             user.user_id,
             session_id,
             source_type.as_str(),
@@ -814,7 +815,7 @@ pub async fn start_queue(
         invalidate_shuffle_cache(&state, user.user_id).await;
 
         // Build initial window using the efficient path (fetches only needed entries)
-        let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+        let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
             .await?
             .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -822,7 +823,7 @@ pub async fn start_queue(
         let end = (current_index as usize + 21).min(total_count);
 
         build_queue_window_efficient(
-            &state.pool,
+            &state.database,
             &state,
             user.user_id,
             session_id,
@@ -839,25 +840,47 @@ pub async fn start_queue(
     if let Some(ref source_id) = request.source_id {
         match source_type {
             QueueSourceType::Playlist => {
-                sqlx::query("UPDATE playlists SET last_played_at = datetime('now') WHERE id = ?")
+                if let Ok(pool) = state.database.sqlite_pool() {
+                    sqlx::query(
+                        "UPDATE playlists SET last_played_at = datetime('now') WHERE id = ?",
+                    )
                     .bind(source_id)
-                    .execute(&state.pool)
+                    .execute(pool)
                     .await?;
+                } else {
+                    let pool = state.database.postgres_pool()?;
+                    sqlx::query(
+                        "UPDATE playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
+                    )
+                    .bind(source_id)
+                    .execute(pool)
+                    .await?;
+                }
             }
             QueueSourceType::SmartPlaylist => {
-                sqlx::query(
-                    "UPDATE smart_playlists SET last_played_at = datetime('now') WHERE id = ?",
-                )
-                .bind(source_id)
-                .execute(&state.pool)
-                .await?;
+                if let Ok(pool) = state.database.sqlite_pool() {
+                    sqlx::query(
+                        "UPDATE smart_playlists SET last_played_at = datetime('now') WHERE id = ?",
+                    )
+                    .bind(source_id)
+                    .execute(pool)
+                    .await?;
+                } else {
+                    let pool = state.database.postgres_pool()?;
+                    sqlx::query(
+                        "UPDATE smart_playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
+                    )
+                    .bind(source_id)
+                    .execute(pool)
+                    .await?;
+                }
             }
             _ => {}
         }
     }
 
     // Fetch the queue to get the created_at timestamp
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+    let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Queue not found after creation".to_string()))?;
 
@@ -866,13 +889,18 @@ pub async fn start_queue(
     // task, and a new client starts playback. The OwnerChanged event must be sent
     // before QueueChanged so clients know who the owner is when processing the queue.
     if let Some(ref client_id) = request.client_id {
-        let session = queries::get_session(&state.pool, session_id, user.user_id)
+        let session = queries::get_session(&state.database, session_id, user.user_id)
             .await?
             .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
         if session.owner_client_id.is_none() {
             let client_name = session.client_name.clone();
-            queries::update_session_owner(&state.pool, session_id, Some(client_id), &client_name)
-                .await?;
+            queries::update_session_owner(
+                &state.database,
+                session_id,
+                Some(client_id),
+                &client_name,
+            )
+            .await?;
             state
                 .session_manager
                 .broadcast(
@@ -889,10 +917,7 @@ pub async fn start_queue(
 
     // Update last_playing_at since playback is about to start — this resets the
     // inactivity timer so the background task doesn't immediately disown us.
-    sqlx::query("UPDATE playback_sessions SET last_playing_at = datetime('now') WHERE id = ?")
-        .bind(session_id)
-        .execute(&state.pool)
-        .await?;
+    queries::touch_session_last_playing_at(&state.database, session_id).await?;
 
     // Broadcast to SSE subscribers: QueueUpdated (no playback restart) when
     // keep_playing is set, QueueChanged (full restart) otherwise.
@@ -919,25 +944,26 @@ pub async fn get_queue(
     Query(params): Query<QueuePaginationParams>,
 ) -> FerrotuneApiResult<Json<GetQueueResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
-    let queue =
-        match queries::get_play_queue_by_session(&state.pool, session_id, user.user_id).await? {
-            Some(q) => q,
-            None => {
-                // Return empty queue response instead of 404
-                return Ok(Json(GetQueueResponse {
-                    total_count: 0,
-                    current_index: 0,
-                    position_ms: 0,
-                    is_shuffled: false,
-                    repeat_mode: "off".to_string(),
-                    source: QueueSourceInfo::empty(),
-                    window: QueueWindow {
-                        offset: 0,
-                        songs: vec![],
-                    },
-                }));
-            }
-        };
+    let queue = match queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
+        .await?
+    {
+        Some(q) => q,
+        None => {
+            // Return empty queue response instead of 404
+            return Ok(Json(GetQueueResponse {
+                total_count: 0,
+                current_index: 0,
+                position_ms: 0,
+                is_shuffled: false,
+                repeat_mode: "off".to_string(),
+                source: QueueSourceInfo::empty(),
+                window: QueueWindow {
+                    offset: 0,
+                    songs: vec![],
+                },
+            }));
+        }
+    };
 
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
@@ -946,24 +972,31 @@ pub async fn get_queue(
     // Handle lazy queues differently
     let (total_count, window) = if queue.is_lazy {
         // Get total count from queue or compute it
-        let total = get_lazy_queue_count(&state.pool, &queue, user.user_id).await?;
+        let total = get_lazy_queue_count(&state.database, &queue, user.user_id).await?;
 
         // Materialize just the page we need
         let page_songs =
-            materialize_lazy_queue_page(&state.pool, &queue, user.user_id, offset, limit).await?;
+            materialize_lazy_queue_page(&state.database, &queue, user.user_id, offset, limit)
+                .await?;
 
         // Build window from the page
-        let window =
-            build_lazy_queue_window(&state.pool, user.user_id, &page_songs, offset, inline_size)
-                .await?;
+        let window = build_lazy_queue_window(
+            &state.database,
+            user.user_id,
+            &page_songs,
+            offset,
+            inline_size,
+        )
+        .await?;
 
         (total, window)
     } else {
         // Efficient fetch: only load the entries we need for this window
-        let total = get_queue_total_count(&state.pool, &queue, user.user_id, session_id).await?;
+        let total =
+            get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
 
         let window = build_queue_window_efficient(
-            &state.pool,
+            &state.database,
             &state,
             user.user_id,
             session_id,
@@ -996,25 +1029,26 @@ pub async fn get_current_window(
     Query(params): Query<CurrentWindowParams>,
 ) -> FerrotuneApiResult<Json<GetQueueResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
-    let queue =
-        match queries::get_play_queue_by_session(&state.pool, session_id, user.user_id).await? {
-            Some(q) => q,
-            None => {
-                // Return empty queue response instead of 404
-                return Ok(Json(GetQueueResponse {
-                    total_count: 0,
-                    current_index: 0,
-                    position_ms: 0,
-                    is_shuffled: false,
-                    repeat_mode: "off".to_string(),
-                    source: QueueSourceInfo::empty(),
-                    window: QueueWindow {
-                        offset: 0,
-                        songs: vec![],
-                    },
-                }));
-            }
-        };
+    let queue = match queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
+        .await?
+    {
+        Some(q) => q,
+        None => {
+            // Return empty queue response instead of 404
+            return Ok(Json(GetQueueResponse {
+                total_count: 0,
+                current_index: 0,
+                position_ms: 0,
+                is_shuffled: false,
+                repeat_mode: "off".to_string(),
+                source: QueueSourceInfo::empty(),
+                window: QueueWindow {
+                    offset: 0,
+                    songs: vec![],
+                },
+            }));
+        }
+    };
 
     let radius = params.radius.unwrap_or(20);
     let inline_size = params.inline_images.get_size();
@@ -1023,7 +1057,7 @@ pub async fn get_current_window(
     // Handle lazy queues differently
     let (total_count, window) = if queue.is_lazy {
         // Get total count from queue
-        let total = get_lazy_queue_count(&state.pool, &queue, user.user_id).await?;
+        let total = get_lazy_queue_count(&state.database, &queue, user.user_id).await?;
 
         // Calculate window range
         let start = current_index.saturating_sub(radius);
@@ -1032,24 +1066,31 @@ pub async fn get_current_window(
 
         // Materialize just the window we need
         let page_songs =
-            materialize_lazy_queue_page(&state.pool, &queue, user.user_id, start, limit).await?;
+            materialize_lazy_queue_page(&state.database, &queue, user.user_id, start, limit)
+                .await?;
 
         // Build window from the page
-        let window =
-            build_lazy_queue_window(&state.pool, user.user_id, &page_songs, start, inline_size)
-                .await?;
+        let window = build_lazy_queue_window(
+            &state.database,
+            user.user_id,
+            &page_songs,
+            start,
+            inline_size,
+        )
+        .await?;
 
         (total, window)
     } else {
         // Efficient fetch: only load the entries we need for this window
-        let total = get_queue_total_count(&state.pool, &queue, user.user_id, session_id).await?;
+        let total =
+            get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
 
         let start = current_index.saturating_sub(radius);
         let end = (current_index + radius + 1).min(total);
         let limit = end - start;
 
         let window = build_queue_window_efficient(
-            &state.pool,
+            &state.database,
             &state,
             user.user_id,
             session_id,
@@ -1082,11 +1123,12 @@ pub async fn add_to_queue(
     Json(request): Json<AddToQueueRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+    let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let current_len = queries::get_queue_length_by_session(&state.pool, session_id).await? as usize;
+    let current_len =
+        queries::get_queue_length_by_session(&state.database, session_id).await? as usize;
 
     // Prefer client-provided current_index over DB value (which may be stale
     // due to heartbeat delay, especially on Android with backgrounded WebView).
@@ -1109,7 +1151,7 @@ pub async fn add_to_queue(
             Error::InvalidRequest(format!("Invalid source type: {}", source_type_str))
         })?;
         let songs = materialize_queue_songs(
-            &state.pool,
+            &state.database,
             user.user_id,
             source_type,
             Some(source_id),
@@ -1142,7 +1184,7 @@ pub async fn add_to_queue(
     }
 
     let new_len = queries::add_to_queue_by_session(
-        &state.pool,
+        &state.database,
         user.user_id,
         session_id,
         &song_ids,
@@ -1169,7 +1211,7 @@ pub async fn add_to_queue(
         let indices_json = serde_json::to_string(&new_indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
         let updated = queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             true,
             queue.shuffle_seed,
@@ -1189,7 +1231,7 @@ pub async fn add_to_queue(
         invalidate_shuffle_cache(&state, user.user_id).await;
     } else {
         queries::update_queue_position_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             new_current_index as i64,
             queue.position_ms,
@@ -1217,7 +1259,7 @@ pub async fn remove_from_queue(
     Query(params): Query<SessionParams>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+    let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -1225,9 +1267,12 @@ pub async fn remove_from_queue(
     // to the original queue position before mutating stored entries.
     let original_position = resolve_original_queue_position(&queue, position)?;
 
-    let removed =
-        queries::remove_from_queue_by_session(&state.pool, session_id, original_position as i64)
-            .await?;
+    let removed = queries::remove_from_queue_by_session(
+        &state.database,
+        session_id,
+        original_position as i64,
+    )
+    .await?;
 
     if !removed {
         return Err(FerrotuneApiError(Error::NotFound(
@@ -1241,7 +1286,7 @@ pub async fn remove_from_queue(
         new_current_index -= 1;
     } else if (original_position as i64) == queue.current_index {
         // Current track was removed, stay at same position (next song slides in)
-        let new_len = queries::get_queue_length_by_session(&state.pool, session_id).await?;
+        let new_len = queries::get_queue_length_by_session(&state.database, session_id).await?;
         if new_current_index >= new_len {
             new_current_index = new_len.saturating_sub(1);
         }
@@ -1271,7 +1316,7 @@ pub async fn remove_from_queue(
         let indices_json = serde_json::to_string(&indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
         let updated = queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             true,
             queue.shuffle_seed,
@@ -1291,7 +1336,7 @@ pub async fn remove_from_queue(
         invalidate_shuffle_cache(&state, user.user_id).await;
     } else {
         queries::update_queue_position_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             new_current_index,
             queue.position_ms,
@@ -1299,7 +1344,7 @@ pub async fn remove_from_queue(
         .await?;
     }
 
-    let new_len = queries::get_queue_length_by_session(&state.pool, session_id).await?;
+    let new_len = queries::get_queue_length_by_session(&state.database, session_id).await?;
 
     broadcast_queue_updated(&state, session_id).await;
 
@@ -1318,7 +1363,7 @@ pub async fn move_in_queue(
     Json(request): Json<MoveInQueueRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+    let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -1353,7 +1398,7 @@ pub async fn move_in_queue(
         let indices_json = serde_json::to_string(&indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
         let updated = queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             true,
             queue.shuffle_seed,
@@ -1383,7 +1428,7 @@ pub async fn move_in_queue(
     } else {
         // Not shuffled, move in the actual queue
         let moved = queries::move_in_queue_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             request.from_position as i64,
             request.to_position as i64,
@@ -1412,7 +1457,7 @@ pub async fn move_in_queue(
         };
 
         queries::update_queue_position_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             new_current as i64,
             queue.position_ms,
@@ -1437,11 +1482,12 @@ pub async fn toggle_shuffle(
     Json(request): Json<ShuffleRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+    let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let total_count = get_queue_total_count(&state.pool, &queue, user.user_id, session_id).await?;
+    let total_count =
+        get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let current_index = queue.current_index as usize;
 
     if request.enabled {
@@ -1472,7 +1518,7 @@ pub async fn toggle_shuffle(
 
         // Current song is now at shuffled position 0
         let updated = queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             true,
             Some(seed),
@@ -1504,7 +1550,7 @@ pub async fn toggle_shuffle(
                 .and_then(|s| serde_json::from_str(s).ok());
 
             let all_songs = materialize_queue_songs(
-                &state.pool,
+                &state.database,
                 user.user_id,
                 source_type,
                 queue.source_id.as_deref(),
@@ -1517,7 +1563,7 @@ pub async fn toggle_shuffle(
             let song_ids_json = serde_json::to_string(&song_ids)
                 .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
             queries::update_queue_song_ids_by_session(
-                &state.pool,
+                &state.database,
                 session_id,
                 Some(&song_ids_json),
             )
@@ -1550,7 +1596,7 @@ pub async fn toggle_shuffle(
         let original_index = indices.get(current_index).copied().unwrap_or(current_index);
 
         let updated = queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             false,
             None,
@@ -1588,11 +1634,12 @@ pub async fn update_position(
     Json(request): Json<UpdatePositionRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
+    let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let total_count = get_queue_total_count(&state.pool, &queue, user.user_id, session_id).await?;
+    let total_count =
+        get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
 
     if request.current_index >= total_count {
         return Err(FerrotuneApiError(Error::InvalidRequest(
@@ -1611,7 +1658,7 @@ pub async fn update_position(
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
 
         queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             true,
             Some(seed),
@@ -1637,7 +1684,7 @@ pub async fn update_position(
     // If shuffled, update the shuffled current index
     if queue.is_shuffled {
         queries::update_queue_shuffle_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             true,
             queue.shuffle_seed,
@@ -1649,7 +1696,7 @@ pub async fn update_position(
         .await?;
     } else {
         queries::update_queue_position_by_session(
-            &state.pool,
+            &state.database,
             session_id,
             request.current_index as i64,
             request.position_ms,
@@ -1675,7 +1722,7 @@ pub async fn update_repeat_mode(
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
     // Verify session belongs to user
-    queries::get_session(&state.pool, session_id, user.user_id)
+    queries::get_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
     // Validate repeat mode
@@ -1684,7 +1731,8 @@ pub async fn update_repeat_mode(
         .parse()
         .map_err(|_| Error::InvalidRequest(format!("Invalid repeat mode: {}", request.mode)))?;
 
-    queries::update_queue_repeat_mode_by_session(&state.pool, session_id, mode.as_str()).await?;
+    queries::update_queue_repeat_mode_by_session(&state.database, session_id, mode.as_str())
+        .await?;
 
     broadcast_queue_updated(&state, session_id).await;
 
@@ -1704,10 +1752,10 @@ pub async fn clear_queue(
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
     // Verify session belongs to user
-    queries::get_session(&state.pool, session_id, user.user_id)
+    queries::get_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
-    queries::clear_queue_by_session(&state.pool, session_id).await?;
+    queries::clear_queue_by_session(&state.database, session_id).await?;
 
     broadcast_queue_changed(&state, session_id).await;
 
@@ -1725,30 +1773,27 @@ pub async fn clear_queue(
 
 /// Get all disabled song IDs for a user
 async fn get_disabled_song_ids(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> FerrotuneApiResult<std::collections::HashSet<String>> {
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT song_id FROM disabled_songs WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?;
-
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(queries::get_disabled_song_ids_for_user(database, user_id)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 async fn materialize_song_radio_songs(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     song_id: &str,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     #[cfg(feature = "bliss")]
     {
-        let similar = crate::bliss::find_similar_songs(pool, song_id, user_id, 50).await?;
+        let similar = crate::bliss::find_similar_songs(database, song_id, user_id, 50).await?;
         let mut song_ids: Vec<String> = Vec::with_capacity(similar.len() + 1);
         song_ids.push(song_id.to_string());
         song_ids.extend(similar.into_iter().map(|(id, _)| id));
-        Ok(queries::get_songs_by_ids_for_user(pool, &song_ids, user_id).await?)
+        Ok(queries::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
     }
     #[cfg(not(feature = "bliss"))]
     {
@@ -1758,7 +1803,7 @@ async fn materialize_song_radio_songs(
 
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     source_type: QueueSourceType,
     source_id: Option<&str>,
@@ -1777,7 +1822,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Album => {
             let album_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Album ID required".to_string()))?;
-            let songs = queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
+            let songs = queries::get_songs_by_album_for_user(database, album_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1789,7 +1834,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Artist => {
             let artist_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Artist ID required".to_string()))?;
-            let songs = queries::get_songs_by_artist_for_user(pool, artist_id, user_id).await?;
+            let songs = queries::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1801,7 +1846,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Playlist => {
             let playlist_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
-            let songs = queries::get_playlist_songs(pool, playlist_id, user_id).await?;
+            let songs = queries::get_playlist_songs(database, playlist_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1816,7 +1861,7 @@ async fn materialize_queue_songs(
             // Smart playlists have their own sorting/filtering built into the rules,
             // but we allow the client to override sort when playing
             get_smart_playlist_songs_by_id(
-                pool,
+                database,
                 playlist_id,
                 user_id,
                 sort_field.as_deref(),
@@ -1836,10 +1881,10 @@ async fn materialize_queue_songs(
             // Use text filter as FTS query, or wildcard for all songs in genre
             let query = text_filter.unwrap_or("*");
 
-            Ok(search_songs_for_queue(pool, user_id, query, &search_params).await?)
+            Ok(search_songs_for_queue(database, user_id, query, &search_params).await?)
         }
         QueueSourceType::Favorites => {
-            let songs = queries::get_starred_songs(pool, user_id).await?;
+            let songs = queries::get_starred_songs(database, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1860,12 +1905,12 @@ async fn materialize_queue_songs(
             // Parse filters and sort from JSON into SearchParams
             let search_params = build_search_params_from_json(filters, sort);
 
-            Ok(search_songs_for_queue(pool, user_id, query, &search_params).await?)
+            Ok(search_songs_for_queue(database, user_id, query, &search_params).await?)
         }
         QueueSourceType::Directory => {
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
-            let songs = queries::get_songs_by_directory(pool, dir_id, user_id).await?;
+            let songs = queries::get_songs_by_directory(database, dir_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1878,7 +1923,7 @@ async fn materialize_queue_songs(
             // Non-recursive directory - only files in the current folder, not subfolders
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
-            let songs = queries::get_songs_by_directory_flat(pool, dir_id, user_id).await?;
+            let songs = queries::get_songs_by_directory_flat(database, dir_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1889,40 +1934,77 @@ async fn materialize_queue_songs(
         }
         QueueSourceType::History => {
             // Fetch play history songs (deduplicated, most recent play per song)
-            let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-                r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                          s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                          s.bitrate, s.file_path, s.file_size, s.file_format,
-                          s.created_at, s.updated_at, s.cover_art_hash,
-                          s.cover_art_width, s.cover_art_height,
-                          s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                          s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                          pc.play_count,
-                          sc.played_at as last_played,
-                          NULL as starred_at
-                   FROM scrobbles sc
-                   INNER JOIN songs s ON sc.song_id = s.id
-                   INNER JOIN artists ar ON s.artist_id = ar.id
-                   LEFT JOIN albums al ON s.album_id = al.id
-                   LEFT JOIN (
-                       SELECT song_id, COUNT(*) as play_count
-                       FROM scrobbles WHERE submission = 1 AND user_id = ?
-                       GROUP BY song_id
-                   ) pc ON s.id = pc.song_id
-                   WHERE sc.user_id = ? AND sc.submission = 1
-                     AND sc.played_at = (
-                       SELECT MAX(sc2.played_at)
-                       FROM scrobbles sc2
-                       WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
-                     )
-                   ORDER BY sc.played_at DESC
-                   LIMIT 500"#,
-            )
-            .bind(user_id)
-            .bind(user_id)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
+            let songs: Vec<crate::db::models::Song> = if let Ok(pool) = database.sqlite_pool() {
+                                sqlx::query_as(
+                                        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
+                                                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
+                                                            s.bitrate, s.file_path, s.file_size, s.file_format,
+                                                            s.created_at, s.updated_at, s.cover_art_hash,
+                                                            s.cover_art_width, s.cover_art_height,
+                                                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
+                                                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
+                                                            pc.play_count,
+                                                            sc.played_at as last_played,
+                                                            NULL as starred_at
+                                             FROM scrobbles sc
+                                             INNER JOIN songs s ON sc.song_id = s.id
+                                             INNER JOIN artists ar ON s.artist_id = ar.id
+                                             LEFT JOIN albums al ON s.album_id = al.id
+                                             LEFT JOIN (
+                                                     SELECT song_id, COUNT(*) as play_count
+                                                     FROM scrobbles WHERE submission = 1 AND user_id = ?
+                                                     GROUP BY song_id
+                                             ) pc ON s.id = pc.song_id
+                                             WHERE sc.user_id = ? AND sc.submission = 1
+                                                 AND sc.played_at = (
+                                                     SELECT MAX(sc2.played_at)
+                                                     FROM scrobbles sc2
+                                                     WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
+                                                 )
+                                             ORDER BY sc.played_at DESC
+                                             LIMIT 500"#,
+                                )
+                                .bind(user_id)
+                                .bind(user_id)
+                                .fetch_all(pool)
+                                .await
+                        } else {
+                                let pool = database.postgres_pool()?;
+                                sqlx::query_as(
+                                        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
+                                                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
+                                                            s.bitrate, s.file_path, s.file_size, s.file_format,
+                                                            s.created_at, s.updated_at, s.cover_art_hash,
+                                                            s.cover_art_width, s.cover_art_height,
+                                                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
+                                                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
+                                                            pc.play_count,
+                                                            sc.played_at as last_played,
+                                                            NULL::timestamptz as starred_at
+                                             FROM scrobbles sc
+                                             INNER JOIN songs s ON sc.song_id = s.id
+                                             INNER JOIN artists ar ON s.artist_id = ar.id
+                                             LEFT JOIN albums al ON s.album_id = al.id
+                                             LEFT JOIN (
+                                                     SELECT song_id, COUNT(*)::BIGINT as play_count
+                                                     FROM scrobbles WHERE submission = TRUE AND user_id = $1
+                                                     GROUP BY song_id
+                                             ) pc ON s.id = pc.song_id
+                                             WHERE sc.user_id = $2 AND sc.submission = TRUE
+                                                 AND sc.played_at = (
+                                                     SELECT MAX(sc2.played_at)
+                                                     FROM scrobbles sc2
+                                                     WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = TRUE
+                                                 )
+                                             ORDER BY sc.played_at DESC
+                                             LIMIT 500"#,
+                                )
+                                .bind(user_id)
+                                .bind(user_id)
+                                .fetch_all(pool)
+                                .await
+                        }
+                        .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
 
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1934,7 +2016,7 @@ async fn materialize_queue_songs(
         QueueSourceType::SongRadio => {
             let song_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Song ID required for radio".to_string()))?;
-            materialize_song_radio_songs(pool, user_id, song_id).await
+            materialize_song_radio_songs(database, user_id, song_id).await
         }
         QueueSourceType::AlbumList => {
             // If albumIds are provided in filters, use those directly (backward compat)
@@ -1966,7 +2048,7 @@ async fn materialize_queue_songs(
                     .map(|s| s.to_string());
                 let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
                 let result = crate::api::common::lists::get_album_list_logic(
-                    pool, user_id, list_type, 500, 0, None, None, None, None, since, seed,
+                    database, user_id, list_type, 500, 0, None, None, None, None, since, seed,
                 )
                 .await?;
                 result.albums.into_iter().map(|a| a.id).collect()
@@ -1979,66 +2061,56 @@ async fn materialize_queue_songs(
                     break;
                 }
                 let album_songs =
-                    queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
+                    queries::get_songs_by_album_for_user(database, album_id, user_id).await?;
                 songs.extend(album_songs);
             }
             songs.truncate(1000);
             Ok(songs)
         }
         QueueSourceType::ContinueListening => {
-            let continue_listening = crate::api::common::lists::get_continue_listening_logic(
-                pool, user_id, 500, 0, None,
-            )
-            .await?;
+            let continue_listening_sources =
+                crate::api::common::lists::get_continue_listening_source_refs(
+                    database, user_id, 500, 0,
+                )
+                .await?;
 
             let mut songs = Vec::new();
-            for item in continue_listening.entries {
+            for item in continue_listening_sources {
                 if songs.len() >= 1000 {
                     break;
                 }
-                let crate::api::common::lists::ContinueListeningEntry {
-                    entry_type,
-                    album,
-                    playlist,
-                    source,
-                    ..
-                } = item;
 
-                match entry_type.as_str() {
+                match item.source_type.as_str() {
                     "album" => {
-                        if let Some(album) = album {
-                            let album_songs =
-                                queries::get_songs_by_album_for_user(pool, &album.id, user_id)
-                                    .await?;
-                            songs.extend(album_songs);
-                        }
+                        let album_songs = queries::get_songs_by_album_for_user(
+                            database,
+                            &item.source_id,
+                            user_id,
+                        )
+                        .await?;
+                        songs.extend(album_songs);
                     }
                     "playlist" => {
-                        if let Some(playlist) = playlist {
-                            let playlist_songs =
-                                queries::get_playlist_songs(pool, &playlist.id, user_id).await?;
-                            songs.extend(playlist_songs);
-                        }
+                        let playlist_songs =
+                            queries::get_playlist_songs(database, &item.source_id, user_id).await?;
+                        songs.extend(playlist_songs);
                     }
                     "smartPlaylist" => {
-                        if let Some(playlist) = playlist {
-                            let smart_playlist_songs = get_smart_playlist_songs_by_id(
-                                pool,
-                                &playlist.id,
-                                user_id,
-                                None,
-                                None,
-                            )
-                            .await?;
-                            songs.extend(smart_playlist_songs);
-                        }
+                        let smart_playlist_songs = get_smart_playlist_songs_by_id(
+                            database,
+                            &item.source_id,
+                            user_id,
+                            None,
+                            None,
+                        )
+                        .await?;
+                        songs.extend(smart_playlist_songs);
                     }
                     "songRadio" => {
-                        if let Some(source) = source {
-                            let radio_songs =
-                                materialize_song_radio_songs(pool, user_id, &source.id).await?;
-                            songs.extend(radio_songs);
-                        }
+                        let radio_songs =
+                            materialize_song_radio_songs(database, user_id, &item.source_id)
+                                .await?;
+                        songs.extend(radio_songs);
                     }
                     _ => {}
                 }
@@ -2058,7 +2130,7 @@ async fn materialize_queue_songs(
                 .unwrap_or(90);
 
             let result = crate::api::common::lists::get_forgotten_favorites_logic(
-                pool,
+                database,
                 user_id,
                 1000,
                 0,
@@ -2071,12 +2143,12 @@ async fn materialize_queue_songs(
 
             // Re-fetch as Song models in the same shuffled order
             let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
-            Ok(queries::get_songs_by_ids_for_user(pool, &song_ids, user_id).await?)
+            Ok(queries::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
         }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
             let search_params = build_search_params_from_json(filters, sort);
-            Ok(search_songs_for_queue(pool, user_id, "*", &search_params).await?)
+            Ok(search_songs_for_queue(database, user_id, "*", &search_params).await?)
         }
     }
 }
@@ -2223,7 +2295,7 @@ fn build_search_params_from_json(
 /// Materialize a page of songs from a lazy queue
 /// This re-runs the materialization query with pagination
 pub async fn materialize_lazy_queue_page(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
     offset: usize,
@@ -2259,7 +2331,7 @@ pub async fn materialize_lazy_queue_page(
 
         // Fetch songs by IDs - need to convert to owned strings for the query
         let page_ids_owned: Vec<String> = page_ids.iter().map(|s| s.to_string()).collect();
-        return Ok(queries::get_songs_by_ids_for_user(pool, &page_ids_owned, user_id).await?);
+        return Ok(queries::get_songs_by_ids_for_user(database, &page_ids_owned, user_id).await?);
     }
 
     // Parse the source parameters
@@ -2278,7 +2350,7 @@ pub async fn materialize_lazy_queue_page(
     if queue.is_shuffled {
         // Materialize all songs and apply shuffle
         let all_songs = materialize_queue_songs(
-            pool,
+            database,
             user_id,
             source_type,
             queue.source_id.as_deref(),
@@ -2306,7 +2378,7 @@ pub async fn materialize_lazy_queue_page(
     // However, the current materialization functions don't support pagination
     // So we materialize all and slice - this could be optimized further
     let all_songs = materialize_queue_songs(
-        pool,
+        database,
         user_id,
         source_type,
         queue.source_id.as_deref(),
@@ -2322,22 +2394,22 @@ pub async fn materialize_lazy_queue_page(
 /// For lazy queues: uses cached total_count or re-materializes to count
 /// For non-lazy queues: counts entries in the database
 pub async fn get_queue_total_count(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
     session_id: &str,
 ) -> FerrotuneApiResult<usize> {
     if queue.is_lazy {
-        get_lazy_queue_count(pool, queue, user_id).await
+        get_lazy_queue_count(database, queue, user_id).await
     } else {
-        Ok(queries::get_queue_length_by_session(pool, session_id).await? as usize)
+        Ok(queries::get_queue_length_by_session(database, session_id).await? as usize)
     }
 }
 
 /// Get the total count for a lazy queue
 /// This re-runs the count query based on source parameters
 pub async fn get_lazy_queue_count(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
 ) -> FerrotuneApiResult<usize> {
@@ -2363,7 +2435,7 @@ pub async fn get_lazy_queue_count(
         .and_then(|s| serde_json::from_str(s).ok());
 
     let songs = materialize_queue_songs(
-        pool,
+        database,
         user_id,
         source_type,
         queue.source_id.as_deref(),
@@ -2454,7 +2526,7 @@ async fn invalidate_shuffle_cache(state: &AppState, user_id: i64) {
 /// For shuffled queues, maps display positions to original positions and fetches only those.
 #[allow(clippy::too_many_arguments)]
 async fn build_queue_window_efficient(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     state: &AppState,
     user_id: i64,
     session_id: &str,
@@ -2503,7 +2575,7 @@ async fn build_queue_window_efficient(
             position_mapping.iter().map(|&(_, orig)| orig).collect();
 
         let entries = queries::get_queue_entries_at_positions_by_session(
-            pool,
+            database,
             session_id,
             &original_positions,
         )
@@ -2521,11 +2593,11 @@ async fn build_queue_window_efficient(
             })
             .collect();
 
-        build_window_from_entries(pool, user_id, &window_entries, offset, inline_size).await
+        build_window_from_entries(database, user_id, &window_entries, offset, inline_size).await
     } else {
         // Non-shuffled: fetch a contiguous range
         let entries =
-            queries::get_queue_entries_range_by_session(pool, session_id, offset, end - offset)
+            queries::get_queue_entries_range_by_session(database, session_id, offset, end - offset)
                 .await?;
 
         let window_entries: Vec<(&crate::db::models::QueueEntryWithSong, usize)> = entries
@@ -2533,13 +2605,13 @@ async fn build_queue_window_efficient(
             .map(|e| (e, e.queue_position as usize))
             .collect();
 
-        build_window_from_entries(pool, user_id, &window_entries, offset, inline_size).await
+        build_window_from_entries(database, user_id, &window_entries, offset, inline_size).await
     }
 }
 
 /// Build a QueueWindow from a list of (entry, display_position) pairs.
 async fn build_window_from_entries(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     window_entries: &[(&crate::db::models::QueueEntryWithSong, usize)],
     offset: usize,
@@ -2554,15 +2626,15 @@ async fn build_window_from_entries(
 
     let window_song_ids: Vec<String> = window_entries.iter().map(|(e, _)| e.id.clone()).collect();
 
-    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &window_song_ids).await?;
-    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &window_song_ids).await?;
+    let starred_map = get_starred_map(database, user_id, ItemType::Song, &window_song_ids).await?;
+    let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &window_song_ids).await?;
 
     let thumbnails = if let Some(size) = inline_size {
         let song_thumbnail_data: Vec<(String, Option<String>)> = window_entries
             .iter()
             .map(|(e, _)| (e.id.clone(), e.album_id.clone()))
             .collect();
-        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+        get_song_thumbnails_base64(database, &song_thumbnail_data, size).await
     } else {
         std::collections::HashMap::new()
     };
@@ -2625,7 +2697,7 @@ async fn build_window_from_entries(
 
 /// Build a window of songs from a slice (for lazy queues)
 async fn build_lazy_queue_window(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     songs: &[crate::db::models::Song],
     offset: usize,
@@ -2640,8 +2712,8 @@ async fn build_lazy_queue_window(
 
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
 
-    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &song_ids).await?;
-    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {
@@ -2649,7 +2721,7 @@ async fn build_lazy_queue_window(
             .iter()
             .map(|s| (s.id.clone(), s.album_id.clone()))
             .collect();
-        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+        get_song_thumbnails_base64(database, &song_thumbnail_data, size).await
     } else {
         std::collections::HashMap::new()
     };

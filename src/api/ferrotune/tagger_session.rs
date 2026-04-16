@@ -5,6 +5,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::db::DatabaseHandle;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -351,7 +352,14 @@ fn mime_to_extension(mime: &str) -> &str {
 }
 
 /// Seed default scripts for a new user
-async fn seed_default_scripts(pool: &sqlx::SqlitePool, user_id: i64) -> Result<(), sqlx::Error> {
+async fn seed_default_scripts(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> Result<(), sqlx::Error> {
+    let pool = database
+        .sqlite_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
     // Check if user already has scripts
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tagger_scripts WHERE user_id = ?")
         .bind(user_id)
@@ -449,9 +457,13 @@ async fn seed_default_scripts(pool: &sqlx::SqlitePool, user_id: i64) -> Result<(
 
 /// Get or create a tagger session for the user
 pub async fn get_or_create_session(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> Result<i64, sqlx::Error> {
+    let pool = database
+        .sqlite_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
     // Try to get existing session
     let session: Option<(i64,)> =
         sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
@@ -475,7 +487,7 @@ pub async fn get_or_create_session(
     .await?;
 
     // Seed default scripts for new users
-    if let Err(e) = seed_default_scripts(pool, user_id).await {
+    if let Err(e) = seed_default_scripts(database, user_id).await {
         tracing::warn!("Failed to seed default scripts for user {}: {}", user_id, e);
     }
 
@@ -2920,7 +2932,7 @@ pub async fn save_pending_edits(
         // Scan files grouped by folder
         for (folder_id, file_paths) in files_by_folder {
             if let Err(e) =
-                crate::scanner::scan_specific_files(&state.pool, folder_id, file_paths).await
+                crate::scanner::scan_specific_files(&state.database, folder_id, file_paths).await
             {
                 tracing::warn!(
                     "Failed to rescan saved files for folder {}: {}",
@@ -2969,9 +2981,13 @@ pub async fn save_pending_edits(
 
 /// Helper function to get track IDs for a user's session (for orphaned files detection)
 pub async fn get_session_track_ids(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> Result<Vec<String>, sqlx::Error> {
+    let pool = database
+        .sqlite_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
     // First get the session ID
     let session: Option<(i64,)> =
         sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
@@ -3181,7 +3197,7 @@ async fn save_pending_edits_internal(
 
         for (folder_id, file_paths) in files_by_folder {
             if let Err(e) =
-                crate::scanner::scan_specific_files(&state.pool, folder_id, file_paths.clone())
+                crate::scanner::scan_specific_files(&state.database, folder_id, file_paths.clone())
                     .await
             {
                 tracing::warn!("Failed to rescan files for folder {}: {}", folder_id, e);
@@ -3199,7 +3215,8 @@ async fn save_pending_edits_internal(
                     .collect();
 
                 if let Err(e) =
-                    crate::scanner::scan_specific_files(&state.pool, folder_id, file_paths).await
+                    crate::scanner::scan_specific_files(&state.database, folder_id, file_paths)
+                        .await
                 {
                     tracing::warn!("Failed to rescan new files: {}", e);
                 }
@@ -3248,7 +3265,7 @@ struct SaveSingleTrackResult {
 /// Save a single track - extracted from save_pending_edits for reuse
 #[allow(clippy::too_many_arguments)]
 async fn save_single_track(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     session_id: i64,
     track_id: &str,
     path_overrides: &HashMap<String, String>,
@@ -3260,6 +3277,10 @@ async fn save_single_track(
     username: &str,
 ) -> Result<SaveSingleTrackResult, String> {
     use crate::db::queries;
+
+    let pool = database
+        .sqlite_pool()
+        .map_err(|e| format!("Database error: {}", e))?;
 
     let mut result = SaveSingleTrackResult {
         needs_rescan: false,

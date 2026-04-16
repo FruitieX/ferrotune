@@ -6,6 +6,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::extract::State;
 use axum::response::Json;
@@ -35,7 +36,7 @@ pub struct ServerConfigResponse {
     pub allow_file_deletion: bool,
     /// Whether the server has been configured (first-run complete)
     pub configured: bool,
-    /// Database path (read-only, from config file or default)
+    /// Database connection target (read-only, from config file or default)
     pub database_path: String,
     /// Cache path (read-only, from config file or default)
     pub cache_path: String,
@@ -67,7 +68,9 @@ pub struct UpdateServerConfigRequest {
 }
 
 /// Get server configuration from database
-async fn get_config_value(pool: &sqlx::SqlitePool, key: &str) -> Option<String> {
+async fn get_config_value(database: &(impl DatabaseHandle + ?Sized), key: &str) -> Option<String> {
+    let pool = database.sqlite_pool().ok()?;
+
     sqlx::query_scalar::<_, String>("SELECT value FROM server_config WHERE key = ?")
         .bind(key)
         .fetch_optional(pool)
@@ -78,10 +81,12 @@ async fn get_config_value(pool: &sqlx::SqlitePool, key: &str) -> Option<String> 
 
 /// Set server configuration value in database
 async fn set_config_value(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     key: &str,
     value: &str,
 ) -> FerrotuneApiResult<()> {
+    let pool = database.sqlite_pool()?;
+
     sqlx::query(
         "INSERT OR REPLACE INTO server_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)"
     )
@@ -104,7 +109,7 @@ fn parse_json<T: serde::de::DeserializeOwned>(value: Option<String>, default: T)
 /// This allows the toggle to apply immediately without server restart.
 pub async fn is_tag_editing_enabled(state: &AppState) -> bool {
     // Check database first for dynamic config
-    let db_value = get_config_value(&state.pool, "music.readonly_tags").await;
+    let db_value = get_config_value(&state.database, "music.readonly_tags").await;
     if let Some(val) = db_value {
         // Database has an explicit value - use it
         let readonly: bool = parse_json(Some(val), state.config.music.readonly_tags);
@@ -117,7 +122,7 @@ pub async fn is_tag_editing_enabled(state: &AppState) -> bool {
 /// Check if file deletion is enabled (reads from database, defaults to false).
 /// This controls whether users can mark and delete music files from the library.
 pub async fn is_file_deletion_enabled(state: &AppState) -> bool {
-    let db_value = get_config_value(&state.pool, "music.allow_file_deletion").await;
+    let db_value = get_config_value(&state.database, "music.allow_file_deletion").await;
     parse_json(db_value, false)
 }
 
@@ -133,34 +138,36 @@ pub async fn get_server_config(
         )));
     }
 
-    let pool = &state.pool;
+    let database = &state.database;
 
     let server_name = parse_json(
-        get_config_value(pool, "server.name").await,
+        get_config_value(database, "server.name").await,
         "Ferrotune".to_string(),
     );
     let server_host = parse_json(
-        get_config_value(pool, "server.host").await,
+        get_config_value(database, "server.host").await,
         "127.0.0.1".to_string(),
     );
-    let server_port: u16 = parse_json(get_config_value(pool, "server.port").await, 4040);
+    let server_port: u16 = parse_json(get_config_value(database, "server.port").await, 4040);
     let admin_user = parse_json(
-        get_config_value(pool, "server.admin_user").await,
+        get_config_value(database, "server.admin_user").await,
         "admin".to_string(),
     );
-    let max_cover_size: u32 =
-        parse_json(get_config_value(pool, "cache.max_cover_size").await, 1024);
+    let max_cover_size: u32 = parse_json(
+        get_config_value(database, "cache.max_cover_size").await,
+        1024,
+    );
     // Use config file value as default for readonly_tags (consistent with is_tag_editing_enabled)
     let readonly_tags: bool = parse_json(
-        get_config_value(pool, "music.readonly_tags").await,
+        get_config_value(database, "music.readonly_tags").await,
         state.config.music.readonly_tags,
     );
     let allow_file_deletion: bool = parse_json(
-        get_config_value(pool, "music.allow_file_deletion").await,
+        get_config_value(database, "music.allow_file_deletion").await,
         false,
     );
     let configured: bool = parse_json(
-        get_config_value(pool, "initial_setup_complete").await,
+        get_config_value(database, "initial_setup_complete").await,
         false,
     );
 
@@ -173,7 +180,7 @@ pub async fn get_server_config(
         readonly_tags,
         allow_file_deletion,
         configured,
-        database_path: state.config.database.path.to_string_lossy().to_string(),
+        database_path: state.config.database.connection_label(),
         cache_path: state.config.cache.path.to_string_lossy().to_string(),
     }))
 }
@@ -191,21 +198,31 @@ pub async fn update_server_config(
         )));
     }
 
-    let pool = &state.pool;
+    let database = &state.database;
 
     // Update each provided field
     if let Some(name) = &request.server_name {
-        set_config_value(pool, "server.name", &serde_json::to_string(name).unwrap()).await?;
+        set_config_value(
+            database,
+            "server.name",
+            &serde_json::to_string(name).unwrap(),
+        )
+        .await?;
     }
     if let Some(host) = &request.server_host {
-        set_config_value(pool, "server.host", &serde_json::to_string(host).unwrap()).await?;
+        set_config_value(
+            database,
+            "server.host",
+            &serde_json::to_string(host).unwrap(),
+        )
+        .await?;
     }
     if let Some(port) = request.server_port {
-        set_config_value(pool, "server.port", &port.to_string()).await?;
+        set_config_value(database, "server.port", &port.to_string()).await?;
     }
     if let Some(admin_user) = &request.admin_user {
         set_config_value(
-            pool,
+            database,
             "server.admin_user",
             &serde_json::to_string(admin_user).unwrap(),
         )
@@ -213,28 +230,33 @@ pub async fn update_server_config(
     }
     if let Some(admin_password) = &request.admin_password {
         set_config_value(
-            pool,
+            database,
             "server.admin_password",
             &serde_json::to_string(admin_password).unwrap(),
         )
         .await?;
     }
     if let Some(max_cover_size) = request.max_cover_size {
-        set_config_value(pool, "cache.max_cover_size", &max_cover_size.to_string()).await?;
+        set_config_value(
+            database,
+            "cache.max_cover_size",
+            &max_cover_size.to_string(),
+        )
+        .await?;
     }
     if let Some(readonly_tags) = request.readonly_tags {
-        set_config_value(pool, "music.readonly_tags", &readonly_tags.to_string()).await?;
+        set_config_value(database, "music.readonly_tags", &readonly_tags.to_string()).await?;
     }
     if let Some(allow_file_deletion) = request.allow_file_deletion {
         set_config_value(
-            pool,
+            database,
             "music.allow_file_deletion",
             &allow_file_deletion.to_string(),
         )
         .await?;
     }
     if let Some(configured) = request.configured {
-        set_config_value(pool, "initial_setup_complete", &configured.to_string()).await?;
+        set_config_value(database, "initial_setup_complete", &configured.to_string()).await?;
     }
 
     // Return updated config
@@ -253,8 +275,10 @@ pub async fn get_all_config(
         )));
     }
 
+    let pool = state.database.sqlite_pool()?;
+
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM server_config")
-        .fetch_all(&state.pool)
+        .fetch_all(pool)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?;
 

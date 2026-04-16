@@ -37,7 +37,7 @@ allowFileDeletion: boolean,
  */
 configured: boolean, 
 /**
- * Database path (read-only, from config file or default)
+ * Database connection target (read-only, from config file or default)
  */
 databasePath: string, 
 /**

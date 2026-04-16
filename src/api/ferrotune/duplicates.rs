@@ -100,16 +100,7 @@ pub async fn get_duplicates(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<DuplicatesResponse>> {
     // Query for all songs with non-null full_file_hash, grouped by hash
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        i64,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-    )> = sqlx::query_as(
+    let query =
         "SELECT 
                 s.full_file_hash,
                 s.id,
@@ -124,11 +115,28 @@ pub async fn get_duplicates(
              LEFT JOIN albums al ON s.album_id = al.id
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
              WHERE s.full_file_hash IS NOT NULL
-             ORDER BY s.full_file_hash, s.file_path",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?;
+             ORDER BY s.full_file_hash, s.file_path";
+
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        i64,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+    )> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?
+    } else {
+        sqlx::query_as(query)
+            .fetch_all(state.database.postgres_pool()?)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?
+    };
 
     // Group by hash
     let mut groups: std::collections::HashMap<String, Vec<DuplicateFile>> =

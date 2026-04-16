@@ -420,6 +420,7 @@ Content-Type: application/json
   "sourceType": "library",
   "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}"],
   "startIndex": 0,
+  "startSongId": "{{song_1}}",
   "shuffle": true
 }
 HTTP 200

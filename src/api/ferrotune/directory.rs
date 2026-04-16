@@ -9,6 +9,7 @@ use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use crate::db::models::ItemType;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::{Query, State};
 use axum::response::Json;
@@ -48,7 +49,9 @@ pub async fn get_libraries(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<LibrariesResponse>> {
-    let folders = crate::db::queries::get_music_folders_for_user(&state.pool, user.user_id).await?;
+    let pool = state.database.sqlite_pool()?;
+    let folders =
+        crate::db::queries::get_music_folders_for_user(&state.database, user.user_id).await?;
 
     let mut libraries = Vec::new();
     for folder in folders {
@@ -61,7 +64,7 @@ pub async fn get_libraries(
             "#,
         )
         .bind(folder.id)
-        .fetch_one(&state.pool)
+        .fetch_one(pool)
         .await?;
 
         libraries.push(LibraryInfo {
@@ -214,6 +217,7 @@ pub async fn get_directory_paged(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetDirectoryPagedParams>,
 ) -> FerrotuneApiResult<Json<DirectoryPagedResponse>> {
+    let pool = state.database.sqlite_pool()?;
     let count = params.count.unwrap_or(100).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
     let inline_size = params.inline_images.get_size();
@@ -223,9 +227,12 @@ pub async fn get_directory_paged(
         .library_id
         .ok_or_else(|| Error::InvalidRequest("libraryId is required".to_string()))?;
 
-    let has_access =
-        crate::api::ferrotune::users::user_has_folder_access(&state.pool, user.user_id, library_id)
-            .await?;
+    let has_access = crate::api::ferrotune::users::user_has_folder_access(
+        &state.database,
+        user.user_id,
+        library_id,
+    )
+    .await?;
     if !has_access {
         return Err(Error::Forbidden("Access denied to library".to_string()).into());
     }
@@ -234,7 +241,7 @@ pub async fn get_directory_paged(
     let folder: crate::db::models::MusicFolder =
         sqlx::query_as("SELECT * FROM music_folders WHERE id = ? AND enabled = 1")
             .bind(library_id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(pool)
             .await?
             .ok_or_else(|| Error::NotFound("Library not found".to_string()))?;
 
@@ -277,7 +284,7 @@ pub async fn get_directory_paged(
 
     // Get directory contents with stats
     let (children, stats) = get_directory_contents_for_library(
-        &state.pool,
+        &state.database,
         user.user_id,
         library_id,
         &folder.path,
@@ -350,7 +357,7 @@ fn build_breadcrumbs_for_library(relative_path: &str) -> Vec<BreadcrumbItem> {
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 async fn get_directory_contents_for_library(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     library_id: i64,
     _library_root: &str,
@@ -365,6 +372,8 @@ async fn get_directory_contents_for_library(
     files_only: bool,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> FerrotuneApiResult<(Vec<DirectoryChildPaged>, DirectoryStats)> {
+    let pool = database.sqlite_pool()?;
+
     // Path prefix for finding files in this directory
     // file_path in DB is relative to library root, so we use relative_path
     let path_prefix = if relative_path.is_empty() {
@@ -512,8 +521,8 @@ async fn get_directory_contents_for_library(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = direct_songs.iter().map(|s| s.0.clone()).collect();
-    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &song_ids).await?;
-    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {
@@ -522,7 +531,7 @@ async fn get_directory_contents_for_library(
             .iter()
             .map(|s| (s.0.clone(), s.3.clone()))
             .collect();
-        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+        get_song_thumbnails_base64(database, &song_thumbnail_data, size).await
     } else {
         HashMap::new()
     };

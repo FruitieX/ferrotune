@@ -140,7 +140,7 @@ pub async fn start_scan(
     let started = state.scan_state.start("incremental".to_string()).await;
 
     if started {
-        let pool = state.pool.clone();
+        let database = state.database.clone();
         let scan_state = state.scan_state.clone();
         let opts = crate::scanner::ScanOptions {
             full: false,
@@ -153,8 +153,12 @@ pub async fn start_scan(
         };
         tokio::spawn(async move {
             scan_state.log("INFO", "Starting library scan...").await;
-            match crate::scanner::scan_library_with_progress(&pool, opts, Some(scan_state.clone()))
-                .await
+            match crate::scanner::scan_library_with_progress(
+                &database,
+                opts,
+                Some(scan_state.clone()),
+            )
+            .await
             {
                 Ok(()) => {
                     scan_state

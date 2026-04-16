@@ -114,7 +114,7 @@ pub async fn start_scan(
     );
 
     // Clone what we need for the async task
-    let pool = state.pool.clone();
+    let database = state.database.clone();
     let scan_state = state.scan_state.clone();
 
     let opts = crate::scanner::ScanOptions {
@@ -144,7 +144,7 @@ pub async fn start_scan(
             scan_state.log("INFO", "Waveform analysis enabled").await;
         }
 
-        match crate::scanner::scan_library_with_progress(&pool, opts, Some(scan_state.clone()))
+        match crate::scanner::scan_library_with_progress(&database, opts, Some(scan_state.clone()))
             .await
         {
             Ok(()) => {

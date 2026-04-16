@@ -174,10 +174,10 @@ pub async fn connect_session(
     Json(request): Json<ConnectSessionRequest>,
 ) -> FerrotuneApiResult<Json<ConnectSessionResponse>> {
     // Check if session already exists
-    let existing = queries::get_user_session(&state.pool, user.user_id).await?;
+    let existing = queries::get_user_session(&state.database, user.user_id).await?;
     let is_new = existing.is_none();
 
-    let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
+    let session = queries::get_or_create_session(&state.database, user.user_id).await?;
 
     // Determine if the connecting client should become the owner:
     // 1. Session is brand new (just created)
@@ -204,7 +204,7 @@ pub async fn connect_session(
     let (owner_client_id, owner_client_name) = if should_take_ownership {
         let client_id = request.client_id.as_ref().unwrap();
         queries::update_session_owner(
-            &state.pool,
+            &state.database,
             &session.id,
             Some(client_id),
             &request.client_name,
@@ -228,7 +228,7 @@ pub async fn get_session_info(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SessionResponse>> {
-    let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
+    let session = queries::get_or_create_session(&state.database, user.user_id).await?;
 
     Ok(Json(SessionResponse {
         id: session.id,
@@ -246,7 +246,7 @@ pub async fn list_clients(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<ClientListResponse>> {
-    let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
+    let session = queries::get_or_create_session(&state.database, user.user_id).await?;
     let clients = state.session_manager.get_clients(&session.id).await;
     let client_responses = compute_display_names(&clients, session.owner_client_id.as_deref());
 
@@ -263,7 +263,7 @@ pub async fn session_heartbeat(
     Json(request): Json<HeartbeatRequest>,
 ) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
     // Verify session belongs to user
-    queries::get_session(&state.pool, &session_id, user.user_id)
+    queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
@@ -274,7 +274,7 @@ pub async fn session_heartbeat(
 
     if is_owner_heartbeat {
         queries::update_session_heartbeat_with_position(
-            &state.pool,
+            &state.database,
             &session_id,
             request.is_playing,
             request.current_song_id.as_deref(),
@@ -302,7 +302,7 @@ pub async fn session_heartbeat(
             .await;
     } else {
         // Follower keepalive: only update the heartbeat timestamp
-        queries::update_session_heartbeat_timestamp(&state.pool, &session_id).await?;
+        queries::update_session_heartbeat_timestamp(&state.database, &session_id).await?;
     }
 
     Ok(Json(SessionSuccessResponse { success: true }))
@@ -344,7 +344,7 @@ pub async fn session_events(
     Query(query): Query<SessionEventsQuery>,
 ) -> FerrotuneApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Verify session belongs to user
-    let session = queries::get_session(&state.pool, &session_id, user.user_id)
+    let session = queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
@@ -367,7 +367,7 @@ pub async fn session_events(
 
     // Read current queue position from the database for accurate initial state
     let (current_index, position_ms) = if let Ok(Some(queue)) =
-        queries::get_play_queue_by_session(&state.pool, &session.id, user.user_id).await
+        queries::get_play_queue_by_session(&state.database, &session.id, user.user_id).await
     {
         (queue.current_index as usize, queue.position_ms)
     } else {
@@ -445,7 +445,7 @@ pub async fn session_command(
     Json(request): Json<SessionCommandRequest>,
 ) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
     // Verify session belongs to user
-    queries::get_session(&state.pool, &session_id, user.user_id)
+    queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
@@ -475,14 +475,17 @@ pub async fn session_command(
         let new_client_name = request.client_name.as_deref().unwrap_or("ferrotune-web");
         let new_client_id = request.client_id.as_deref();
 
-        queries::update_session_owner(&state.pool, &session_id, new_client_id, new_client_name)
+        queries::update_session_owner(&state.database, &session_id, new_client_id, new_client_name)
             .await?;
 
         // Update queue position if provided (avoids stale position from heartbeat lag)
         if let Some(position_ms) = request.position_ms {
-            let _ =
-                queries::update_queue_position_ms_by_session(&state.pool, &session_id, position_ms)
-                    .await;
+            let _ = queries::update_queue_position_ms_by_session(
+                &state.database,
+                &session_id,
+                position_ms,
+            )
+            .await;
         }
 
         // Broadcast owner changed event

@@ -92,7 +92,7 @@ pub async fn get_home(
         _ => None,
     };
 
-    let pool = &state.pool;
+    let database = &state.database;
     let user_id = user.user_id;
 
     // Compute "since 30 days ago" for frequent albums
@@ -101,9 +101,9 @@ pub async fn get_home(
 
     // Run all queries concurrently
     let (continue_result, frequent_result, newest_result, random_result, forgotten_result) = tokio::join!(
-        get_continue_listening_logic(pool, user_id, size, 0, inline_size),
+        get_continue_listening_logic(&state.database, user_id, size, 0, inline_size),
         get_album_list_logic(
-            pool,
+            database,
             user_id,
             AlbumListType::Frequent,
             size,
@@ -116,7 +116,7 @@ pub async fn get_home(
             None
         ),
         get_album_list_logic(
-            pool,
+            database,
             user_id,
             AlbumListType::Newest,
             size,
@@ -129,7 +129,7 @@ pub async fn get_home(
             None
         ),
         get_album_list_logic(
-            pool,
+            database,
             user_id,
             AlbumListType::Random,
             size,
@@ -142,7 +142,7 @@ pub async fn get_home(
             params.discover_seed
         ),
         get_forgotten_favorites_logic(
-            pool,
+            database,
             user_id,
             size,
             0,
@@ -211,7 +211,8 @@ pub async fn get_continue_listening(
     };
 
     let result =
-        get_continue_listening_logic(&state.pool, user.user_id, size, offset, inline_size).await?;
+        get_continue_listening_logic(&state.database, user.user_id, size, offset, inline_size)
+            .await?;
 
     Ok(Json(HomeContinueListeningSection {
         entries: result.entries,

@@ -1,9 +1,11 @@
 use chrono::{DateTime, Duration, Utc};
 
+use crate::db::DatabaseHandle;
+
 pub const RECENT_SCROBBLE_DEDUP_WINDOW_SECS: i64 = 30;
 
 pub async fn insert_submission_scrobble_if_not_recent_duplicate(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     song_id: &str,
     played_at: DateTime<Utc>,
@@ -12,39 +14,78 @@ pub async fn insert_submission_scrobble_if_not_recent_duplicate(
 ) -> Result<bool, sqlx::Error> {
     let duplicate_cutoff = played_at - Duration::seconds(RECENT_SCROBBLE_DEDUP_WINDOW_SECS);
 
-    let result = sqlx::query(
-        r#"
-        INSERT INTO scrobbles (
-            user_id,
-            song_id,
-            played_at,
-            submission,
-            queue_source_type,
-            queue_source_id
+    let rows_affected = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            r#"
+            INSERT INTO scrobbles (
+                user_id,
+                song_id,
+                played_at,
+                submission,
+                queue_source_type,
+                queue_source_id
+            )
+            SELECT ?, ?, ?, 1, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM scrobbles
+                WHERE user_id = ?
+                  AND song_id = ?
+                  AND submission = 1
+                  AND played_at > ?
+            )
+            "#,
         )
-        SELECT ?, ?, ?, 1, ?, ?
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM scrobbles
-            WHERE user_id = ?
-              AND song_id = ?
-              AND submission = 1
-              AND played_at > ?
+        .bind(user_id)
+        .bind(song_id)
+        .bind(played_at)
+        .bind(queue_source_type)
+        .bind(queue_source_id)
+        .bind(user_id)
+        .bind(song_id)
+        .bind(duplicate_cutoff)
+        .execute(pool)
+        .await?
+        .rows_affected()
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        sqlx::query(
+            r#"
+            INSERT INTO scrobbles (
+                user_id,
+                song_id,
+                played_at,
+                submission,
+                queue_source_type,
+                queue_source_id
+            )
+            SELECT $1, $2, $3, TRUE, $4, $5
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM scrobbles
+                WHERE user_id = $6
+                  AND song_id = $7
+                  AND submission
+                  AND played_at > $8
+            )
+            "#,
         )
-        "#,
-    )
-    .bind(user_id)
-    .bind(song_id)
-    .bind(played_at)
-    .bind(queue_source_type)
-    .bind(queue_source_id)
-    .bind(user_id)
-    .bind(song_id)
-    .bind(duplicate_cutoff)
-    .execute(pool)
-    .await?;
+        .bind(user_id)
+        .bind(song_id)
+        .bind(played_at)
+        .bind(queue_source_type)
+        .bind(queue_source_id)
+        .bind(user_id)
+        .bind(song_id)
+        .bind(duplicate_cutoff)
+        .execute(pool)
+        .await?
+        .rows_affected()
+    };
 
-    Ok(result.rows_affected() > 0)
+    Ok(rows_affected > 0)
 }
 
 #[cfg(test)]

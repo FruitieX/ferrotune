@@ -185,7 +185,7 @@ pub async fn get_playlists(
     State(state): State<Arc<AppState>>,
     user: AuthenticatedUser,
 ) -> Result<FormatResponse<PlaylistsResponse>> {
-    let playlists = queries::get_playlists_for_user(&state.pool, user.user_id)
+    let playlists = queries::get_playlists_for_user(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
@@ -193,7 +193,7 @@ pub async fn get_playlists(
     let mut playlist_responses = Vec::with_capacity(playlists.len());
     for p in &playlists {
         let full_name =
-            queries::get_playlist_full_name(&state.pool, &p.name, p.folder_id.as_deref())
+            queries::get_playlist_full_name(&state.database, &p.name, p.folder_id.as_deref())
                 .await
                 .map_err(|e| Error::Internal(e.to_string()))?;
         playlist_responses.push(playlist_to_response(p, &user.username, full_name));
@@ -220,14 +220,14 @@ pub async fn get_playlist(
         .id
         .ok_or_else(|| Error::InvalidRequest("Missing required parameter: id".to_string()))?;
 
-    let playlist = queries::get_playlist_by_id(&state.pool, &id)
+    let playlist = queries::get_playlist_by_id(&state.database, &id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", id)))?;
 
     // Check access: user must own playlist, it must be public, or shared with user
     let access = crate::api::common::playlist_access::get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &id,
@@ -243,7 +243,7 @@ pub async fn get_playlist(
     }
 
     // Get songs in the playlist
-    let songs = queries::get_playlist_songs(&state.pool, &id, user.user_id)
+    let songs = queries::get_playlist_songs(&state.database, &id, user.user_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
@@ -271,10 +271,10 @@ pub async fn get_playlist(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+    let starred_map = get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+    let ratings_map = get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
@@ -291,10 +291,13 @@ pub async fn get_playlist(
     };
 
     // Get full name with folder path
-    let full_name =
-        queries::get_playlist_full_name(&state.pool, &playlist.name, playlist.folder_id.as_deref())
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?;
+    let full_name = queries::get_playlist_full_name(
+        &state.database,
+        &playlist.name,
+        playlist.folder_id.as_deref(),
+    )
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))?;
 
     let response = PlaylistWithSongsResponse {
         playlist: PlaylistDetailResponse {
@@ -325,7 +328,7 @@ pub async fn create_playlist(
     // If playlistId is provided, update existing playlist
     if let Some(ref playlist_id) = params.playlist_id {
         // Get existing playlist
-        let playlist = queries::get_playlist_by_id(&state.pool, playlist_id)
+        let playlist = queries::get_playlist_by_id(&state.database, playlist_id)
             .await
             .map_err(|e| Error::Internal(e.to_string()))?
             .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", playlist_id)))?;
@@ -339,14 +342,14 @@ pub async fn create_playlist(
 
         // Update name if provided
         if let Some(ref name) = params.name {
-            queries::update_playlist_metadata(&state.pool, playlist_id, Some(name), None, None)
+            queries::update_playlist_metadata(&state.database, playlist_id, Some(name), None, None)
                 .await
                 .map_err(|e| Error::Internal(e.to_string()))?;
         }
 
         // Add songs if provided
         if !params.song_id.is_empty() {
-            queries::add_songs_to_playlist(&state.pool, playlist_id, &params.song_id)
+            queries::add_songs_to_playlist(&state.database, playlist_id, &params.song_id)
                 .await
                 .map_err(|e| Error::Internal(e.to_string()))?;
         }
@@ -367,7 +370,7 @@ pub async fn create_playlist(
     // Parse name to extract folder path if it contains "/"
     let (folder_id, final_name) = if name.contains('/') {
         // Parse the path and create folders
-        let path_result = resolve_or_create_folder_path(&state.pool, &name, user.user_id).await;
+        let path_result = resolve_or_create_folder_path(&state.database, &name, user.user_id).await;
         match path_result {
             Ok((folder_id, playlist_name)) => (folder_id, playlist_name),
             Err(_) => (None, name.clone()), // Fall back to using full name at root
@@ -377,7 +380,7 @@ pub async fn create_playlist(
     };
 
     queries::create_playlist(
-        &state.pool,
+        &state.database,
         &playlist_id,
         &final_name,
         user.user_id,
@@ -390,7 +393,7 @@ pub async fn create_playlist(
 
     // Add songs if provided
     if !params.song_id.is_empty() {
-        queries::add_songs_to_playlist(&state.pool, &playlist_id, &params.song_id)
+        queries::add_songs_to_playlist(&state.database, &playlist_id, &params.song_id)
             .await
             .map_err(|e| Error::Internal(e.to_string()))?;
     }
@@ -405,21 +408,21 @@ async fn get_playlist_response(
     user: &AuthenticatedUser,
     playlist_id: &str,
 ) -> Result<FormatResponse<PlaylistWithSongsResponse>> {
-    let playlist = queries::get_playlist_by_id(&state.pool, playlist_id)
+    let playlist = queries::get_playlist_by_id(&state.database, playlist_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", playlist_id)))?;
 
-    let songs = queries::get_playlist_songs(&state.pool, playlist_id, user.user_id)
+    let songs = queries::get_playlist_songs(&state.database, playlist_id, user.user_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+    let starred_map = get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+    let ratings_map = get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
@@ -435,10 +438,13 @@ async fn get_playlist_response(
     };
 
     // Get full name with folder path
-    let full_name =
-        queries::get_playlist_full_name(&state.pool, &playlist.name, playlist.folder_id.as_deref())
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?;
+    let full_name = queries::get_playlist_full_name(
+        &state.database,
+        &playlist.name,
+        playlist.folder_id.as_deref(),
+    )
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))?;
 
     let response = PlaylistWithSongsResponse {
         playlist: PlaylistDetailResponse {
@@ -469,14 +475,14 @@ pub async fn update_playlist(
     let playlist_id = &params.playlist_id;
 
     // Get existing playlist
-    let playlist = queries::get_playlist_by_id(&state.pool, playlist_id)
+    let playlist = queries::get_playlist_by_id(&state.database, playlist_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", playlist_id)))?;
 
     // Check edit access (owner or shared with can_edit)
     let access = crate::api::common::playlist_access::get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         playlist_id,
@@ -494,7 +500,7 @@ pub async fn update_playlist(
     // Update metadata if any fields provided
     if params.name.is_some() || params.comment.is_some() || params.public.is_some() {
         queries::update_playlist_metadata(
-            &state.pool,
+            &state.database,
             playlist_id,
             params.name.as_deref(),
             params.comment.as_deref(),
@@ -506,14 +512,18 @@ pub async fn update_playlist(
 
     // Remove songs first (indices are based on current state)
     if !params.song_index_to_remove.is_empty() {
-        queries::remove_songs_by_position(&state.pool, playlist_id, &params.song_index_to_remove)
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?;
+        queries::remove_songs_by_position(
+            &state.database,
+            playlist_id,
+            &params.song_index_to_remove,
+        )
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
     }
 
     // Then add new songs
     if !params.song_id_to_add.is_empty() {
-        queries::add_songs_to_playlist(&state.pool, playlist_id, &params.song_id_to_add)
+        queries::add_songs_to_playlist(&state.database, playlist_id, &params.song_id_to_add)
             .await
             .map_err(|e| Error::Internal(e.to_string()))?;
     }
@@ -532,7 +542,7 @@ pub async fn delete_playlist(
         .ok_or_else(|| Error::InvalidRequest("Missing required parameter: id".to_string()))?;
 
     // Get existing playlist
-    let playlist = queries::get_playlist_by_id(&state.pool, &id)
+    let playlist = queries::get_playlist_by_id(&state.database, &id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", id)))?;
@@ -545,7 +555,7 @@ pub async fn delete_playlist(
     }
 
     // Delete the playlist
-    queries::delete_playlist(&state.pool, &id)
+    queries::delete_playlist(&state.database, &id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 

@@ -69,7 +69,7 @@ pub async fn get_artists(
     use crate::api::subsonic::inline_thumbnails::get_artist_thumbnails_base64;
     use crate::thumbnails::ThumbnailSize;
 
-    let mut artists_index = get_artists_logic(&state.pool, user.user_id).await?;
+    let mut artists_index = get_artists_logic(&state.database, user.user_id).await?;
 
     // Parse inline images parameter
     let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
@@ -87,7 +87,7 @@ pub async fn get_artists(
             .flat_map(|idx| idx.artist.iter().map(|a| a.id.clone()))
             .collect();
 
-        let thumbnails = get_artist_thumbnails_base64(&state.pool, &artist_ids, size).await;
+        let thumbnails = get_artist_thumbnails_base64(&state.database, &artist_ids, size).await;
 
         // Patch thumbnails into the response
         for index in &mut artists_index.index {
@@ -133,7 +133,7 @@ pub async fn get_artist(
     Query(params): Query<GetArtistParams>,
 ) -> FerrotuneApiResult<Json<FerrotuneArtistResponse>> {
     let artist_detail = get_artist_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         &id,
         params.filter.as_deref(),
@@ -186,7 +186,7 @@ pub async fn get_album(
     Query(params): Query<GetAlbumParams>,
 ) -> FerrotuneApiResult<Json<FerrotuneAlbumResponse>> {
     let album_detail = get_album_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         &id,
         params.filter.as_deref(),
@@ -222,7 +222,7 @@ pub async fn get_song(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> FerrotuneApiResult<Json<FerrotuneSongResponse>> {
-    let song = get_song_logic(&state.pool, user.user_id, &id)
+    let song = get_song_logic(&state.database, user.user_id, &id)
         .await
         .map_err(|e| match e {
             crate::error::Error::NotFound(_) => FerrotuneApiError::from(e),
@@ -272,16 +272,17 @@ pub async fn get_similar_songs(
         use crate::db::models::ItemType;
 
         let similar =
-            crate::bliss::find_similar_songs(&state.pool, &id, user.user_id, params.count).await?;
+            crate::bliss::find_similar_songs(&state.database, &id, user.user_id, params.count)
+                .await?;
         let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
         let songs =
-            crate::db::queries::get_songs_by_ids_for_user(&state.pool, &song_ids, user.user_id)
+            crate::db::queries::get_songs_by_ids_for_user(&state.database, &song_ids, user.user_id)
                 .await?;
 
         let starred_map =
-            get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+            get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
         let ratings_map =
-            get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+            get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
 
         let song_responses: Vec<SongResponse> = songs
             .into_iter()
@@ -320,7 +321,7 @@ pub async fn get_genres(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<FerrotuneGenresResponse>> {
-    let genres_list = get_genres_logic(&state.pool, user.user_id).await?;
+    let genres_list = get_genres_logic(&state.database, user.user_id).await?;
 
     Ok(Json(FerrotuneGenresResponse {
         genres: genres_list,
@@ -372,7 +373,7 @@ pub async fn get_indexes(
     Query(params): Query<GetIndexesParams>,
 ) -> FerrotuneApiResult<Json<FerrotuneIndexesResponse>> {
     let (indexes, last_modified) =
-        get_indexes_logic(&state.pool, user.user_id, params.music_folder_id).await?;
+        get_indexes_logic(&state.database, user.user_id, params.music_folder_id).await?;
 
     Ok(Json(FerrotuneIndexesResponse {
         indexes: IndexesData {

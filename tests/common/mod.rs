@@ -41,6 +41,15 @@ pub struct TestServer {
 }
 
 /// Configuration for creating a test server
+#[derive(Debug, Clone, Default)]
+pub enum TestDatabaseConfig {
+    #[default]
+    Sqlite,
+    Postgres {
+        url: String,
+    },
+}
+
 #[derive(Default)]
 pub struct TestServerConfig {
     /// Custom admin username (default: "testadmin")
@@ -56,6 +65,8 @@ pub struct TestServerConfig {
     /// Whether to allow tag editing (default: false - aka readonly)
     /// Note: Default config sets this to true (readonly), so set this to Some(false) to enable editing.
     pub readonly_tags: Option<bool>,
+    /// Database target for the test server.
+    pub database: TestDatabaseConfig,
 }
 
 impl TestServer {
@@ -133,6 +144,7 @@ impl TestServer {
             let config_content = generate_config(
                 port,
                 admin_port,
+                &config.database,
                 &db_path,
                 &music_dir,
                 &cache_dir,
@@ -412,11 +424,16 @@ pub fn fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
+fn escape_toml_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Generate a test configuration file.
 #[allow(clippy::too_many_arguments)]
 fn generate_config(
     port: u16,
     admin_port: u16,
+    database: &TestDatabaseConfig,
     db_path: &Path,
     music_dir: &Path,
     cache_dir: &Path,
@@ -425,6 +442,21 @@ fn generate_config(
     extra_config: Option<&str>,
     readonly_tags: bool,
 ) -> String {
+    let database_config = match database {
+        TestDatabaseConfig::Sqlite => {
+            format!(
+                "[database]\npath = \"{}\"\n",
+                escape_toml_string(&db_path.display().to_string())
+            )
+        }
+        TestDatabaseConfig::Postgres { url } => {
+            format!(
+                "[database]\nbackend = \"postgres\"\nurl = \"{}\"\n",
+                escape_toml_string(url)
+            )
+        }
+    };
+
     let mut config = format!(
         r#"[server]
 host = "127.0.0.1"
@@ -434,8 +466,7 @@ name = "Ferrotune Test"
 admin_user = "{admin_user}"
 admin_password = "{admin_password}"
 
-[database]
-path = "{db_path}"
+{database_config}
 
 [music]
 readonly_tags = {readonly_tags}
@@ -452,7 +483,7 @@ max_cover_size = 512
         admin_port = admin_port,
         admin_user = admin_user,
         admin_password = admin_password,
-        db_path = db_path.display(),
+        database_config = database_config.trim_end(),
         music_dir = music_dir.display(),
         cache_dir = cache_dir.display(),
         readonly_tags = readonly_tags,

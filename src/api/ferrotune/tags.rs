@@ -6,6 +6,7 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
+use crate::db::DatabaseHandle;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -282,9 +283,16 @@ pub fn extract_tags_from_tag(tag: &Tag) -> Vec<TagEntry> {
 
 /// Get the full file path for a song
 async fn get_song_file_path(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     song_id: &str,
 ) -> Result<(crate::db::models::Song, PathBuf), (StatusCode, Json<ErrorResponse>)> {
+    let pool = database.sqlite_pool().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::with_details("Database error", e.to_string())),
+        )
+    })?;
+
     // Get song from database
     let song = match queries::get_song_by_id(pool, song_id).await {
         Ok(Some(song)) => song,
@@ -340,7 +348,7 @@ pub async fn get_tags(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let (song, full_path) = match get_song_file_path(&state.pool, &id).await {
+    let (song, full_path) = match get_song_file_path(&state.database, &id).await {
         Ok(result) => result,
         Err(e) => return e.into_response(),
     };
@@ -433,7 +441,7 @@ pub async fn update_tags(
             .into_response();
     }
 
-    let (_song, full_path) = match get_song_file_path(&state.pool, &id).await {
+    let (_song, full_path) = match get_song_file_path(&state.database, &id).await {
         Ok(result) => result,
         Err(e) => return e.into_response(),
     };

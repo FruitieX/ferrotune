@@ -10,7 +10,6 @@ use crate::api::{first_string_or_none, string_or_seq};
 use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::State;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -63,55 +62,40 @@ pub async fn save_play_queue(
     State(state): State<Arc<AppState>>,
     QsQuery(params): QsQuery<SavePlayQueueParams>,
 ) -> Result<impl axum::response::IntoResponse> {
-    // Use a transaction to ensure atomicity
-    let mut tx = state.pool.begin().await?;
-
     // Use a deterministic session ID for playqueue save/restore
     let session_id = format!("playqueue-{}", user.user_id);
-
-    // Delete existing queue entries for this user's playqueue session
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ?")
-        .bind(user.user_id)
-        .bind(&session_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Insert new queue entries
-    for (position, song_id) in params.id.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO play_queue_entries (user_id, session_id, song_id, queue_position) VALUES (?, ?, ?, ?)",
-        )
-        .bind(user.user_id)
-        .bind(&session_id)
-        .bind(song_id)
-        .bind(position as i64)
-        .execute(&mut *tx)
-        .await?;
-    }
 
     // Find current index from current song ID
     let current_index = find_current_index(&params.id, params.current.as_deref());
 
-    // Upsert the queue metadata using new schema
-    sqlx::query(
-        "INSERT INTO play_queues (user_id, session_id, source_type, current_index, position_ms, 
-         is_shuffled, repeat_mode, created_at, updated_at, changed_by, source_api)
-         VALUES (?, ?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?, 'subsonic')
-         ON CONFLICT(user_id, session_id) DO UPDATE SET
-            current_index = excluded.current_index,
-            position_ms = excluded.position_ms,
-            updated_at = datetime('now'),
-            changed_by = excluded.changed_by",
+    crate::db::queries::create_queue_for_session(
+        &state.database,
+        user.user_id,
+        &session_id,
+        "other",
+        None,
+        None,
+        &params.id,
+        None,
+        current_index,
+        false,
+        None,
+        None,
+        "off",
+        None,
+        None,
+        &user.client,
     )
-    .bind(user.user_id)
-    .bind(&session_id)
-    .bind(current_index)
-    .bind(params.position.unwrap_or(0))
-    .bind(&user.client)
-    .execute(&mut *tx)
     .await?;
 
-    tx.commit().await?;
+    if let Some(position_ms) = params.position {
+        crate::db::queries::update_queue_position_ms_by_session(
+            &state.database,
+            &session_id,
+            position_ms,
+        )
+        .await?;
+    }
 
     Ok(format_ok_empty(user.format))
 }
@@ -127,34 +111,51 @@ pub async fn get_play_queue(
     // Use a deterministic session ID for playqueue save/restore
     let session_id = format!("playqueue-{}", user.user_id);
 
-    // Get queue metadata from new schema
-    let queue_meta: Option<(i64, i64, chrono::DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT current_index, position_ms, updated_at, changed_by FROM play_queues WHERE user_id = ? AND session_id = ? LIMIT 1",
-    )
-    .bind(user.user_id)
-    .bind(&session_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let queue_meta =
+        crate::db::queries::get_play_queue_by_session(&state.database, &session_id, user.user_id)
+            .await?;
 
-    // Get queue entries with song data
-    let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name
-         FROM play_queue_entries pqe
-         INNER JOIN songs s ON pqe.song_id = s.id
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         WHERE pqe.user_id = ? AND pqe.session_id = ?
-         ORDER BY pqe.queue_position ASC",
-    )
-    .bind(user.user_id)
-    .bind(&session_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let songs: Vec<crate::db::models::Song> =
+        crate::db::queries::get_queue_entries_with_songs_by_session(&state.database, &session_id)
+            .await?
+            .into_iter()
+            .map(|entry| crate::db::models::Song {
+                id: entry.id,
+                title: entry.title,
+                album_id: entry.album_id,
+                album_name: entry.album_name,
+                artist_id: entry.artist_id,
+                artist_name: entry.artist_name,
+                track_number: entry.track_number,
+                disc_number: entry.disc_number,
+                year: entry.year,
+                genre: entry.genre,
+                duration: entry.duration,
+                bitrate: entry.bitrate,
+                file_path: entry.file_path,
+                file_size: entry.file_size,
+                file_format: entry.file_format,
+                created_at: entry.created_at,
+                updated_at: entry.updated_at,
+                play_count: entry.play_count,
+                last_played: entry.last_played,
+                starred_at: entry.starred_at,
+                cover_art_hash: entry.cover_art_hash,
+                cover_art_width: entry.cover_art_width,
+                cover_art_height: entry.cover_art_height,
+                original_replaygain_track_gain: entry.original_replaygain_track_gain,
+                original_replaygain_track_peak: entry.original_replaygain_track_peak,
+                computed_replaygain_track_gain: entry.computed_replaygain_track_gain,
+                computed_replaygain_track_peak: entry.computed_replaygain_track_peak,
+            })
+            .collect();
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let starred_map =
+        get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map =
+        get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
 
     let song_responses: Vec<crate::api::common::models::SongResponse> = songs
         .iter()
@@ -166,23 +167,22 @@ pub async fn get_play_queue(
         .collect();
 
     // Convert from new schema to OpenSubsonic format
-    let (current, position, changed, changed_by) =
-        if let Some((current_index, position_ms, updated_at, by)) = queue_meta {
-            // Get the current song ID from the queue entries
-            let current_song_id = if (current_index as usize) < songs.len() {
-                Some(songs[current_index as usize].id.clone())
-            } else {
-                None
-            };
-            (
-                current_song_id,
-                Some(position_ms),
-                Some(format_datetime_iso(updated_at)),
-                Some(by),
-            )
+    let (current, position, changed, changed_by) = if let Some(queue) = queue_meta {
+        // Get the current song ID from the queue entries
+        let current_song_id = if (queue.current_index as usize) < songs.len() {
+            Some(songs[queue.current_index as usize].id.clone())
         } else {
-            (None, None, None, None)
+            None
         };
+        (
+            current_song_id,
+            Some(queue.position_ms),
+            Some(format_datetime_iso(queue.updated_at)),
+            Some(queue.changed_by),
+        )
+    } else {
+        (None, None, None, None)
+    };
 
     let response = PlayQueueResponse {
         play_queue: PlayQueueContent {

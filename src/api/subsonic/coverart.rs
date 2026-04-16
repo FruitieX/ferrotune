@@ -145,7 +145,7 @@ async fn get_album_cover_with_thumbnails(
 
         if let Some((hash,)) = hash {
             if let Ok(Some(thumbnail)) =
-                crate::thumbnails::get_thumbnail(&state.pool, &hash, size).await
+                crate::thumbnails::get_thumbnail(&state.database, &hash, size).await
             {
                 return Ok(thumbnail);
             }
@@ -171,7 +171,7 @@ async fn get_song_cover_with_thumbnails(
         // For small/medium sizes, try pre-generated thumbnails
         if size != ThumbnailSize::Large {
             if let Ok(Some(thumbnail)) =
-                crate::thumbnails::get_thumbnail(&state.pool, hash, size).await
+                crate::thumbnails::get_thumbnail(&state.database, hash, size).await
             {
                 return Ok(thumbnail);
             }
@@ -205,7 +205,7 @@ async fn get_artist_cover_with_thumbnails(
     if let Some(hash) = &artist.cover_art_hash {
         if size != ThumbnailSize::Large {
             if let Ok(Some(thumbnail)) =
-                crate::thumbnails::get_thumbnail(&state.pool, hash, size).await
+                crate::thumbnails::get_thumbnail(&state.database, hash, size).await
             {
                 return Ok(thumbnail);
             }
@@ -333,7 +333,7 @@ async fn get_playlist_cover_art(
     let mut covers: Vec<Vec<u8>> = Vec::new();
     for (hash,) in hashes {
         if let Ok(Some(cover_data)) =
-            crate::thumbnails::get_thumbnail(&state.pool, &hash, album_size).await
+            crate::thumbnails::get_thumbnail(&state.database, &hash, album_size).await
         {
             covers.push(cover_data);
         }
@@ -533,7 +533,7 @@ async fn get_smart_playlist_cover_art(
     let mut covers: Vec<Vec<u8>> = Vec::new();
     for hash in hashes {
         if let Ok(Some(cover_data)) =
-            crate::thumbnails::get_thumbnail(&state.pool, &hash, album_size).await
+            crate::thumbnails::get_thumbnail(&state.database, &hash, album_size).await
         {
             covers.push(cover_data);
         }

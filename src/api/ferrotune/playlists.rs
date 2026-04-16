@@ -8,12 +8,14 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::subsonic::query::QsQuery;
 use crate::api::AppState;
 use crate::db::models::ItemType;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -71,25 +73,206 @@ pub struct PlaylistFoldersResponse {
     pub playlists: Vec<PlaylistInFolder>,
 }
 
+async fn playlist_folder_exists(
+    database: &(impl DatabaseHandle + ?Sized),
+    folder_id: &str,
+    user_id: i64,
+) -> sqlx::Result<bool> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?)",
+        )
+        .bind(folder_id)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = $1 AND owner_id = $2)",
+        )
+        .bind(folder_id)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+    }
+}
+
+async fn next_playlist_folder_position(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    parent_id: Option<&str>,
+) -> sqlx::Result<i64> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(MAX(position), -1) + 1
+            FROM playlist_folders
+            WHERE owner_id = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
+            "#,
+        )
+        .bind(user_id)
+        .bind(parent_id)
+        .bind(parent_id)
+        .fetch_one(pool)
+        .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(MAX(position), -1) + 1
+            FROM playlist_folders
+            WHERE owner_id = $1 AND (parent_id = $2 OR (parent_id IS NULL AND $3 IS NULL))
+            "#,
+        )
+        .bind(user_id)
+        .bind(parent_id)
+        .bind(parent_id)
+        .fetch_one(pool)
+        .await
+    }
+}
+
+async fn fetch_playlist_folder_response(
+    database: &(impl DatabaseHandle + ?Sized),
+    folder_id: &str,
+) -> sqlx::Result<PlaylistFolderResponse> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            r#"
+            SELECT id, name, parent_id, position,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
+                   (cover_art IS NOT NULL) as has_cover_art
+            FROM playlist_folders
+            WHERE id = ?
+            "#,
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_as(
+            r#"
+            SELECT id, name, parent_id, position,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                   (cover_art IS NOT NULL) as has_cover_art
+            FROM playlist_folders
+            WHERE id = $1
+            "#,
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await
+    }
+}
+
+async fn playlist_owner_id(
+    database: &(impl DatabaseHandle + ?Sized),
+    playlist_id: &str,
+) -> sqlx::Result<Option<i64>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_scalar("SELECT owner_id FROM playlists WHERE id = ?")
+            .bind(playlist_id)
+            .fetch_optional(pool)
+            .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_scalar("SELECT owner_id FROM playlists WHERE id = $1")
+            .bind(playlist_id)
+            .fetch_optional(pool)
+            .await
+    }
+}
+
+async fn user_exists(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> sqlx::Result<bool> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+    }
+}
+
+async fn username_for_user(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> sqlx::Result<String> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+    }
+}
+
+async fn fetch_playlist_shares(
+    database: &(impl DatabaseHandle + ?Sized),
+    playlist_id: &str,
+) -> sqlx::Result<Vec<PlaylistShareResponse>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            r#"
+            SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
+            FROM playlist_shares ps
+            JOIN users u ON u.id = ps.shared_with_user_id
+            WHERE ps.playlist_id = ?
+            ORDER BY LOWER(u.username), u.username
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_all(pool)
+        .await
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        sqlx::query_as(
+            r#"
+            SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
+            FROM playlist_shares ps
+            JOIN users u ON u.id = ps.shared_with_user_id
+            WHERE ps.playlist_id = $1
+            ORDER BY LOWER(u.username), u.username
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_all(pool)
+        .await
+    }
+}
+
 pub async fn get_playlist_folders(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<PlaylistFoldersResponse>> {
-    // Get folders
-    let folders: Vec<PlaylistFolderResponse> = sqlx::query_as(
-        r#"
-        SELECT id, name, parent_id, position, 
-               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
-               (cover_art IS NOT NULL) as has_cover_art
-        FROM playlist_folders
-        WHERE owner_id = ?
-        ORDER BY position, name COLLATE NOCASE
-        "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
-
     // Helper struct for SQL query
     #[derive(sqlx::FromRow)]
     struct PlaylistRow {
@@ -102,25 +285,211 @@ pub async fn get_playlist_folders(
         updated_at: String,
     }
 
-    // Get user's own playlists
-    let owned_rows: Vec<PlaylistRow> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
-               COALESCE((
-                   SELECT SUM(s.duration)
-                   FROM playlist_songs ps
-                   JOIN songs s ON s.id = ps.song_id
-                   WHERE ps.playlist_id = p.id
-               ), 0) as duration,
-               strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-        FROM playlists p
-        WHERE p.owner_id = ?
-        ORDER BY p.position, p.name COLLATE NOCASE
-        "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+    #[derive(sqlx::FromRow)]
+    struct NonOwnedPlaylistRow {
+        id: String,
+        name: String,
+        song_count: i64,
+        duration: i64,
+        owner_name: String,
+        can_edit: bool,
+        folder_id: Option<String>,
+        updated_at: String,
+    }
+
+    let (folders, owned_rows, shared_rows, public_rows): (
+        Vec<PlaylistFolderResponse>,
+        Vec<PlaylistRow>,
+        Vec<NonOwnedPlaylistRow>,
+        Vec<NonOwnedPlaylistRow>,
+    ) = if let Ok(pool) = state.database.sqlite_pool() {
+        let folders = sqlx::query_as(
+            r#"
+            SELECT id, name, parent_id, position,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
+                   (cover_art IS NOT NULL) as has_cover_art
+            FROM playlist_folders
+            WHERE owner_id = ?
+            ORDER BY position, LOWER(name), name
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let owned_rows = sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps
+                       JOIN songs s ON s.id = ps.song_id
+                       WHERE ps.playlist_id = p.id
+                   ), 0) as duration,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
+            FROM playlists p
+            WHERE p.owner_id = ?
+            ORDER BY p.position, LOWER(p.name), p.name
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let shared_rows = sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps2
+                       JOIN songs s ON s.id = ps2.song_id
+                       WHERE ps2.playlist_id = p.id
+                   ), 0) as duration,
+                   u.username as owner_name,
+                   psh.can_edit,
+                   upo.folder_id,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
+            FROM playlists p
+            JOIN playlist_shares psh ON psh.playlist_id = p.id
+            JOIN users u ON u.id = p.owner_id
+            LEFT JOIN user_playlist_overrides upo
+                ON upo.playlist_id = p.id AND upo.user_id = ?
+            WHERE psh.shared_with_user_id = ?
+            ORDER BY LOWER(p.name), p.name
+            "#,
+        )
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let public_rows = sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps2
+                       JOIN songs s ON s.id = ps2.song_id
+                       WHERE ps2.playlist_id = p.id
+                   ), 0) as duration,
+                   u.username as owner_name,
+                   0 as can_edit,
+                   upo.folder_id,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
+            FROM playlists p
+            JOIN users u ON u.id = p.owner_id
+            LEFT JOIN user_playlist_overrides upo
+                ON upo.playlist_id = p.id AND upo.user_id = ?
+            WHERE p.is_public = 1
+              AND p.owner_id != ?
+              AND p.id NOT IN (
+                  SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?
+              )
+            ORDER BY LOWER(p.name), p.name
+            "#,
+        )
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        (folders, owned_rows, shared_rows, public_rows)
+    } else {
+        let pool = state.database.postgres_pool()?;
+        let folders = sqlx::query_as(
+            r#"
+            SELECT id, name, parent_id, position,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                   (cover_art IS NOT NULL) as has_cover_art
+            FROM playlist_folders
+            WHERE owner_id = $1
+            ORDER BY position, LOWER(name), name
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let owned_rows = sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps
+                       JOIN songs s ON s.id = ps.song_id
+                       WHERE ps.playlist_id = p.id
+                   ), 0)::BIGINT as duration,
+                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM playlists p
+            WHERE p.owner_id = $1
+            ORDER BY p.position, LOWER(p.name), p.name
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let shared_rows = sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps2
+                       JOIN songs s ON s.id = ps2.song_id
+                       WHERE ps2.playlist_id = p.id
+                   ), 0)::BIGINT as duration,
+                   u.username as owner_name,
+                   psh.can_edit,
+                   upo.folder_id,
+                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM playlists p
+            JOIN playlist_shares psh ON psh.playlist_id = p.id
+            JOIN users u ON u.id = p.owner_id
+            LEFT JOIN user_playlist_overrides upo
+                ON upo.playlist_id = p.id AND upo.user_id = $1
+            WHERE psh.shared_with_user_id = $2
+            ORDER BY LOWER(p.name), p.name
+            "#,
+        )
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let public_rows = sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps2
+                       JOIN songs s ON s.id = ps2.song_id
+                       WHERE ps2.playlist_id = p.id
+                   ), 0)::BIGINT as duration,
+                   u.username as owner_name,
+                   FALSE as can_edit,
+                   upo.folder_id,
+                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM playlists p
+            JOIN users u ON u.id = p.owner_id
+            LEFT JOIN user_playlist_overrides upo
+                ON upo.playlist_id = p.id AND upo.user_id = $1
+            WHERE p.is_public = TRUE
+              AND p.owner_id != $2
+              AND p.id NOT IN (
+                  SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = $3
+              )
+            ORDER BY LOWER(p.name), p.name
+            "#,
+        )
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        (folders, owned_rows, shared_rows, public_rows)
+    };
 
     let mut playlists: Vec<PlaylistInFolder> = owned_rows
         .into_iter()
@@ -138,46 +507,6 @@ pub async fn get_playlist_folders(
         })
         .collect();
 
-    // Get playlists shared with this user (with per-user folder overrides)
-    #[derive(sqlx::FromRow)]
-    struct NonOwnedPlaylistRow {
-        id: String,
-        name: String,
-        song_count: i64,
-        duration: i64,
-        owner_name: String,
-        can_edit: bool,
-        folder_id: Option<String>,
-        updated_at: String,
-    }
-
-    let shared_rows: Vec<NonOwnedPlaylistRow> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.name, p.song_count,
-               COALESCE((
-                   SELECT SUM(s.duration)
-                   FROM playlist_songs ps2
-                   JOIN songs s ON s.id = ps2.song_id
-                   WHERE ps2.playlist_id = p.id
-               ), 0) as duration,
-               u.username as owner_name,
-               psh.can_edit,
-               upo.folder_id,
-               strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-        FROM playlists p
-        JOIN playlist_shares psh ON psh.playlist_id = p.id
-        JOIN users u ON u.id = p.owner_id
-        LEFT JOIN user_playlist_overrides upo
-            ON upo.playlist_id = p.id AND upo.user_id = ?
-        WHERE psh.shared_with_user_id = ?
-        ORDER BY p.name COLLATE NOCASE
-        "#,
-    )
-    .bind(user.user_id)
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
-
     playlists.extend(shared_rows.into_iter().map(|r| PlaylistInFolder {
         id: r.id,
         name: r.name,
@@ -190,38 +519,6 @@ pub async fn get_playlist_folders(
         can_edit: r.can_edit,
         updated_at: r.updated_at,
     }));
-
-    // Get public playlists visible to this user (not owned, not shared)
-    let public_rows: Vec<NonOwnedPlaylistRow> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.name, p.song_count,
-               COALESCE((
-                   SELECT SUM(s.duration)
-                   FROM playlist_songs ps2
-                   JOIN songs s ON s.id = ps2.song_id
-                   WHERE ps2.playlist_id = p.id
-               ), 0) as duration,
-               u.username as owner_name,
-               0 as can_edit,
-               upo.folder_id,
-               strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-        FROM playlists p
-        JOIN users u ON u.id = p.owner_id
-        LEFT JOIN user_playlist_overrides upo
-            ON upo.playlist_id = p.id AND upo.user_id = ?
-        WHERE p.is_public = 1
-          AND p.owner_id != ?
-          AND p.id NOT IN (
-              SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?
-          )
-        ORDER BY p.name COLLATE NOCASE
-        "#,
-    )
-    .bind(user.user_id)
-    .bind(user.user_id)
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
 
     playlists.extend(public_rows.into_iter().map(|r| PlaylistInFolder {
         id: r.id,
@@ -257,59 +554,48 @@ pub async fn create_playlist_folder(
 
     // Validate parent if provided
     if let Some(ref parent_id) = request.parent_id {
-        let parent_exists: Option<(i32,)> =
-            sqlx::query_as("SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?")
-                .bind(parent_id)
-                .bind(user.user_id)
-                .fetch_optional(&state.pool)
-                .await?;
-
-        if parent_exists.is_none() {
+        if !playlist_folder_exists(&state.database, parent_id, user.user_id).await? {
             return Err(Error::NotFound("Parent folder not found".to_string()).into());
         }
     }
 
     // Get next position
-    let next_position: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COALESCE(MAX(position), -1) + 1
-        FROM playlist_folders
-        WHERE owner_id = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
-        "#,
-    )
-    .bind(user.user_id)
-    .bind(&request.parent_id)
-    .bind(&request.parent_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let next_position =
+        next_playlist_folder_position(&state.database, user.user_id, request.parent_id.as_deref())
+            .await?;
 
-    sqlx::query(
-        r#"
-        INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
-        VALUES (?, ?, ?, ?, ?)
-        "#,
-    )
-    .bind(&id)
-    .bind(&request.name)
-    .bind(&request.parent_id)
-    .bind(user.user_id)
-    .bind(next_position)
-    .execute(&state.pool)
-    .await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query(
+            r#"
+            INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&id)
+        .bind(&request.name)
+        .bind(request.parent_id.as_deref())
+        .bind(user.user_id)
+        .bind(next_position)
+        .execute(pool)
+        .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query(
+            r#"
+            INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(&id)
+        .bind(&request.name)
+        .bind(request.parent_id.as_deref())
+        .bind(user.user_id)
+        .bind(next_position)
+        .execute(pool)
+        .await?;
+    }
 
-    // Fetch the created folder
-    let folder: PlaylistFolderResponse = sqlx::query_as(
-        r#"
-        SELECT id, name, parent_id, position, 
-               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
-               (cover_art IS NOT NULL) as has_cover_art
-        FROM playlist_folders
-        WHERE id = ?
-        "#,
-    )
-    .bind(&id)
-    .fetch_one(&state.pool)
-    .await?;
+    let folder = fetch_playlist_folder_response(&state.database, &id).await?;
 
     Ok(Json(folder))
 }
@@ -330,24 +616,26 @@ pub async fn update_playlist_folder(
     Json(request): Json<UpdateFolderRequest>,
 ) -> FerrotuneApiResult<Json<PlaylistFolderResponse>> {
     // Check folder exists and belongs to user
-    let folder: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlist_folders WHERE id = ? AND owner_id = ?")
-            .bind(&folder_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    if folder.is_none() {
+    if !playlist_folder_exists(&state.database, &folder_id, user.user_id).await? {
         return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
     // Update name if provided
     if let Some(ref name) = request.name {
-        sqlx::query("UPDATE playlist_folders SET name = ? WHERE id = ?")
-            .bind(name)
-            .bind(&folder_id)
-            .execute(&state.pool)
-            .await?;
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("UPDATE playlist_folders SET name = ? WHERE id = ?")
+                .bind(name)
+                .bind(&folder_id)
+                .execute(pool)
+                .await?;
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query("UPDATE playlist_folders SET name = $1 WHERE id = $2")
+                .bind(name)
+                .bind(&folder_id)
+                .execute(pool)
+                .await?;
+        }
     }
 
     // Update parent if provided
@@ -361,38 +649,28 @@ pub async fn update_playlist_folder(
                 );
             }
 
-            let parent_exists: Option<(i32,)> =
-                sqlx::query_as("SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?")
-                    .bind(parent_id)
-                    .bind(user.user_id)
-                    .fetch_optional(&state.pool)
-                    .await?;
-
-            if parent_exists.is_none() {
+            if !playlist_folder_exists(&state.database, parent_id, user.user_id).await? {
                 return Err(Error::NotFound("Parent folder not found".to_string()).into());
             }
         }
 
-        sqlx::query("UPDATE playlist_folders SET parent_id = ? WHERE id = ?")
-            .bind(&new_parent)
-            .bind(&folder_id)
-            .execute(&state.pool)
-            .await?;
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("UPDATE playlist_folders SET parent_id = ? WHERE id = ?")
+                .bind(new_parent.as_deref())
+                .bind(&folder_id)
+                .execute(pool)
+                .await?;
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query("UPDATE playlist_folders SET parent_id = $1 WHERE id = $2")
+                .bind(new_parent.as_deref())
+                .bind(&folder_id)
+                .execute(pool)
+                .await?;
+        }
     }
 
-    // Fetch the updated folder
-    let folder: PlaylistFolderResponse = sqlx::query_as(
-        r#"
-        SELECT id, name, parent_id, position, 
-               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
-               (cover_art IS NOT NULL) as has_cover_art
-        FROM playlist_folders
-        WHERE id = ?
-        "#,
-    )
-    .bind(&folder_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let folder = fetch_playlist_folder_response(&state.database, &folder_id).await?;
 
     Ok(Json(folder))
 }
@@ -404,13 +682,24 @@ pub async fn delete_playlist_folder(
     Path(folder_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
-    let result = sqlx::query("DELETE FROM playlist_folders WHERE id = ? AND owner_id = ?")
-        .bind(&folder_id)
-        .bind(user.user_id)
-        .execute(&state.pool)
-        .await?;
+    let rows_affected = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM playlist_folders WHERE id = ? AND owner_id = ?")
+            .bind(&folder_id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await?
+            .rows_affected()
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM playlist_folders WHERE id = $1 AND owner_id = $2")
+            .bind(&folder_id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await?
+            .rows_affected()
+    };
 
-    if result.rows_affected() == 0 {
+    if rows_affected == 0 {
         return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
@@ -444,23 +733,25 @@ pub async fn upload_playlist_folder_cover(
     }
 
     // Check folder exists and belongs to user
-    let folder: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlist_folders WHERE id = ? AND owner_id = ?")
-            .bind(&folder_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    if folder.is_none() {
+    if !playlist_folder_exists(&state.database, &folder_id, user.user_id).await? {
         return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
     // Update the cover_art blob
-    sqlx::query("UPDATE playlist_folders SET cover_art = ? WHERE id = ?")
-        .bind(body.as_ref())
-        .bind(&folder_id)
-        .execute(&state.pool)
-        .await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("UPDATE playlist_folders SET cover_art = ? WHERE id = ?")
+            .bind(body.as_ref())
+            .bind(&folder_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("UPDATE playlist_folders SET cover_art = $1 WHERE id = $2")
+            .bind(body.as_ref())
+            .bind(&folder_id)
+            .execute(pool)
+            .await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -472,14 +763,24 @@ pub async fn delete_playlist_folder_cover(
     Path(folder_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
-    let result =
+    let rows_affected = if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query("UPDATE playlist_folders SET cover_art = NULL WHERE id = ? AND owner_id = ?")
             .bind(&folder_id)
             .bind(user.user_id)
-            .execute(&state.pool)
-            .await?;
+            .execute(pool)
+            .await?
+            .rows_affected()
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("UPDATE playlist_folders SET cover_art = NULL WHERE id = $1 AND owner_id = $2")
+            .bind(&folder_id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await?
+            .rows_affected()
+    };
 
-    if result.rows_affected() == 0 {
+    if rows_affected == 0 {
         return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
@@ -506,12 +807,12 @@ pub async fn move_playlist(
 ) -> FerrotuneApiResult<StatusCode> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -525,50 +826,80 @@ pub async fn move_playlist(
 
     // Validate folder if provided (must belong to the current user)
     if let Some(ref folder_id) = request.folder_id {
-        let folder_exists: Option<(i32,)> =
-            sqlx::query_as("SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?")
-                .bind(folder_id)
-                .bind(user.user_id)
-                .fetch_optional(&state.pool)
-                .await?;
-
-        if folder_exists.is_none() {
+        if !playlist_folder_exists(&state.database, folder_id, user.user_id).await? {
             return Err(Error::NotFound("Folder not found".to_string()).into());
         }
     }
 
     if access.is_owner {
         // Owner: update the playlist's folder_id directly
-        sqlx::query("UPDATE playlists SET folder_id = ? WHERE id = ?")
-            .bind(&request.folder_id)
-            .bind(&playlist_id)
-            .execute(&state.pool)
-            .await?;
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("UPDATE playlists SET folder_id = ? WHERE id = ?")
+                .bind(request.folder_id.as_deref())
+                .bind(&playlist_id)
+                .execute(pool)
+                .await?;
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query("UPDATE playlists SET folder_id = $1 WHERE id = $2")
+                .bind(request.folder_id.as_deref())
+                .bind(&playlist_id)
+                .execute(pool)
+                .await?;
+        }
     } else {
         // Non-owner: store a per-user override
         if request.folder_id.is_some() {
-            sqlx::query(
-                r#"
-                INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
-                VALUES (?, ?, ?)
-                ON CONFLICT (user_id, playlist_id)
-                DO UPDATE SET folder_id = excluded.folder_id
-                "#,
-            )
-            .bind(user.user_id)
-            .bind(&playlist_id)
-            .bind(&request.folder_id)
-            .execute(&state.pool)
-            .await?;
+            if let Ok(pool) = state.database.sqlite_pool() {
+                sqlx::query(
+                    r#"
+                    INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (user_id, playlist_id)
+                    DO UPDATE SET folder_id = excluded.folder_id
+                    "#,
+                )
+                .bind(user.user_id)
+                .bind(&playlist_id)
+                .bind(request.folder_id.as_deref())
+                .execute(pool)
+                .await?;
+            } else {
+                let pool = state.database.postgres_pool()?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, playlist_id)
+                    DO UPDATE SET folder_id = EXCLUDED.folder_id
+                    "#,
+                )
+                .bind(user.user_id)
+                .bind(&playlist_id)
+                .bind(request.folder_id.as_deref())
+                .execute(pool)
+                .await?;
+            }
         } else {
             // Moving to root: remove the override
-            sqlx::query(
-                "DELETE FROM user_playlist_overrides WHERE user_id = ? AND playlist_id = ?",
-            )
-            .bind(user.user_id)
-            .bind(&playlist_id)
-            .execute(&state.pool)
-            .await?;
+            if let Ok(pool) = state.database.sqlite_pool() {
+                sqlx::query(
+                    "DELETE FROM user_playlist_overrides WHERE user_id = ? AND playlist_id = ?",
+                )
+                .bind(user.user_id)
+                .bind(&playlist_id)
+                .execute(pool)
+                .await?;
+            } else {
+                let pool = state.database.postgres_pool()?;
+                sqlx::query(
+                    "DELETE FROM user_playlist_overrides WHERE user_id = $1 AND playlist_id = $2",
+                )
+                .bind(user.user_id)
+                .bind(&playlist_id)
+                .execute(pool)
+                .await?;
+            }
         }
     }
 
@@ -592,12 +923,19 @@ pub async fn reorder_playlist_songs(
 ) -> FerrotuneApiResult<StatusCode> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    #[derive(sqlx::FromRow)]
+    struct ExistingEntryRow {
+        song_id: String,
+        added_at: DateTime<Utc>,
+        entry_id: Option<String>,
+    }
+
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -610,24 +948,39 @@ pub async fn reorder_playlist_songs(
     }
 
     // Verify all provided song IDs are in the playlist and get their added_at timestamps and entry_ids
-    let existing_entries: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT song_id, strftime('%Y-%m-%dT%H:%M:%SZ', added_at), entry_id FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
-    )
-    .bind(&playlist_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let existing_entries: Vec<ExistingEntryRow> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL ORDER BY position",
+        )
+        .bind(&playlist_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = $1 AND song_id IS NOT NULL ORDER BY position",
+        )
+        .bind(&playlist_id)
+        .fetch_all(pool)
+        .await?
+    };
 
     // Create a map from song_id to (added_at, entry_id) for preserving timestamps and entry_ids
-    let entry_data_map: std::collections::HashMap<String, (String, Option<String>)> =
+    let entry_data_map: std::collections::HashMap<String, (DateTime<Utc>, Option<String>)> =
         existing_entries
             .iter()
-            .map(|(sid, added, entry_id)| (sid.clone(), (added.clone(), entry_id.clone())))
+            .map(|entry| {
+                (
+                    entry.song_id.clone(),
+                    (entry.added_at, entry.entry_id.clone()),
+                )
+            })
             .collect();
 
     // Check that the reorder request contains the same songs
     let mut existing_sorted: Vec<String> = existing_entries
         .iter()
-        .map(|(sid, _, _)| sid.clone())
+        .map(|entry| entry.song_id.clone())
         .collect();
     let mut requested_sorted = request.song_ids.clone();
     existing_sorted.sort();
@@ -642,30 +995,56 @@ pub async fn reorder_playlist_songs(
 
     // Update positions in a transaction
     // We need to delete all songs and re-insert them to avoid UNIQUE constraint violations
-    let mut tx = state.pool.begin().await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        let mut tx = pool.begin().await?;
 
-    // Delete all songs from the playlist
-    sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ?")
-        .bind(&playlist_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ?")
+            .bind(&playlist_id)
+            .execute(&mut *tx)
+            .await?;
 
-    // Re-insert songs in the new order with preserved added_at timestamps and entry_ids
-    for (position, song_id) in request.song_ids.iter().enumerate() {
-        let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
-        // Generate new entry_id if missing (legacy entries)
-        let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)")
+        for (position, song_id) in request.song_ids.iter().enumerate() {
+            let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
+            let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            sqlx::query(
+                "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)",
+            )
             .bind(&playlist_id)
             .bind(song_id)
             .bind(position as i64)
-            .bind(&added_at)
+            .bind(added_at)
             .bind(&entry_id)
             .execute(&mut *tx)
             .await?;
-    }
+        }
 
-    tx.commit().await?;
+        tx.commit().await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        let mut tx = pool.begin().await?;
+
+        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = $1")
+            .bind(&playlist_id)
+            .execute(&mut *tx)
+            .await?;
+
+        for (position, song_id) in request.song_ids.iter().enumerate() {
+            let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
+            let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            sqlx::query(
+                "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES ($1, $2, $3, $4, $5)",
+            )
+            .bind(&playlist_id)
+            .bind(song_id)
+            .bind(position as i64)
+            .bind(added_at)
+            .bind(&entry_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -690,12 +1069,12 @@ pub async fn match_missing_entry(
 ) -> FerrotuneApiResult<StatusCode> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -708,13 +1087,26 @@ pub async fn match_missing_entry(
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
-    let entry: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?"
-    )
-    .bind(&playlist_id)
-    .bind(&request.entry_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let entry: Option<(Option<String>, Option<String>)> = if let Ok(pool) =
+        state.database.sqlite_pool()
+    {
+        sqlx::query_as(
+            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+        )
+        .bind(&playlist_id)
+        .bind(&request.entry_id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
+        )
+        .bind(&playlist_id)
+        .bind(&request.entry_id)
+        .fetch_optional(pool)
+        .await?
+    };
 
     let Some((_song_id, missing_data)) = entry else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
@@ -727,10 +1119,18 @@ pub async fn match_missing_entry(
     }
 
     // Verify the song exists
-    let song_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM songs WHERE id = ?")
-        .bind(&request.song_id)
-        .fetch_optional(&state.pool)
-        .await?;
+    let song_exists: Option<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT id FROM songs WHERE id = ?")
+            .bind(&request.song_id)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM songs WHERE id = $1")
+            .bind(&request.song_id)
+            .fetch_optional(pool)
+            .await?
+    };
 
     if song_exists.is_none() {
         return Err(Error::NotFound("Song not found".to_string()).into());
@@ -738,7 +1138,7 @@ pub async fn match_missing_entry(
 
     // Update the entry to link to the song using entry_id
     let matched = crate::db::queries::match_missing_entry_by_id(
-        &state.pool,
+        &state.database,
         &playlist_id,
         &request.entry_id,
         &request.song_id,
@@ -771,12 +1171,12 @@ pub async fn unmatch_entry(
 ) -> FerrotuneApiResult<StatusCode> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -789,13 +1189,26 @@ pub async fn unmatch_entry(
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
-    let entry: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-    )
-    .bind(&playlist_id)
-    .bind(&request.entry_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let entry: Option<(Option<String>, Option<String>)> = if let Ok(pool) =
+        state.database.sqlite_pool()
+    {
+        sqlx::query_as(
+            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+        )
+        .bind(&playlist_id)
+        .bind(&request.entry_id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
+        )
+        .bind(&playlist_id)
+        .bind(&request.entry_id)
+        .fetch_optional(pool)
+        .await?
+    };
 
     let Some((song_id, missing_data)) = entry else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
@@ -816,7 +1229,7 @@ pub async fn unmatch_entry(
 
     // Unmatch the entry using entry_id
     let unmatched =
-        crate::db::queries::unmatch_entry_by_id(&state.pool, &playlist_id, &request.entry_id)
+        crate::db::queries::unmatch_entry_by_id(&state.database, &playlist_id, &request.entry_id)
             .await?;
 
     if !unmatched {
@@ -866,12 +1279,12 @@ pub async fn batch_match_entries(
 ) -> FerrotuneApiResult<Json<BatchMatchEntriesResponse>> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -892,7 +1305,7 @@ pub async fn batch_match_entries(
 
     // Update the entries
     let success_count =
-        crate::db::queries::batch_match_entries(&state.pool, &playlist_id, &matches).await?;
+        crate::db::queries::batch_match_entries(&state.database, &playlist_id, &matches).await?;
 
     let total = matches.len() as i32;
     Ok(Json(BatchMatchEntriesResponse {
@@ -923,12 +1336,12 @@ pub async fn move_playlist_entry(
 
     let to_pos = request.to_position as i64;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -941,13 +1354,22 @@ pub async fn move_playlist_entry(
     }
 
     // Look up the current position of the entry by entry_id
-    let from_pos_result: Option<(i64,)> = sqlx::query_as(
-        "SELECT position FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-    )
-    .bind(&playlist_id)
-    .bind(&request.entry_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let from_pos_result: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT position FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?")
+            .bind(&playlist_id)
+            .bind(&request.entry_id)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT position FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
+        )
+        .bind(&playlist_id)
+        .bind(&request.entry_id)
+        .fetch_optional(pool)
+        .await?
+    };
 
     let Some((from_pos,)) = from_pos_result else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
@@ -958,62 +1380,110 @@ pub async fn move_playlist_entry(
     }
 
     // Get count of entries to validate to_position
-    let count: i64 =
+    let count: i64 = if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?")
             .bind(&playlist_id)
-            .fetch_one(&state.pool)
-            .await?;
+            .fetch_one(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = $1")
+            .bind(&playlist_id)
+            .fetch_one(pool)
+            .await?
+    };
 
     if to_pos < 0 || to_pos >= count {
         return Err(Error::InvalidRequest("Invalid position".to_string()).into());
     }
 
     // Move the entry in a transaction
-    let mut tx = state.pool.begin().await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        let mut tx = pool.begin().await?;
 
-    // Temporarily move the item to a negative position to avoid conflicts
-    sqlx::query("UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?")
+        sqlx::query(
+            "UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?",
+        )
         .bind(&playlist_id)
         .bind(from_pos)
         .execute(&mut *tx)
         .await?;
 
-    // Shift positions of entries between from and to
-    // We shift one row at a time to avoid UNIQUE constraint violations
-    if from_pos < to_pos {
-        // Moving down: shift entries up one at a time, starting from the lowest position
-        for pos in (from_pos + 1)..=to_pos {
-            sqlx::query(
-                "UPDATE playlist_songs SET position = position - 1 
-                 WHERE playlist_id = ? AND position = ?",
-            )
-            .bind(&playlist_id)
-            .bind(pos)
-            .execute(&mut *tx)
-            .await?;
+        if from_pos < to_pos {
+            for pos in (from_pos + 1)..=to_pos {
+                sqlx::query(
+                    "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = ? AND position = ?",
+                )
+                .bind(&playlist_id)
+                .bind(pos)
+                .execute(&mut *tx)
+                .await?;
+            }
+        } else {
+            for pos in (to_pos..from_pos).rev() {
+                sqlx::query(
+                    "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = ? AND position = ?",
+                )
+                .bind(&playlist_id)
+                .bind(pos)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
-    } else {
-        // Moving up: shift entries down one at a time, starting from the highest position
-        for pos in (to_pos..from_pos).rev() {
-            sqlx::query(
-                "UPDATE playlist_songs SET position = position + 1 
-                 WHERE playlist_id = ? AND position = ?",
-            )
-            .bind(&playlist_id)
-            .bind(pos)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
 
-    // Move the item to its final position
-    sqlx::query("UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1")
+        sqlx::query(
+            "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1",
+        )
         .bind(to_pos)
         .bind(&playlist_id)
         .execute(&mut *tx)
         .await?;
 
-    tx.commit().await?;
+        tx.commit().await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        let mut tx = pool.begin().await?;
+
+        sqlx::query(
+            "UPDATE playlist_songs SET position = -1 WHERE playlist_id = $1 AND position = $2",
+        )
+        .bind(&playlist_id)
+        .bind(from_pos)
+        .execute(&mut *tx)
+        .await?;
+
+        if from_pos < to_pos {
+            for pos in (from_pos + 1)..=to_pos {
+                sqlx::query(
+                    "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = $1 AND position = $2",
+                )
+                .bind(&playlist_id)
+                .bind(pos)
+                .execute(&mut *tx)
+                .await?;
+            }
+        } else {
+            for pos in (to_pos..from_pos).rev() {
+                sqlx::query(
+                    "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = $1 AND position = $2",
+                )
+                .bind(&playlist_id)
+                .bind(pos)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        sqlx::query(
+            "UPDATE playlist_songs SET position = $1 WHERE playlist_id = $2 AND position = -1",
+        )
+        .bind(to_pos)
+        .bind(&playlist_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1118,7 +1588,7 @@ pub async fn import_playlist(
 
     // Create the playlist
     create_playlist(
-        &state.pool,
+        &state.database,
         &playlist_id,
         &request.name,
         user.user_id,
@@ -1127,8 +1597,6 @@ pub async fn import_playlist(
         request.folder_id.as_deref(),
     )
     .await?;
-
-    // Convert import entries to playlist entries
     let mut matched_count = 0i32;
     let mut missing_count = 0i32;
 
@@ -1180,7 +1648,7 @@ pub async fn import_playlist(
         .collect();
 
     // Add entries to the playlist
-    add_entries_to_playlist(&state.pool, &playlist_id, &entries).await?;
+    add_entries_to_playlist(&state.database, &playlist_id, &entries).await?;
 
     Ok(Json(ImportPlaylistResponse {
         playlist_id,
@@ -1321,13 +1789,13 @@ pub async fn get_playlist_songs(
     use crate::db::models::MissingEntryData;
 
     // Get playlist metadata
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     // Check access using shared helper
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -1341,16 +1809,38 @@ pub async fn get_playlist_songs(
 
     // Get all playlist entries (positions, song_ids, missing data, added_at, entry_id)
     #[allow(clippy::type_complexity)]
-    let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT position, song_id, missing_entry_data, missing_search_text, strftime('%Y-%m-%dT%H:%M:%SZ', added_at) as added_at, entry_id
-         FROM playlist_songs 
-         WHERE playlist_id = ? 
-         ORDER BY position",
-    )
-    .bind(&playlist_id)
-    .bind(&playlist_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let entries_raw: Vec<(
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        DateTime<Utc>,
+        Option<String>,
+    )> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
+             FROM playlist_songs
+             WHERE playlist_id = ?
+             ORDER BY position",
+        )
+        .bind(&playlist_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = state
+            .database
+            .postgres_pool()
+            .map_err(|error| Error::Internal(error.to_string()))?;
+        sqlx::query_as(
+            "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
+             FROM playlist_songs
+             WHERE playlist_id = $1
+             ORDER BY position",
+        )
+        .bind(&playlist_id)
+        .fetch_all(pool)
+        .await?
+    };
 
     // Count totals
     let total_entries = entries_raw.len() as i64;
@@ -1373,7 +1863,7 @@ pub async fn get_playlist_songs(
     // Fetch all songs at once with their library enabled status
     let songs = if !song_ids.is_empty() {
         crate::db::queries::get_songs_by_ids_with_library_status(
-            &state.pool,
+            &state.database,
             &song_ids,
             user.user_id,
         )
@@ -1436,6 +1926,7 @@ pub async fn get_playlist_songs(
                 let missing_data = missing_json
                     .as_ref()
                     .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok());
+                let added_at = Some(format_datetime_iso(added_at));
 
                 // Generate a fallback entry_id if missing (for legacy entries)
                 let entry_id = entry_id.unwrap_or_else(|| format!("legacy-{}", position));
@@ -1665,7 +2156,7 @@ pub async fn get_playlist_songs(
                 EntryData::Missing { .. } | EntryData::NotFound { .. } => None,
             })
             .collect();
-        get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
+        get_song_thumbnails_base64(&state.database, &song_thumbnail_data, size).await
     } else {
         std::collections::HashMap::new()
     };
@@ -1680,12 +2171,22 @@ pub async fn get_playlist_songs(
             EntryData::Missing { .. } | EntryData::NotFound { .. } => None,
         })
         .collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &page_song_ids)
-        .await
-        .unwrap_or_default();
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &page_song_ids)
-        .await
-        .unwrap_or_default();
+    let starred_map = get_starred_map(
+        &state.database,
+        user.user_id,
+        ItemType::Song,
+        &page_song_ids,
+    )
+    .await
+    .unwrap_or_default();
+    let ratings_map = get_ratings_map(
+        &state.database,
+        user.user_id,
+        ItemType::Song,
+        &page_song_ids,
+    )
+    .await
+    .unwrap_or_default();
 
     // Convert to response format
     let entries: Vec<PlaylistSongEntry> = page_entries
@@ -1827,10 +2328,7 @@ pub async fn get_playlist_songs(
     let owner_name = if access.is_owner {
         user.username.clone()
     } else {
-        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = ?")
-            .bind(playlist.owner_id)
-            .fetch_one(&state.pool)
-            .await?
+        username_for_user(&state.database, playlist.owner_id).await?
     };
 
     Ok(Json(PlaylistSongsResponse {
@@ -1910,13 +2408,7 @@ pub async fn get_playlist_shares(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
 ) -> FerrotuneApiResult<Json<PlaylistSharesResponse>> {
-    let playlist: Option<(String, i64)> =
-        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
-            .bind(&playlist_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    let Some((_, owner_id)) = playlist else {
+    let Some(owner_id) = playlist_owner_id(&state.database, &playlist_id).await? else {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     };
 
@@ -1927,18 +2419,7 @@ pub async fn get_playlist_shares(
         .into());
     }
 
-    let shares: Vec<PlaylistShareResponse> = sqlx::query_as(
-        r#"
-        SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
-        FROM playlist_shares ps
-        JOIN users u ON u.id = ps.shared_with_user_id
-        WHERE ps.playlist_id = ?
-        ORDER BY u.username COLLATE NOCASE
-        "#,
-    )
-    .bind(&playlist_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let shares = fetch_playlist_shares(&state.database, &playlist_id).await?;
 
     Ok(Json(PlaylistSharesResponse { shares }))
 }
@@ -1950,13 +2431,7 @@ pub async fn set_playlist_shares(
     Path(playlist_id): Path<String>,
     Json(request): Json<SetPlaylistSharesRequest>,
 ) -> FerrotuneApiResult<Json<PlaylistSharesResponse>> {
-    let playlist: Option<(String, i64)> =
-        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
-            .bind(&playlist_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    let Some((_, owner_id)) = playlist else {
+    let Some(owner_id) = playlist_owner_id(&state.database, &playlist_id).await? else {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     };
 
@@ -1976,52 +2451,57 @@ pub async fn set_playlist_shares(
 
     // Validate all user IDs exist
     for share in &request.shares {
-        let user_exists: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
-            .bind(share.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
-        if user_exists.is_none() {
+        if !user_exists(&state.database, share.user_id).await? {
             return Err(
                 Error::InvalidRequest(format!("User with id {} not found", share.user_id)).into(),
             );
         }
     }
 
-    let mut tx = state.pool.begin().await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        let mut tx = pool.begin().await?;
 
-    // Delete all existing shares
-    sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = ?")
-        .bind(&playlist_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = ?")
+            .bind(&playlist_id)
+            .execute(&mut *tx)
+            .await?;
 
-    // Insert new shares
-    for share in &request.shares {
-        sqlx::query(
-            "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)",
-        )
-        .bind(&playlist_id)
-        .bind(share.user_id)
-        .bind(share.can_edit)
-        .execute(&mut *tx)
-        .await?;
+        for share in &request.shares {
+            sqlx::query(
+                "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)",
+            )
+            .bind(&playlist_id)
+            .bind(share.user_id)
+            .bind(share.can_edit)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        let mut tx = pool.begin().await?;
+
+        sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = $1")
+            .bind(&playlist_id)
+            .execute(&mut *tx)
+            .await?;
+
+        for share in &request.shares {
+            sqlx::query(
+                "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES ($1, $2, $3)",
+            )
+            .bind(&playlist_id)
+            .bind(share.user_id)
+            .bind(share.can_edit)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
     }
 
-    tx.commit().await?;
-
-    // Return the updated shares
-    let shares: Vec<PlaylistShareResponse> = sqlx::query_as(
-        r#"
-        SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
-        FROM playlist_shares ps
-        JOIN users u ON u.id = ps.shared_with_user_id
-        WHERE ps.playlist_id = ?
-        ORDER BY u.username COLLATE NOCASE
-        "#,
-    )
-    .bind(&playlist_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let shares = fetch_playlist_shares(&state.database, &playlist_id).await?;
 
     Ok(Json(PlaylistSharesResponse { shares }))
 }
@@ -2036,12 +2516,12 @@ pub async fn update_playlist(
     use crate::api::common::playlist_access::get_playlist_access;
 
     // Check playlist exists
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -2053,45 +2533,19 @@ pub async fn update_playlist(
         return Err(Error::Forbidden("Not authorized to update this playlist".to_string()).into());
     }
 
-    // Update fields
-    let mut query = "UPDATE playlists SET updated_at = CURRENT_TIMESTAMP".to_string();
-    let mut has_changes = false;
-
-    if request.name.is_some() {
-        query.push_str(", name = ?");
-        has_changes = true;
-    }
-    if request.comment.is_some() {
-        query.push_str(", comment = ?");
-        has_changes = true;
-    }
-    if request.public.is_some() {
-        query.push_str(", is_public = ?");
-        has_changes = true;
-    }
-
-    query.push_str(" WHERE id = ?");
-
-    if has_changes {
-        let mut q = sqlx::query(&query);
-
-        if let Some(ref name) = request.name {
-            q = q.bind(name);
-        }
-        if let Some(ref comment) = request.comment {
-            q = q.bind(comment);
-        }
-        if let Some(public) = request.public {
-            q = q.bind(public);
-        }
-
-        q = q.bind(&playlist_id);
-
-        q.execute(&state.pool).await?;
+    if request.name.is_some() || request.comment.is_some() || request.public.is_some() {
+        crate::db::queries::update_playlist_metadata(
+            &state.database,
+            &playlist_id,
+            request.name.as_deref(),
+            request.comment.as_deref(),
+            request.public,
+        )
+        .await?;
     }
 
     // Query the updated playlist and return it.
-    let updated_playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let updated_playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
@@ -2099,10 +2553,7 @@ pub async fn update_playlist(
     let owner_name = if access.is_owner {
         user.username.clone()
     } else {
-        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = ?")
-            .bind(updated_playlist.owner_id)
-            .fetch_one(&state.pool)
-            .await?
+        username_for_user(&state.database, updated_playlist.owner_id).await?
     };
 
     Ok(Json(PlaylistSongsResponse {
@@ -2152,7 +2603,7 @@ pub async fn transfer_playlist_ownership(
     Json(request): Json<TransferPlaylistOwnershipRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Get playlist and verify current user is the owner
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
@@ -2163,13 +2614,7 @@ pub async fn transfer_playlist_ownership(
     }
 
     // Verify the new owner exists
-    let new_owner_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
-            .bind(request.new_owner_id)
-            .fetch_one(&state.pool)
-            .await?;
-
-    if !new_owner_exists {
+    if !user_exists(&state.database, request.new_owner_id).await? {
         return Err(Error::NotFound("Target user not found".to_string()).into());
     }
 
@@ -2180,18 +2625,44 @@ pub async fn transfer_playlist_ownership(
     }
 
     // Transfer ownership
-    sqlx::query("UPDATE playlists SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query(
+            "UPDATE playlists SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        )
         .bind(request.new_owner_id)
         .bind(&playlist_id)
-        .execute(&state.pool)
+        .execute(pool)
         .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query(
+            "UPDATE playlists SET owner_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        )
+        .bind(request.new_owner_id)
+        .bind(&playlist_id)
+        .execute(pool)
+        .await?;
+    }
 
     // Remove any existing share entries for the new owner (since they're now the owner)
-    sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = ? AND user_id = ?")
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query(
+            "DELETE FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
+        )
         .bind(&playlist_id)
         .bind(request.new_owner_id)
-        .execute(&state.pool)
+        .execute(pool)
         .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query(
+            "DELETE FROM playlist_shares WHERE playlist_id = $1 AND shared_with_user_id = $2",
+        )
+        .bind(&playlist_id)
+        .bind(request.new_owner_id)
+        .execute(pool)
+        .await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2203,13 +2674,7 @@ pub async fn delete_playlist(
     Path(playlist_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check playlist exists and belongs to user
-    let playlist: Option<(String, i64)> =
-        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
-            .bind(&playlist_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    let Some((_, owner_id)) = playlist else {
+    let Some(owner_id) = playlist_owner_id(&state.database, &playlist_id).await? else {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     };
 
@@ -2218,10 +2683,7 @@ pub async fn delete_playlist(
     }
 
     // Delete the playlist (cascade should handle entries)
-    sqlx::query("DELETE FROM playlists WHERE id = ?")
-        .bind(&playlist_id)
-        .execute(&state.pool)
-        .await?;
+    crate::db::queries::delete_playlist(&state.database, &playlist_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2244,12 +2706,12 @@ pub async fn add_playlist_songs(
     use crate::api::common::playlist_access::get_playlist_access;
     use crate::db::queries::{add_entries_to_playlist, PlaylistEntry};
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -2276,7 +2738,7 @@ pub async fn add_playlist_songs(
         })
         .collect();
 
-    add_entries_to_playlist(&state.pool, &playlist_id, &entries).await?;
+    add_entries_to_playlist(&state.database, &playlist_id, &entries).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2298,12 +2760,12 @@ pub async fn remove_playlist_songs(
 ) -> FerrotuneApiResult<StatusCode> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+    let playlist = crate::db::queries::get_playlist_by_id(&state.database, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     let access = get_playlist_access(
-        &state.pool,
+        &state.database,
         user.user_id,
         playlist.owner_id,
         &playlist_id,
@@ -2319,41 +2781,16 @@ pub async fn remove_playlist_songs(
         return Ok(StatusCode::NO_CONTENT);
     }
 
-    // Remove songs by index - use transaction
-    let mut tx = state.pool.begin().await?;
-
-    // 1. Delete the items
-    for &index in &request.indexes {
-        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ? AND position = ?")
-            .bind(&playlist_id)
-            .bind(index as i64)
-            .execute(&mut *tx)
-            .await?;
+    if request.indexes.iter().any(|index| *index < 0) {
+        return Err(Error::InvalidRequest("Invalid position".to_string()).into());
     }
 
-    // 2. Re-normalize positions
-    // Fetch all remaining IDs (ordered by position) and re-assign 0..N
-    let rows: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT position, entry_id FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
-    )
-    .bind(&playlist_id)
-    .fetch_all(&mut *tx)
-    .await?;
-
-    for (new_pos, (old_pos, entry_id)) in rows.iter().enumerate() {
-        if *old_pos != new_pos as i64 {
-            sqlx::query(
-                "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND entry_id = ?",
-            )
-            .bind(new_pos as i64)
-            .bind(&playlist_id)
-            .bind(entry_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-
-    tx.commit().await?;
+    let indexes: Vec<u32> = request
+        .indexes
+        .into_iter()
+        .map(|index| index as u32)
+        .collect();
+    crate::db::queries::remove_songs_by_position(&state.database, &playlist_id, &indexes).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2406,34 +2843,63 @@ pub async fn get_playlists_for_songs(
         }));
     }
 
-    // Build the query with placeholders for the song IDs
-    let placeholders = params
-        .song_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        r#"
-        SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
-        FROM playlist_songs ps
-        INNER JOIN playlists p ON ps.playlist_id = p.id
-        WHERE ps.song_id IN ({})
-          AND p.owner_id = ?
-          AND ps.song_id IS NOT NULL
-        ORDER BY p.name COLLATE NOCASE
-        "#,
-        placeholders
-    );
+    let rows: Vec<(String, String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
+        let placeholders = params
+            .song_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            r#"
+            SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
+            FROM playlist_songs ps
+            INNER JOIN playlists p ON ps.playlist_id = p.id
+            WHERE ps.song_id IN ({})
+              AND p.owner_id = ?
+              AND ps.song_id IS NOT NULL
+            ORDER BY LOWER(p.name), p.name
+            "#,
+            placeholders
+        );
 
-    // Build and execute the query
-    let mut query_builder = sqlx::query_as::<_, (String, String, String)>(&query);
-    for song_id in &params.song_ids {
-        query_builder = query_builder.bind(song_id);
-    }
-    query_builder = query_builder.bind(user.user_id);
+        let mut query_builder = sqlx::query_as::<_, (String, String, String)>(&query);
+        for song_id in &params.song_ids {
+            query_builder = query_builder.bind(song_id);
+        }
+        query_builder = query_builder.bind(user.user_id);
 
-    let rows: Vec<(String, String, String)> = query_builder.fetch_all(&state.pool).await?;
+        query_builder.fetch_all(pool).await?
+    } else {
+        let placeholders = (2..2 + params.song_ids.len())
+            .map(|index| format!("${}", index))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            r#"
+            SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
+            FROM playlist_songs ps
+            INNER JOIN playlists p ON ps.playlist_id = p.id
+            WHERE ps.song_id IN ({})
+              AND p.owner_id = $1
+              AND ps.song_id IS NOT NULL
+            ORDER BY LOWER(p.name), p.name
+            "#,
+            placeholders
+        );
+
+        let pool = state
+            .database
+            .postgres_pool()
+            .map_err(|error| Error::Internal(error.to_string()))?;
+        let mut query_builder =
+            sqlx::query_as::<_, (String, String, String)>(&query).bind(user.user_id);
+        for song_id in &params.song_ids {
+            query_builder = query_builder.bind(song_id);
+        }
+
+        query_builder.fetch_all(pool).await?
+    };
 
     // Group by song_id
     let mut playlists_by_song: HashMap<String, Vec<PlaylistContainingSong>> = HashMap::new();
@@ -2481,44 +2947,112 @@ pub async fn get_recently_played_playlists(
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<RecentPlaylistsResponse>> {
     // Fetch recently played regular playlists (owned or shared with user)
-    let regular: Vec<(String, String, i64, i64, String)> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.name, p.song_count,
-               COALESCE((
-                   SELECT SUM(s.duration)
-                   FROM playlist_songs ps
-                   JOIN songs s ON s.id = ps.song_id
-                   WHERE ps.playlist_id = p.id
-               ), 0) as duration,
-               strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
-        FROM playlists p
-        WHERE (p.owner_id = ? OR EXISTS (
-            SELECT 1 FROM playlist_shares ps_share
-            WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = ?
-        )) AND p.last_played_at IS NOT NULL
-        ORDER BY p.last_played_at DESC
-        LIMIT 50
-        "#,
-    )
-    .bind(user.user_id)
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let regular: Vec<(String, String, i64, i64, String)> = if let Ok(pool) =
+        state.database.sqlite_pool()
+    {
+        sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps
+                       JOIN songs s ON s.id = ps.song_id
+                       WHERE ps.playlist_id = p.id
+                   ), 0) as duration,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
+            FROM playlists p
+            WHERE (p.owner_id = ? OR EXISTS (
+                SELECT 1 FROM playlist_shares ps_share
+                WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = ?
+            )) AND p.last_played_at IS NOT NULL
+            ORDER BY p.last_played_at DESC
+            LIMIT 50
+            "#,
+        )
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = state
+            .database
+            .postgres_pool()
+            .map_err(|error| Error::Internal(error.to_string()))?;
+        sqlx::query_as(
+            r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)::BIGINT
+                       FROM playlist_songs ps
+                       JOIN songs s ON s.id = ps.song_id
+                       WHERE ps.playlist_id = p.id
+                   ), 0) as duration,
+                   to_char(p.last_played_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_played_at
+            FROM playlists p
+            WHERE (p.owner_id = $1 OR EXISTS (
+                SELECT 1 FROM playlist_shares ps_share
+                WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = $2
+            )) AND p.last_played_at IS NOT NULL
+            ORDER BY p.last_played_at DESC
+            LIMIT 50
+            "#,
+        )
+        .bind(user.user_id)
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?
+    };
 
     // Fetch recently played smart playlists
-    let smart: Vec<(String, String, String)> = sqlx::query_as(
-        r#"
-        SELECT sp.id, sp.name,
-               strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
-        FROM smart_playlists sp
-        WHERE sp.owner_id = ? AND sp.last_played_at IS NOT NULL
-        ORDER BY sp.last_played_at DESC
-        LIMIT 50
-        "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let smart: Vec<(String, String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            r#"
+            SELECT sp.id, sp.name,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
+            FROM smart_playlists sp
+            WHERE sp.owner_id = ? AND sp.last_played_at IS NOT NULL
+            ORDER BY sp.last_played_at DESC
+            LIMIT 50
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = state
+            .database
+            .postgres_pool()
+            .map_err(|error| Error::Internal(error.to_string()))?;
+        let smart_playlists_available: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'smart_playlists'
+            )
+            "#,
+        )
+        .fetch_one(pool)
+        .await?;
+
+        if !smart_playlists_available {
+            Vec::new()
+        } else {
+            sqlx::query_as(
+                r#"
+                SELECT sp.id, sp.name,
+                       to_char(sp.last_played_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_played_at
+                FROM smart_playlists sp
+                WHERE sp.owner_id = $1 AND sp.last_played_at IS NOT NULL
+                ORDER BY sp.last_played_at DESC
+                LIMIT 50
+                "#,
+            )
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await?
+        }
+    };
 
     let mut entries: Vec<RecentPlaylistEntry> = Vec::new();
 

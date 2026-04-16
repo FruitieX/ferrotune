@@ -73,10 +73,22 @@ pub struct ServerConfig {
     pub admin_password: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DatabaseBackend {
+    #[default]
+    Sqlite,
+    Postgres,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatabaseConfig {
+    #[serde(default)]
+    pub backend: DatabaseBackend,
     #[serde(default = "default_db_path")]
     pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -136,6 +148,51 @@ fn default_true() -> bool {
     true
 }
 
+fn redact_database_url(url: &str) -> String {
+    if let Some((scheme, rest)) = url.split_once("://") {
+        if let Some((_, after_credentials)) = rest.rsplit_once('@') {
+            return format!("{}://[REDACTED]@{}", scheme, after_credentials);
+        }
+
+        return format!("{}://{}", scheme, rest);
+    }
+
+    url.to_string()
+}
+
+impl DatabaseConfig {
+    pub fn sqlite(path: PathBuf) -> Self {
+        Self {
+            backend: DatabaseBackend::Sqlite,
+            path,
+            url: None,
+        }
+    }
+
+    pub fn validate(&self) -> crate::error::Result<()> {
+        match self.backend {
+            DatabaseBackend::Sqlite => Ok(()),
+            DatabaseBackend::Postgres => match self.url.as_deref() {
+                Some(url) if !url.trim().is_empty() => Ok(()),
+                _ => Err(crate::error::Error::Config(config::ConfigError::Message(
+                    "database.url is required when database.backend = \"postgres\"".to_string(),
+                ))),
+            },
+        }
+    }
+
+    pub fn connection_label(&self) -> String {
+        match self.backend {
+            DatabaseBackend::Sqlite => format!("sqlite:{}", self.path.display()),
+            DatabaseBackend::Postgres => self
+                .url
+                .as_deref()
+                .map(redact_database_url)
+                .unwrap_or_else(|| "postgresql:<missing-url>".to_string()),
+        }
+    }
+}
+
 impl Config {
     /// Load configuration from the default location.
     /// Returns Ok(None) if no config file exists (configless mode).
@@ -166,6 +223,7 @@ impl Config {
 
         let mut config: Self = settings.try_deserialize()?;
         config.expand_paths();
+        config.database.validate()?;
         Ok(config)
     }
 
@@ -180,9 +238,7 @@ impl Config {
                 admin_user: default_admin_user(),
                 admin_password: default_admin_password(),
             },
-            database: DatabaseConfig {
-                path: default_db_path(),
-            },
+            database: DatabaseConfig::sqlite(default_db_path()),
             music: MusicConfig {
                 folders: Vec::new(), // No folders - will be added via admin UI
                 readonly_tags: true,
@@ -199,13 +255,19 @@ impl Config {
     /// Expand tilde (~) in all path fields
     /// Also apply FERROTUNE_DATA_DIR override if set
     fn expand_paths(&mut self) {
-        // If FERROTUNE_DATA_DIR is set, it overrides database and cache paths
-        if std::env::var(DATA_DIR_ENV).is_ok() {
-            self.database.path = get_data_dir().join("ferrotune.db");
-            self.cache.path = get_cache_dir();
+        self.cache.path = if std::env::var(DATA_DIR_ENV).is_ok() {
+            get_cache_dir()
         } else {
-            self.database.path = expand_tilde(&self.database.path);
-            self.cache.path = expand_tilde(&self.cache.path);
+            expand_tilde(&self.cache.path)
+        };
+
+        if self.database.backend == DatabaseBackend::Sqlite {
+            // If FERROTUNE_DATA_DIR is set, it overrides the SQLite database path.
+            if std::env::var(DATA_DIR_ENV).is_ok() {
+                self.database.path = get_data_dir().join("ferrotune.db");
+            } else {
+                self.database.path = expand_tilde(&self.database.path);
+            }
         }
 
         for folder in &mut self.music.folders {
@@ -222,9 +284,9 @@ impl Config {
                 admin_user: "admin".to_string(),
                 admin_password: "changeme".to_string(),
             },
-            database: DatabaseConfig {
-                path: PathBuf::from("~/.local/share/ferrotune/ferrotune.db"),
-            },
+            database: DatabaseConfig::sqlite(PathBuf::from(
+                "~/.local/share/ferrotune/ferrotune.db",
+            )),
             music: MusicConfig {
                 folders: vec![
                     MusicFolder {
@@ -245,5 +307,128 @@ impl Config {
         };
 
         toml::to_string_pretty(&example).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn write_temp_config(contents: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("ferrotune-config-test-{}.toml", unique));
+
+        fs::write(&path, contents).expect("test config should be written");
+        path
+    }
+
+    #[test]
+    fn loads_legacy_sqlite_database_config() {
+        let path = write_temp_config(
+            r#"
+[server]
+host = "127.0.0.1"
+port = 4040
+name = "Ferrotune"
+admin_user = "admin"
+admin_password = "admin"
+
+[database]
+path = "/tmp/ferrotune.db"
+
+[music]
+folders = []
+readonly_tags = true
+
+[cache]
+path = "/tmp/ferrotune-cache"
+max_cover_size = 1024
+"#,
+        );
+
+        let config = Config::load_from(&path).expect("legacy sqlite config should load");
+        assert_eq!(config.database.backend, DatabaseBackend::Sqlite);
+        assert_eq!(config.database.path, PathBuf::from("/tmp/ferrotune.db"));
+        assert_eq!(config.database.url, None);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn loads_postgres_database_config() {
+        let path = write_temp_config(
+            r#"
+[server]
+host = "127.0.0.1"
+port = 4040
+name = "Ferrotune"
+admin_user = "admin"
+admin_password = "admin"
+
+[database]
+backend = "postgres"
+url = "postgres://ferrotune:secret@localhost:5432/ferrotune"
+
+[music]
+folders = []
+readonly_tags = true
+
+[cache]
+path = "/tmp/ferrotune-cache"
+max_cover_size = 1024
+"#,
+        );
+
+        let config = Config::load_from(&path).expect("postgres config should load");
+        assert_eq!(config.database.backend, DatabaseBackend::Postgres);
+        assert_eq!(
+            config.database.url.as_deref(),
+            Some("postgres://ferrotune:secret@localhost:5432/ferrotune")
+        );
+        assert_eq!(
+            config.database.connection_label(),
+            "postgres://[REDACTED]@localhost:5432/ferrotune"
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_postgres_database_config_without_url() {
+        let path = write_temp_config(
+            r#"
+[server]
+host = "127.0.0.1"
+port = 4040
+name = "Ferrotune"
+admin_user = "admin"
+admin_password = "admin"
+
+[database]
+backend = "postgres"
+
+[music]
+folders = []
+readonly_tags = true
+
+[cache]
+path = "/tmp/ferrotune-cache"
+max_cover_size = 1024
+"#,
+        );
+
+        let err = Config::load_from(&path).expect_err("postgres config without URL should fail");
+        assert!(
+            err.to_string()
+                .contains("database.url is required when database.backend = \"postgres\""),
+            "unexpected error: {err}"
+        );
+
+        let _ = fs::remove_file(path);
     }
 }

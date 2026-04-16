@@ -86,7 +86,7 @@ mod directory;
 mod disabled_songs;
 mod duplicates;
 mod filesystem;
-mod history;
+pub mod history;
 mod home;
 pub mod lastfm;
 mod listening;
@@ -94,7 +94,7 @@ mod lists;
 mod match_dictionary;
 mod media;
 pub mod music_folders;
-mod playlists;
+pub mod playlists;
 mod playqueue;
 mod preferences;
 mod queue;
@@ -117,6 +117,45 @@ pub mod tags;
 mod testing;
 pub mod users;
 mod waveform;
+
+pub use duplicates::{
+    get_duplicates as ferrotune_get_duplicates, DuplicateFile, DuplicateGroup, DuplicatesResponse,
+};
+pub use home::{
+    get_continue_listening, get_home, ContinueListeningParams, HomeContinueListeningSection,
+    HomePageParams, HomePageResponse,
+};
+pub use listening::{
+    get_listening_stats as ferrotune_get_listening_stats,
+    get_period_review as ferrotune_get_period_review, log_listening as ferrotune_log_listening,
+    LogListeningRequest, LogListeningResponse, PeriodReviewQuery, PeriodReviewResponse,
+};
+pub use lists::{
+    get_album_list, get_forgotten_favorites, get_random_songs, get_songs_by_genre, AlbumListParams,
+    AlbumListType, FerrotuneAlbumListResponse, FerrotuneRandomSongsResponse,
+    FerrotuneSongsByGenreResponse, ForgottenFavoritesParams, ForgottenFavoritesResponse,
+    RandomSongsParams, SongsByGenreParams,
+};
+pub use playqueue::{
+    save_play_queue as ferrotune_save_play_queue, SavePlayQueueRequest, SavePlayQueueResponse,
+};
+pub use preferences::{
+    delete_preference as ferrotune_delete_preference, get_preference as ferrotune_get_preference,
+    get_preferences as ferrotune_get_preferences, set_preference as ferrotune_set_preference,
+    update_preferences as ferrotune_update_preferences, GetPreferenceResponse, PreferencesResponse,
+    SetPreferenceRequest, UpdatePreferencesRequest,
+};
+pub use queue::{
+    get_lazy_queue_count, materialize_lazy_queue_page, start_queue, StartQueueRequest,
+};
+pub use scrobbles::{
+    check_import_duplicate, get_play_counts, import_scrobbles, import_with_timestamps,
+    scrobble as ferrotune_scrobble, CheckDuplicateParams, GetPlayCountsRequest, ImportMode,
+    ImportScrobbleEntry, ImportScrobblesRequest, ImportSongWithPlays, ImportWithTimestampsRequest,
+    PlayEvent, ScrobbleParams as FerrotuneScrobbleParams,
+};
+pub use stats::{get_stats as ferrotune_get_stats, StatsResponse};
+pub use waveform::{get_waveform as ferrotune_get_waveform, WaveformResponse};
 
 use crate::api::AppState;
 use axum::{

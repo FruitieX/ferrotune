@@ -10,6 +10,7 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::User;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use crate::password;
 use axum::{
@@ -707,10 +708,11 @@ pub async fn delete_api_key(
 // ============================================================================
 
 async fn get_user_library_access(state: &AppState, user_id: i64) -> FerrotuneApiResult<Vec<i64>> {
+    let pool = state.database.sqlite_pool()?;
     let access: Vec<(i64,)> =
         sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = ?")
             .bind(user_id)
-            .fetch_all(&state.pool)
+            .fetch_all(pool)
             .await?;
 
     Ok(access.into_iter().map(|(id,)| id).collect())
@@ -730,36 +732,60 @@ fn generate_api_key() -> String {
 /// Check if a user has access to a specific music folder
 #[allow(dead_code)]
 pub async fn user_has_folder_access(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     folder_id: i64,
 ) -> FerrotuneApiResult<bool> {
-    let access: Option<(i64,)> = sqlx::query_as(
-        "SELECT 1 FROM user_library_access WHERE user_id = ? AND music_folder_id = ?",
-    )
-    .bind(user_id)
-    .bind(folder_id)
-    .fetch_optional(pool)
-    .await?;
+    let access: Option<(i64,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT 1 FROM user_library_access WHERE user_id = ? AND music_folder_id = ?",
+        )
+        .bind(user_id)
+        .bind(folder_id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT 1::BIGINT FROM user_library_access WHERE user_id = $1 AND music_folder_id = $2",
+        )
+        .bind(user_id)
+        .bind(folder_id)
+        .fetch_optional(pool)
+        .await?
+    };
 
     Ok(access.is_some())
 }
 
 /// Check if a user has access to a specific song
 pub async fn user_has_song_access(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     song_id: &str,
 ) -> FerrotuneApiResult<bool> {
-    let access: Option<(i64,)> = sqlx::query_as(
-        "SELECT 1 FROM songs s
-         JOIN user_library_access ula ON s.music_folder_id = ula.music_folder_id
-         WHERE s.id = ? AND ula.user_id = ?",
-    )
-    .bind(song_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+    let access: Option<(i64,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT 1 FROM songs s
+             JOIN user_library_access ula ON s.music_folder_id = ula.music_folder_id
+             WHERE s.id = ? AND ula.user_id = ?",
+        )
+        .bind(song_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT 1::BIGINT FROM songs s
+             JOIN user_library_access ula ON s.music_folder_id = ula.music_folder_id
+             WHERE s.id = $1 AND ula.user_id = $2",
+        )
+        .bind(song_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+    };
 
     Ok(access.is_some())
 }
@@ -767,14 +793,21 @@ pub async fn user_has_song_access(
 /// Get the list of music folder IDs a user has access to
 #[allow(dead_code)]
 pub async fn get_user_accessible_folders(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> FerrotuneApiResult<Vec<i64>> {
-    let access: Vec<(i64,)> =
+    let access: Vec<(i64,)> = if let Ok(pool) = database.sqlite_pool() {
         sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = ?")
             .bind(user_id)
             .fetch_all(pool)
-            .await?;
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?
+    };
 
     Ok(access.into_iter().map(|(id,)| id).collect())
 }

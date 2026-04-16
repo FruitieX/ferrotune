@@ -1,8 +1,6 @@
 //! Media management endpoints for the Admin API.
 
-use crate::api::common::search::{
-    build_fts_query, build_song_filter_conditions, get_song_order_clause, SearchParams,
-};
+use crate::api::common::search::{search_songs_for_queue, SearchParams};
 use crate::api::ferrotune::users::require_admin;
 use crate::api::subsonic::auth::{AuthenticatedUser, FerrotuneAuthenticatedUser};
 use crate::api::subsonic::xml::ResponseFormat;
@@ -219,81 +217,11 @@ pub async fn get_song_ids(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
 ) -> FerrotuneApiResult<Json<SongIdsResponse>> {
-    // Determine if this is a wildcard/all-songs query
-    let is_wildcard = params.query.is_empty() || params.query == "*";
+    let songs = search_songs_for_queue(&state.database, user.user_id, &params.query, &params)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch song IDs: {}", e)))?;
 
-    // Build FTS query with prefix wildcards
-    let fts_query = if !is_wildcard {
-        build_fts_query(&params.query)
-    } else {
-        None
-    };
-
-    let filter_conds = build_song_filter_conditions(&params, user.user_id);
-    let has_filters = !filter_conds.conditions.is_empty();
-
-    // Build JOIN clauses based on filter requirements
-    let mut joins = format!(
-        "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id{}",
-        crate::db::queries::scrobble_stats_join_for_user()
-    );
-    let mut join_user_ids = vec![user.user_id];
-    if filter_conds.has_rating_filter {
-        joins.push_str(
-            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",
-        );
-        join_user_ids.push(user.user_id);
-    }
-    if filter_conds.has_starred_filter {
-        joins.push_str(
-            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = ?",
-        );
-        join_user_ids.push(user.user_id);
-    }
-
-    let song_order =
-        get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref());
-
-    let result: Result<Vec<(String,)>, sqlx::Error> = if is_wildcard {
-        // Build WHERE clause for filters
-        let where_clause = if has_filters {
-            format!("WHERE {}", filter_conds.conditions.join(" AND "))
-        } else {
-            String::new()
-        };
-
-        let query_str =
-            format!("SELECT s.id FROM songs s {joins} {where_clause} ORDER BY {song_order}");
-
-        let mut query_builder = sqlx::query_as(&query_str);
-        for join_user_id in &join_user_ids {
-            query_builder = query_builder.bind(*join_user_id);
-        }
-        query_builder.fetch_all(&state.pool).await
-    } else if let Some(ref fts_q) = fts_query {
-        // Build WHERE clause combining FTS and filters
-        let mut where_conditions = vec!["songs_fts MATCH ?".to_string()];
-        where_conditions.extend(filter_conds.conditions.clone());
-        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
-
-        let query_str = format!(
-            "SELECT s.id FROM songs s {joins} INNER JOIN songs_fts fts ON s.id = fts.song_id {where_clause} ORDER BY {song_order}"
-        );
-
-        let mut query_builder = sqlx::query_as(&query_str);
-        for join_user_id in &join_user_ids {
-            query_builder = query_builder.bind(*join_user_id);
-        }
-        query_builder.bind(fts_q).fetch_all(&state.pool).await
-    } else {
-        // Empty query after processing - return empty
-        Ok(vec![])
-    };
-
-    let rows = result.map_err(|e| Error::Internal(format!("Failed to fetch song IDs: {}", e)))?;
-
-    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    let ids: Vec<String> = songs.into_iter().map(|song| song.id).collect();
     let total = ids.len() as i64;
     Ok(Json(SongIdsResponse { ids, total }))
 }

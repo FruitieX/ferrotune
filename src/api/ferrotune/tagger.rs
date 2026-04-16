@@ -1392,7 +1392,8 @@ pub async fn rescan_files(
 
     // Scan files grouped by folder
     for (folder_id, file_paths) in files_by_folder {
-        match crate::scanner::scan_specific_files(&state.pool, folder_id, file_paths.clone()).await
+        match crate::scanner::scan_specific_files(&state.database, folder_id, file_paths.clone())
+            .await
         {
             Ok(()) => {
                 rescanned_count += file_paths.len();

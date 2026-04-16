@@ -12,6 +12,7 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::db::models::ItemType;
+use crate::db::DatabaseHandle;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -59,7 +60,7 @@ pub async fn get_indexes(
     Query(params): Query<GetIndexesParams>,
 ) -> crate::error::Result<FormatResponse<IndexesResponse>> {
     let (indexes, last_modified) =
-        get_indexes_logic(&state.pool, user.user_id, params.music_folder_id).await?;
+        get_indexes_logic(&state.database, user.user_id, params.music_folder_id).await?;
 
     let response = IndexesResponse {
         indexes: Indexes {
@@ -160,6 +161,7 @@ pub async fn get_music_directory(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetMusicDirectoryParams>,
 ) -> crate::error::Result<FormatResponse<DirectoryResponse>> {
+    let pool = state.database.sqlite_pool()?;
     let id = &params.id;
 
     // Check if it's a directory path ID (starts with "dir-")
@@ -168,28 +170,27 @@ pub async fn get_music_directory(
     }
 
     // First, try to find as an artist
-    if let Some(artist) = crate::db::queries::get_artist_by_id(&state.pool, id).await? {
+    if let Some(artist) = crate::db::queries::get_artist_by_id(pool, id).await? {
         let albums =
-            crate::db::queries::get_albums_by_artist_for_user(&state.pool, id, user.user_id)
-                .await?;
+            crate::db::queries::get_albums_by_artist_for_user(pool, id, user.user_id).await?;
 
         // Get starred and ratings for albums
         let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
         let starred_map =
-            get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
+            get_starred_map(&state.database, user.user_id, ItemType::Album, &album_ids).await?;
         let ratings_map =
-            get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
+            get_ratings_map(&state.database, user.user_id, ItemType::Album, &album_ids).await?;
 
         // Get starred for artist
         let artist_starred = get_starred_map(
-            &state.pool,
+            &state.database,
             user.user_id,
             ItemType::Artist,
             std::slice::from_ref(id),
         )
         .await?;
         let artist_rating = get_ratings_map(
-            &state.pool,
+            &state.database,
             user.user_id,
             ItemType::Artist,
             std::slice::from_ref(id),
@@ -236,27 +237,26 @@ pub async fn get_music_directory(
     }
 
     // Try to find as an album
-    if let Some(album) = crate::db::queries::get_album_by_id(&state.pool, id).await? {
-        let songs =
-            crate::db::queries::get_songs_by_album_for_user(&state.pool, id, user.user_id).await?;
+    if let Some(album) = crate::db::queries::get_album_by_id(pool, id).await? {
+        let songs = crate::db::queries::get_songs_by_album_for_user(pool, id, user.user_id).await?;
 
         // Get starred and ratings for songs
         let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
         let starred_map =
-            get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+            get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
         let ratings_map =
-            get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+            get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
 
         // Get starred for album
         let album_starred = get_starred_map(
-            &state.pool,
+            &state.database,
             user.user_id,
             ItemType::Album,
             std::slice::from_ref(id),
         )
         .await?;
         let album_rating = get_ratings_map(
-            &state.pool,
+            &state.database,
             user.user_id,
             ItemType::Album,
             std::slice::from_ref(id),
@@ -325,7 +325,7 @@ async fn get_directory_by_path(
     let path_str = decoded_path.as_ref();
 
     // Get subdirectories and songs in this directory path
-    let (subdirs, songs) = get_directory_contents(&state.pool, user.user_id, path_str).await?;
+    let (subdirs, songs) = get_directory_contents(&state.database, user.user_id, path_str).await?;
 
     // Get parent path
     let parent = std::path::Path::new(path_str)
@@ -343,8 +343,10 @@ async fn get_directory_by_path(
 
     // Get starred and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let starred_map =
+        get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map =
+        get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
 
     let mut children: Vec<DirectoryChild> = Vec::new();
 
@@ -427,10 +429,12 @@ struct SubDirectory {
 
 /// Get subdirectories and songs within a specific directory path
 async fn get_directory_contents(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     path: &str,
 ) -> crate::error::Result<(Vec<SubDirectory>, Vec<crate::db::models::Song>)> {
+    let pool = database.sqlite_pool()?;
+
     // Normalize path to not have trailing slash
     let path = path.trim_end_matches('/');
     let path_prefix = if path.is_empty() {

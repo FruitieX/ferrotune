@@ -63,7 +63,7 @@ pub async fn get_album_list2(
     let inline_size = params.inline_images.get_size();
 
     let result = get_album_list_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         params.list_type,
         size,
@@ -113,7 +113,7 @@ pub async fn get_album_list(
     let inline_size = params.inline_images.get_size();
 
     let result = get_album_list_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         params.list_type,
         size,
@@ -170,7 +170,7 @@ pub async fn get_random_songs(
     let size = params.size.unwrap_or(10) as i64;
 
     let songs = get_random_songs_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         size,
         params.genre,
@@ -231,7 +231,7 @@ pub async fn get_songs_by_genre(
     let offset = params.offset.unwrap_or(0) as i64;
 
     let songs = get_songs_by_genre_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.genre,
         count,
@@ -251,9 +251,9 @@ pub async fn get_songs_by_genre(
 
 #[derive(Deserialize)]
 pub struct ScrobbleParams {
-    id: String,
-    time: Option<i64>,
-    submission: Option<bool>,
+    pub id: String,
+    pub time: Option<i64>,
+    pub submission: Option<bool>,
 }
 
 pub async fn scrobble(
@@ -270,7 +270,7 @@ pub async fn scrobble(
 
     if submission {
         insert_submission_scrobble_if_not_recent_duplicate(
-            &state.pool,
+            &state.database,
             user.user_id,
             &params.id,
             played_at,
@@ -282,14 +282,15 @@ pub async fn scrobble(
 
     // Forward to Last.fm in background
     {
-        let pool = state.pool.clone();
+        let database = state.database.clone();
         let uid = user.user_id;
         let song_id = params.id.clone();
         if submission {
             let ts = played_at.timestamp();
             tokio::spawn(async move {
                 if let Err(e) =
-                    crate::api::ferrotune::lastfm::forward_scrobble(&pool, uid, &song_id, ts).await
+                    crate::api::ferrotune::lastfm::forward_scrobble(&database, uid, &song_id, ts)
+                        .await
                 {
                     tracing::warn!("Last.fm scrobble failed: {}", e);
                 }
@@ -297,7 +298,8 @@ pub async fn scrobble(
         } else {
             tokio::spawn(async move {
                 if let Err(e) =
-                    crate::api::ferrotune::lastfm::update_now_playing(&pool, uid, &song_id).await
+                    crate::api::ferrotune::lastfm::update_now_playing(&database, uid, &song_id)
+                        .await
                 {
                     tracing::warn!("Last.fm now playing update failed: {}", e);
                 }

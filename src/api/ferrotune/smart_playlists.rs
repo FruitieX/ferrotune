@@ -7,6 +7,7 @@ use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::SmartPlaylist;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
@@ -201,6 +202,98 @@ fn default_page_size() -> i64 {
     50
 }
 
+fn parse_smart_playlist_rules_lossy(rules_json: &str) -> SmartPlaylistRulesApi {
+    serde_json::from_str(rules_json).unwrap_or_else(|_| SmartPlaylistRulesApi {
+        conditions: vec![],
+        logic: "and".to_string(),
+    })
+}
+
+async fn list_visible_smart_playlists_for_user(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<Vec<SmartPlaylist>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let playlists = sqlx::query_as(
+            "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
+             FROM smart_playlists
+             WHERE owner_id = ? OR is_public = 1
+             ORDER BY name COLLATE NOCASE",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+        return Ok(playlists);
+    }
+
+    let pool = database.postgres_pool()?;
+    let playlists = sqlx::query_as(
+        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
+         FROM smart_playlists
+         WHERE owner_id = $1 OR is_public
+         ORDER BY LOWER(name), name",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(playlists)
+}
+
+async fn get_visible_smart_playlist_for_user(
+    database: &(impl DatabaseHandle + ?Sized),
+    playlist_id: &str,
+    user_id: i64,
+) -> FerrotuneApiResult<Option<SmartPlaylist>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let playlist = sqlx::query_as(
+            "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
+             FROM smart_playlists
+             WHERE id = ? AND (owner_id = ? OR is_public = 1)",
+        )
+        .bind(playlist_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+        return Ok(playlist);
+    }
+
+    let pool = database.postgres_pool()?;
+    let playlist = sqlx::query_as(
+        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
+         FROM smart_playlists
+         WHERE id = $1 AND (owner_id = $2 OR is_public)",
+    )
+    .bind(playlist_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(playlist)
+}
+
+async fn get_owned_smart_playlist_for_user(
+    database: &(impl DatabaseHandle + ?Sized),
+    playlist_id: &str,
+    user_id: i64,
+) -> FerrotuneApiResult<Option<SmartPlaylist>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let playlist =
+            sqlx::query_as("SELECT * FROM smart_playlists WHERE id = ? AND owner_id = ?")
+                .bind(playlist_id)
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+        return Ok(playlist);
+    }
+
+    let pool = database.postgres_pool()?;
+    let playlist = sqlx::query_as("SELECT * FROM smart_playlists WHERE id = $1 AND owner_id = $2")
+        .bind(playlist_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(playlist)
+}
+
 // ============================================================================
 // Endpoints
 // ============================================================================
@@ -210,27 +303,15 @@ pub async fn list_smart_playlists(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SmartPlaylistsResponse>> {
-    let playlists: Vec<SmartPlaylist> = sqlx::query_as(
-        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
-         FROM smart_playlists
-         WHERE owner_id = ? OR is_public = 1
-         ORDER BY name COLLATE NOCASE",
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let playlists = list_visible_smart_playlists_for_user(&state.database, user.user_id).await?;
 
     let mut result = Vec::with_capacity(playlists.len());
     for playlist in playlists {
-        let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
-            .unwrap_or_else(|_| SmartPlaylistRulesApi {
-                conditions: vec![],
-                logic: "and".to_string(),
-            });
+        let rules = parse_smart_playlist_rules_lossy(&playlist.rules_json);
 
         // Count matching songs (respecting max_songs limit)
         let song_count =
-            count_matching_songs(&state.pool, &rules, user.user_id, playlist.max_songs).await?;
+            count_matching_songs(&state.database, &rules, user.user_id, playlist.max_songs).await?;
 
         result.push(SmartPlaylistInfo {
             id: playlist.id,
@@ -259,26 +340,15 @@ pub async fn get_smart_playlist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> FerrotuneApiResult<Json<SmartPlaylistInfo>> {
-    let playlist: Option<SmartPlaylist> = sqlx::query_as(
-        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
-         FROM smart_playlists
-         WHERE id = ? AND (owner_id = ? OR is_public = 1)",
-    )
-    .bind(&id)
-    .bind(user.user_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let playlist = get_visible_smart_playlist_for_user(&state.database, &id, user.user_id).await?;
 
     match playlist {
         Some(playlist) => {
-            let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
-                .unwrap_or_else(|_| SmartPlaylistRulesApi {
-                    conditions: vec![],
-                    logic: "and".to_string(),
-                });
+            let rules = parse_smart_playlist_rules_lossy(&playlist.rules_json);
 
             let song_count =
-                count_matching_songs(&state.pool, &rules, user.user_id, playlist.max_songs).await?;
+                count_matching_songs(&state.database, &rules, user.user_id, playlist.max_songs)
+                    .await?;
 
             Ok(Json(SmartPlaylistInfo {
                 id: playlist.id,
@@ -309,22 +379,42 @@ pub async fn create_smart_playlist(
     let rules_json = serde_json::to_string(&request.rules)
         .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
 
-    sqlx::query(
-        "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&id)
-    .bind(&request.name)
-    .bind(&request.comment)
-    .bind(user.user_id)
-    .bind(request.is_public.unwrap_or(false))
-    .bind(&rules_json)
-    .bind(&request.sort_field)
-    .bind(&request.sort_direction)
-    .bind(request.max_songs)
-    .bind(&request.folder_id)
-    .execute(&state.pool)
-    .await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query(
+            "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&request.name)
+        .bind(&request.comment)
+        .bind(user.user_id)
+        .bind(request.is_public.unwrap_or(false))
+        .bind(&rules_json)
+        .bind(&request.sort_field)
+        .bind(&request.sort_direction)
+        .bind(request.max_songs)
+        .bind(&request.folder_id)
+        .execute(pool)
+        .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query(
+            "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(&id)
+        .bind(&request.name)
+        .bind(&request.comment)
+        .bind(user.user_id)
+        .bind(request.is_public.unwrap_or(false))
+        .bind(&rules_json)
+        .bind(&request.sort_field)
+        .bind(&request.sort_direction)
+        .bind(request.max_songs)
+        .bind(&request.folder_id)
+        .execute(pool)
+        .await?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -342,15 +432,10 @@ pub async fn update_smart_playlist(
     Path(id): Path<String>,
     Json(request): Json<UpdateSmartPlaylistRequest>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
-    // Check ownership
-    let existing: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM smart_playlists WHERE id = ? AND owner_id = ?")
-            .bind(&id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    if existing.is_none() {
+    if get_owned_smart_playlist_for_user(&state.database, &id, user.user_id)
+        .await?
+        .is_none()
+    {
         return Err(Error::NotFound(format!(
             "Smart playlist {} not found or not owned by you",
             id
@@ -359,48 +444,53 @@ pub async fn update_smart_playlist(
     }
 
     // Build dynamic update query
-    let mut updates = Vec::new();
-    let mut bindings: Vec<String> = Vec::new();
+    let dialect = smart_playlist_sql_dialect(&state.database)?;
+    let mut updates: Vec<String> = Vec::new();
+    let mut bindings: Vec<SmartPlaylistUpdateBinding> = Vec::new();
+
+    let next_placeholder = |count: usize| match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "?".to_string(),
+        SmartPlaylistSqlDialect::Postgres => format!("${}", count + 1),
+    };
 
     if let Some(name) = &request.name {
-        updates.push("name = ?");
-        bindings.push(name.clone());
+        updates.push(format!("name = {}", next_placeholder(bindings.len())));
+        bindings.push(SmartPlaylistUpdateBinding::Text(name.clone()));
     }
     if let Some(comment) = &request.comment {
-        updates.push("comment = ?");
-        bindings.push(comment.clone());
+        updates.push(format!("comment = {}", next_placeholder(bindings.len())));
+        bindings.push(SmartPlaylistUpdateBinding::Text(comment.clone()));
     }
     if let Some(is_public) = request.is_public {
-        updates.push("is_public = ?");
-        bindings.push(if is_public {
-            "1".to_string()
-        } else {
-            "0".to_string()
-        });
+        updates.push(format!("is_public = {}", next_placeholder(bindings.len())));
+        bindings.push(SmartPlaylistUpdateBinding::Bool(is_public));
     }
     if let Some(rules) = &request.rules {
         let rules_json = serde_json::to_string(rules)
             .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
-        updates.push("rules_json = ?");
-        bindings.push(rules_json);
+        updates.push(format!("rules_json = {}", next_placeholder(bindings.len())));
+        bindings.push(SmartPlaylistUpdateBinding::Text(rules_json));
     }
     if let Some(sort_field) = &request.sort_field {
-        updates.push("sort_field = ?");
-        bindings.push(sort_field.clone());
+        updates.push(format!("sort_field = {}", next_placeholder(bindings.len())));
+        bindings.push(SmartPlaylistUpdateBinding::Text(sort_field.clone()));
     }
     if let Some(sort_direction) = &request.sort_direction {
-        updates.push("sort_direction = ?");
-        bindings.push(sort_direction.clone());
+        updates.push(format!(
+            "sort_direction = {}",
+            next_placeholder(bindings.len())
+        ));
+        bindings.push(SmartPlaylistUpdateBinding::Text(sort_direction.clone()));
     }
     // Handle max_songs which can be Some(Some(N)), Some(None), or None
     if let Some(max_songs) = request.max_songs {
         match max_songs {
             Some(n) => {
-                updates.push("max_songs = ?");
-                bindings.push(n.to_string());
+                updates.push(format!("max_songs = {}", next_placeholder(bindings.len())));
+                bindings.push(SmartPlaylistUpdateBinding::I64(n));
             }
             None => {
-                updates.push("max_songs = NULL");
+                updates.push("max_songs = NULL".to_string());
             }
         }
     }
@@ -409,11 +499,11 @@ pub async fn update_smart_playlist(
     if let Some(folder_id) = &request.folder_id {
         match folder_id {
             Some(id) => {
-                updates.push("folder_id = ?");
-                bindings.push(id.clone());
+                updates.push(format!("folder_id = {}", next_placeholder(bindings.len())));
+                bindings.push(SmartPlaylistUpdateBinding::Text(id.clone()));
             }
             None => {
-                updates.push("folder_id = NULL");
+                updates.push("folder_id = NULL".to_string());
             }
         }
     }
@@ -422,20 +512,42 @@ pub async fn update_smart_playlist(
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
 
-    updates.push("updated_at = datetime('now')");
+    updates.push(match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "updated_at = datetime('now')".to_string(),
+        SmartPlaylistSqlDialect::Postgres => "updated_at = CURRENT_TIMESTAMP".to_string(),
+    });
 
+    let id_placeholder = next_placeholder(bindings.len());
     let query = format!(
-        "UPDATE smart_playlists SET {} WHERE id = ?",
-        updates.join(", ")
+        "UPDATE smart_playlists SET {} WHERE id = {}",
+        updates.join(", "),
+        id_placeholder
     );
-    let mut q = sqlx::query(&query);
 
-    for binding in &bindings {
-        q = q.bind(binding);
+    if let Ok(pool) = state.database.sqlite_pool() {
+        let mut q = sqlx::query(&query);
+        for binding in &bindings {
+            q = match binding {
+                SmartPlaylistUpdateBinding::Text(value) => q.bind(value),
+                SmartPlaylistUpdateBinding::Bool(value) => q.bind(value),
+                SmartPlaylistUpdateBinding::I64(value) => q.bind(value),
+            };
+        }
+        q = q.bind(&id);
+        q.execute(pool).await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        let mut q = sqlx::query(&query);
+        for binding in &bindings {
+            q = match binding {
+                SmartPlaylistUpdateBinding::Text(value) => q.bind(value),
+                SmartPlaylistUpdateBinding::Bool(value) => q.bind(value),
+                SmartPlaylistUpdateBinding::I64(value) => q.bind(value),
+            };
+        }
+        q = q.bind(&id);
+        q.execute(pool).await?;
     }
-    q = q.bind(&id);
-
-    q.execute(&state.pool).await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
@@ -446,13 +558,24 @@ pub async fn delete_smart_playlist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
-    let result = sqlx::query("DELETE FROM smart_playlists WHERE id = ? AND owner_id = ?")
-        .bind(&id)
-        .bind(user.user_id)
-        .execute(&state.pool)
-        .await?;
+    let rows_affected = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM smart_playlists WHERE id = ? AND owner_id = ?")
+            .bind(&id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await?
+            .rows_affected()
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM smart_playlists WHERE id = $1 AND owner_id = $2")
+            .bind(&id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await?
+            .rows_affected()
+    };
 
-    if result.rows_affected() == 0 {
+    if rows_affected == 0 {
         return Err(Error::NotFound(format!(
             "Smart playlist {} not found or not owned by you",
             id
@@ -475,13 +598,9 @@ pub async fn get_smart_playlist_songs(
     use crate::thumbnails::ThumbnailSize;
 
     // Fetch the smart playlist
-    let playlist: SmartPlaylist =
-        sqlx::query_as("SELECT * FROM smart_playlists WHERE id = ? AND owner_id = ?")
-            .bind(&id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", id)))?;
+    let playlist = get_owned_smart_playlist_for_user(&state.database, &id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", id)))?;
 
     // Parse rules
     let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
@@ -504,7 +623,7 @@ pub async fn get_smart_playlist_songs(
 
     // Get total count (with filter applied, respecting max_songs limit)
     let total_count = count_matching_songs_filtered(
-        &state.pool,
+        &state.database,
         &rules,
         user.user_id,
         params.filter.as_deref(),
@@ -514,7 +633,7 @@ pub async fn get_smart_playlist_songs(
 
     // Get total duration (with filter applied, respecting max_songs limit)
     let total_duration = sum_matching_songs_duration_filtered(
-        &state.pool,
+        &state.database,
         &rules,
         user.user_id,
         params.filter.as_deref(),
@@ -526,7 +645,7 @@ pub async fn get_smart_playlist_songs(
 
     // Build and execute materialization query with pagination
     let songs = materialize_smart_playlist_songs_filtered(
-        &state.pool,
+        &state.database,
         &rules,
         user.user_id,
         sort_field,
@@ -550,7 +669,7 @@ pub async fn get_smart_playlist_songs(
             .iter()
             .map(|s| (s.id.clone(), s.album_id.clone()))
             .collect();
-        get_song_thumbnails_base64(&state.pool, &song_data, size).await
+        get_song_thumbnails_base64(&state.database, &song_data, size).await
     } else {
         std::collections::HashMap::new()
     };
@@ -602,14 +721,9 @@ pub async fn materialize_smart_playlist(
     use crate::db::queries::{add_songs_to_playlist, create_playlist};
 
     // Fetch the smart playlist
-    let playlist: SmartPlaylist = sqlx::query_as(
-        "SELECT * FROM smart_playlists WHERE id = ? AND (owner_id = ? OR is_public = 1)",
-    )
-    .bind(&id)
-    .bind(user.user_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", id)))?;
+    let playlist = get_visible_smart_playlist_for_user(&state.database, &id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", id)))?;
 
     // Parse rules
     let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
@@ -617,7 +731,7 @@ pub async fn materialize_smart_playlist(
 
     // Materialize all matching songs (using the smart playlist's sort order, no pagination)
     let songs = materialize_smart_playlist_songs(
-        &state.pool,
+        &state.database,
         &rules,
         user.user_id,
         playlist.sort_field.as_deref(),
@@ -638,7 +752,7 @@ pub async fn materialize_smart_playlist(
 
     // Create the regular playlist
     create_playlist(
-        &state.pool,
+        &state.database,
         &new_playlist_id,
         &new_name,
         user.user_id,
@@ -652,7 +766,7 @@ pub async fn materialize_smart_playlist(
     // Add all songs to the playlist
     if !songs.is_empty() {
         let song_ids: Vec<String> = songs.into_iter().map(|s| s.id).collect();
-        add_songs_to_playlist(&state.pool, &new_playlist_id, &song_ids)
+        add_songs_to_playlist(&state.database, &new_playlist_id, &song_ids)
             .await
             .map_err(|e| Error::Internal(e.to_string()))?;
     }
@@ -673,15 +787,20 @@ pub async fn materialize_smart_playlist(
 
 /// Count songs matching the smart playlist rules (respecting max_songs if set)
 async fn count_matching_songs(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     max_songs: Option<i64>,
 ) -> FerrotuneApiResult<i64> {
+    let dialect = smart_playlist_sql_dialect(database)?;
+
     let (where_clause, where_args) = build_where_clause(rules, user_id)?;
 
     // Always filter by enabled music folders and user library access
-    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
+    let enabled_filter = match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "mf.enabled = 1 AND ula.user_id = ?",
+        SmartPlaylistSqlDialect::Postgres => "mf.enabled AND ula.user_id = ?",
+    };
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}", enabled_filter)
     } else {
@@ -702,19 +821,7 @@ async fn count_matching_songs(
         combined_where
     );
 
-    let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(user_id);
-
-    for arg in where_args {
-        query_builder = match arg {
-            SqlArg::Text(value) => query_builder.bind(value),
-            SqlArg::I64(value) => query_builder.bind(value),
-        };
-    }
-
-    let (count,): (i64,) = query_builder.fetch_one(pool).await?;
+    let count = execute_smart_playlist_scalar_query(database, &query, where_args, user_id).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -725,10 +832,178 @@ async fn count_matching_songs(
     Ok(effective_count)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmartPlaylistSqlDialect {
+    Sqlite,
+    Postgres,
+}
+
+fn smart_playlist_sql_dialect(
+    database: &(impl DatabaseHandle + ?Sized),
+) -> FerrotuneApiResult<SmartPlaylistSqlDialect> {
+    if database.sqlite_pool().is_ok() {
+        Ok(SmartPlaylistSqlDialect::Sqlite)
+    } else if database.postgres_pool().is_ok() {
+        Ok(SmartPlaylistSqlDialect::Postgres)
+    } else {
+        Err(Error::Internal(
+            "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
+        )
+        .into())
+    }
+}
+
+fn postgresize_smart_playlist_sql(sql: &str) -> String {
+    let sql = sql
+        .replace(" NOT LIKE ", " NOT ILIKE ")
+        .replace(" LIKE ", " ILIKE ")
+        .replace("ESCAPE '\\\\'", "ESCAPE '\\'")
+        .replace(" COLLATE NOCASE", "")
+        .replace("mf.enabled = 1", "mf.enabled")
+        .replace(
+            "SUM(play_count) as play_count",
+            "SUM(play_count)::BIGINT as play_count",
+        )
+        .replace("LIMIT -1 OFFSET ", "OFFSET ")
+        .replace("MIN(", "LEAST(");
+
+    let mut next_placeholder = 1;
+    let mut postgres_sql = String::with_capacity(sql.len() + 16);
+    for ch in sql.chars() {
+        if ch == '?' {
+            postgres_sql.push('$');
+            postgres_sql.push_str(&next_placeholder.to_string());
+            next_placeholder += 1;
+        } else {
+            postgres_sql.push(ch);
+        }
+    }
+
+    postgres_sql
+}
+
+fn smart_playlist_text_order_by(
+    dialect: SmartPlaylistSqlDialect,
+    sort_field: Option<&str>,
+) -> &'static str {
+    match (dialect, sort_field) {
+        (SmartPlaylistSqlDialect::Sqlite, Some("title"))
+        | (SmartPlaylistSqlDialect::Sqlite, Some("name")) => "s.title COLLATE NOCASE",
+        (SmartPlaylistSqlDialect::Postgres, Some("title"))
+        | (SmartPlaylistSqlDialect::Postgres, Some("name")) => "LOWER(s.title), s.title",
+        (SmartPlaylistSqlDialect::Sqlite, Some("artist")) => "ar.name COLLATE NOCASE",
+        (SmartPlaylistSqlDialect::Postgres, Some("artist")) => "LOWER(ar.name), ar.name",
+        (SmartPlaylistSqlDialect::Sqlite, Some("album")) => "al.name COLLATE NOCASE",
+        (SmartPlaylistSqlDialect::Postgres, Some("album")) => "LOWER(al.name), al.name",
+        (_, Some("year")) => "s.year",
+        (_, Some("playCount")) => "pc.play_count",
+        (_, Some("dateAdded")) | (_, Some("createdAt")) => "s.created_at",
+        (_, Some("lastPlayed")) => "pc.last_played",
+        (_, Some("duration")) => "s.duration",
+        _ => "RANDOM()",
+    }
+}
+
+fn smart_playlist_limit_offset_clause(
+    dialect: SmartPlaylistSqlDialect,
+    effective_limit: Option<i64>,
+    safe_offset: Option<i64>,
+) -> String {
+    match (dialect, effective_limit, safe_offset) {
+        (_, Some(lim), Some(off)) => format!("LIMIT {} OFFSET {}", lim, off),
+        (_, Some(lim), None) => format!("LIMIT {}", lim),
+        (SmartPlaylistSqlDialect::Sqlite, None, Some(off)) => format!("LIMIT -1 OFFSET {}", off),
+        (SmartPlaylistSqlDialect::Postgres, None, Some(off)) => format!("OFFSET {}", off),
+        (_, None, None) => String::new(),
+    }
+}
+
+async fn execute_smart_playlist_scalar_query(
+    database: &(impl DatabaseHandle + ?Sized),
+    sqlite_query: &str,
+    args: Vec<SqlArg>,
+    user_id: i64,
+) -> FerrotuneApiResult<i64> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let mut query_builder = sqlx::query_as::<_, (i64,)>(sqlite_query)
+            .bind(user_id)
+            .bind(user_id)
+            .bind(user_id);
+
+        for arg in args {
+            query_builder = match arg {
+                SqlArg::Text(value) => query_builder.bind(value),
+                SqlArg::I64(value) => query_builder.bind(value),
+            };
+        }
+
+        let (value,) = query_builder.fetch_one(pool).await?;
+        return Ok(value);
+    }
+
+    let pool = database.postgres_pool()?;
+    let postgres_query = postgresize_smart_playlist_sql(sqlite_query);
+    let mut query_builder = sqlx::query_as::<_, (i64,)>(&postgres_query)
+        .bind(user_id)
+        .bind(user_id)
+        .bind(user_id);
+
+    for arg in args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let (value,) = query_builder.fetch_one(pool).await?;
+    Ok(value)
+}
+
+async fn execute_smart_playlist_song_query(
+    database: &(impl DatabaseHandle + ?Sized),
+    sqlite_query: &str,
+    args: Vec<SqlArg>,
+    user_id: i64,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(sqlite_query)
+            .bind(user_id)
+            .bind(user_id)
+            .bind(user_id);
+
+        for arg in args {
+            query_builder = match arg {
+                SqlArg::Text(value) => query_builder.bind(value),
+                SqlArg::I64(value) => query_builder.bind(value),
+            };
+        }
+
+        let songs = query_builder.fetch_all(pool).await?;
+        return Ok(songs);
+    }
+
+    let pool = database.postgres_pool()?;
+    let postgres_query = postgresize_smart_playlist_sql(sqlite_query);
+    let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&postgres_query)
+        .bind(user_id)
+        .bind(user_id)
+        .bind(user_id);
+
+    for arg in args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let songs = query_builder.fetch_all(pool).await?;
+    Ok(songs)
+}
+
 /// Materialize songs matching the smart playlist rules
 #[allow(clippy::too_many_arguments)]
 pub async fn materialize_smart_playlist_songs(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     sort_field: Option<&str>,
@@ -737,6 +1012,8 @@ pub async fn materialize_smart_playlist_songs(
     offset: Option<i64>,
     limit: Option<i64>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let dialect = smart_playlist_sql_dialect(database)?;
+
     let (where_clause, where_args) = build_where_clause(rules, user_id)?;
 
     let safe_max_songs = max_songs.filter(|value| *value > 0);
@@ -744,7 +1021,10 @@ pub async fn materialize_smart_playlist_songs(
     let safe_limit = limit.filter(|value| *value > 0);
 
     // Always filter by enabled music folders and user library access
-    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
+    let enabled_filter = match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "mf.enabled = 1 AND ula.user_id = ?",
+        SmartPlaylistSqlDialect::Postgres => "mf.enabled AND ula.user_id = ?",
+    };
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}", enabled_filter)
     } else {
@@ -752,17 +1032,7 @@ pub async fn materialize_smart_playlist_songs(
     };
 
     // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
-    let order_by = match sort_field {
-        Some("title") | Some("name") => "s.title COLLATE NOCASE",
-        Some("artist") => "ar.name COLLATE NOCASE",
-        Some("album") => "al.name COLLATE NOCASE",
-        Some("year") => "s.year",
-        Some("playCount") => "pc.play_count",
-        Some("dateAdded") | Some("createdAt") => "s.created_at",
-        Some("lastPlayed") => "pc.last_played",
-        Some("duration") => "s.duration",
-        _ => "RANDOM()",
-    };
+    let order_by = smart_playlist_text_order_by(dialect, sort_field);
 
     let direction = match sort_direction {
         Some("desc") => "DESC",
@@ -787,14 +1057,10 @@ pub async fn materialize_smart_playlist_songs(
         (None, None) => None,
     };
 
-    let limit_offset_clause = match (effective_limit, safe_offset) {
-        (Some(lim), Some(off)) => format!("LIMIT {} OFFSET {}", lim, off),
-        (Some(lim), None) => format!("LIMIT {}", lim),
-        (None, Some(off)) => format!("LIMIT -1 OFFSET {}", off), // SQLite uses -1 for no limit with offset
-        (None, None) => String::new(),
-    };
+    let limit_offset_clause =
+        smart_playlist_limit_offset_clause(dialect, effective_limit, safe_offset);
 
-    let query = format!(
+    let sqlite_query = format!(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
                 pc.play_count, pc.last_played, st.starred_at
          FROM songs s
@@ -812,37 +1078,63 @@ pub async fn materialize_smart_playlist_songs(
         combined_where, order_by, direction, limit_offset_clause
     );
 
-    let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&query)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(user_id);
+    if dialect == SmartPlaylistSqlDialect::Sqlite {
+        let pool = database.sqlite_pool()?;
+        let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&sqlite_query)
+            .bind(user_id)
+            .bind(user_id)
+            .bind(user_id);
 
-    for arg in where_args {
-        query_builder = match arg {
-            SqlArg::Text(value) => query_builder.bind(value),
-            SqlArg::I64(value) => query_builder.bind(value),
-        };
+        for arg in where_args {
+            query_builder = match arg {
+                SqlArg::Text(value) => query_builder.bind(value),
+                SqlArg::I64(value) => query_builder.bind(value),
+            };
+        }
+
+        let songs: Vec<crate::db::models::Song> = query_builder.fetch_all(pool).await?;
+
+        Ok(songs)
+    } else {
+        let pool = database.postgres_pool()?;
+        let postgres_query = postgresize_smart_playlist_sql(&sqlite_query);
+        let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&postgres_query)
+            .bind(user_id)
+            .bind(user_id)
+            .bind(user_id);
+
+        for arg in where_args {
+            query_builder = match arg {
+                SqlArg::Text(value) => query_builder.bind(value),
+                SqlArg::I64(value) => query_builder.bind(value),
+            };
+        }
+
+        let songs: Vec<crate::db::models::Song> = query_builder.fetch_all(pool).await?;
+
+        Ok(songs)
     }
-
-    let songs: Vec<crate::db::models::Song> = query_builder.fetch_all(pool).await?;
-
-    Ok(songs)
 }
 
 /// Count songs matching the smart playlist rules with optional text filter (respecting max_songs if set)
 async fn count_matching_songs_filtered(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     filter: Option<&str>,
     max_songs: Option<i64>,
 ) -> FerrotuneApiResult<i64> {
+    let dialect = smart_playlist_sql_dialect(database)?;
+
     let (where_clause, mut where_args) = build_where_clause(rules, user_id)?;
 
     let (filter_clause, mut filter_args) = build_filter_clause(filter);
 
     // Always filter by enabled music folders and user library access
-    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
+    let enabled_filter = match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "mf.enabled = 1 AND ula.user_id = ?",
+        SmartPlaylistSqlDialect::Postgres => "mf.enabled AND ula.user_id = ?",
+    };
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}{}", enabled_filter, filter_clause)
     } else {
@@ -868,19 +1160,7 @@ async fn count_matching_songs_filtered(
 
     where_args.append(&mut filter_args);
 
-    let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(user_id);
-
-    for arg in where_args {
-        query_builder = match arg {
-            SqlArg::Text(value) => query_builder.bind(value),
-            SqlArg::I64(value) => query_builder.bind(value),
-        };
-    }
-
-    let (count,): (i64,) = query_builder.fetch_one(pool).await?;
+    let count = execute_smart_playlist_scalar_query(database, &query, where_args, user_id).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -893,7 +1173,7 @@ async fn count_matching_songs_filtered(
 
 /// Sum total duration of songs matching the smart playlist rules with optional text filter (respecting max_songs if set)
 async fn sum_matching_songs_duration_filtered(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     filter: Option<&str>,
@@ -901,12 +1181,17 @@ async fn sum_matching_songs_duration_filtered(
     sort_field: Option<&str>,
     sort_direction: Option<&str>,
 ) -> FerrotuneApiResult<i64> {
+    let dialect = smart_playlist_sql_dialect(database)?;
+
     let (where_clause, mut where_args) = build_where_clause(rules, user_id)?;
 
     let (filter_clause, mut filter_args) = build_filter_clause(filter);
 
     // Always filter by enabled music folders and user library access
-    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
+    let enabled_filter = match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "mf.enabled = 1 AND ula.user_id = ?",
+        SmartPlaylistSqlDialect::Postgres => "mf.enabled AND ula.user_id = ?",
+    };
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}{}", enabled_filter, filter_clause)
     } else {
@@ -921,19 +1206,7 @@ async fn sum_matching_songs_duration_filtered(
     let safe_max_songs = max_songs.filter(|value| *value > 0);
 
     let query = if let Some(max) = safe_max_songs {
-        // Build ORDER BY clause for the subquery (needed for correct LIMIT)
-        // Text fields use COLLATE NOCASE for case-insensitive sorting
-        let order_by = match sort_field {
-            Some("title") | Some("name") => "s.title COLLATE NOCASE",
-            Some("artist") => "ar.name COLLATE NOCASE",
-            Some("album") => "al.name COLLATE NOCASE",
-            Some("year") => "s.year",
-            Some("playCount") => "pc.play_count",
-            Some("dateAdded") | Some("createdAt") => "s.created_at",
-            Some("lastPlayed") => "pc.last_played",
-            Some("duration") => "s.duration",
-            _ => "RANDOM()",
-        };
+        let order_by = smart_playlist_text_order_by(dialect, sort_field);
         let direction = match sort_direction {
             Some("desc") => "DESC",
             Some("asc") => "ASC",
@@ -941,7 +1214,7 @@ async fn sum_matching_songs_duration_filtered(
         };
 
         format!(
-            "SELECT COALESCE(SUM(duration), 0) FROM (
+            "SELECT CAST(COALESCE(SUM(duration), 0) AS BIGINT) FROM (
                 SELECT s.duration FROM songs s
                 LEFT JOIN artists ar ON s.artist_id = ar.id
                 LEFT JOIN albums al ON s.album_id = al.id
@@ -959,7 +1232,7 @@ async fn sum_matching_songs_duration_filtered(
         )
     } else {
         format!(
-            "SELECT COALESCE(SUM(s.duration), 0) FROM songs s
+            "SELECT CAST(COALESCE(SUM(s.duration), 0) AS BIGINT) FROM songs s
              LEFT JOIN artists ar ON s.artist_id = ar.id
              LEFT JOIN albums al ON s.album_id = al.id
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
@@ -975,27 +1248,13 @@ async fn sum_matching_songs_duration_filtered(
 
     where_args.append(&mut filter_args);
 
-    let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(user_id);
-
-    for arg in where_args {
-        query_builder = match arg {
-            SqlArg::Text(value) => query_builder.bind(value),
-            SqlArg::I64(value) => query_builder.bind(value),
-        };
-    }
-
-    let (duration,): (i64,) = query_builder.fetch_one(pool).await?;
-
-    Ok(duration)
+    execute_smart_playlist_scalar_query(database, &query, where_args, user_id).await
 }
 
 /// Materialize songs matching the smart playlist rules with optional text filter
 #[allow(clippy::too_many_arguments)]
 async fn materialize_smart_playlist_songs_filtered(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     sort_field: Option<&str>,
@@ -1005,6 +1264,8 @@ async fn materialize_smart_playlist_songs_filtered(
     limit: Option<i64>,
     filter: Option<&str>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let dialect = smart_playlist_sql_dialect(database)?;
+
     let (where_clause, mut where_args) = build_where_clause(rules, user_id)?;
 
     let (filter_clause, mut filter_args) = build_filter_clause(filter);
@@ -1014,7 +1275,10 @@ async fn materialize_smart_playlist_songs_filtered(
     let safe_limit = limit.filter(|value| *value > 0);
 
     // Always filter by enabled music folders and user library access
-    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
+    let enabled_filter = match dialect {
+        SmartPlaylistSqlDialect::Sqlite => "mf.enabled = 1 AND ula.user_id = ?",
+        SmartPlaylistSqlDialect::Postgres => "mf.enabled AND ula.user_id = ?",
+    };
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}{}", enabled_filter, filter_clause)
     } else {
@@ -1025,17 +1289,7 @@ async fn materialize_smart_playlist_songs_filtered(
     };
 
     // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
-    let order_by = match sort_field {
-        Some("title") | Some("name") => "s.title COLLATE NOCASE",
-        Some("artist") => "ar.name COLLATE NOCASE",
-        Some("album") => "al.name COLLATE NOCASE",
-        Some("year") => "s.year",
-        Some("playCount") => "pc.play_count",
-        Some("dateAdded") | Some("createdAt") => "s.created_at",
-        Some("lastPlayed") => "pc.last_played",
-        Some("duration") => "s.duration",
-        _ => "RANDOM()",
-    };
+    let order_by = smart_playlist_text_order_by(dialect, sort_field);
 
     let direction = match sort_direction {
         Some("desc") => "DESC",
@@ -1058,12 +1312,8 @@ async fn materialize_smart_playlist_songs_filtered(
         (None, None) => None,
     };
 
-    let limit_offset_clause = match (effective_limit, safe_offset) {
-        (Some(lim), Some(off)) => format!("LIMIT {} OFFSET {}", lim, off),
-        (Some(lim), None) => format!("LIMIT {}", lim),
-        (None, Some(off)) => format!("LIMIT -1 OFFSET {}", off),
-        (None, None) => String::new(),
-    };
+    let limit_offset_clause =
+        smart_playlist_limit_offset_clause(dialect, effective_limit, safe_offset);
 
     let query = format!(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
@@ -1085,21 +1335,7 @@ async fn materialize_smart_playlist_songs_filtered(
 
     where_args.append(&mut filter_args);
 
-    let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&query)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(user_id);
-
-    for arg in where_args {
-        query_builder = match arg {
-            SqlArg::Text(value) => query_builder.bind(value),
-            SqlArg::I64(value) => query_builder.bind(value),
-        };
-    }
-
-    let songs: Vec<crate::db::models::Song> = query_builder.fetch_all(pool).await?;
-
-    Ok(songs)
+    execute_smart_playlist_song_query(database, &query, where_args, user_id).await
 }
 
 /// Public helper to get songs from a smart playlist by ID.
@@ -1107,20 +1343,28 @@ async fn materialize_smart_playlist_songs_filtered(
 /// Accepts optional sort_field_override and sort_direction_override to allow
 /// the client to override the playlist's default sort when playing.
 pub async fn get_smart_playlist_songs_by_id(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     playlist_id: &str,
     user_id: i64,
     sort_field_override: Option<&str>,
     sort_direction_override: Option<&str>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
-    // Fetch the smart playlist
-    let playlist: SmartPlaylist =
+    let playlist: SmartPlaylist = if let Ok(pool) = database.sqlite_pool() {
         sqlx::query_as("SELECT * FROM smart_playlists WHERE id = ? AND owner_id = ?")
             .bind(playlist_id)
             .bind(user_id)
             .fetch_optional(pool)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", playlist_id)))?;
+            .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", playlist_id)))?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as("SELECT * FROM smart_playlists WHERE id = $1 AND owner_id = $2")
+            .bind(playlist_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", playlist_id)))?
+    };
 
     // Parse rules
     let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
@@ -1132,7 +1376,7 @@ pub async fn get_smart_playlist_songs_by_id(
 
     // Materialize songs (no pagination - get all for queue)
     materialize_smart_playlist_songs(
-        pool,
+        database,
         &rules,
         user_id,
         sort_field,
@@ -1147,6 +1391,13 @@ pub async fn get_smart_playlist_songs_by_id(
 #[derive(Debug, Clone)]
 enum SqlArg {
     Text(String),
+    I64(i64),
+}
+
+#[derive(Debug, Clone)]
+enum SmartPlaylistUpdateBinding {
+    Text(String),
+    Bool(bool),
     I64(i64),
 }
 
