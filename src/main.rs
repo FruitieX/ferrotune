@@ -146,8 +146,11 @@ async fn main() -> Result<()> {
     );
 
     // Create database connection pool
-    tracing::info!("Connecting to database: {}", config.database.path.display());
-    let pool = db::create_pool(&config.database.path).await?;
+    tracing::info!(
+        "Connecting to database: {}",
+        config.database.connection_label()
+    );
+    let pool = db::create_pool(&config.database).await?;
 
     // Handle subcommands
     match cli.command {
@@ -236,17 +239,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()> {
+async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     tracing::info!(
         "Starting server on {}:{}",
         config.server.host,
         config.server.port
     );
 
+    let sqlite_pool = pool.legacy_sqlite_pool_for_state().await?;
+
     // Check if we need to create initial admin user
-    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&pool)
-        .await?;
+    let user_count = db::queries::count_users(&pool).await?;
 
     if user_count == 0 {
         tracing::info!("No users found. Creating admin user...");
@@ -272,7 +275,8 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     let scan_state = api::create_scan_state();
     let session_manager = Arc::new(api::SessionManager::new());
     let state = Arc::new(api::AppState {
-        pool: pool.clone(),
+        database: pool.clone(),
+        pool: sqlite_pool,
         config: config.clone(),
         scan_state: scan_state.clone(),
         shuffle_cache: Default::default(),
@@ -280,7 +284,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     });
 
     // Start the file watcher for directories with watch_enabled=true
-    let (watcher, watcher_rx) = watcher::LibraryWatcher::new(pool, scan_state);
+    let (watcher, watcher_rx) = watcher::LibraryWatcher::new(pool.clone(), scan_state);
     let library_watcher = Arc::new(watcher);
     if let Err(e) = library_watcher.start(watcher_rx).await {
         tracing::warn!("Failed to start file watcher: {}", e);
@@ -294,20 +298,20 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     // inactive (not playing) for 5 minutes. This prevents idle tabs from
     // starting playback when another tab initiates a queue.
     {
-        let pool = state.pool.clone();
+        let database = state.database.clone();
         let session_manager = session_manager.clone();
         tokio::spawn(async move {
             const INACTIVITY_SECONDS: i64 = 300; // 5 minutes
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
-                match db::queries::get_sessions_with_inactive_owners(&pool, INACTIVITY_SECONDS)
+                match db::queries::get_sessions_with_inactive_owners(&database, INACTIVITY_SECONDS)
                     .await
                 {
                     Ok(sessions) => {
                         for session in sessions {
                             if let Err(e) =
-                                db::queries::clear_session_owner(&pool, &session.id).await
+                                db::queries::clear_session_owner(&database, &session.id).await
                             {
                                 tracing::warn!(
                                     "Failed to clear inactive owner for session {}: {}",

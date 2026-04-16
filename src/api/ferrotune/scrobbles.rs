@@ -5,7 +5,7 @@
 use crate::api::common::scrobbling::insert_submission_scrobble_if_not_recent_duplicate;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::retry::with_retry;
+use crate::db::{retry::with_retry, DatabaseHandle};
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
@@ -16,6 +16,326 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
+
+fn unsupported_database_handle_error() -> sqlx::Error {
+    sqlx::Error::Protocol(
+        "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
+    )
+}
+
+fn postgres_placeholders(start_index: usize, count: usize) -> String {
+    (start_index..start_index + count)
+        .map(|index| format!("${}", index))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+async fn fetch_existing_song_ids(
+    database: &(impl DatabaseHandle + ?Sized),
+    song_ids: &[&str],
+) -> Result<Vec<String>, sqlx::Error> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if let Ok(pool) = database.sqlite_pool() {
+        let placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
+        let validation_query = format!(
+            "SELECT id FROM songs WHERE id IN ({})",
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query_scalar::<_, String>(&validation_query);
+        for song_id in song_ids {
+            query = query.bind(*song_id);
+        }
+        query.fetch_all(pool).await
+    } else if let Ok(pool) = database.postgres_pool() {
+        let validation_query = format!(
+            "SELECT id FROM songs WHERE id IN ({})",
+            postgres_placeholders(1, song_ids.len())
+        );
+        let mut query = sqlx::query_scalar::<_, String>(&validation_query);
+        for song_id in song_ids {
+            query = query.bind(*song_id);
+        }
+        query.fetch_all(pool).await
+    } else {
+        Err(unsupported_database_handle_error())
+    }
+}
+
+async fn delete_user_rows_for_song_ids(
+    database: &(impl DatabaseHandle + ?Sized),
+    table: &str,
+    user_id: i64,
+    song_ids: &[String],
+) -> Result<u64, sqlx::Error> {
+    if song_ids.is_empty() {
+        return Ok(0);
+    }
+
+    if let Ok(pool) = database.sqlite_pool_cloned() {
+        let delete_query = format!(
+            "DELETE FROM {table} WHERE user_id = ? AND song_id IN ({})",
+            vec!["?"; song_ids.len()].join(", ")
+        );
+        let song_ids_owned = song_ids.to_vec();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let delete_query = delete_query.clone();
+                let song_ids = song_ids_owned.clone();
+                async move {
+                    let mut delete_stmt = sqlx::query(&delete_query).bind(user_id);
+                    for song_id in &song_ids {
+                        delete_stmt = delete_stmt.bind(song_id.as_str());
+                    }
+                    delete_stmt
+                        .execute(&pool)
+                        .await
+                        .map(|result| result.rows_affected())
+                }
+            },
+            None,
+        )
+        .await
+    } else if let Ok(pool) = database.postgres_pool_cloned() {
+        let delete_query = format!(
+            "DELETE FROM {table} WHERE user_id = $1 AND song_id IN ({})",
+            postgres_placeholders(2, song_ids.len())
+        );
+        let song_ids_owned = song_ids.to_vec();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let delete_query = delete_query.clone();
+                let song_ids = song_ids_owned.clone();
+                async move {
+                    let mut delete_stmt = sqlx::query(&delete_query).bind(user_id);
+                    for song_id in &song_ids {
+                        delete_stmt = delete_stmt.bind(song_id.as_str());
+                    }
+                    delete_stmt
+                        .execute(&pool)
+                        .await
+                        .map(|result| result.rows_affected())
+                }
+            },
+            None,
+        )
+        .await
+    } else {
+        Err(unsupported_database_handle_error())
+    }
+}
+
+async fn fetch_duplicate_import_stats(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    description: &str,
+) -> Result<Option<(i64, i64)>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            r#"
+            SELECT COUNT(DISTINCT song_id) as song_count, COALESCE(SUM(play_count), 0) as total_plays
+            FROM scrobbles
+            WHERE user_id = ? AND description = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(description)
+        .fetch_optional(pool)
+        .await
+    } else if let Ok(pool) = database.postgres_pool() {
+        sqlx::query_as(
+            r#"
+            SELECT COUNT(DISTINCT song_id)::BIGINT as song_count,
+                   COALESCE(SUM(play_count), 0)::BIGINT as total_plays
+            FROM scrobbles
+            WHERE user_id = $1 AND description = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(description)
+        .fetch_optional(pool)
+        .await
+    } else {
+        Err(unsupported_database_handle_error())
+    }
+}
+
+async fn fetch_song_play_count_rows(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    song_ids: &[String],
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if let Ok(pool) = database.sqlite_pool() {
+        let query = format!(
+            r#"
+            SELECT song_id, COALESCE(SUM(play_count), 0) as play_count
+            FROM scrobbles
+            WHERE user_id = ? AND submission = 1 AND song_id IN ({})
+            GROUP BY song_id
+            "#,
+            vec!["?"; song_ids.len()].join(", ")
+        );
+        let mut stmt = sqlx::query_as::<_, (String, i64)>(&query).bind(user_id);
+        for song_id in song_ids {
+            stmt = stmt.bind(song_id);
+        }
+        stmt.fetch_all(pool).await
+    } else if let Ok(pool) = database.postgres_pool() {
+        let query = format!(
+            r#"
+            SELECT song_id, COALESCE(SUM(play_count), 0)::BIGINT as play_count
+            FROM scrobbles
+            WHERE user_id = $1 AND submission AND song_id IN ({})
+            GROUP BY song_id
+            "#,
+            postgres_placeholders(2, song_ids.len())
+        );
+        let mut stmt = sqlx::query_as::<_, (String, i64)>(&query).bind(user_id);
+        for song_id in song_ids {
+            stmt = stmt.bind(song_id);
+        }
+        stmt.fetch_all(pool).await
+    } else {
+        Err(unsupported_database_handle_error())
+    }
+}
+
+async fn insert_import_scrobble_row(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    song_id: &str,
+    played_at: Option<chrono::DateTime<Utc>>,
+    play_count: i32,
+    description: Option<String>,
+) -> Result<u64, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool_cloned() {
+        let song_id = song_id.to_string();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let song_id = song_id.clone();
+                let description = description.clone();
+                async move {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+                        VALUES (?, ?, ?, 1, ?, ?)
+                        "#,
+                    )
+                    .bind(user_id)
+                    .bind(&song_id)
+                    .bind(played_at)
+                    .bind(play_count)
+                    .bind(&description)
+                    .execute(&pool)
+                    .await
+                    .map(|result| result.rows_affected())
+                }
+            },
+            None,
+        )
+        .await
+    } else if let Ok(pool) = database.postgres_pool_cloned() {
+        let song_id = song_id.to_string();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let song_id = song_id.clone();
+                let description = description.clone();
+                async move {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+                        VALUES ($1, $2, $3, TRUE, $4, $5)
+                        "#,
+                    )
+                    .bind(user_id)
+                    .bind(&song_id)
+                    .bind(played_at)
+                    .bind(play_count)
+                    .bind(&description)
+                    .execute(&pool)
+                    .await
+                    .map(|result| result.rows_affected())
+                }
+            },
+            None,
+        )
+        .await
+    } else {
+        Err(unsupported_database_handle_error())
+    }
+}
+
+async fn insert_listening_session_row(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    song_id: &str,
+    duration_seconds: i32,
+    listened_at: chrono::DateTime<Utc>,
+) -> Result<u64, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool_cloned() {
+        let song_id = song_id.to_string();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let song_id = song_id.clone();
+                async move {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
+                        VALUES (?, ?, ?, ?)
+                        "#,
+                    )
+                    .bind(user_id)
+                    .bind(&song_id)
+                    .bind(duration_seconds)
+                    .bind(listened_at)
+                    .execute(&pool)
+                    .await
+                    .map(|result| result.rows_affected())
+                }
+            },
+            None,
+        )
+        .await
+    } else if let Ok(pool) = database.postgres_pool_cloned() {
+        let song_id = song_id.to_string();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let song_id = song_id.clone();
+                async move {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
+                        VALUES ($1, $2, $3, $4)
+                        "#,
+                    )
+                    .bind(user_id)
+                    .bind(&song_id)
+                    .bind(duration_seconds)
+                    .bind(listened_at)
+                    .execute(&pool)
+                    .await
+                    .map(|result| result.rows_affected())
+                }
+            },
+            None,
+        )
+        .await
+    } else {
+        Err(unsupported_database_handle_error())
+    }
+}
 
 // ============================================================================
 // Scrobble Endpoint (Single)
@@ -59,7 +379,7 @@ pub async fn scrobble(
     // If submission, record it
     if params.submission {
         if insert_submission_scrobble_if_not_recent_duplicate(
-            &state.pool,
+            &state.database,
             user.user_id,
             &params.id,
             played_at,
@@ -71,12 +391,13 @@ pub async fn scrobble(
             // Record scrobble
             // Forward to Last.fm in background (non-blocking)
             {
-                let pool = state.pool.clone();
+                let database = state.database.clone();
                 let uid = user.user_id;
                 let song_id = params.id.clone();
                 let ts = played_at.timestamp();
                 tokio::spawn(async move {
-                    if let Err(e) = super::lastfm::forward_scrobble(&pool, uid, &song_id, ts).await
+                    if let Err(e) =
+                        super::lastfm::forward_scrobble(&database, uid, &song_id, ts).await
                     {
                         tracing::warn!("Last.fm scrobble failed: {}", e);
                     }
@@ -86,11 +407,11 @@ pub async fn scrobble(
     } else {
         // "Now playing" notification - forward to Last.fm
         {
-            let pool = state.pool.clone();
+            let database = state.database.clone();
             let uid = user.user_id;
             let song_id = params.id.clone();
             tokio::spawn(async move {
-                if let Err(e) = super::lastfm::update_now_playing(&pool, uid, &song_id).await {
+                if let Err(e) = super::lastfm::update_now_playing(&database, uid, &song_id).await {
                     tracing::warn!("Last.fm now playing update failed: {}", e);
                 }
             });
@@ -174,19 +495,7 @@ pub async fn import_scrobbles(
     // Collect all song IDs for validation
     let song_ids: Vec<&str> = request.entries.iter().map(|e| e.song_id.as_str()).collect();
 
-    // Validate that all song IDs exist
-    let placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
-    let validation_query = format!(
-        "SELECT id FROM songs WHERE id IN ({})",
-        placeholders.join(", ")
-    );
-
-    let mut query = sqlx::query_scalar::<_, String>(&validation_query);
-    for id in &song_ids {
-        query = query.bind(*id);
-    }
-
-    let existing_ids: Vec<String> = query.fetch_all(&state.pool).await?;
+    let existing_ids = fetch_existing_song_ids(&state.database, &song_ids).await?;
 
     // Filter entries to only include existing songs
     let existing_set: std::collections::HashSet<&str> =
@@ -205,32 +514,12 @@ pub async fn import_scrobbles(
 
     // If replace mode, delete existing scrobbles for the affected songs
     if request.mode == ImportMode::Replace {
-        let valid_song_ids: Vec<&str> = valid_entries.iter().map(|e| e.song_id.as_str()).collect();
-        let delete_placeholders: Vec<&str> = valid_song_ids.iter().map(|_| "?").collect();
-        let delete_query = format!(
-            "DELETE FROM scrobbles WHERE user_id = ? AND song_id IN ({})",
-            delete_placeholders.join(", ")
-        );
-
-        let pool = state.pool.clone();
-        let uid = user.user_id;
-        let song_ids_owned: Vec<String> = valid_song_ids.iter().map(|s| s.to_string()).collect();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let delete_query = delete_query.clone();
-                let song_ids = song_ids_owned.clone();
-                async move {
-                    let mut delete_stmt = sqlx::query(&delete_query).bind(uid);
-                    for id in &song_ids {
-                        delete_stmt = delete_stmt.bind(id.as_str());
-                    }
-                    delete_stmt.execute(&pool).await
-                }
-            },
-            None,
-        )
-        .await?;
+        let song_ids_owned: Vec<String> = valid_entries
+            .iter()
+            .map(|entry| entry.song_id.clone())
+            .collect();
+        delete_user_rows_for_song_ids(&state.database, "scrobbles", user.user_id, &song_ids_owned)
+            .await?;
     }
 
     // Insert new scrobbles - one row per song with play_count
@@ -242,33 +531,13 @@ pub async fn import_scrobbles(
             continue;
         }
 
-        let pool = state.pool.clone();
-        let uid = user.user_id;
-        let song_id = entry.song_id.clone();
-        let play_count = entry.play_count;
-        let description = request.description.clone();
-
-        let result = with_retry(
-            || {
-                let pool = pool.clone();
-                let song_id = song_id.clone();
-                let description = description.clone();
-                async move {
-                    sqlx::query(
-                        r#"
-                        INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-                        VALUES (?, ?, NULL, 1, ?, ?)
-                        "#,
-                    )
-                    .bind(uid)
-                    .bind(&song_id)
-                    .bind(play_count)
-                    .bind(&description)
-                    .execute(&pool)
-                    .await
-                }
-            },
+        let result = insert_import_scrobble_row(
+            &state.database,
+            user.user_id,
+            &entry.song_id,
             None,
+            entry.play_count,
+            request.description.clone(),
         )
         .await;
 
@@ -332,17 +601,7 @@ pub async fn check_import_duplicate(
     }
 
     // Query for existing scrobbles with this description
-    let result: Option<(i64, i64)> = sqlx::query_as(
-        r#"
-        SELECT COUNT(DISTINCT song_id) as song_count, COALESCE(SUM(play_count), 0) as total_plays
-        FROM scrobbles
-        WHERE user_id = ? AND description = ?
-        "#,
-    )
-    .bind(user.user_id)
-    .bind(description)
-    .fetch_optional(&state.pool)
-    .await?;
+    let result = fetch_duplicate_import_stats(&state.database, user.user_id, description).await?;
 
     match result {
         Some((song_count, total_plays)) if song_count > 0 => {
@@ -410,23 +669,7 @@ pub async fn get_play_counts(
         return Ok(Json(GetPlayCountsResponse { counts: vec![] }));
     }
 
-    let placeholders: Vec<&str> = request.song_ids.iter().map(|_| "?").collect();
-    let query = format!(
-        r#"
-        SELECT song_id, COALESCE(SUM(play_count), 0) as play_count
-        FROM scrobbles
-        WHERE user_id = ? AND submission = 1 AND song_id IN ({})
-        GROUP BY song_id
-        "#,
-        placeholders.join(", ")
-    );
-
-    let mut stmt = sqlx::query_as::<_, (String, i64)>(&query).bind(user.user_id);
-    for id in &request.song_ids {
-        stmt = stmt.bind(id);
-    }
-
-    let rows = stmt.fetch_all(&state.pool).await?;
+    let rows = fetch_song_play_count_rows(&state.database, user.user_id, &request.song_ids).await?;
 
     let counts: Vec<SongPlayCount> = rows
         .into_iter()
@@ -524,19 +767,7 @@ pub async fn import_with_timestamps(
     // Collect all song IDs for validation
     let song_ids: Vec<&str> = request.songs.iter().map(|s| s.song_id.as_str()).collect();
 
-    // Validate that all song IDs exist
-    let placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
-    let validation_query = format!(
-        "SELECT id FROM songs WHERE id IN ({})",
-        placeholders.join(", ")
-    );
-
-    let mut query = sqlx::query_scalar::<_, String>(&validation_query);
-    for id in &song_ids {
-        query = query.bind(*id);
-    }
-
-    let existing_ids: Vec<String> = query.fetch_all(&state.pool).await?;
+    let existing_ids = fetch_existing_song_ids(&state.database, &song_ids).await?;
     let existing_set: std::collections::HashSet<&str> =
         existing_ids.iter().map(|s| s.as_str()).collect();
 
@@ -555,55 +786,17 @@ pub async fn import_with_timestamps(
 
     // If replace mode, delete existing data for the affected songs
     if request.mode == ImportMode::Replace {
-        let valid_song_ids: Vec<&str> = valid_songs.iter().map(|s| s.song_id.as_str()).collect();
-        let delete_placeholders: Vec<&str> = valid_song_ids.iter().map(|_| "?").collect();
-
-        // Delete from scrobbles
-        let delete_scrobbles_query = format!(
-            "DELETE FROM scrobbles WHERE user_id = ? AND song_id IN ({})",
-            delete_placeholders.join(", ")
-        );
-        let pool = state.pool.clone();
-        let uid = user.user_id;
-        let song_ids_owned: Vec<String> = valid_song_ids.iter().map(|s| s.to_string()).collect();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let delete_query = delete_scrobbles_query.clone();
-                let song_ids = song_ids_owned.clone();
-                async move {
-                    let mut delete_stmt = sqlx::query(&delete_query).bind(uid);
-                    for id in &song_ids {
-                        delete_stmt = delete_stmt.bind(id.as_str());
-                    }
-                    delete_stmt.execute(&pool).await
-                }
-            },
-            None,
-        )
-        .await?;
-
-        // Delete from listening_sessions
-        let delete_sessions_query = format!(
-            "DELETE FROM listening_sessions WHERE user_id = ? AND song_id IN ({})",
-            delete_placeholders.join(", ")
-        );
-        let pool = state.pool.clone();
-        let song_ids_owned: Vec<String> = valid_song_ids.iter().map(|s| s.to_string()).collect();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let delete_query = delete_sessions_query.clone();
-                let song_ids = song_ids_owned.clone();
-                async move {
-                    let mut delete_stmt = sqlx::query(&delete_query).bind(uid);
-                    for id in &song_ids {
-                        delete_stmt = delete_stmt.bind(id.as_str());
-                    }
-                    delete_stmt.execute(&pool).await
-                }
-            },
-            None,
+        let song_ids_owned: Vec<String> = valid_songs
+            .iter()
+            .map(|song| song.song_id.clone())
+            .collect();
+        delete_user_rows_for_song_ids(&state.database, "scrobbles", user.user_id, &song_ids_owned)
+            .await?;
+        delete_user_rows_for_song_ids(
+            &state.database,
+            "listening_sessions",
+            user.user_id,
+            &song_ids_owned,
         )
         .await?;
     }
@@ -643,31 +836,12 @@ pub async fn import_with_timestamps(
             };
 
             // Insert into listening_sessions (all plays for duration tracking)
-            let pool = state.pool.clone();
-            let uid = user.user_id;
-            let song_id = song.song_id.clone();
-            let duration = play.duration_seconds;
-
-            let session_result = with_retry(
-                || {
-                    let pool = pool.clone();
-                    let song_id = song_id.clone();
-                    async move {
-                        sqlx::query(
-                            r#"
-                            INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-                            VALUES (?, ?, ?, ?)
-                            "#,
-                        )
-                        .bind(uid)
-                        .bind(&song_id)
-                        .bind(duration)
-                        .bind(played_at)
-                        .execute(&pool)
-                        .await
-                    }
-                },
-                None,
+            let session_result = insert_listening_session_row(
+                &state.database,
+                user.user_id,
+                &song.song_id,
+                play.duration_seconds,
+                played_at,
             )
             .await;
 
@@ -678,31 +852,13 @@ pub async fn import_with_timestamps(
 
             // Insert into scrobbles only if this is a scrobble
             if play.is_scrobble {
-                let pool = state.pool.clone();
-                let song_id = song.song_id.clone();
-                let description = request.description.clone();
-
-                let scrobble_result = with_retry(
-                    || {
-                        let pool = pool.clone();
-                        let song_id = song_id.clone();
-                        let description = description.clone();
-                        async move {
-                            sqlx::query(
-                                r#"
-                                INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-                                VALUES (?, ?, ?, 1, 1, ?)
-                                "#,
-                            )
-                            .bind(uid)
-                            .bind(&song_id)
-                            .bind(played_at)
-                            .bind(&description)
-                            .execute(&pool)
-                            .await
-                        }
-                    },
-                    None,
+                let scrobble_result = insert_import_scrobble_row(
+                    &state.database,
+                    user.user_id,
+                    &song.song_id,
+                    Some(played_at),
+                    1,
+                    request.description.clone(),
                 )
                 .await;
 

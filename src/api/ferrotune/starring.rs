@@ -43,7 +43,7 @@ pub async fn star(
     Json(request): Json<StarRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
     star_items(
-        &state.pool,
+        &state.database,
         user.user_id,
         &request.id,
         &request.album_id,
@@ -61,7 +61,7 @@ pub async fn unstar(
     Json(request): Json<StarRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
     unstar_items(
-        &state.pool,
+        &state.database,
         user.user_id,
         &request.id,
         &request.album_id,
@@ -98,7 +98,7 @@ pub async fn set_rating(
         )));
     }
 
-    set_item_rating(&state.pool, user.user_id, &request.id, request.rating).await?;
+    set_item_rating(&state.database, user.user_id, &request.id, request.rating).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -126,7 +126,7 @@ pub async fn get_starred(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<FerrotuneStarredResponse>> {
     let (artist_responses, album_responses, song_responses) =
-        fetch_starred_content(&state.pool, user.user_id).await?;
+        fetch_starred_content(&state.database, user.user_id).await?;
 
     Ok(Json(FerrotuneStarredResponse {
         artists: artist_responses,

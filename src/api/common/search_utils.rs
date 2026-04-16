@@ -15,23 +15,23 @@ use crate::api::subsonic::inline_thumbnails::{
     get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
 };
 use crate::db::models::ItemType;
+use crate::db::DatabaseHandle;
 use crate::error::Result;
 use crate::thumbnails::ThumbnailSize;
-use sqlx::SqlitePool;
 use std::collections::HashMap;
 
 /// Post-process artist search results with starred/rating maps and thumbnails
 pub async fn post_process_artists(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     artist_result: ArtistSearchResult,
     inline_size: Option<ThumbnailSize>,
 ) -> Result<Vec<ArtistResponse>> {
     let artist_ids: Vec<String> = artist_result.artists.iter().map(|a| a.id.clone()).collect();
-    let artist_starred = get_starred_map(pool, user_id, ItemType::Artist, &artist_ids).await?;
-    let artist_ratings = get_ratings_map(pool, user_id, ItemType::Artist, &artist_ids).await?;
+    let artist_starred = get_starred_map(database, user_id, ItemType::Artist, &artist_ids).await?;
+    let artist_ratings = get_ratings_map(database, user_id, ItemType::Artist, &artist_ids).await?;
 
-    let artist_thumbnails = if let Some(size) = inline_size {
+    let artist_thumbnails = if let (Some(size), Ok(pool)) = (inline_size, database.sqlite_pool()) {
         get_artist_thumbnails_base64(pool, &artist_ids, size).await
     } else {
         HashMap::new()
@@ -57,16 +57,16 @@ pub async fn post_process_artists(
 
 /// Post-process album search results with starred/rating maps and thumbnails
 pub async fn post_process_albums(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     album_result: AlbumSearchResult,
     inline_size: Option<ThumbnailSize>,
 ) -> Result<Vec<AlbumResponse>> {
     let album_ids: Vec<String> = album_result.albums.iter().map(|a| a.id.clone()).collect();
-    let album_starred = get_starred_map(pool, user_id, ItemType::Album, &album_ids).await?;
-    let album_ratings = get_ratings_map(pool, user_id, ItemType::Album, &album_ids).await?;
+    let album_starred = get_starred_map(database, user_id, ItemType::Album, &album_ids).await?;
+    let album_ratings = get_ratings_map(database, user_id, ItemType::Album, &album_ids).await?;
 
-    let album_thumbnails = if let Some(size) = inline_size {
+    let album_thumbnails = if let (Some(size), Ok(pool)) = (inline_size, database.sqlite_pool()) {
         get_album_thumbnails_base64(pool, &album_ids, size).await
     } else {
         HashMap::new()
@@ -101,14 +101,14 @@ pub async fn post_process_albums(
 
 /// Post-process song search results with starred/rating maps and thumbnails
 pub async fn post_process_songs(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     song_result: SongSearchResult,
     inline_size: Option<ThumbnailSize>,
 ) -> Result<Vec<SongResponse>> {
     let song_ids: Vec<String> = song_result.songs.iter().map(|s| s.id.clone()).collect();
-    let song_starred = get_starred_map(pool, user_id, ItemType::Song, &song_ids).await?;
-    let song_ratings = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let song_starred = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
+    let song_ratings = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails for songs if requested (uses album thumbnails)
     let song_thumbnail_data: Vec<(String, Option<String>)> = song_result
@@ -116,7 +116,7 @@ pub async fn post_process_songs(
         .iter()
         .map(|s| (s.id.clone(), s.album_id.clone()))
         .collect();
-    let song_thumbnails = if let Some(size) = inline_size {
+    let song_thumbnails = if let (Some(size), Ok(pool)) = (inline_size, database.sqlite_pool()) {
         get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
     } else {
         HashMap::new()
@@ -159,7 +159,7 @@ pub struct SearchResults {
 /// Execute full search with post-processing
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_search(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     query: &str,
     params: &SearchParams,
@@ -172,21 +172,30 @@ pub async fn execute_search(
     inline_size: Option<ThumbnailSize>,
 ) -> Result<SearchResults> {
     // Search artists
-    let artist_result =
-        search_artists(pool, user_id, query, params, artist_count, artist_offset).await?;
+    let artist_result = search_artists(
+        database,
+        user_id,
+        query,
+        params,
+        artist_count,
+        artist_offset,
+    )
+    .await?;
     let artist_total = artist_result.total;
-    let artist_responses = post_process_artists(pool, user_id, artist_result, inline_size).await?;
+    let artist_responses =
+        post_process_artists(database, user_id, artist_result, inline_size).await?;
 
     // Search albums
     let album_result =
-        search_albums(pool, user_id, query, params, album_count, album_offset).await?;
+        search_albums(database, user_id, query, params, album_count, album_offset).await?;
     let album_total = album_result.total;
-    let album_responses = post_process_albums(pool, user_id, album_result, inline_size).await?;
+    let album_responses = post_process_albums(database, user_id, album_result, inline_size).await?;
 
     // Search songs
-    let song_result = search_songs(pool, user_id, query, params, song_count, song_offset).await?;
+    let song_result =
+        search_songs(database, user_id, query, params, song_count, song_offset).await?;
     let song_total = song_result.total;
-    let song_responses = post_process_songs(pool, user_id, song_result, inline_size).await?;
+    let song_responses = post_process_songs(database, user_id, song_result, inline_size).await?;
 
     Ok(SearchResults {
         artist_responses,

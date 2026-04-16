@@ -65,12 +65,23 @@ pub async fn get_disabled(
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
 ) -> FerrotuneApiResult<Json<DisabledStatusResponse>> {
-    let result: Option<(i64,)> =
+    let result: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as("SELECT id FROM disabled_songs WHERE user_id = ? AND song_id = ?")
             .bind(user.user_id)
             .bind(&song_id)
-            .fetch_optional(&state.pool)
-            .await?;
+            .fetch_optional(pool)
+            .await?
+    } else if let Ok(pool) = state.database.postgres_pool() {
+        sqlx::query_as("SELECT id FROM disabled_songs WHERE user_id = $1 AND song_id = $2")
+            .bind(user.user_id)
+            .bind(&song_id)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        return Err(
+            Error::Internal("Unsupported database backend for disabled songs".to_string()).into(),
+        );
+    };
 
     Ok(Json(DisabledStatusResponse {
         song_id,
@@ -89,12 +100,29 @@ pub async fn set_disabled(
 ) -> FerrotuneApiResult<Json<DisabledStatusResponse>> {
     if body.disabled {
         // Add to disabled list
-        sqlx::query("INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)")
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)")
+                .bind(user.user_id)
+                .bind(&song_id)
+                .execute(pool)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to disable song: {}", e)))?;
+        } else if let Ok(pool) = state.database.postgres_pool() {
+            sqlx::query(
+                "INSERT INTO disabled_songs (user_id, song_id) VALUES ($1, $2)
+                 ON CONFLICT (user_id, song_id) DO NOTHING",
+            )
             .bind(user.user_id)
             .bind(&song_id)
-            .execute(&state.pool)
+            .execute(pool)
             .await
             .map_err(|e| Error::Internal(format!("Failed to disable song: {}", e)))?;
+        } else {
+            return Err(Error::Internal(
+                "Unsupported database backend for disabled songs".to_string(),
+            )
+            .into());
+        }
 
         Ok(Json(DisabledStatusResponse {
             song_id,
@@ -102,12 +130,26 @@ pub async fn set_disabled(
         }))
     } else {
         // Remove from disabled list
-        sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
-            .bind(user.user_id)
-            .bind(&song_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to enable song: {}", e)))?;
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
+                .bind(user.user_id)
+                .bind(&song_id)
+                .execute(pool)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to enable song: {}", e)))?;
+        } else if let Ok(pool) = state.database.postgres_pool() {
+            sqlx::query("DELETE FROM disabled_songs WHERE user_id = $1 AND song_id = $2")
+                .bind(user.user_id)
+                .bind(&song_id)
+                .execute(pool)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to enable song: {}", e)))?;
+        } else {
+            return Err(Error::Internal(
+                "Unsupported database backend for disabled songs".to_string(),
+            )
+            .into());
+        }
 
         Ok(Json(DisabledStatusResponse {
             song_id,
@@ -123,12 +165,23 @@ pub async fn get_all_disabled(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<DisabledSongsResponse>> {
-    let rows: Vec<(String,)> =
+    let rows: Vec<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as("SELECT song_id FROM disabled_songs WHERE user_id = ?")
             .bind(user.user_id)
-            .fetch_all(&state.pool)
+            .fetch_all(pool)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get disabled songs: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get disabled songs: {}", e)))?
+    } else if let Ok(pool) = state.database.postgres_pool() {
+        sqlx::query_as("SELECT song_id FROM disabled_songs WHERE user_id = $1")
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get disabled songs: {}", e)))?
+    } else {
+        return Err(
+            Error::Internal("Unsupported database backend for disabled songs".to_string()).into(),
+        );
+    };
 
     Ok(Json(DisabledSongsResponse {
         song_ids: rows.into_iter().map(|(id,)| id).collect(),
@@ -147,21 +200,56 @@ pub async fn bulk_set_disabled(
 
     if body.disabled {
         // Add all to disabled list
-        for song_id in &body.song_ids {
-            sqlx::query("INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)")
+        if let Ok(pool) = state.database.sqlite_pool() {
+            for song_id in &body.song_ids {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)",
+                )
                 .bind(user.user_id)
                 .bind(song_id)
-                .execute(&state.pool)
+                .execute(pool)
                 .await?;
+            }
+        } else if let Ok(pool) = state.database.postgres_pool() {
+            for song_id in &body.song_ids {
+                sqlx::query(
+                    "INSERT INTO disabled_songs (user_id, song_id) VALUES ($1, $2)
+                     ON CONFLICT (user_id, song_id) DO NOTHING",
+                )
+                .bind(user.user_id)
+                .bind(song_id)
+                .execute(pool)
+                .await?;
+            }
+        } else {
+            return Err(Error::Internal(
+                "Unsupported database backend for disabled songs".to_string(),
+            )
+            .into());
         }
     } else {
         // Remove all from disabled list
-        for song_id in &body.song_ids {
-            sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
-                .bind(user.user_id)
-                .bind(song_id)
-                .execute(&state.pool)
-                .await?;
+        if let Ok(pool) = state.database.sqlite_pool() {
+            for song_id in &body.song_ids {
+                sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
+                    .bind(user.user_id)
+                    .bind(song_id)
+                    .execute(pool)
+                    .await?;
+            }
+        } else if let Ok(pool) = state.database.postgres_pool() {
+            for song_id in &body.song_ids {
+                sqlx::query("DELETE FROM disabled_songs WHERE user_id = $1 AND song_id = $2")
+                    .bind(user.user_id)
+                    .bind(song_id)
+                    .execute(pool)
+                    .await?;
+            }
+        } else {
+            return Err(Error::Internal(
+                "Unsupported database backend for disabled songs".to_string(),
+            )
+            .into());
         }
     }
 

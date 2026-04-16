@@ -10,10 +10,9 @@
 //! - Thread-safe event aggregation
 
 use crate::api::ScanState;
-use crate::db::models::MusicFolder;
+use crate::db::{models::MusicFolder, Database};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
-use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,8 +36,8 @@ pub enum WatcherMessage {
 
 /// File system watcher that triggers scans on changes
 pub struct LibraryWatcher {
-    /// Database connection pool
-    pool: SqlitePool,
+    /// Runtime database handle
+    pool: Database,
     /// Shared scan state for progress updates (reserved for future use)
     #[allow(dead_code)]
     scan_state: Arc<ScanState>,
@@ -54,7 +53,7 @@ impl LibraryWatcher {
     /// Create a new library watcher
     /// Returns the watcher and the receiver for watcher messages
     pub fn new(
-        pool: SqlitePool,
+        pool: Database,
         scan_state: Arc<ScanState>,
     ) -> (Self, mpsc::Receiver<WatcherMessage>) {
         let (tx, rx) = mpsc::channel(100);
@@ -118,12 +117,13 @@ impl LibraryWatcher {
 
     /// Load music folders that have watch_enabled = true
     async fn load_watch_enabled_folders(&self) -> anyhow::Result<Vec<MusicFolder>> {
+        let pool = self.pool.sqlite_pool()?;
         let folders: Vec<MusicFolder> = sqlx::query_as(
             "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error 
              FROM music_folders 
              WHERE enabled = 1 AND watch_enabled = 1",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(pool)
         .await?;
 
         Ok(folders)

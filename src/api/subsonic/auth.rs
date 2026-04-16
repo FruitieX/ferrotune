@@ -1,6 +1,7 @@
 use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::CommonParams;
 use crate::db::queries;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiError, Result};
 use crate::password;
 use axum::{
@@ -8,7 +9,6 @@ use axum::{
     http::{header::AUTHORIZATION, request::Parts},
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use sqlx::SqlitePool;
 use std::sync::Arc;
 
 /// Authenticated user for OpenSubsonic API endpoints.
@@ -70,12 +70,12 @@ impl FromRequestParts<Arc<crate::api::AppState>> for AuthenticatedUser {
         state: &Arc<crate::api::AppState>,
     ) -> Result<Self> {
         // Try HTTP Basic Auth first (useful for Admin API and tools like curl)
-        if let Some(user) = try_basic_auth(parts, &state.pool).await? {
+        if let Some(user) = try_basic_auth(parts, &state.database).await? {
             return Ok(user);
         }
 
         // Try API key via X-Api-Key header (used by native mobile client)
-        if let Some(user) = try_api_key_header(parts, &state.pool).await? {
+        if let Some(user) = try_api_key_header(parts, &state.database).await? {
             return Ok(user);
         }
 
@@ -109,7 +109,7 @@ impl FromRequestParts<Arc<crate::api::AppState>> for AuthenticatedUser {
             ));
         }
 
-        authenticate_request(&state.pool, &params, format).await
+        authenticate_request(&state.database, &params, format).await
     }
 }
 
@@ -129,7 +129,10 @@ impl FromRequestParts<Arc<crate::api::AppState>> for FerrotuneAuthenticatedUser 
     }
 }
 
-async fn try_basic_auth(parts: &Parts, pool: &SqlitePool) -> Result<Option<AuthenticatedUser>> {
+async fn try_basic_auth(
+    parts: &Parts,
+    database: &(impl DatabaseHandle + ?Sized),
+) -> Result<Option<AuthenticatedUser>> {
     let auth_header = match parts.headers.get(AUTHORIZATION) {
         Some(h) => h,
         None => return Ok(None),
@@ -174,12 +177,15 @@ async fn try_basic_auth(parts: &Parts, pool: &SqlitePool) -> Result<Option<Authe
         })
         .unwrap_or_else(|| "http-basic".to_string());
 
-    authenticate_with_password(pool, username, password, format, client)
+    authenticate_with_password(database, username, password, format, client)
         .await
         .map(Some)
 }
 
-async fn try_api_key_header(parts: &Parts, pool: &SqlitePool) -> Result<Option<AuthenticatedUser>> {
+async fn try_api_key_header(
+    parts: &Parts,
+    database: &(impl DatabaseHandle + ?Sized),
+) -> Result<Option<AuthenticatedUser>> {
     let header_value = match parts.headers.get("X-Api-Key") {
         Some(h) => h,
         None => return Ok(None),
@@ -206,13 +212,13 @@ async fn try_api_key_header(parts: &Parts, pool: &SqlitePool) -> Result<Option<A
         })
         .unwrap_or_else(|| "api-key-header".to_string());
 
-    authenticate_with_api_key(pool, api_key, format, client)
+    authenticate_with_api_key(database, api_key, format, client)
         .await
         .map(Some)
 }
 
 pub async fn authenticate_request(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     params: &CommonParams,
     format: ResponseFormat,
 ) -> Result<AuthenticatedUser> {
@@ -239,20 +245,20 @@ pub async fn authenticate_request(
     // API Key authentication (preferred)
     if let Some(ref api_key) = params.api_key {
         tracing::debug!(client = %params.c, "Attempting API key authentication");
-        return authenticate_with_api_key(pool, api_key, format, client).await;
+        return authenticate_with_api_key(database, api_key, format, client).await;
     }
 
     // Token + Salt authentication
     if let (Some(ref username), Some(ref token), Some(ref salt)) = (&params.u, &params.t, &params.s)
     {
         tracing::debug!(username = %username, client = %params.c, "Attempting token authentication");
-        return authenticate_with_token(pool, username, token, salt, format, client).await;
+        return authenticate_with_token(database, username, token, salt, format, client).await;
     }
 
     // Legacy password authentication (for testing only)
     if let (Some(ref username), Some(ref password)) = (&params.u, &params.p) {
         tracing::debug!(username = %username, client = %params.c, "Attempting password authentication");
-        return authenticate_with_password(pool, username, password, format, client).await;
+        return authenticate_with_password(database, username, password, format, client).await;
     }
 
     tracing::warn!(client = %params.c, "No valid authentication method provided");
@@ -262,12 +268,12 @@ pub async fn authenticate_request(
 }
 
 async fn authenticate_with_api_key(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     token: &str,
     format: ResponseFormat,
     client: String,
 ) -> Result<AuthenticatedUser> {
-    let user = queries::get_user_by_api_key(pool, token)
+    let user = queries::get_user_by_api_key(database, token)
         .await?
         .ok_or_else(|| {
             tracing::warn!("Invalid API key attempted");
@@ -285,14 +291,14 @@ async fn authenticate_with_api_key(
 }
 
 async fn authenticate_with_token(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     username: &str,
     token: &str,
     salt: &str,
     format: ResponseFormat,
     client: String,
 ) -> Result<AuthenticatedUser> {
-    let user = queries::get_user_by_username(pool, username)
+    let user = queries::get_user_by_username(database, username)
         .await?
         .ok_or_else(|| {
             tracing::warn!(username = %username, "Token auth failed: user not found");
@@ -320,7 +326,7 @@ async fn authenticate_with_token(
 }
 
 async fn authenticate_with_password(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     username: &str,
     password: &str,
     format: ResponseFormat,
@@ -337,7 +343,7 @@ async fn authenticate_with_password(
         password.to_string()
     };
 
-    let user = queries::get_user_by_username(pool, username)
+    let user = queries::get_user_by_username(database, username)
         .await?
         .ok_or_else(|| {
             tracing::warn!(username = %username, "Password auth failed: user not found");

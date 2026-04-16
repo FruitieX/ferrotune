@@ -19,20 +19,20 @@ use ts_rs::TS;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayHistoryParams {
-    size: Option<u32>,
-    offset: Option<u32>,
+    pub size: Option<u32>,
+    pub offset: Option<u32>,
     /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
     #[serde(default)]
-    sort: Option<String>,
+    pub sort: Option<String>,
     /// Sort direction: asc or desc
     #[serde(default)]
-    sort_dir: Option<String>,
+    pub sort_dir: Option<String>,
     /// Filter text to match against song title, artist, album
     #[serde(default)]
-    filter: Option<String>,
+    pub filter: Option<String>,
     /// Include inline cover art thumbnails (small or medium)
     #[serde(default)]
-    inline_images: Option<String>,
+    pub inline_images: Option<String>,
 }
 
 /// Response for play history
@@ -63,7 +63,7 @@ pub async fn get_play_history(
     Query(params): Query<PlayHistoryParams>,
 ) -> FerrotuneApiResult<Json<FerrotunePlayHistoryResponse>> {
     let result = fetch_play_history(
-        &state.pool,
+        &state.database,
         user.user_id,
         CommonPlayHistoryParams {
             size: params.size.unwrap_or(50).min(500) as i64,

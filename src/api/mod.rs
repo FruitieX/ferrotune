@@ -220,6 +220,7 @@ impl SessionManager {
 
 /// Shared application state for all API handlers.
 pub struct AppState {
+    pub database: crate::db::Database,
     pub pool: SqlitePool,
     pub config: crate::config::Config,
     pub scan_state: Arc<ScanState>,

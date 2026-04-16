@@ -12,10 +12,10 @@
 
 #![allow(dead_code)]
 
+use crate::db::DatabaseHandle;
 use crate::thumbnails::ThumbnailSize;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use std::collections::HashMap;
 
 /// Query parameter for requesting inline thumbnails
@@ -40,13 +40,24 @@ impl InlineImagesParam {
 
 /// Fetch thumbnails for multiple albums and return as base64-encoded map
 pub async fn get_album_thumbnails_base64(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     album_ids: &[String],
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
     if album_ids.is_empty() {
         return HashMap::new();
     }
+
+    let pool = match database.sqlite_pool() {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!(
+                "Fetching album thumbnails requires a SQLite-backed database: {}",
+                e
+            );
+            return HashMap::new();
+        }
+    };
 
     let column = match size {
         ThumbnailSize::Small => "small",
@@ -85,7 +96,7 @@ pub async fn get_album_thumbnails_base64(
 
 /// Get a single album thumbnail as base64
 pub async fn get_album_thumbnail_base64(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     album_id: &str,
     size: ThumbnailSize,
 ) -> Option<String> {
@@ -93,6 +104,17 @@ pub async fn get_album_thumbnail_base64(
         ThumbnailSize::Small => "small",
         ThumbnailSize::Medium => "medium",
         ThumbnailSize::Large => return None,
+    };
+
+    let pool = match database.sqlite_pool() {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!(
+                "Fetching album thumbnail requires a SQLite-backed database: {}",
+                e
+            );
+            return None;
+        }
     };
 
     let query = format!(
@@ -114,13 +136,24 @@ pub async fn get_album_thumbnail_base64(
 
 /// Get thumbnails for multiple artists (uses their first album's thumbnail)
 pub async fn get_artist_thumbnails_base64(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     artist_ids: &[String],
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
     if artist_ids.is_empty() {
         return HashMap::new();
     }
+
+    let pool = match database.sqlite_pool() {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!(
+                "Fetching artist thumbnails requires a SQLite-backed database: {}",
+                e
+            );
+            return HashMap::new();
+        }
+    };
 
     let column = match size {
         ThumbnailSize::Small => "small",
@@ -165,13 +198,24 @@ pub async fn get_artist_thumbnails_base64(
 
 /// Get thumbnails for songs (uses song's own cover art, falls back to album's cover art)
 pub async fn get_song_thumbnails_base64(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     songs: &[(String, Option<String>)], // (song_id, album_id)
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
     if songs.is_empty() {
         return HashMap::new();
     }
+
+    let pool = match database.sqlite_pool() {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!(
+                "Fetching song thumbnails requires a SQLite-backed database: {}",
+                e
+            );
+            return HashMap::new();
+        }
+    };
 
     let column = match size {
         ThumbnailSize::Small => "small",
@@ -243,12 +287,23 @@ pub async fn get_song_thumbnails_base64(
 /// Generate a tiled playlist thumbnail from album thumbnails and return as base64
 #[allow(unused_imports)]
 pub async fn get_playlist_thumbnail_base64(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     playlist_id: &str,
     size: ThumbnailSize,
 ) -> Option<String> {
     use image::{imageops::FilterType, DynamicImage, GenericImage, ImageFormat, RgbImage};
     use std::io::Cursor;
+
+    let pool = match database.sqlite_pool() {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!(
+                "Fetching playlist thumbnail requires a SQLite-backed database: {}",
+                e
+            );
+            return None;
+        }
+    };
 
     // Get medium thumbnails for tiling (better quality for compositing)
     let tile_size_enum = ThumbnailSize::Medium;
@@ -313,11 +368,21 @@ pub async fn get_playlist_thumbnail_base64(
 
 /// Get thumbnails for multiple playlists
 pub async fn get_playlist_thumbnails_base64(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     playlist_ids: &[String],
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
     let mut result = HashMap::new();
+    let pool = match database.sqlite_pool_cloned() {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!(
+                "Fetching playlist thumbnails requires a SQLite-backed database: {}",
+                e
+            );
+            return result;
+        }
+    };
 
     // Process playlists in parallel (limited concurrency)
     let futures: Vec<_> = playlist_ids

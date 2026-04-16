@@ -70,7 +70,7 @@ pub async fn search(
 
     // Execute search with post-processing using shared utility
     let results = execute_search(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.query,
         &params,

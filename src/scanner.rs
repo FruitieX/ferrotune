@@ -1,5 +1,5 @@
 use crate::api::ScanState;
-
+use crate::db::DatabaseHandle;
 use crate::error::{Error, Result};
 use async_walkdir::WalkDir;
 use futures::stream::{self, StreamExt};
@@ -106,14 +106,14 @@ fn format_eta(total_secs: u64) -> String {
 }
 
 pub async fn scan_library(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     full: bool,
     folder_id: Option<i64>,
     dry_run: bool,
     analyze_replaygain: bool,
 ) -> Result<()> {
     scan_library_with_progress(
-        pool,
+        database,
         ScanOptions {
             full,
             folder_id,
@@ -137,10 +137,12 @@ pub async fn scan_library(
 /// high CPU usage during normal operation. Users can run a full scan with
 /// ReplayGain analysis enabled to compute gain values.
 pub async fn scan_specific_files(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     folder_id: i64,
     file_paths: Vec<PathBuf>,
 ) -> Result<()> {
+    let pool = database.sqlite_pool()?;
+
     if file_paths.is_empty() {
         return Ok(());
     }
@@ -280,10 +282,12 @@ pub struct ScanOptions {
 }
 
 pub async fn scan_library_with_progress(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     opts: ScanOptions,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
+    let pool = database.sqlite_pool()?;
+
     let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
 
     // Get music folders from database (database is the source of truth)

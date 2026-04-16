@@ -6,13 +6,13 @@
 //! and chroma/harmonic content. Similarity is determined via euclidean distance
 //! between these vectors.
 
+use crate::db::DatabaseHandle;
 use crate::error::{Error, Result};
 use bliss_audio::decoder::symphonia::SymphoniaDecoder;
 use bliss_audio::decoder::Decoder as BlissDecoder;
 use bliss_audio::playlist::euclidean_distance;
 use bliss_audio::{Analysis, FeaturesVersion, NUMBER_FEATURES};
 use rand::seq::SliceRandom;
-use sqlx::SqlitePool;
 use std::path::Path;
 
 /// Result of bliss audio analysis for a single track.
@@ -82,11 +82,13 @@ struct SongCandidate {
 /// euclidean distance against the seed song's features, and returns the
 /// closest matches.
 pub async fn find_similar_songs(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     seed_song_id: &str,
     user_id: i64,
     count: usize,
 ) -> Result<Vec<(String, f32)>> {
+    let pool = database.sqlite_pool()?;
+
     // Load seed song's features (must be accessible to the user)
     let seed_row: Option<(Vec<u8>, String, String)> = sqlx::query_as(
         "SELECT s.bliss_features, s.title, s.artist_id

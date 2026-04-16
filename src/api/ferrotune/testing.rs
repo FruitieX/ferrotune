@@ -6,6 +6,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::db::DatabaseHandle;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -67,7 +68,7 @@ pub async fn reset_state(
     let user_id = user.user_id;
 
     // Clear all user-modifiable tables for this user
-    let result = reset_user_state(&state.pool, user_id).await;
+    let result = reset_user_state(&state.database, user_id).await;
 
     match result {
         Ok(()) => (
@@ -88,7 +89,14 @@ pub async fn reset_state(
 }
 
 /// Reset all state for a specific user.
-async fn reset_user_state(pool: &sqlx::SqlitePool, user_id: i64) -> Result<(), sqlx::Error> {
+async fn reset_user_state(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> Result<(), sqlx::Error> {
+    let pool = database
+        .sqlite_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
     // Use a transaction for atomicity
     let mut tx = pool.begin().await?;
 

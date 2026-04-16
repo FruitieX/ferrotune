@@ -64,7 +64,7 @@ pub async fn get_preferences(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<PreferencesResponse>> {
-    let prefs = queries::get_user_preferences(&state.pool, user.user_id)
+    let prefs = queries::get_user_preferences(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get user preferences: {}", e)))?;
 
@@ -146,7 +146,7 @@ pub async fn update_preferences(
     }
 
     // Get existing preferences to preserve preferences_json
-    let existing_prefs = queries::get_user_preferences(&state.pool, user.user_id)
+    let existing_prefs = queries::get_user_preferences(&state.database, user.user_id)
         .await
         .ok()
         .flatten();
@@ -156,7 +156,7 @@ pub async fn update_preferences(
         .unwrap_or_default();
 
     queries::upsert_user_preferences(
-        &state.pool,
+        &state.database,
         user.user_id,
         &request.accent_color,
         request.custom_accent_hue,
@@ -185,7 +185,7 @@ pub async fn get_preference(
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
 ) -> FerrotuneApiResult<Json<GetPreferenceResponse>> {
-    let prefs = queries::get_user_preferences(&state.pool, user.user_id)
+    let prefs = queries::get_user_preferences(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get preference: {}", e)))?;
 
@@ -209,7 +209,7 @@ pub async fn set_preference(
     Json(request): Json<SetPreferenceRequest>,
 ) -> FerrotuneApiResult<Json<GetPreferenceResponse>> {
     // Get existing preferences
-    let existing = queries::get_user_preferences(&state.pool, user.user_id)
+    let existing = queries::get_user_preferences(&state.database, user.user_id)
         .await
         .ok()
         .flatten();
@@ -234,7 +234,7 @@ pub async fn set_preference(
     let custom_accent_chroma = existing.as_ref().and_then(|p| p.custom_accent_chroma);
 
     queries::upsert_user_preferences(
-        &state.pool,
+        &state.database,
         user.user_id,
         &accent_color,
         custom_accent_hue,
@@ -258,7 +258,7 @@ pub async fn delete_preference(
     Path(key): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Get existing preferences
-    let existing = queries::get_user_preferences(&state.pool, user.user_id)
+    let existing = queries::get_user_preferences(&state.database, user.user_id)
         .await
         .ok()
         .flatten();
@@ -287,7 +287,7 @@ pub async fn delete_preference(
     let custom_accent_chroma = existing.as_ref().and_then(|p| p.custom_accent_chroma);
 
     queries::upsert_user_preferences(
-        &state.pool,
+        &state.database,
         user.user_id,
         &accent_color,
         custom_accent_hue,

@@ -8,7 +8,7 @@ use crate::api::common::playqueue::find_current_index;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::FerrotuneApiResult;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -43,56 +43,41 @@ pub async fn save_play_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<SavePlayQueueRequest>,
-) -> FerrotuneApiResult<impl IntoResponse> {
-    // Use a transaction to ensure atomicity
-    let mut tx = state.pool.begin().await?;
-
+) -> FerrotuneApiResult<(StatusCode, Json<SavePlayQueueResponse>)> {
     // Use a deterministic session ID for ferrotune playqueue API
     let session_id = format!("playqueue-{}", user.user_id);
-
-    // Delete existing queue entries for this user's playqueue session
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ?")
-        .bind(user.user_id)
-        .bind(&session_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Insert new queue entries
-    for (position, song_id) in request.song_ids.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO play_queue_entries (user_id, session_id, song_id, queue_position) VALUES (?, ?, ?, ?)",
-        )
-        .bind(user.user_id)
-        .bind(&session_id)
-        .bind(song_id)
-        .bind(position as i64)
-        .execute(&mut *tx)
-        .await?;
-    }
 
     // Find current index from current song ID
     let current_index = find_current_index(&request.song_ids, request.current.as_deref());
 
-    // Upsert the queue metadata using new schema
-    sqlx::query(
-        "INSERT INTO play_queues (user_id, session_id, source_type, current_index, position_ms, 
-         is_shuffled, repeat_mode, created_at, updated_at, changed_by, source_api)
-         VALUES (?, ?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?, 'subsonic')
-         ON CONFLICT(user_id, session_id) DO UPDATE SET
-            current_index = excluded.current_index,
-            position_ms = excluded.position_ms,
-            updated_at = datetime('now'),
-            changed_by = excluded.changed_by",
+    crate::db::queries::create_queue_for_session(
+        &state.database,
+        user.user_id,
+        &session_id,
+        "other",
+        None,
+        None,
+        &request.song_ids,
+        None,
+        current_index,
+        false,
+        None,
+        None,
+        "off",
+        None,
+        None,
+        "ferrotune",
     )
-    .bind(user.user_id)
-    .bind(&session_id)
-    .bind(current_index)
-    .bind(request.position.unwrap_or(0))
-    .bind("ferrotune")
-    .execute(&mut *tx)
     .await?;
 
-    tx.commit().await?;
+    if let Some(position_ms) = request.position {
+        crate::db::queries::update_queue_position_ms_by_session(
+            &state.database,
+            &session_id,
+            position_ms,
+        )
+        .await?;
+    }
 
     Ok((
         StatusCode::OK,

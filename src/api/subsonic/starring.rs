@@ -38,7 +38,7 @@ pub async fn set_rating(
         ));
     }
 
-    set_item_rating(&state.pool, user.user_id, &id, params.rating).await?;
+    set_item_rating(&state.database, user.user_id, &id, params.rating).await?;
 
     Ok(format_ok_empty(user.format))
 }
@@ -59,7 +59,7 @@ pub async fn star(
     QsQuery(params): QsQuery<StarParams>,
 ) -> Result<impl axum::response::IntoResponse> {
     star_items(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.id,
         &params.album_id,
@@ -76,7 +76,7 @@ pub async fn unstar(
     QsQuery(params): QsQuery<StarParams>,
 ) -> Result<impl axum::response::IntoResponse> {
     unstar_items(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.id,
         &params.album_id,
@@ -118,7 +118,7 @@ pub async fn get_starred2(
     State(state): State<Arc<AppState>>,
 ) -> Result<FormatResponse<Starred2Response>> {
     let (artist_responses, album_responses, song_responses) =
-        fetch_starred_content(&state.pool, user.user_id).await?;
+        fetch_starred_content(&state.database, user.user_id).await?;
 
     let response = Starred2Response {
         starred2: Starred2Content {
@@ -137,7 +137,7 @@ pub async fn get_starred(
     State(state): State<Arc<AppState>>,
 ) -> Result<FormatResponse<StarredResponse>> {
     let (artist_responses, album_responses, song_responses) =
-        fetch_starred_content(&state.pool, user.user_id).await?;
+        fetch_starred_content(&state.database, user.user_id).await?;
 
     let response = StarredResponse {
         starred: Starred2Content {

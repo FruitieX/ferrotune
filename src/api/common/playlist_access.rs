@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use crate::db::DatabaseHandle;
 
 /// Represents a user's access level to a playlist.
 pub struct PlaylistAccess {
@@ -16,7 +16,7 @@ pub struct PlaylistAccess {
 /// - Public playlist: read-only
 /// - Otherwise: no access
 pub async fn get_playlist_access(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
     playlist_owner_id: i64,
     playlist_id: &str,
@@ -30,14 +30,27 @@ pub async fn get_playlist_access(
         });
     }
 
-    // Check if the playlist is shared with this user
-    let share: Option<(bool,)> = sqlx::query_as(
-        "SELECT can_edit FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
-    )
-    .bind(playlist_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+    let share: Option<(bool,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT can_edit FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
+        )
+        .bind(playlist_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+    } else if let Ok(pool) = database.postgres_pool() {
+        sqlx::query_as(
+            "SELECT can_edit FROM playlist_shares WHERE playlist_id = $1 AND shared_with_user_id = $2",
+        )
+        .bind(playlist_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        return Err(sqlx::Error::Protocol(
+            "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
+        ));
+    };
 
     if let Some((can_edit,)) = share {
         return Ok(PlaylistAccess {

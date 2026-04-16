@@ -175,19 +175,16 @@ pub fn create_router_with_layers(state: Arc<api::AppState>) -> Router {
 pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> {
     tracing::info!("Initializing Ferrotune v{}", env!("CARGO_PKG_VERSION"));
 
-    // Ensure database directory exists
-    if let Some(parent) = config.database.path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-
     // Create database connection pool
-    tracing::info!("Connecting to database: {}", config.database.path.display());
-    let pool = db::create_pool(&config.database.path).await?;
+    tracing::info!(
+        "Connecting to database: {}",
+        config.database.connection_label()
+    );
+    let pool = db::create_pool(&config.database).await?;
+    let sqlite_pool = pool.legacy_sqlite_pool_for_state().await?;
 
     // Check if we need to create initial admin user
-    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&pool)
-        .await?;
+    let user_count = db::queries::count_users(&pool).await?;
 
     if user_count == 0 {
         tracing::info!("No users found. Creating admin user...");
@@ -205,7 +202,8 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
     // Create shared app state
     let scan_state = api::create_scan_state();
     let state = Arc::new(api::AppState {
-        pool: pool.clone(),
+        database: pool.clone(),
+        pool: sqlite_pool,
         config: config.clone(),
         scan_state: scan_state.clone(),
         shuffle_cache: Default::default(),
@@ -213,7 +211,7 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
     });
 
     // Start the file watcher for directories with watch_enabled=true
-    let (watcher, watcher_rx) = watcher::LibraryWatcher::new(pool, scan_state);
+    let (watcher, watcher_rx) = watcher::LibraryWatcher::new(pool.clone(), scan_state);
     let library_watcher = Arc::new(watcher);
     if let Err(e) = library_watcher.start(watcher_rx).await {
         tracing::warn!("Failed to start file watcher: {}", e);
@@ -350,11 +348,7 @@ pub async fn start_embedded_server(
 }
 
 /// Create the admin user
-pub async fn create_admin_user(
-    pool: &sqlx::SqlitePool,
-    username: &str,
-    password: &str,
-) -> Result<()> {
+pub async fn create_admin_user(pool: &db::Database, username: &str, password: &str) -> Result<()> {
     let password_hash = password::hash_password(password)
         .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
     let subsonic_token = password::create_subsonic_token(password);
@@ -365,61 +359,39 @@ pub async fn create_admin_user(
     tracing::info!("Admin user '{}' created successfully", username);
 
     // Grant access to all existing music folders
-    let folders: Vec<(i64,)> = sqlx::query_as("SELECT id FROM music_folders")
-        .fetch_all(pool)
-        .await?;
-
-    for (folder_id,) in folders {
-        sqlx::query(
-            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-        )
-        .bind(user_id)
-        .bind(folder_id)
-        .execute(pool)
-        .await?;
+    for folder_id in db::queries::get_music_folder_ids(pool).await? {
+        db::queries::grant_user_library_access(pool, user_id, folder_id).await?;
     }
 
     Ok(())
 }
 
 /// Initialize music folders from config into the database
-async fn init_music_folders(pool: &sqlx::SqlitePool, config: &config::Config) -> Result<()> {
+async fn init_music_folders(pool: &db::Database, config: &config::Config) -> Result<()> {
     for folder in &config.music.folders {
         if !folder.path.exists() {
             tracing::warn!("Music folder does not exist: {}", folder.path.display());
-        } else {
-            let existing: Option<(i64,)> =
-                sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
-                    .bind(folder.path.to_string_lossy().as_ref())
-                    .fetch_optional(pool)
-                    .await?;
+        } else if db::queries::get_music_folder_id_by_path(
+            pool,
+            folder.path.to_string_lossy().as_ref(),
+        )
+        .await?
+        .is_none()
+        {
+            let folder_id = db::queries::create_music_folder(
+                pool,
+                &folder.name,
+                &folder.path.to_string_lossy(),
+            )
+            .await?;
+            tracing::info!(
+                "Added music folder: {} -> {}",
+                folder.name,
+                folder.path.display()
+            );
 
-            if existing.is_none() {
-                let folder_id = db::queries::create_music_folder(
-                    pool,
-                    &folder.name,
-                    &folder.path.to_string_lossy(),
-                )
-                .await?;
-                tracing::info!(
-                    "Added music folder: {} -> {}",
-                    folder.name,
-                    folder.path.display()
-                );
-
-                let users: Vec<(i64,)> = sqlx::query_as("SELECT id FROM users")
-                    .fetch_all(pool)
-                    .await?;
-
-                for (user_id,) in users {
-                    sqlx::query(
-                        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-                    )
-                    .bind(user_id)
-                    .bind(folder_id)
-                    .execute(pool)
-                    .await?;
-                }
+            for user_id in db::queries::get_user_ids(pool).await? {
+                db::queries::grant_user_library_access(pool, user_id, folder_id).await?;
             }
         }
     }

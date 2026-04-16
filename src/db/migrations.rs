@@ -2,6 +2,7 @@
 //!
 //! These migrations require Rust logic that can't be expressed in SQL.
 
+use crate::db::DatabaseHandle;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use tracing::info;
@@ -9,9 +10,21 @@ use uuid::Uuid;
 
 /// Run all data migrations.
 /// This should be called after schema migrations complete.
-pub async fn run_data_migrations(pool: &SqlitePool) -> crate::error::Result<()> {
-    migrate_virtual_folders(pool).await?;
-    Ok(())
+pub async fn run_data_migrations(
+    database: &(impl DatabaseHandle + ?Sized),
+) -> crate::error::Result<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return migrate_virtual_folders(pool).await;
+    }
+
+    if database.postgres_pool().is_ok() {
+        info!("Skipping SQLite-specific data migrations for PostgreSQL");
+        return Ok(());
+    }
+
+    Err(crate::error::Error::Internal(
+        "Unsupported database handle for data migrations".to_string(),
+    ))
 }
 
 /// Migrate virtual folders (path-based playlist names) to proper folder entities.

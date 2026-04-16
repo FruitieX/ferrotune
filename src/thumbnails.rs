@@ -15,12 +15,12 @@
 //! - Identical duplicate tracks to share cover art
 //! - Efficient caching based on content hash
 
+use crate::db::DatabaseHandle;
 use crate::error::{Error, Result};
 use image::{imageops::FilterType, DynamicImage, ImageFormat};
 use lofty::config::ParseOptions;
 use lofty::file::TaggedFileExt;
 use lofty::probe::Probe;
-use sqlx::SqlitePool;
 use std::io::Cursor;
 use std::path::Path;
 use tokio::fs;
@@ -78,9 +78,11 @@ pub struct CoverArtResult {
 /// If the hash already exists in `cover_art_thumbnails`, dimensions are still computed.
 /// Otherwise, thumbnails are generated and inserted.
 pub async fn ensure_cover_art_with_dimensions(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     image_data: &[u8],
 ) -> Result<CoverArtResult> {
+    let pool = database.sqlite_pool()?;
+
     // 1. Compute hash
     let hash = blake3::hash(image_data).to_hex().to_string();
 
@@ -155,10 +157,12 @@ fn get_image_dimensions(data: &[u8]) -> Result<(u32, u32)> {
 
 /// Get a thumbnail by hash and size
 pub async fn get_thumbnail(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     hash: &str,
     size: ThumbnailSize,
 ) -> Result<Option<Vec<u8>>> {
+    let pool = database.sqlite_pool()?;
+
     let column = match size {
         ThumbnailSize::Small => "small",
         ThumbnailSize::Medium => "medium",

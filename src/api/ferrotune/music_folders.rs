@@ -7,6 +7,7 @@ use crate::api::ferrotune::users::require_admin;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser as AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MusicFolder;
+use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
@@ -561,17 +562,19 @@ pub async fn get_music_folder_stats(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> FerrotuneApiResult<Json<MusicFolderStats>> {
+    let pool = state.database.sqlite_pool()?;
+
     // Check if folder exists
     let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(pool)
         .await?;
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
-    let stats = get_folder_stats(&state.pool, id).await?;
+    let stats = get_folder_stats(&state.database, id).await?;
     Ok(Json(stats))
 }
 
@@ -579,15 +582,16 @@ pub async fn get_music_folder_stats(
 async fn get_all_music_folders_with_stats(
     state: &AppState,
 ) -> FerrotuneApiResult<Vec<MusicFolderInfo>> {
+    let pool = state.database.sqlite_pool()?;
     let folders: Vec<MusicFolder> = sqlx::query_as(
         "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
     )
-    .fetch_all(&state.pool)
+    .fetch_all(pool)
     .await?;
 
     let mut result = Vec::with_capacity(folders.len());
     for folder in folders {
-        let stats = get_folder_stats(&state.pool, folder.id).await?;
+        let stats = get_folder_stats(&state.database, folder.id).await?;
         result.push(MusicFolderInfo {
             id: folder.id,
             name: folder.name,
@@ -608,16 +612,17 @@ async fn get_music_folder_with_stats(
     state: &AppState,
     id: i64,
 ) -> FerrotuneApiResult<Option<MusicFolderInfo>> {
+    let pool = state.database.sqlite_pool()?;
     let folder: Option<MusicFolder> = sqlx::query_as(
         "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(pool)
     .await?;
 
     match folder {
         Some(folder) => {
-            let stats = get_folder_stats(&state.pool, folder.id).await?;
+            let stats = get_folder_stats(&state.database, folder.id).await?;
             Ok(Some(MusicFolderInfo {
                 id: folder.id,
                 name: folder.name,
@@ -635,9 +640,11 @@ async fn get_music_folder_with_stats(
 
 /// Helper: Get statistics for a specific folder
 async fn get_folder_stats(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     folder_id: i64,
 ) -> FerrotuneApiResult<MusicFolderStats> {
+    let pool = database.sqlite_pool()?;
+
     let (song_count,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = ?")
             .bind(folder_id)
@@ -675,9 +682,10 @@ async fn get_folder_stats(
 
 /// Update the last_scanned_at timestamp for a folder after a successful scan.
 pub async fn update_folder_scan_timestamp(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     folder_id: i64,
 ) -> FerrotuneApiResult<()> {
+    let pool = database.sqlite_pool()?;
     sqlx::query("UPDATE music_folders SET last_scanned_at = ?, scan_error = NULL WHERE id = ?")
         .bind(Utc::now())
         .bind(folder_id)
@@ -688,10 +696,11 @@ pub async fn update_folder_scan_timestamp(
 
 /// Update the scan_error for a folder after a failed scan.
 pub async fn update_folder_scan_error(
-    pool: &sqlx::SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     folder_id: i64,
     error: &str,
 ) -> FerrotuneApiResult<()> {
+    let pool = database.sqlite_pool()?;
     sqlx::query("UPDATE music_folders SET scan_error = ? WHERE id = ?")
         .bind(error)
         .bind(folder_id)

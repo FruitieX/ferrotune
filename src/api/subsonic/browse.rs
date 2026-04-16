@@ -38,7 +38,7 @@ pub async fn get_artists(
     State(state): State<Arc<AppState>>,
     Query(_params): Query<MusicFolderParam>,
 ) -> crate::error::Result<FormatResponse<ArtistsResponse>> {
-    let artists_index = get_artists_logic(&state.pool, user.user_id).await?;
+    let artists_index = get_artists_logic(&state.database, user.user_id).await?;
 
     Ok(FormatResponse::new(
         user.format,
@@ -79,7 +79,7 @@ pub async fn get_artist(
     Query(params): Query<GetArtistParams>,
 ) -> crate::error::Result<FormatResponse<ArtistDetailResponse>> {
     let artist_detail = get_artist_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.id,
         params.filter.as_deref(),
@@ -141,7 +141,7 @@ pub async fn get_artist_info2(
     Query(params): Query<ArtistInfoParams>,
 ) -> crate::error::Result<FormatResponse<ArtistInfo2Response>> {
     // Verify the artist exists
-    let _artist = crate::db::queries::get_artist_by_id(&state.pool, &params.id)
+    let _artist = crate::db::queries::get_artist_by_id(&state.database, &params.id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", params.id)))?;
 
@@ -192,7 +192,7 @@ pub async fn get_album(
     Query(params): Query<GetAlbumParams>,
 ) -> crate::error::Result<FormatResponse<AlbumDetailResponse>> {
     let album_detail = get_album_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.id,
         params.filter.as_deref(),
@@ -223,7 +223,7 @@ pub async fn get_song(
     State(state): State<Arc<AppState>>,
     Query(params): Query<IdParam>,
 ) -> crate::error::Result<FormatResponse<SongDetailResponse>> {
-    let song = get_song_logic(&state.pool, user.user_id, &params.id).await?;
+    let song = get_song_logic(&state.database, user.user_id, &params.id).await?;
 
     Ok(FormatResponse::new(
         user.format,
@@ -244,7 +244,7 @@ pub async fn get_genres(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> crate::error::Result<FormatResponse<GenresResponse>> {
-    let genres_list = get_genres_logic(&state.pool, user.user_id).await?;
+    let genres_list = get_genres_logic(&state.database, user.user_id).await?;
 
     Ok(FormatResponse::new(
         user.format,
@@ -293,18 +293,22 @@ pub async fn get_similar_songs2(
         use crate::api::common::starring::{get_ratings_map, get_starred_map};
         use crate::db::models::ItemType;
 
-        let similar =
-            crate::bliss::find_similar_songs(&state.pool, &params.id, user.user_id, params.count)
-                .await?;
+        let similar = crate::bliss::find_similar_songs(
+            &state.database,
+            &params.id,
+            user.user_id,
+            params.count,
+        )
+        .await?;
         let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
         let songs =
-            crate::db::queries::get_songs_by_ids_for_user(&state.pool, &song_ids, user.user_id)
+            crate::db::queries::get_songs_by_ids_for_user(&state.database, &song_ids, user.user_id)
                 .await?;
 
         let starred_map =
-            get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+            get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
         let ratings_map =
-            get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+            get_ratings_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
 
         songs
             .into_iter()

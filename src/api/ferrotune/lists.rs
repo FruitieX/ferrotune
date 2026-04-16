@@ -82,7 +82,7 @@ pub async fn get_album_list(
     };
 
     let result = get_album_list_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         params.list_type,
         size,
@@ -137,7 +137,7 @@ pub async fn get_random_songs(
     let size = params.size.unwrap_or(10).min(500);
 
     let songs = get_random_songs_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         size,
         params.genre,
@@ -192,7 +192,7 @@ pub async fn get_songs_by_genre(
     let offset = params.offset.unwrap_or(0);
 
     let songs = get_songs_by_genre_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         &params.genre,
         count,
@@ -263,7 +263,7 @@ pub async fn get_forgotten_favorites(
     };
 
     let result = get_forgotten_favorites_logic(
-        &state.pool,
+        &state.database,
         user.user_id,
         size,
         offset,

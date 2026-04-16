@@ -31,20 +31,29 @@ pub async fn get_waveform(
     Path(song_id): Path<String>,
 ) -> FerrotuneApiResult<Json<WaveformResponse>> {
     // Check user has access
-    if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id)
+    if !crate::api::ferrotune::users::user_has_song_access(&state.database, user.user_id, &song_id)
         .await?
     {
         return Err(Error::Forbidden(format!("You do not have access to song {}", song_id)).into());
     }
 
     // Get waveform data from database
-    let row: Option<(Vec<u8>,)> = sqlx::query_as(
-        "SELECT waveform_data FROM songs WHERE id = ? AND waveform_data IS NOT NULL",
-    )
-    .bind(&song_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?;
+    let row: Option<(Vec<u8>,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT waveform_data FROM songs WHERE id = ? AND waveform_data IS NOT NULL")
+            .bind(&song_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT waveform_data FROM songs WHERE id = $1 AND waveform_data IS NOT NULL",
+        )
+        .bind(&song_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?
+    };
 
     let (blob,) =
         row.ok_or_else(|| Error::NotFound(format!("No waveform data for song {}", song_id)))?;
