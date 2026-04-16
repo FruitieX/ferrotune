@@ -173,7 +173,13 @@ export function useSessionInit() {
     setOwnerClientName,
   ]);
 
-  // Start heartbeat interval when sessionId is set
+  // Start heartbeat interval when sessionId is set.
+  //
+  // When the document is hidden AND playback is not active, we pause the
+  // interval entirely to avoid waking the radio every 30 s in the background
+  // (this was a significant battery drain on the Android app). When the doc
+  // becomes visible again, or playback starts, we immediately send a heartbeat
+  // and resume the interval.
   useEffect(() => {
     if (!sessionId || !isClientInitialized) {
       if (heartbeatIntervalRef.current) {
@@ -183,27 +189,102 @@ export function useSessionInit() {
       return;
     }
 
-    // Send initial heartbeat
-    sendHeartbeatRef.current();
+    const shouldRunHeartbeats = () => {
+      if (typeof document === "undefined") return true;
+      if (document.visibilityState === "visible") return true;
+      return playbackStateRef.current === "playing";
+    };
 
-    heartbeatIntervalRef.current = setInterval(() => {
+    const startInterval = () => {
+      if (heartbeatIntervalRef.current) return;
+      // Send immediate heartbeat so the server sees the updated state.
       sendHeartbeatRef.current();
-    }, HEARTBEAT_INTERVAL_MS);
+      heartbeatIntervalRef.current = setInterval(() => {
+        sendHeartbeatRef.current();
+      }, HEARTBEAT_INTERVAL_MS);
+    };
 
-    return () => {
+    const stopInterval = () => {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = null;
       }
     };
-  }, [sessionId, isClientInitialized]);
 
-  // Periodically refresh connected clients list (every 60s)
+    if (shouldRunHeartbeats()) {
+      startInterval();
+    }
+
+    const handleVisibilityChange = () => {
+      if (shouldRunHeartbeats()) {
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      stopInterval();
+      if (typeof document !== "undefined") {
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityChange,
+        );
+      }
+    };
+  }, [sessionId, isClientInitialized, playbackState]);
+
+  // Periodically refresh connected clients list (every 60s).
+  // Skip entirely while the document is hidden; refresh on the next
+  // visibilitychange back to visible.
   useEffect(() => {
     if (!isClientInitialized) return;
 
-    const interval = setInterval(() => refreshClientsRef.current(), 60_000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const isVisible = () =>
+      typeof document === "undefined" || document.visibilityState === "visible";
+
+    const start = () => {
+      if (interval) return;
+      interval = setInterval(() => refreshClientsRef.current(), 60_000);
+    };
+
+    const stop = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    if (isVisible()) start();
+
+    const handleVisibilityChange = () => {
+      if (isVisible()) {
+        refreshClientsRef.current();
+        start();
+      } else {
+        stop();
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      stop();
+      if (typeof document !== "undefined") {
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityChange,
+        );
+      }
+    };
   }, [isClientInitialized]);
 
   // Client deregistration on tab close is handled automatically by the SSE
