@@ -80,8 +80,11 @@ class PlaybackService : MediaSessionService() {
         // transition failure and advance the queue instead of restarting the
         // current stream from the beginning.
         private const val NETWORK_ERROR_TRACK_END_GRACE_MS = 2_000L
-        // Stop the foreground service after this many ms of inactivity (paused)
-        private const val INACTIVITY_TIMEOUT_MS = 5L * 60 * 1000
+        // Stop the foreground service after this many ms of inactivity (paused).
+        // Kept short to release ExoPlayer's wake/wifi lock and tear down the
+        // MediaSessionService + SSE connection quickly when the user stops
+        // listening, so the app doesn't drain battery in the background.
+        private const val INACTIVITY_TIMEOUT_MS = 60L * 1000
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
         // SimpleCache is a singleton — only one instance may exist per cache directory.
@@ -324,7 +327,10 @@ class PlaybackService : MediaSessionService() {
                 true // handleAudioFocus
             )
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
+            // Wake/wifi locks are acquired when playback is active. We flip
+            // between WAKE_MODE_NETWORK and WAKE_MODE_NONE in
+            // onPlayWhenReadyChanged so we stop holding them while paused.
+            .setWakeMode(C.WAKE_MODE_NONE)
             .build()
 
         // Add player listener
@@ -589,6 +595,11 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         replayGainProcessor.clearPendingGain()
+        // Schedule service shutdown so we don't keep the foreground service,
+        // ExoPlayer wake/wifi locks, and the SSE connection alive indefinitely
+        // after an explicit stop from the JS side.
+        handler.removeCallbacks(inactivityTimeoutRunnable)
+        handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
         emitStateChange()
     }
 
@@ -1958,6 +1969,15 @@ class PlaybackService : MediaSessionService() {
                 handler.removeCallbacks(progressRunnable)
             }
 
+            // If the player has gone idle (no media loaded or explicit stop),
+            // schedule a service shutdown so we don't keep wake/wifi locks and
+            // the SSE connection alive in the background.
+            if (playbackState == Player.STATE_IDLE) {
+                handler.removeCallbacks(positionSyncRunnable)
+                handler.removeCallbacks(inactivityTimeoutRunnable)
+                handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
+            }
+
             // Handle end-of-loaded-queue
             if (playbackState == Player.STATE_ENDED) {
                 // Verify serverQueueIndex matches ExoPlayer's current position.
@@ -1996,6 +2016,12 @@ class PlaybackService : MediaSessionService() {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: $reason")
             emitStateChange()
+
+            // Only hold the ExoPlayer wake/wifi lock while playback is intended
+            // to play. This prevents background battery drain when paused.
+            player.setWakeMode(
+                if (playWhenReady) C.WAKE_MODE_NETWORK else C.WAKE_MODE_NONE
+            )
 
             if (playWhenReady && player.playbackState == Player.STATE_READY) {
                 lastProgressTimestamp = System.currentTimeMillis()

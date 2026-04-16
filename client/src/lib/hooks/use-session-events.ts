@@ -55,25 +55,65 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
       clientId,
       getClientName(),
     );
-    const eventSource = new EventSource(url);
-    eventSourceRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data: SessionEvent = JSON.parse(event.data);
-        onEventRef.current?.(data);
-      } catch {
-        // Ignore parse errors (e.g., heartbeat/keepalive messages)
+    const open = () => {
+      if (eventSourceRef.current) return;
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data: SessionEvent = JSON.parse(event.data);
+          onEventRef.current?.(data);
+        } catch {
+          // Ignore parse errors (e.g., heartbeat/keepalive messages)
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Connection lost - will auto-reconnect via EventSource spec
+      };
+    };
+
+    const close = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
 
-    eventSource.onerror = () => {
-      // Connection lost - will auto-reconnect via EventSource spec
+    const isVisible = () =>
+      typeof document === "undefined" || document.visibilityState === "visible";
+
+    // Keep the SSE connection open only while the document is visible. When
+    // hidden, close it to stop waking the radio on every server event — the
+    // native Android service maintains its own SSE connection for background
+    // remote control, and the JS reopens immediately when the page becomes
+    // visible again.
+    if (isVisible()) {
+      open();
+    }
+
+    const handleVisibilityChange = () => {
+      if (isVisible()) {
+        open();
+      } else {
+        close();
+      }
     };
 
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
     return () => {
-      eventSource.close();
-      eventSourceRef.current = null;
+      close();
+      if (typeof document !== "undefined") {
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityChange,
+        );
+      }
     };
   }, [isClientInitialized, sessionId, clientId]);
 }
