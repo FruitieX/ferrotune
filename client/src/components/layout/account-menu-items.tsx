@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   User,
@@ -30,7 +31,7 @@ import {
   ownerClientNameAtom,
   markSelfTakeoverAtom,
 } from "@/lib/store/session";
-import { currentSongAtom } from "@/lib/store/server-queue";
+import { clearQueueAtom, currentSongAtom } from "@/lib/store/server-queue";
 import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
 import { initializeClient, getClient, getClientName } from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
@@ -45,9 +46,11 @@ export function AccountMenuItems({
 }: AccountMenuItemsProps) {
   const hasFinePointer = useHasFinePointer();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
+  const clearQueue = useSetAtom(clearQueueAtom);
 
   const currentKey = connection ? accountKey(connection) : null;
   const hasMultipleAccounts = savedAccounts.length > 1;
@@ -90,12 +93,16 @@ export function AccountMenuItems({
     setSavedAccounts((prev) => prev.filter((a) => accountKey(a) !== key));
 
     if (key === currentKey) {
+      queryClient.clear();
+      clearQueue();
       setConnection(null);
       router.push("/login");
     }
   };
 
   const handleLogout = () => {
+    queryClient.clear();
+    clearQueue();
     setConnection(null);
     router.push("/login");
     toast.success("Logged out successfully");

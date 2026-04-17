@@ -262,12 +262,26 @@ async function clickPlayNextAction(menu: Locator) {
   await menu.getByRole("menuitem", { name: /play next/i }).click();
 }
 
-async function playFirstSongFromSongsList(page: Page) {
-  await ensureSongsListView(page);
-  await page
-    .locator('[data-testid="song-row"], [data-testid="media-row"]')
+async function getDisplayedCurrentTime(page: Page): Promise<number> {
+  const timeText = await page
+    .locator('[data-testid="player-bar"]')
+    .locator("span.tabular-nums")
     .first()
-    .dblclick();
+    .textContent();
+
+  if (!timeText) {
+    return 0;
+  }
+
+  const parts = timeText.trim().split(":");
+  if (parts.length !== 2) {
+    return 0;
+  }
+
+  return (
+    Number.parseInt(parts[0] ?? "0", 10) * 60 +
+    Number.parseInt(parts[1] ?? "0", 10)
+  );
 }
 
 test.describe.serial("Android Emulator Smoke", () => {
@@ -375,6 +389,119 @@ test.describe.serial("Android Emulator Smoke", () => {
 
       await device
         .screenshot({ path: testInfo.outputPath("android-device-failure.png") })
+        .catch(() => undefined);
+
+      throw error;
+    } finally {
+      await device.close().catch(() => undefined);
+    }
+  });
+
+  test("removing an earlier queue item keeps playback position on Android", async ({
+    server,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+
+    const connectedDevices = await android.devices();
+    test.skip(
+      connectedDevices.length === 0,
+      "No Android emulator or device connected to ADB.",
+    );
+
+    if (!fs.existsSync(DEBUG_APK_PATH)) {
+      throw new Error(
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+      );
+    }
+
+    const device = pickDevice(connectedDevices);
+    let page: import("@playwright/test").Page | undefined;
+
+    try {
+      page = await prepareAndroidApp(device, server);
+
+      await playFirstSong(page);
+      await waitForPlayerReady(page, 15000);
+
+      const playerBar = page.getByTestId("player-bar");
+      await expect(playerBar).toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      await playerBar.getByRole("button", { name: /next/i }).click();
+      await expect(playerBar).toContainText("Second Song", {
+        timeout: 15000,
+      });
+
+      await expect
+        .poll(async () => getDisplayedCurrentTime(page!), {
+          timeout: 15000,
+          message:
+            "Expected Android playback time to advance before queue removal",
+        })
+        .toBeGreaterThan(1);
+
+      const timeBeforeRemove = await getDisplayedCurrentTime(page);
+
+      const queuePanel = await openQueuePanel(page);
+      const firstQueueItem = queuePanel
+        .locator('[data-testid="queue-item"]')
+        .filter({ hasText: "First Song" })
+        .first();
+
+      await expect(firstQueueItem).toBeVisible({ timeout: 10000 });
+      await firstQueueItem.click({ button: "right" });
+
+      const drawer = page.locator("[data-vaul-drawer]");
+      const removeItem = (await drawer
+        .isVisible({ timeout: 3000 })
+        .catch(() => false))
+        ? drawer.getByRole("button", { name: /remove from queue/i })
+        : page
+            .locator('[data-slot="context-menu-content"]')
+            .getByRole("menuitem", { name: /remove from queue/i });
+
+      await expect(removeItem).toBeVisible({ timeout: 5000 });
+      await removeItem.click();
+
+      await expect(playerBar).toContainText("Second Song", {
+        timeout: 15000,
+      });
+      await expect(
+        queuePanel
+          .locator('[data-testid="queue-item"]')
+          .filter({ hasText: "First Song" }),
+      ).toHaveCount(0);
+
+      await expect
+        .poll(async () => getDisplayedCurrentTime(page!), {
+          timeout: 15000,
+          message:
+            "Expected Android playback time to keep advancing after removing an earlier queue item",
+        })
+        .toBeGreaterThanOrEqual(Math.max(1, timeBeforeRemove - 1));
+
+      const logs = (
+        await device.shell("logcat -d -s NativeAudioPlugin:V PlaybackService:V")
+      ).toString("utf-8");
+
+      expect(countOccurrences(logs, "startPlayback() command received")).toBe(
+        1,
+      );
+      expect(logs).not.toContain("current track removed, doing full reload");
+    } catch (error) {
+      if (page) {
+        await page
+          .screenshot({
+            path: testInfo.outputPath("android-queue-remove-failure.png"),
+          })
+          .catch(() => undefined);
+      }
+
+      await device
+        .screenshot({
+          path: testInfo.outputPath("android-queue-remove-device-failure.png"),
+        })
         .catch(() => undefined);
 
       throw error;

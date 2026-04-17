@@ -9,7 +9,7 @@ import {
   isHydratedAtom,
   isClientInitializedAtom,
 } from "@/lib/store/auth";
-import { initializeClient } from "@/lib/api/client";
+import { clearClient, initializeClient } from "@/lib/api/client";
 
 /**
  * Hook that handles authentication state with proper hydration handling.
@@ -42,6 +42,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
       initializeClient(connection);
       setClientInitialized(true);
     } else {
+      clearClient();
       setClientInitialized(false);
     }
   }, [connection, setClientInitialized]);

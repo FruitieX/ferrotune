@@ -12,7 +12,8 @@ use crate::api::AppState;
 use crate::error::FerrotuneApiResult;
 use crate::thumbnails::ThumbnailSize;
 use axum::extract::{Query, State};
-use axum::Json;
+use axum::http::header;
+use axum::response::{IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -84,7 +85,7 @@ pub async fn get_home(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HomePageParams>,
-) -> FerrotuneApiResult<Json<HomePageResponse>> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     let size = params.size.unwrap_or(15).min(100);
     let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
         Some("small") | Some("s") => Some(ThumbnailSize::Small),
@@ -159,32 +160,38 @@ pub async fn get_home(
     let random = random_result?;
     let forgotten = forgotten_result?;
 
-    Ok(Json(HomePageResponse {
-        continue_listening: HomeContinueListeningSection {
-            entries: continue_listening.entries,
-            total: continue_listening.total,
-        },
-        most_played_recently: HomeAlbumSection {
-            album: frequent.albums,
-            total: frequent.total,
-            seed: None,
-        },
-        recently_added: HomeAlbumSection {
-            album: newest.albums,
-            total: newest.total,
-            seed: None,
-        },
-        forgotten_favorites: HomeForgottenFavoritesSection {
-            song: forgotten.songs,
-            total: forgotten.total,
-            seed: forgotten.seed,
-        },
-        discover: HomeAlbumSection {
-            album: random.albums,
-            total: random.total,
-            seed: random.seed,
-        },
-    }))
+    Ok((
+        [
+            (header::CACHE_CONTROL, "private, no-store"),
+            (header::VARY, "Authorization"),
+        ],
+        Json(HomePageResponse {
+            continue_listening: HomeContinueListeningSection {
+                entries: continue_listening.entries,
+                total: continue_listening.total,
+            },
+            most_played_recently: HomeAlbumSection {
+                album: frequent.albums,
+                total: frequent.total,
+                seed: None,
+            },
+            recently_added: HomeAlbumSection {
+                album: newest.albums,
+                total: newest.total,
+                seed: None,
+            },
+            forgotten_favorites: HomeForgottenFavoritesSection {
+                song: forgotten.songs,
+                total: forgotten.total,
+                seed: forgotten.seed,
+            },
+            discover: HomeAlbumSection {
+                album: random.albums,
+                total: random.total,
+                seed: random.seed,
+            },
+        }),
+    ))
 }
 
 /// Query params for the continue listening endpoint

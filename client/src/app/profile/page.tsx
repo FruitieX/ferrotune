@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   User,
@@ -67,6 +67,7 @@ export default function ProfilePage() {
   const { user, isLoading: userLoading } = useCurrentUser();
   const [, setConnection] = useAtom(serverConnectionAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+  const queryClient = useQueryClient();
 
   // Import dialog states
   const [importPlayCountsDialogOpen, setImportPlayCountsDialogOpen] =
@@ -87,6 +88,7 @@ export default function ProfilePage() {
   });
 
   const handleLogout = () => {
+    queryClient.clear();
     setConnection(null);
     clearQueue();
     router.push("/login");

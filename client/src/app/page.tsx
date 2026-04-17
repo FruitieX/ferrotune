@@ -53,12 +53,6 @@ import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
 
 // Maximum items per home page section to avoid tiny scrollbars
 const MAX_SECTION_ITEMS = 100;
-const DISCOVER_QUERY_KEY = ["albums", "random", "home"] as const;
-const FORGOTTEN_FAVORITES_QUERY_KEY = [
-  "songs",
-  "forgotten-favorites",
-  "home",
-] as const;
 
 // Compute page size based on viewport width to avoid loading too many items on mobile
 function getPageSize(viewportWidth: number, itemWidth: number, gap: number) {
@@ -419,28 +413,81 @@ export default function HomePage() {
     router.push("/search");
   };
 
+  const newestQueryKey = [
+    "albums",
+    "newest",
+    "home",
+    currentAccountKey,
+  ] as const;
+  const randomQueryKey = [
+    "albums",
+    "random",
+    "home",
+    currentAccountKey,
+  ] as const;
+  const frequentQueryKey = [
+    "albums",
+    "frequent-recent",
+    "home",
+    currentAccountKey,
+  ] as const;
+  const forgottenFavoritesQueryKey = [
+    "songs",
+    "forgotten-favorites",
+    "home",
+    currentAccountKey,
+  ] as const;
+  const continueListeningQueryKey = [
+    "continue-listening",
+    "home",
+    currentAccountKey,
+  ] as const;
+
   // --- Batch fetch for initial home page load ---
   // All initial page fetches (page 0) go through one HTTP request to /ferrotune/home.
   // Subsequent pages (infinite scroll) use individual endpoints.
-  const batchPromiseRef = useRef<Promise<HomePageResponse> | null>(null);
+  const batchPromiseRef = useRef<{
+    accountKey: string;
+    promise: Promise<HomePageResponse>;
+  } | null>(null);
   const fetchBatch = (): Promise<HomePageResponse> => {
-    if (!batchPromiseRef.current) {
+    const cachedBatch = batchPromiseRef.current;
+    if (!cachedBatch || cachedBatch.accountKey !== currentAccountKey) {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      batchPromiseRef.current = client.getHomePage({
+      const promise = client.getHomePage({
         size: pageSize,
         inlineImages: "medium",
       });
+      batchPromiseRef.current = {
+        accountKey: currentAccountKey,
+        promise,
+      };
       // After the batch resolves, clear the ref so that future resets
       // (e.g., account switch) create a fresh request
-      batchPromiseRef.current.finally(() => {
+      promise.finally(() => {
         setTimeout(() => {
-          batchPromiseRef.current = null;
+          const activeBatch = batchPromiseRef.current;
+          if (
+            activeBatch?.accountKey === currentAccountKey &&
+            activeBatch.promise === promise
+          ) {
+            batchPromiseRef.current = null;
+          }
         }, 100);
       });
     }
-    return batchPromiseRef.current;
+    const activeBatch = batchPromiseRef.current;
+    if (!activeBatch) {
+      throw new Error("Home page batch request was not initialized");
+    }
+
+    return activeBatch.promise;
   };
+
+  useEffect(() => {
+    batchPromiseRef.current = null;
+  }, [currentAccountKey]);
 
   // --- Infinite queries for album sections ---
 
@@ -451,7 +498,7 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextNewest,
     fetchNextPage: fetchNextNewest,
   } = useInfiniteQuery({
-    queryKey: ["albums", "newest", "home"],
+    queryKey: newestQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
         const batch = await fetchBatch();
@@ -501,7 +548,7 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextRandom,
     fetchNextPage: fetchNextRandom,
   } = useInfiniteQuery({
-    queryKey: DISCOVER_QUERY_KEY,
+    queryKey: randomQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
         const batch = await fetchBatch();
@@ -560,7 +607,7 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextFrequent,
     fetchNextPage: fetchNextFrequent,
   } = useInfiniteQuery({
-    queryKey: ["albums", "frequent-recent", "home"],
+    queryKey: frequentQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
         const batch = await fetchBatch();
@@ -614,7 +661,7 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextForgottenFav,
     fetchNextPage: fetchNextForgottenFav,
   } = useInfiniteQuery({
-    queryKey: FORGOTTEN_FAVORITES_QUERY_KEY,
+    queryKey: forgottenFavoritesQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
         const batch = await fetchBatch();
@@ -662,7 +709,7 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextContinueListening,
     fetchNextPage: fetchNextContinueListening,
   } = useInfiniteQuery({
-    queryKey: ["continue-listening", "home"],
+    queryKey: continueListeningQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
         const batch = await fetchBatch();
@@ -697,12 +744,12 @@ export default function HomePage() {
   });
 
   const stickyRandomData = useStickyHomeSection(
-    DISCOVER_QUERY_KEY,
+    randomQueryKey,
     randomData,
     currentAccountKey,
   );
   const stickyForgottenFavData = useStickyHomeSection(
-    FORGOTTEN_FAVORITES_QUERY_KEY,
+    forgottenFavoritesQueryKey,
     forgottenFavData,
     currentAccountKey,
   );

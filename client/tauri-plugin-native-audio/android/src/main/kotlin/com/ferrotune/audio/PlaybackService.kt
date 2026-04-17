@@ -80,6 +80,13 @@ class PlaybackService : MediaSessionService() {
         // transition failure and advance the queue instead of restarting the
         // current stream from the beginning.
         private const val NETWORK_ERROR_TRACK_END_GRACE_MS = 2_000L
+        // Keep a large rolling buffer for mobile playback so brief coverage
+        // drops are absorbed from cache instead of forcing a restart.
+        private const val STREAM_MIN_BUFFER_MS = 10 * 60 * 1000
+        private const val STREAM_MAX_BUFFER_MS = 20 * 60 * 1000
+        private const val STREAM_BUFFER_FOR_PLAYBACK_MS = 5_000
+        private const val STREAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 15_000
+        private const val STREAM_TARGET_BUFFER_BYTES = 64 * 1024 * 1024
         // Stop the foreground service after this many ms of inactivity (paused)
         private const val INACTIVITY_TIMEOUT_MS = 5L * 60 * 1000
         // Cache size for transcoded audio streams (200 MB)
@@ -157,6 +164,10 @@ class PlaybackService : MediaSessionService() {
     // The server starts the stream at this offset, so ExoPlayer position is relative.
     // Added to player.currentPosition for correct absolute position reporting.
     private var seekTimeOffsetMs: Long = 0
+    // Furthest known-good absolute playback position for the current track.
+    // Used to recover transcoded streams when ExoPlayer reports a transient 0ms
+    // position during network failures.
+    private var lastKnownGoodPositionMs: Long = 0
     // True when we've pre-applied the next track's ReplayGain before a gapless transition.
     // Reset on each track change so we only pre-apply once per transition.
     private var hasPreAppliedNextGain = false
@@ -187,6 +198,7 @@ class PlaybackService : MediaSessionService() {
     private val progressRunnable = object : Runnable {
         override fun run() {
             if (player.isPlaying) {
+                updateLastKnownGoodPosition()
                 emitProgressEvent()
                 // Track accumulated listen time for scrobbling
                 if (isActive) {
@@ -304,11 +316,13 @@ class PlaybackService : MediaSessionService() {
         @OptIn(UnstableApi::class)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs  */   DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                /* maxBufferMs  */   20 * 60 * 1000,   // 20 minutes — enough for any track
-                /* bufferForPlaybackMs */          DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                /* bufferForPlaybackAfterRebufferMs */ DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                /* minBufferMs  */ STREAM_MIN_BUFFER_MS,
+                /* maxBufferMs  */ STREAM_MAX_BUFFER_MS,
+                /* bufferForPlaybackMs */ STREAM_BUFFER_FOR_PLAYBACK_MS,
+                /* bufferForPlaybackAfterRebufferMs */ STREAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
             )
+            .setTargetBufferBytes(STREAM_TARGET_BUFFER_BYTES)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         player = ExoPlayer.Builder(this, renderersFactory)
@@ -578,6 +592,7 @@ class PlaybackService : MediaSessionService() {
         player.clearMediaItems()
         currentTrack = null
         seekTimeOffsetMs = 0
+        lastKnownGoodPositionMs = 0
         queue = emptyList()
         queueIndex = -1
         queueSourceType = null
@@ -598,6 +613,7 @@ class PlaybackService : MediaSessionService() {
             val timeOffsetSeconds = positionMs / 1000
             val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
             seekTimeOffsetMs = positionMs
+            lastKnownGoodPositionMs = positionMs.coerceAtLeast(0)
 
             val newMediaItem = createMediaItem(track, newUrl)
 
@@ -610,6 +626,7 @@ class PlaybackService : MediaSessionService() {
             Log.d(TAG, "seek-by-reload: offset=${timeOffsetSeconds}s, seekTimeOffsetMs=$seekTimeOffsetMs")
         } else {
             seekTimeOffsetMs = 0
+            lastKnownGoodPositionMs = positionMs.coerceAtLeast(0)
             player.seekTo(positionMs)
         }
         // Reschedule pre-apply since position changed
@@ -1184,10 +1201,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Handle a queue window update after shuffle toggle without interrupting playback.
-     * Instead of rebuilding the entire ExoPlayer playlist (which causes audio interruption),
-     * this method removes and re-adds surrounding tracks while keeping the
-     * currently playing track in place.
+     * Handle a queue window update without interrupting playback.
+     *
+     * Replace only the items surrounding the current media item so ExoPlayer can
+     * keep streaming the currently playing track in place.
      */
     private fun handleShuffleQueueUpdate(
         response: GetQueueResponse,
@@ -1212,27 +1229,47 @@ class PlaybackService : MediaSessionService() {
         // Get current ExoPlayer state before modifications
         val currentExoIndex = player.currentMediaItemIndex
         val itemCount = player.mediaItemCount
-
-        // Remove all items AFTER the current track
-        if (currentExoIndex < itemCount - 1) {
-            player.removeMediaItems(currentExoIndex + 1, itemCount)
-        }
-        // Remove all items BEFORE the current track
-        if (currentExoIndex > 0) {
-            player.removeMediaItems(0, currentExoIndex)
-        }
-        // Now ExoPlayer has only the current track at index 0
-
-        // Create and add MediaItems for tracks before the current track
-        if (targetExoIndex > 0) {
-            val beforeItems = tracks.subList(0, targetExoIndex).map { createMediaItem(it) }
-            player.addMediaItems(0, beforeItems)
+        if (currentExoIndex == C.INDEX_UNSET || currentExoIndex >= itemCount) {
+            Log.w(TAG, "Queue sync: invalid currentExoIndex=$currentExoIndex, falling back to full reload")
+            handleQueueWindowResponse(
+                response,
+                targetIndex,
+                getAbsolutePlaybackPositionMs(),
+                player.playWhenReady,
+            )
+            return
         }
 
-        // Create and add MediaItems for tracks after the current track
-        if (targetExoIndex + 1 < tracks.size) {
-            val afterItems = tracks.subList(targetExoIndex + 1, tracks.size).map { createMediaItem(it) }
-            player.addMediaItems(player.mediaItemCount, afterItems)
+        val beforeItems = if (targetExoIndex > 0) {
+            tracks.subList(0, targetExoIndex).map { createMediaItem(it) }
+        } else {
+            emptyList()
+        }
+        val afterItems = if (targetExoIndex + 1 < tracks.size) {
+            tracks.subList(targetExoIndex + 1, tracks.size).map { createMediaItem(it) }
+        } else {
+            emptyList()
+        }
+
+        // Replace tracks after the current item first so the current index stays stable.
+        if (currentExoIndex + 1 < itemCount || afterItems.isNotEmpty()) {
+            player.replaceMediaItems(currentExoIndex + 1, itemCount, afterItems)
+        }
+
+        val currentIndexAfterTailUpdate = player.currentMediaItemIndex
+        if (currentIndexAfterTailUpdate == C.INDEX_UNSET) {
+            Log.w(TAG, "Queue sync: lost current item after tail update, falling back to full reload")
+            handleQueueWindowResponse(
+                response,
+                targetIndex,
+                getAbsolutePlaybackPositionMs(),
+                player.playWhenReady,
+            )
+            return
+        }
+
+        if (currentIndexAfterTailUpdate > 0 || beforeItems.isNotEmpty()) {
+            player.replaceMediaItems(0, currentIndexAfterTailUpdate, beforeItems)
         }
 
         // Update tracking structures
@@ -1244,7 +1281,8 @@ class PlaybackService : MediaSessionService() {
         queue = tracks
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
-        // Don't update currentTrack or emit track change — the same track is still playing
+    currentTrack = tracks.getOrNull(targetExoIndex) ?: currentTrack
+    // Don't emit track change — the same track is still playing.
         // Don't emit queue-state-changed here: the JS toggleShuffleAtom updates both
         // serverQueueStateAtom and queueWindowAtom atomically after nativeToggleShuffle
         // resolves. Emitting the event here would cause a transient mismatch where
@@ -1400,6 +1438,7 @@ class PlaybackService : MediaSessionService() {
         accumulatedListenMs = 0
         hasScrobbled = false
         lastProgressTimestamp = 0
+        lastKnownGoodPositionMs = 0
     }
 
     private fun checkScrobble() {
@@ -1465,6 +1504,17 @@ class PlaybackService : MediaSessionService() {
     }
     private fun getAbsolutePlaybackPositionMs(): Long {
         return (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
+    }
+
+    private fun updateLastKnownGoodPosition() {
+        if (currentTrack == null) return
+
+        val absolutePositionMs = getAbsolutePlaybackPositionMs()
+        if (absolutePositionMs <= 0) return
+
+        if (absolutePositionMs > lastKnownGoodPositionMs) {
+            lastKnownGoodPositionMs = absolutePositionMs
+        }
     }
 
     private fun shouldAdvanceInsteadOfRetryOnNetworkError(
@@ -1995,7 +2045,19 @@ class PlaybackService : MediaSessionService() {
                         // For transcoded streams, rebuild URL with the furthest
                         // known playback position so a transient player reset at
                         // the track boundary does not reopen the current item from 0.
-                        val retryPositionMs = maxOf(getAbsolutePlaybackPositionMs(), positionMsAtError)
+                        val livePositionMs = getAbsolutePlaybackPositionMs()
+                        val retryPositionMs = maxOf(
+                            livePositionMs,
+                            positionMsAtError,
+                            lastKnownGoodPositionMs,
+                        )
+                        if (lastKnownGoodPositionMs > maxOf(livePositionMs, positionMsAtError)) {
+                            Log.d(
+                                TAG,
+                                "Network retry: using lastKnownGoodPositionMs=$lastKnownGoodPositionMs " +
+                                    "over livePositionMs=$livePositionMs and errorPositionMs=$positionMsAtError"
+                            )
+                        }
                         if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
                             Log.d(
                                 TAG,
@@ -2006,7 +2068,8 @@ class PlaybackService : MediaSessionService() {
                         }
 
                         val timeOffsetSeconds = retryPositionMs / 1000
-                            seekTimeOffsetMs = retryPositionMs
+                        seekTimeOffsetMs = retryPositionMs
+                        lastKnownGoodPositionMs = retryPositionMs
                         val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
 
                         val metadataBuilder = MediaMetadata.Builder()
