@@ -1227,7 +1227,7 @@ async fn sum_matching_songs_duration_filtered(
                 {}
                 ORDER BY {} {}
                 LIMIT {}
-            )",
+            ) limited_songs",
             combined_where, order_by, direction, max
         )
     } else {

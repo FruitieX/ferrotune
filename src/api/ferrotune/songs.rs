@@ -74,8 +74,9 @@ pub async fn get_song_match_list(
     // Build query based on whether we're filtering by library
     // Always filter by enabled music folders and user library access
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
-        sqlx::query_as::<_, SongMatchEntry>(
-            r#"
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query_as::<_, SongMatchEntry>(
+                r#"
             SELECT 
                 s.id,
                 s.title,
@@ -90,13 +91,38 @@ pub async fn get_song_match_list(
             WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
-        )
-        .bind(music_folder_id)
-        .bind(_user.user_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
-    } else {
+            )
+            .bind(music_folder_id)
+            .bind(_user.user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query_as::<_, SongMatchEntry>(
+                r#"
+            SELECT 
+                s.id,
+                s.title,
+                ar.name as artist,
+                al.name as album,
+                s.duration
+            FROM songs s
+            JOIN artists ar ON s.artist_id = ar.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = $1 AND mf.enabled AND ula.user_id = $2
+            ORDER BY LOWER(ar.name), LOWER(al.name), s.disc_number, s.track_number, LOWER(s.title)
+            "#,
+            )
+            .bind(music_folder_id)
+            .bind(_user.user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
+        }
+    } else if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
             SELECT 
@@ -115,7 +141,30 @@ pub async fn get_song_match_list(
             "#,
         )
         .bind(_user.user_id)
-        .fetch_all(&state.pool)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as::<_, SongMatchEntry>(
+            r#"
+            SELECT 
+                s.id,
+                s.title,
+                ar.name as artist,
+                al.name as album,
+                s.duration
+            FROM songs s
+            JOIN artists ar ON s.artist_id = ar.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled AND ula.user_id = $1
+            ORDER BY LOWER(ar.name), LOWER(al.name), s.disc_number, s.track_number, LOWER(s.title)
+            "#,
+        )
+        .bind(_user.user_id)
+        .fetch_all(pool)
         .await
         .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
     };
@@ -352,8 +401,9 @@ pub async fn match_tracks(
     // Load match dictionary if requested
     let dictionary = if request.use_prior_matches {
         // Query all matched entries from playlists owned by the user
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            r#"
+        let rows: Vec<(String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query_as(
+                r#"
             SELECT DISTINCT
                 ps.missing_entry_data,
                 ps.song_id
@@ -363,11 +413,34 @@ pub async fn match_tracks(
               AND ps.missing_entry_data IS NOT NULL
               AND ps.song_id IS NOT NULL
             "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Database error loading match dictionary: {}", e)))?;
+            )
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                Error::Internal(format!("Database error loading match dictionary: {}", e))
+            })?
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query_as(
+                r#"
+            SELECT DISTINCT
+                ps.missing_entry_data,
+                ps.song_id
+            FROM playlist_songs ps
+            INNER JOIN playlists p ON ps.playlist_id = p.id
+            WHERE p.owner_id = $1
+              AND ps.missing_entry_data IS NOT NULL
+              AND ps.song_id IS NOT NULL
+            "#,
+            )
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                Error::Internal(format!("Database error loading match dictionary: {}", e))
+            })?
+        };
 
         // Parse and build dictionary
         let entries: Vec<MatchDictionaryEntry> = rows
@@ -392,8 +465,9 @@ pub async fn match_tracks(
 
     // Fetch all songs from enabled music folders the user has access to
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
-        sqlx::query_as::<_, SongMatchEntry>(
-            r#"
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query_as::<_, SongMatchEntry>(
+                r#"
             SELECT 
                 s.id,
                 s.title,
@@ -406,13 +480,38 @@ pub async fn match_tracks(
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
             WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+            ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
-        )
-        .bind(music_folder_id)
-        .bind(user.user_id)
-        .fetch_all(&state.pool)
-        .await
-    } else {
+            )
+            .bind(music_folder_id)
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query_as::<_, SongMatchEntry>(
+                r#"
+            SELECT 
+                s.id,
+                s.title,
+                ar.name as artist,
+                al.name as album,
+                s.duration
+            FROM songs s
+            JOIN artists ar ON s.artist_id = ar.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = $1 AND mf.enabled AND ula.user_id = $2
+            ORDER BY LOWER(ar.name), LOWER(al.name), s.disc_number, s.track_number, LOWER(s.title)
+            "#,
+            )
+            .bind(music_folder_id)
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        }
+    } else if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
             SELECT 
@@ -427,10 +526,33 @@ pub async fn match_tracks(
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
             WHERE mf.enabled = 1 AND ula.user_id = ?
+            ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
         )
         .bind(user.user_id)
-        .fetch_all(&state.pool)
+        .fetch_all(pool)
+        .await
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as::<_, SongMatchEntry>(
+            r#"
+            SELECT 
+                s.id,
+                s.title,
+                ar.name as artist,
+                al.name as album,
+                s.duration
+            FROM songs s
+            JOIN artists ar ON s.artist_id = ar.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled AND ula.user_id = $1
+            ORDER BY LOWER(ar.name), LOWER(al.name), s.disc_number, s.track_number, LOWER(s.title)
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
         .await
     }
     .map_err(|e| Error::Internal(format!("Database error: {}", e)))?;
@@ -833,8 +955,9 @@ pub async fn match_albums(
 ) -> FerrotuneApiResult<Json<MatchAlbumsResponse>> {
     // Fetch all albums from enabled music folders the user has access to
     let albums: Vec<AlbumMatchEntry> = if let Some(music_folder_id) = params.library_id {
-        sqlx::query_as::<_, AlbumMatchEntry>(
-            r#"
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query_as::<_, AlbumMatchEntry>(
+                r#"
             SELECT DISTINCT
                 al.id,
                 al.name,
@@ -847,12 +970,34 @@ pub async fn match_albums(
             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
             WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             "#,
-        )
-        .bind(music_folder_id)
-        .bind(user.user_id)
-        .fetch_all(&state.pool)
-        .await
-    } else {
+            )
+            .bind(music_folder_id)
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query_as::<_, AlbumMatchEntry>(
+                r#"
+            SELECT DISTINCT
+                al.id,
+                al.name,
+                ar.name as artist,
+                al.year
+            FROM albums al
+            JOIN artists ar ON al.artist_id = ar.id
+            JOIN songs s ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = $1 AND mf.enabled AND ula.user_id = $2
+            "#,
+            )
+            .bind(music_folder_id)
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        }
+    } else if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as::<_, AlbumMatchEntry>(
             r#"
             SELECT DISTINCT
@@ -869,7 +1014,27 @@ pub async fn match_albums(
             "#,
         )
         .bind(user.user_id)
-        .fetch_all(&state.pool)
+        .fetch_all(pool)
+        .await
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as::<_, AlbumMatchEntry>(
+            r#"
+            SELECT DISTINCT
+                al.id,
+                al.name,
+                ar.name as artist,
+                al.year
+            FROM albums al
+            JOIN artists ar ON al.artist_id = ar.id
+            JOIN songs s ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled AND ula.user_id = $1
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
         .await
     }
     .map_err(|e| Error::Internal(format!("Database error: {}", e)))?;
@@ -993,8 +1158,9 @@ pub async fn match_artists(
 ) -> FerrotuneApiResult<Json<MatchArtistsResponse>> {
     // Fetch all artists from enabled music folders the user has access to
     let artists: Vec<ArtistMatchEntry> = if let Some(music_folder_id) = params.library_id {
-        sqlx::query_as::<_, ArtistMatchEntry>(
-            r#"
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query_as::<_, ArtistMatchEntry>(
+                r#"
             SELECT DISTINCT
                 ar.id,
                 ar.name
@@ -1004,12 +1170,31 @@ pub async fn match_artists(
             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
             WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             "#,
-        )
-        .bind(music_folder_id)
-        .bind(user.user_id)
-        .fetch_all(&state.pool)
-        .await
-    } else {
+            )
+            .bind(music_folder_id)
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query_as::<_, ArtistMatchEntry>(
+                r#"
+            SELECT DISTINCT
+                ar.id,
+                ar.name
+            FROM artists ar
+            JOIN songs s ON s.artist_id = ar.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = $1 AND mf.enabled AND ula.user_id = $2
+            "#,
+            )
+            .bind(music_folder_id)
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        }
+    } else if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as::<_, ArtistMatchEntry>(
             r#"
             SELECT DISTINCT
@@ -1023,7 +1208,24 @@ pub async fn match_artists(
             "#,
         )
         .bind(user.user_id)
-        .fetch_all(&state.pool)
+        .fetch_all(pool)
+        .await
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as::<_, ArtistMatchEntry>(
+            r#"
+            SELECT DISTINCT
+                ar.id,
+                ar.name
+            FROM artists ar
+            JOIN songs s ON s.artist_id = ar.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled AND ula.user_id = $1
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
         .await
     }
     .map_err(|e| Error::Internal(format!("Database error: {}", e)))?;

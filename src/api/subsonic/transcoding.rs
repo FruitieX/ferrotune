@@ -217,12 +217,12 @@ async fn get_transcode_decision_logic(
     client_info: ClientInfo,
 ) -> Result<TranscodeDecision> {
     // Get song from database
-    let song = crate::db::queries::get_song_by_id(&state.pool, &params.media_id)
+    let song = crate::db::queries::get_song_by_id(&state.database, &params.media_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", params.media_id)))?;
 
     // Check access
-    if !user_has_song_access(&state.pool, user.user_id, &params.media_id).await? {
+    if !user_has_song_access(&state.database, user.user_id, &params.media_id).await? {
         return Err(Error::Forbidden(format!(
             "You do not have access to song {}",
             params.media_id
@@ -404,12 +404,12 @@ async fn get_transcode_stream_logic(
     }
 
     // Get song from database
-    let song = crate::db::queries::get_song_by_id(&state.pool, &params.media_id)
+    let song = crate::db::queries::get_song_by_id(&state.database, &params.media_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", params.media_id)))?;
 
     // Check access
-    if !user_has_song_access(&state.pool, user.user_id, &params.media_id).await? {
+    if !user_has_song_access(&state.database, user.user_id, &params.media_id).await? {
         return Err(Error::Forbidden(format!(
             "You do not have access to song {}",
             params.media_id
@@ -417,7 +417,7 @@ async fn get_transcode_stream_logic(
     }
 
     // Find the file path
-    let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
+    let music_folders = crate::db::queries::get_music_folders(&state.database).await?;
     let mut full_path: Option<PathBuf> = None;
     for folder in &music_folders {
         let candidate = PathBuf::from(&folder.path).join(&song.file_path);

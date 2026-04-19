@@ -32,29 +32,49 @@ pub struct SetupStatusResponse {
 pub async fn get_setup_status(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SetupStatusResponse>> {
-    let pool = &state.pool;
-
     // Check if initial_setup_complete is true in server_config
-    let setup_complete: bool = sqlx::query_scalar::<_, String>(
-        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Database error checking setup status: {}", e)))?
-    .and_then(|v| serde_json::from_str(&v).ok())
-    .unwrap_or(false);
+    let setup_complete_raw: Option<String> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_scalar::<_, String>(
+            "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
+        )
+        .fetch_optional(pool)
+        .await
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
+        )
+        .fetch_optional(state.database.postgres_pool()?)
+        .await
+    }
+    .map_err(|e| Error::Internal(format!("Database error checking setup status: {}", e)))?;
+
+    let setup_complete: bool = setup_complete_raw
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or(false);
 
     // Check if there are any users
-    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?;
+    let user_count: i64 = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(pool)
+            .await
+    } else {
+        sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(state.database.postgres_pool()?)
+            .await
+    }
+    .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?;
 
     // Check if there are any music folders
-    let folder_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_folders")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?;
+    let folder_count: i64 = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_scalar("SELECT COUNT(*) FROM music_folders")
+            .fetch_one(pool)
+            .await
+    } else {
+        sqlx::query_scalar("SELECT COUNT(*) FROM music_folders")
+            .fetch_one(state.database.postgres_pool()?)
+            .await
+    }
+    .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?;
 
     Ok(Json(SetupStatusResponse {
         setup_complete,
@@ -73,14 +93,26 @@ pub async fn complete_setup(
         return Err(Error::Forbidden("Admin privileges required".to_string()).into());
     }
 
-    let pool = &state.pool;
-
     // Set initial_setup_complete to true
-    sqlx::query(
-        "INSERT OR REPLACE INTO server_config (key, value, updated_at) VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP)"
-    )
-    .execute(pool)
-    .await
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query(
+            "INSERT INTO server_config (key, value, updated_at) \
+             VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        )
+        .execute(pool)
+        .await
+        .map(|_| ())
+    } else {
+        sqlx::query(
+            "INSERT INTO server_config (key, value, updated_at) \
+             VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+        )
+        .execute(state.database.postgres_pool()?)
+        .await
+        .map(|_| ())
+    }
     .map_err(|e| Error::Internal(format!("Failed to update setup status: {}", e)))?;
 
     // Return updated status

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -345,9 +346,6 @@ fn test_postgres_ferrotune_lists_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -356,7 +354,7 @@ fn test_postgres_ferrotune_lists_handlers_work() {
 
         let auth_user = || FerrotuneAuthenticatedUser {
             user_id: user.id,
-            username: user.username.clone(),
+            username: format!("pg-tagger-test-{}", user.id),
             is_admin: user.is_admin,
         };
 
@@ -468,9 +466,6 @@ fn test_postgres_subsonic_lists_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -654,9 +649,6 @@ fn test_postgres_scrobble_helper_and_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -786,18 +778,20 @@ fn test_postgres_lastfm_config_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
         });
 
+        let staging_username = format!(
+            "pg-tagger-test-{}-{}",
+            user.id,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
         let auth_user = || FerrotuneAuthenticatedUser {
             user_id: user.id,
-            username: user.username.clone(),
+            username: staging_username.clone(),
             is_admin: user.is_admin,
         };
 
@@ -935,9 +929,6 @@ fn test_postgres_scrobble_import_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1136,9 +1127,6 @@ fn test_postgres_listening_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1293,9 +1281,6 @@ fn test_postgres_playqueue_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1417,9 +1402,6 @@ fn test_postgres_preferences_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1555,9 +1537,6 @@ fn test_postgres_duplicates_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1583,6 +1562,1610 @@ fn test_postgres_duplicates_handler_works() {
             .map(|file| file.id.clone())
             .collect();
         assert_eq!(duplicate_ids, vec![song_1, song_2]);
+    });
+}
+
+#[test]
+fn test_postgres_setup_and_match_dictionary_handlers_work() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (user, _artist_id, _album_id, song_1, _song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        // Setup: before completion
+        let status = ferrotune::api::ferrotune::get_setup_status(State(state.clone()))
+            .await
+            .expect("postgres get_setup_status should succeed")
+            .0;
+        assert!(!status.setup_complete);
+        assert!(status.has_users);
+        assert!(status.has_music_folders);
+
+        // Setup: complete it
+        let _ = ferrotune::api::ferrotune::complete_setup(
+            FerrotuneAuthenticatedUser {
+                user_id: user.id,
+                username: user.username.clone(),
+                is_admin: user.is_admin,
+            },
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres complete_setup should succeed");
+
+        let status = ferrotune::api::ferrotune::get_setup_status(State(state.clone()))
+            .await
+            .expect("postgres get_setup_status should succeed after complete")
+            .0;
+        assert!(status.setup_complete);
+
+        // Match dictionary: save entry
+        let save_response = ferrotune::api::ferrotune::save_match_dictionary(
+            State(state.clone()),
+            FerrotuneAuthenticatedUser {
+                user_id: user.id,
+                username: user.username.clone(),
+                is_admin: user.is_admin,
+            },
+            Json(ferrotune::api::ferrotune::SaveMatchDictionaryRequest {
+                entries: vec![ferrotune::api::ferrotune::MatchDictionaryEntry {
+                    title: Some("Opening Track".to_string()),
+                    artist: Some("Integration Artist".to_string()),
+                    album: Some("Integration Album".to_string()),
+                    duration: Some(180_000),
+                    song_id: song_1.clone(),
+                }],
+            }),
+        )
+        .await
+        .expect("postgres save_match_dictionary should succeed");
+        assert_eq!(save_response.1 .0.saved, 1);
+
+        // Match dictionary: read back
+        let get_response = ferrotune::api::ferrotune::get_match_dictionary(
+            State(state),
+            FerrotuneAuthenticatedUser {
+                user_id: user.id,
+                username: user.username,
+                is_admin: user.is_admin,
+            },
+        )
+        .await
+        .expect("postgres get_match_dictionary should succeed")
+        .0;
+        assert_eq!(get_response.entries.len(), 1);
+        assert_eq!(get_response.entries[0].song_id, song_1);
+        assert_eq!(
+            get_response.entries[0].title.as_deref(),
+            Some("Opening Track")
+        );
+    });
+}
+
+#[test]
+fn test_postgres_recycle_bin_handlers_work() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (user, _artist_id, _album_id, song_1, song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        let auth = || FerrotuneAuthenticatedUser {
+            user_id: user.id,
+            username: user.username.clone(),
+            is_admin: user.is_admin,
+        };
+
+        // Mark song_1 for deletion
+        let mark_response = ferrotune::api::ferrotune::recycle_bin::mark_for_deletion(
+            auth(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::recycle_bin::MarkForDeletionRequest {
+                    song_ids: vec![song_1.clone(), song_2.clone()],
+                },
+            ),
+        )
+        .await
+        .expect("mark_for_deletion should succeed")
+        .0;
+        assert_eq!(mark_response.marked_count, 2);
+
+        // List recycle bin
+        let list_response = ferrotune::api::ferrotune::recycle_bin::list_recycle_bin(
+            auth(),
+            State(state.clone()),
+            axum::extract::Query(ferrotune::api::ferrotune::recycle_bin::RecycleBinParams {
+                offset: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("list_recycle_bin should succeed")
+        .0;
+        assert_eq!(list_response.total_count, 2);
+        assert_eq!(list_response.songs.len(), 2);
+
+        // Restore song_1
+        let restore_response = ferrotune::api::ferrotune::recycle_bin::restore_songs(
+            auth(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::recycle_bin::RestoreSongsRequest {
+                    song_ids: vec![song_1.clone()],
+                },
+            ),
+        )
+        .await
+        .expect("restore_songs should succeed")
+        .0;
+        assert_eq!(restore_response.restored_count, 1);
+
+        // Verify only song_2 remains in recycle bin
+        let list_response = ferrotune::api::ferrotune::recycle_bin::list_recycle_bin(
+            auth(),
+            State(state.clone()),
+            axum::extract::Query(ferrotune::api::ferrotune::recycle_bin::RecycleBinParams {
+                offset: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("list_recycle_bin should succeed")
+        .0;
+        assert_eq!(list_response.total_count, 1);
+        assert_eq!(list_response.songs[0].id, song_2);
+
+        // Exercise delete_song via direct query to verify PG branch works.
+        let deleted = ferrotune::db::queries::delete_song(&database, &song_2)
+            .await
+            .expect("delete_song should succeed on postgres");
+        assert!(deleted);
+
+        // Recycle bin should now be empty
+        let list_response = ferrotune::api::ferrotune::recycle_bin::list_recycle_bin(
+            auth(),
+            State(state),
+            axum::extract::Query(ferrotune::api::ferrotune::recycle_bin::RecycleBinParams {
+                offset: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("list_recycle_bin should succeed")
+        .0;
+        assert_eq!(list_response.total_count, 0);
+    });
+}
+
+#[test]
+fn test_postgres_list_music_folders_handler_works() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let (user, _artist_id, _album_id, _song_1, _song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        let response = ferrotune::api::ferrotune::music_folders::list_music_folders(
+            FerrotuneAuthenticatedUser {
+                user_id: user.id,
+                username: user.username.clone(),
+                is_admin: user.is_admin,
+            },
+            State(state.clone()),
+        )
+        .await
+        .expect("list_music_folders should succeed on postgres")
+        .0;
+        assert!(!response.music_folders.is_empty());
+        let seeded_folder_id = response.music_folders[0].id;
+        let stats = &response.music_folders[0].stats;
+        assert!(stats.song_count >= 2);
+
+        let admin_auth = || FerrotuneAuthenticatedUser {
+            user_id: user.id,
+            username: user.username.clone(),
+            is_admin: user.is_admin,
+        };
+
+        let new_folder_path = std::env::temp_dir().join(format!(
+            "ferrotune-pg-music-folder-{}-{}",
+            user.id,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&new_folder_path)
+            .expect("postgres music folder test directory should be created");
+
+        let create_response = ferrotune::api::ferrotune::music_folders::create_music_folder(
+            admin_auth(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::music_folders::CreateMusicFolderRequest {
+                    name: "Imported Folder".to_string(),
+                    path: new_folder_path.to_string_lossy().to_string(),
+                    watch_enabled: true,
+                },
+            ),
+        )
+        .await
+        .expect("create_music_folder should succeed on postgres")
+        .into_response();
+        assert_eq!(create_response.status(), axum::http::StatusCode::CREATED);
+        let create_bytes = axum::body::to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .expect("create_music_folder response body should decode");
+        let create_json: serde_json::Value = serde_json::from_slice(&create_bytes)
+            .expect("create_music_folder response should be valid json");
+        let created_folder_id = create_json["id"]
+            .as_i64()
+            .expect("create_music_folder response should include a numeric id");
+
+        let update_response = ferrotune::api::ferrotune::music_folders::update_music_folder(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_folder_id),
+            Json(
+                ferrotune::api::ferrotune::music_folders::UpdateMusicFolderRequest {
+                    name: Some("Imported Folder Renamed".to_string()),
+                    enabled: Some(false),
+                    watch_enabled: Some(false),
+                },
+            ),
+        )
+        .await
+        .expect("update_music_folder should succeed on postgres")
+        .into_response();
+        assert_eq!(update_response.status(), axum::http::StatusCode::OK);
+
+        let folder = ferrotune::api::ferrotune::music_folders::get_music_folder(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_folder_id),
+        )
+        .await
+        .expect("get_music_folder should succeed on postgres")
+        .0;
+        assert_eq!(folder.name, "Imported Folder Renamed");
+        assert!(!folder.enabled);
+        assert!(!folder.watch_enabled);
+        assert_eq!(folder.path, new_folder_path.to_string_lossy());
+
+        let folder_stats = ferrotune::api::ferrotune::music_folders::get_music_folder_stats(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_folder_id),
+        )
+        .await
+        .expect("get_music_folder_stats should succeed on postgres")
+        .0;
+        assert_eq!(folder_stats.song_count, 0);
+        assert_eq!(folder_stats.album_count, 0);
+        assert_eq!(folder_stats.artist_count, 0);
+
+        let delete_created_response =
+            ferrotune::api::ferrotune::music_folders::delete_music_folder(
+                admin_auth(),
+                State(state.clone()),
+                Path(created_folder_id),
+            )
+            .await
+            .expect("delete_music_folder for created folder should succeed on postgres")
+            .into_response();
+        assert_eq!(
+            delete_created_response.status(),
+            axum::http::StatusCode::NO_CONTENT
+        );
+
+        let delete_seeded_response = ferrotune::api::ferrotune::music_folders::delete_music_folder(
+            admin_auth(),
+            State(state.clone()),
+            Path(seeded_folder_id),
+        )
+        .await
+        .expect("delete_music_folder for seeded folder should succeed on postgres")
+        .into_response();
+        assert_eq!(
+            delete_seeded_response.status(),
+            axum::http::StatusCode::NO_CONTENT
+        );
+
+        let remaining_seeded_songs: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM songs WHERE music_folder_id = $1")
+                .bind(seeded_folder_id)
+                .fetch_one(pool)
+                .await
+                .expect("seeded folder song count query should succeed after delete");
+        assert_eq!(remaining_seeded_songs, 0);
+
+        let remaining_folder: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM music_folders WHERE id = $1")
+                .bind(seeded_folder_id)
+                .fetch_optional(pool)
+                .await
+                .expect("seeded folder existence query should succeed after delete");
+        assert!(remaining_folder.is_none());
+
+        let _ = std::fs::remove_dir_all(&new_folder_path);
+    });
+}
+
+#[test]
+fn test_postgres_directory_paged_handler_works() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let (user, _artist_id, _album_id, song_1, _song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let library_id: i64 = sqlx::query_scalar("SELECT music_folder_id FROM songs WHERE id = $1")
+            .bind(&song_1)
+            .fetch_one(pool)
+            .await
+            .expect("postgres directory library id lookup should succeed");
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        let auth_user = || FerrotuneAuthenticatedUser {
+            user_id: user.id,
+            username: user.username.clone(),
+            is_admin: user.is_admin,
+        };
+
+        let root_response = ferrotune::api::ferrotune::directory::get_directory_paged(
+            auth_user(),
+            State(state.clone()),
+            Query(
+                ferrotune::api::ferrotune::directory::GetDirectoryPagedParams {
+                    library_id: Some(library_id),
+                    path: None,
+                    count: Some(50),
+                    offset: Some(0),
+                    sort: None,
+                    sort_dir: None,
+                    filter: None,
+                    folders_only: None,
+                    files_only: None,
+                    inline_images:
+                        ferrotune::api::subsonic::inline_thumbnails::InlineImagesParam::default(),
+                },
+            ),
+        )
+        .await
+        .expect("postgres directory root handler should succeed")
+        .0;
+        assert_eq!(root_response.library_id, library_id);
+        assert_eq!(root_response.folder_count, 1);
+        assert_eq!(root_response.file_count, 0);
+        assert_eq!(root_response.total, 1);
+        assert_eq!(root_response.children.len(), 1);
+        assert!(root_response.children[0].is_dir);
+        assert_eq!(root_response.children[0].title, "Artist");
+        assert_eq!(root_response.children[0].path.as_deref(), Some("Artist"));
+
+        let album_response = ferrotune::api::ferrotune::directory::get_directory_paged(
+            auth_user(),
+            State(state),
+            Query(
+                ferrotune::api::ferrotune::directory::GetDirectoryPagedParams {
+                    library_id: Some(library_id),
+                    path: Some("Artist/Album".to_string()),
+                    count: Some(50),
+                    offset: Some(0),
+                    sort: Some("name".to_string()),
+                    sort_dir: Some("asc".to_string()),
+                    filter: None,
+                    folders_only: None,
+                    files_only: None,
+                    inline_images:
+                        ferrotune::api::subsonic::inline_thumbnails::InlineImagesParam::default(),
+                },
+            ),
+        )
+        .await
+        .expect("postgres directory nested handler should succeed")
+        .0;
+        assert_eq!(album_response.folder_count, 0);
+        assert_eq!(album_response.file_count, 2);
+        assert_eq!(album_response.total, 2);
+        let titles: Vec<&str> = album_response
+            .children
+            .iter()
+            .map(|child| child.title.as_str())
+            .collect();
+        assert!(titles.contains(&"Opening Track"));
+        assert!(titles.contains(&"Closing Track"));
+        assert!(album_response.children.iter().all(|child| !child.is_dir));
+    });
+}
+
+#[test]
+fn test_postgres_scan_specific_files_works() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+
+        let library_dir = std::env::temp_dir().join(format!(
+            "ferrotune-pg-scan-specific-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let song_path = library_dir.join("Artist/Album/01 - Simple.mp3");
+        std::fs::create_dir_all(
+            song_path
+                .parent()
+                .expect("scanned song path should have a parent directory"),
+        )
+        .expect("scan-specific test directories should be created");
+        std::fs::copy(
+            "/home/rasse/ferrotune/tests/fixtures/music/simple.mp3",
+            &song_path,
+        )
+        .expect("scan-specific fixture should be copied into the temp library");
+
+        let folder_id = db::queries::create_music_folder(
+            &database,
+            "Scanner Library",
+            &library_dir.to_string_lossy(),
+        )
+        .await
+        .expect("postgres scan-specific music folder should be created");
+
+        ferrotune::scanner::scan_specific_files(&database, folder_id, vec![song_path.clone()])
+            .await
+            .expect("postgres scan_specific_files should insert scanned song");
+
+        let scanned_song: Option<(String, i64, String)> = sqlx::query_as(
+            "SELECT file_path, music_folder_id, file_format FROM songs WHERE music_folder_id = $1",
+        )
+        .bind(folder_id)
+        .fetch_optional(pool)
+        .await
+        .expect("postgres scanned song lookup should succeed");
+
+        let (relative_path, scanned_folder_id, file_format) =
+            scanned_song.expect("scan_specific_files should create a song row");
+        assert_eq!(relative_path, "Artist/Album/01 - Simple.mp3");
+        assert_eq!(scanned_folder_id, folder_id);
+        assert_eq!(file_format, "mp3");
+
+        std::fs::remove_file(&song_path).expect("scanned song fixture should be removable");
+
+        ferrotune::scanner::scan_specific_files(&database, folder_id, vec![song_path.clone()])
+            .await
+            .expect("postgres scan_specific_files should delete missing song row");
+
+        let remaining_songs: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM songs WHERE music_folder_id = $1")
+                .bind(folder_id)
+                .fetch_one(pool)
+                .await
+                .expect("postgres remaining scanned song count should succeed");
+        assert_eq!(remaining_songs, 0);
+
+        let _ = std::fs::remove_dir_all(&library_dir);
+    });
+}
+
+#[test]
+fn test_postgres_scan_library_with_progress_works() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+
+        let library_dir = std::env::temp_dir().join(format!(
+            "ferrotune-pg-scan-library-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let song_path = library_dir.join("Artist/Album/01 - Simple.mp3");
+        std::fs::create_dir_all(
+            song_path
+                .parent()
+                .expect("scanned song path should have a parent directory"),
+        )
+        .expect("scan-library test directories should be created");
+        std::fs::copy(
+            "/home/rasse/ferrotune/tests/fixtures/music/simple.mp3",
+            &song_path,
+        )
+        .expect("scan-library fixture should be copied into the temp library");
+
+        let folder_id = db::queries::create_music_folder(
+            &database,
+            "Scanner Library",
+            &library_dir.to_string_lossy(),
+        )
+        .await
+        .expect("postgres scan-library music folder should be created");
+
+        let scan_options = ferrotune::scanner::ScanOptions {
+            full: true,
+            folder_id: Some(folder_id),
+            dry_run: false,
+            analyze_replaygain: false,
+            analyze_bliss: false,
+            analyze_waveform: false,
+            skip: None,
+        };
+
+        ferrotune::scanner::scan_library_with_progress(&database, scan_options, None)
+            .await
+            .expect("postgres scan_library_with_progress should insert scanned songs");
+
+        let scanned_song: Option<(String, i64)> = sqlx::query_as(
+            "SELECT file_path, music_folder_id FROM songs WHERE music_folder_id = $1",
+        )
+        .bind(folder_id)
+        .fetch_optional(pool)
+        .await
+        .expect("postgres scan-library song lookup should succeed");
+
+        let (relative_path, scanned_folder_id) =
+            scanned_song.expect("scan_library_with_progress should create a song row");
+        assert_eq!(relative_path, "Artist/Album/01 - Simple.mp3");
+        assert_eq!(scanned_folder_id, folder_id);
+
+        let folder_scanned: bool = sqlx::query_scalar(
+            "SELECT last_scanned_at IS NOT NULL FROM music_folders WHERE id = $1",
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await
+        .expect("postgres scan-library folder timestamp lookup should succeed");
+        assert!(folder_scanned);
+
+        std::fs::remove_file(&song_path).expect("scanned song fixture should be removable");
+
+        ferrotune::scanner::scan_library_with_progress(
+            &database,
+            ferrotune::scanner::ScanOptions {
+                full: true,
+                folder_id: Some(folder_id),
+                dry_run: false,
+                analyze_replaygain: false,
+                analyze_bliss: false,
+                analyze_waveform: false,
+                skip: None,
+            },
+            None,
+        )
+        .await
+        .expect("postgres scan_library_with_progress should delete missing songs");
+
+        let remaining_songs: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM songs WHERE music_folder_id = $1")
+                .bind(folder_id)
+                .fetch_one(pool)
+                .await
+                .expect("postgres remaining scan-library song count should succeed");
+        assert_eq!(remaining_songs, 0);
+
+        let _ = std::fs::remove_dir_all(&library_dir);
+    });
+}
+
+#[test]
+fn test_postgres_users_handlers_work() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (admin_user, _artist_id, _album_id, _song_1, _song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let folder_id = db::queries::get_music_folders(&database)
+            .await
+            .expect("postgres folder lookup should succeed")
+            .first()
+            .expect("seeded postgres library should have a music folder")
+            .id;
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        let admin_auth = || FerrotuneAuthenticatedUser {
+            user_id: admin_user.id,
+            username: admin_user.username.clone(),
+            is_admin: admin_user.is_admin,
+        };
+
+        let create_response = ferrotune::api::ferrotune::users::create_user(
+            admin_auth(),
+            State(state.clone()),
+            Json(ferrotune::api::ferrotune::users::CreateUserRequest {
+                username: "collab".to_string(),
+                password: "secret123".to_string(),
+                email: Some("collab@example.com".to_string()),
+                is_admin: false,
+                library_access: vec![folder_id],
+            }),
+        )
+        .await
+        .expect("postgres create_user handler should succeed")
+        .into_response();
+        assert_eq!(create_response.status(), axum::http::StatusCode::CREATED);
+
+        let created_user = db::queries::get_user_by_username(&database, "collab")
+            .await
+            .expect("postgres user lookup should succeed")
+            .expect("created user should exist");
+
+        let library_access = ferrotune::api::ferrotune::users::get_library_access(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_user.id),
+        )
+        .await
+        .expect("postgres get_library_access handler should succeed")
+        .0;
+        assert_eq!(library_access.folder_ids, vec![folder_id]);
+
+        let api_key_response = ferrotune::api::ferrotune::users::create_api_key(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_user.id),
+            Json(ferrotune::api::ferrotune::users::CreateApiKeyRequest {
+                name: "desktop".to_string(),
+            }),
+        )
+        .await
+        .expect("postgres create_api_key handler should succeed")
+        .into_response();
+        assert_eq!(api_key_response.status(), axum::http::StatusCode::CREATED);
+
+        let api_keys = ferrotune::api::ferrotune::users::list_api_keys(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_user.id),
+        )
+        .await
+        .expect("postgres list_api_keys handler should succeed")
+        .0;
+        assert_eq!(api_keys.api_keys.len(), 1);
+        assert_eq!(api_keys.api_keys[0].name, "desktop");
+
+        let updated_user = ferrotune::api::ferrotune::users::update_user(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_user.id),
+            Json(ferrotune::api::ferrotune::users::UpdateUserRequest {
+                username: Some("collab-renamed".to_string()),
+                password: Some("newsecret123".to_string()),
+                email: Some("renamed@example.com".to_string()),
+                is_admin: Some(true),
+                library_access: Some(vec![]),
+            }),
+        )
+        .await
+        .expect("postgres update_user handler should succeed")
+        .0;
+        assert_eq!(updated_user.username, "collab-renamed");
+        assert_eq!(updated_user.email.as_deref(), Some("renamed@example.com"));
+        assert!(updated_user.is_admin);
+        assert!(updated_user.library_access.is_empty());
+
+        let _ = ferrotune::api::ferrotune::users::delete_api_key(
+            admin_auth(),
+            State(state.clone()),
+            Path((created_user.id, "desktop".to_string())),
+        )
+        .await
+        .expect("postgres delete_api_key handler should succeed")
+        .into_response();
+
+        let api_keys = ferrotune::api::ferrotune::users::list_api_keys(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_user.id),
+        )
+        .await
+        .expect("postgres list_api_keys after delete should succeed")
+        .0;
+        assert!(api_keys.api_keys.is_empty());
+
+        let delete_response = ferrotune::api::ferrotune::users::delete_user(
+            admin_auth(),
+            State(state),
+            Path(created_user.id),
+        )
+        .await
+        .expect("postgres delete_user handler should succeed")
+        .into_response();
+        assert_eq!(delete_response.status(), axum::http::StatusCode::NO_CONTENT);
+
+        assert!(
+            db::queries::get_user_by_username(&database, "collab-renamed")
+                .await
+                .expect("postgres lookup after delete should succeed")
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn test_postgres_tagger_core_helpers_and_handlers_work() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (user, _artist_id, _album_id, song_1, song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let session_id =
+            ferrotune::api::ferrotune::tagger_session::get_or_create_session(&database, user.id)
+                .await
+                .expect("postgres get_or_create_session should succeed");
+        assert!(session_id > 0);
+
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let seeded_script_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM tagger_scripts WHERE user_id = $1")
+                .bind(user.id)
+                .fetch_one(pool)
+                .await
+                .expect("postgres tagger_scripts count should succeed");
+        assert_eq!(seeded_script_count, 5);
+
+        let staged_track_ids =
+            ferrotune::api::ferrotune::tagger_session::get_session_track_ids(&database, user.id)
+                .await
+                .expect("postgres get_session_track_ids should succeed");
+        assert!(staged_track_ids.is_empty());
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        let staging_username = format!(
+            "pg-tagger-test-{}-{}",
+            user.id,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        let auth_user = || FerrotuneAuthenticatedUser {
+            user_id: user.id,
+            username: staging_username.clone(),
+            is_admin: user.is_admin,
+        };
+
+        let update_status = ferrotune::api::ferrotune::tagger_session::update_session(
+            auth_user(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::tagger_session::UpdateTaggerSessionRequest {
+                    visible_columns: Some(vec!["TITLE".to_string(), "ARTIST".to_string()]),
+                    active_rename_script_id: Some(format!("default-rename-{}", user.id)),
+                    active_tag_script_id: Some(format!("default-trim-{}", user.id)),
+                    target_library_id: Some("1".to_string()),
+                    show_library_prefix: Some(true),
+                    show_computed_path: Some(false),
+                    column_widths: Some(HashMap::from([("TITLE".to_string(), 320)])),
+                    file_column_width: Some(512),
+                    details_panel_open: Some(false),
+                    dangerous_char_mode: Some("strip".to_string()),
+                    dangerous_char_replacement: Some("-".to_string()),
+                },
+            ),
+        )
+        .await
+        .expect("postgres tagger update_session should succeed");
+        assert_eq!(update_status, axum::http::StatusCode::NO_CONTENT);
+
+        let set_tracks_status = ferrotune::api::ferrotune::tagger_session::set_session_tracks(
+            auth_user(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::tagger_session::SetTaggerTracksRequest {
+                    tracks: vec![
+                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                            id: song_1.clone(),
+                            track_type: "library".to_string(),
+                        },
+                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                            id: song_2.clone(),
+                            track_type: "library".to_string(),
+                        },
+                    ],
+                },
+            ),
+        )
+        .await
+        .expect("postgres tagger set_session_tracks should succeed");
+        assert_eq!(set_tracks_status, axum::http::StatusCode::NO_CONTENT);
+
+        let session = ferrotune::api::ferrotune::tagger_session::get_session(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres tagger get_session should succeed")
+        .0;
+        assert_eq!(session.visible_columns, vec!["TITLE", "ARTIST"]);
+        assert_eq!(
+            session.active_rename_script_id,
+            Some(format!("default-rename-{}", user.id))
+        );
+        assert_eq!(
+            session.active_tag_script_id,
+            Some(format!("default-trim-{}", user.id))
+        );
+        assert_eq!(session.target_library_id.as_deref(), Some("1"));
+        assert!(session.show_library_prefix);
+        assert!(!session.show_computed_path);
+        assert_eq!(session.column_widths.get("TITLE"), Some(&320));
+        assert_eq!(session.file_column_width, 512);
+        assert!(!session.details_panel_open);
+        assert_eq!(session.dangerous_char_mode, "strip");
+        assert_eq!(session.dangerous_char_replacement, "-");
+        assert_eq!(session.tracks.len(), 2);
+        assert_eq!(session.tracks[0].id, song_1);
+        assert_eq!(session.tracks[1].id, song_2);
+
+        let orphaned = ferrotune::api::ferrotune::tagger::discover_orphaned_files(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres discover_orphaned_files should succeed")
+        .0;
+        assert_eq!(orphaned.count, 0);
+        assert!(orphaned.file_ids.is_empty());
+
+        let song_paths =
+            ferrotune::api::ferrotune::tagger::get_song_paths(auth_user(), State(state.clone()))
+                .await
+                .expect("postgres get_song_paths should succeed")
+                .0;
+        assert_eq!(song_paths.songs.len(), 2);
+        assert!(song_paths
+            .songs
+            .iter()
+            .any(|song| song.file_path.ends_with("Opening Track.mp3")));
+
+        let scripts_response = ferrotune::api::ferrotune::tagger_session::get_scripts(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(scripts_response.status(), axum::http::StatusCode::OK);
+        let scripts_bytes = axum::body::to_bytes(scripts_response.into_body(), usize::MAX)
+            .await
+            .expect("postgres tagger get_scripts response body should decode");
+        let scripts_json: serde_json::Value = serde_json::from_slice(&scripts_bytes)
+            .expect("postgres tagger get_scripts response should be valid json");
+        assert_eq!(
+            scripts_json["scripts"]
+                .as_array()
+                .expect("postgres tagger get_scripts should return an array")
+                .len(),
+            5
+        );
+
+        let save_scripts_status = ferrotune::api::ferrotune::tagger_session::save_scripts(
+            auth_user(),
+            State(state.clone()),
+            Json(vec![
+                ferrotune::api::ferrotune::tagger_session::TaggerScriptData {
+                    id: "custom-rename".to_string(),
+                    name: "Custom Rename".to_string(),
+                    script_type: "rename".to_string(),
+                    script: "return TITLE;".to_string(),
+                },
+            ]),
+        )
+        .await
+        .expect("postgres tagger save_scripts should succeed");
+        assert_eq!(save_scripts_status, axum::http::StatusCode::NO_CONTENT);
+
+        let saved_scripts_response = ferrotune::api::ferrotune::tagger_session::get_scripts(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        let saved_scripts_bytes =
+            axum::body::to_bytes(saved_scripts_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger saved scripts response body should decode");
+        let saved_scripts_json: serde_json::Value = serde_json::from_slice(&saved_scripts_bytes)
+            .expect("postgres tagger saved scripts response should be valid json");
+        let saved_scripts = saved_scripts_json["scripts"]
+            .as_array()
+            .expect("postgres tagger saved scripts should return an array");
+        assert_eq!(saved_scripts.len(), 1);
+        assert_eq!(saved_scripts[0]["id"], "custom-rename");
+
+        let delete_script_status = ferrotune::api::ferrotune::tagger_session::delete_script(
+            auth_user(),
+            State(state.clone()),
+            Path("custom-rename".to_string()),
+        )
+        .await
+        .expect("postgres tagger delete_script should succeed");
+        assert_eq!(delete_script_status, axum::http::StatusCode::NO_CONTENT);
+
+        let deleted_scripts_response = ferrotune::api::ferrotune::tagger_session::get_scripts(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        let deleted_scripts_bytes =
+            axum::body::to_bytes(deleted_scripts_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger deleted scripts response body should decode");
+        let deleted_scripts_json: serde_json::Value =
+            serde_json::from_slice(&deleted_scripts_bytes)
+                .expect("postgres tagger deleted scripts response should be valid json");
+        assert!(deleted_scripts_json["scripts"]
+            .as_array()
+            .expect("postgres tagger deleted scripts should return an array")
+            .is_empty());
+
+        let update_edit_status = ferrotune::api::ferrotune::tagger_session::update_edit(
+            auth_user(),
+            State(state.clone()),
+            Path(song_1.clone()),
+            Json(
+                ferrotune::api::ferrotune::tagger_session::UpdatePendingEditRequest {
+                    edited_tags: HashMap::from([(
+                        "TITLE".to_string(),
+                        "Retagged Opening".to_string(),
+                    )]),
+                    computed_path: Some(
+                        "Artist One/Album One/01 - Retagged Opening.mp3".to_string(),
+                    ),
+                    cover_art_removed: true,
+                },
+            ),
+        )
+        .await
+        .expect("postgres tagger update_edit should succeed");
+        assert_eq!(update_edit_status, axum::http::StatusCode::NO_CONTENT);
+
+        let pending_edits_response = ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(pending_edits_response.status(), axum::http::StatusCode::OK);
+        let pending_edits_bytes =
+            axum::body::to_bytes(pending_edits_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger get_pending_edits response body should decode");
+        let pending_edits_json: serde_json::Value = serde_json::from_slice(&pending_edits_bytes)
+            .expect("postgres tagger get_pending_edits response should be valid json");
+        let song_1_edit = pending_edits_json["edits"]
+            .get(song_1.as_str())
+            .expect("postgres tagger pending edits should contain song_1");
+        assert_eq!(song_1_edit["editedTags"]["TITLE"], "Retagged Opening");
+        assert_eq!(
+            song_1_edit["computedPath"],
+            "Artist One/Album One/01 - Retagged Opening.mp3"
+        );
+        assert_eq!(song_1_edit["coverArtRemoved"], true);
+
+        let remove_track_status = ferrotune::api::ferrotune::tagger_session::remove_track(
+            auth_user(),
+            State(state.clone()),
+            Path(song_2.clone()),
+        )
+        .await
+        .expect("postgres tagger remove_track should succeed");
+        assert_eq!(remove_track_status, axum::http::StatusCode::NO_CONTENT);
+
+        let session_after_remove = ferrotune::api::ferrotune::tagger_session::get_session(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres tagger get_session after remove_track should succeed")
+        .0;
+        assert_eq!(session_after_remove.tracks.len(), 1);
+        assert_eq!(session_after_remove.tracks[0].id, song_1);
+
+        let add_tracks_status = ferrotune::api::ferrotune::tagger_session::add_tracks(
+            auth_user(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::tagger_session::AddTracksRequest {
+                    tracks: vec![
+                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                            id: song_1.clone(),
+                            track_type: "library".to_string(),
+                        },
+                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                            id: song_2.clone(),
+                            track_type: "library".to_string(),
+                        },
+                    ],
+                },
+            ),
+        )
+        .await
+        .expect("postgres tagger add_tracks should succeed");
+        assert_eq!(add_tracks_status, axum::http::StatusCode::NO_CONTENT);
+
+        let session_after_add = ferrotune::api::ferrotune::tagger_session::get_session(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres tagger get_session after add_tracks should succeed")
+        .0;
+        assert_eq!(session_after_add.tracks.len(), 2);
+        assert_eq!(session_after_add.tracks[0].id, song_1);
+        assert_eq!(session_after_add.tracks[1].id, song_2);
+
+        let tagger_staging_dir = ferrotune::config::get_data_dir()
+            .join("staging")
+            .join(&staging_username);
+        let cover_art_dir = tagger_staging_dir.join("cover_art");
+        let replacement_audio_dir = tagger_staging_dir.join("replacement_audio");
+        std::fs::create_dir_all(&cover_art_dir)
+            .expect("postgres tagger cover_art directory should be created");
+        std::fs::create_dir_all(&replacement_audio_dir)
+            .expect("postgres tagger replacement_audio directory should be created");
+
+        let song_1_cover_filename = "song-1-cover.png";
+        let song_1_replacement_filename = "song-1-replacement.mp3";
+        let song_2_cover_filename = "song-2-cover.png";
+        let song_2_replacement_filename = "song-2-replacement.mp3";
+        std::fs::write(cover_art_dir.join(song_1_cover_filename), b"\x89PNGsong1")
+            .expect("postgres tagger song_1 cover art should be written");
+        std::fs::write(
+            replacement_audio_dir.join(song_1_replacement_filename),
+            b"01234",
+        )
+        .expect("postgres tagger song_1 replacement audio should be written");
+        std::fs::write(cover_art_dir.join(song_2_cover_filename), b"\x89PNGsong2")
+            .expect("postgres tagger song_2 cover art should be written");
+        std::fs::write(
+            replacement_audio_dir.join(song_2_replacement_filename),
+            b"abcde",
+        )
+        .expect("postgres tagger song_2 replacement audio should be written");
+
+        let now = chrono::Utc::now();
+        sqlx::query(
+            r#"
+            INSERT INTO tagger_pending_edits
+                (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed,
+                 replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
+            VALUES ($1, $2, 'library', $3, $4, FALSE, $5, $6, $7, $8)
+            ON CONFLICT(session_id, track_id) DO UPDATE SET
+                edited_tags = EXCLUDED.edited_tags,
+                cover_art_filename = EXCLUDED.cover_art_filename,
+                cover_art_removed = EXCLUDED.cover_art_removed,
+                replacement_audio_filename = EXCLUDED.replacement_audio_filename,
+                replacement_audio_original_name = EXCLUDED.replacement_audio_original_name,
+                updated_at = EXCLUDED.updated_at
+            "#,
+        )
+        .bind(session_id)
+        .bind(&song_1)
+        .bind(r#"{"TITLE":"Retagged Opening"}"#)
+        .bind(song_1_cover_filename)
+        .bind(song_1_replacement_filename)
+        .bind("Opening Replacement.mp3")
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("postgres tagger pending edit insert for song_1 should succeed");
+
+        sqlx::query(
+            r#"
+            INSERT INTO tagger_pending_edits
+                (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed,
+                 replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
+            VALUES ($1, $2, 'library', $3, $4, FALSE, $5, $6, $7, $8)
+            ON CONFLICT(session_id, track_id) DO UPDATE SET
+                edited_tags = EXCLUDED.edited_tags,
+                cover_art_filename = EXCLUDED.cover_art_filename,
+                cover_art_removed = EXCLUDED.cover_art_removed,
+                replacement_audio_filename = EXCLUDED.replacement_audio_filename,
+                replacement_audio_original_name = EXCLUDED.replacement_audio_original_name,
+                updated_at = EXCLUDED.updated_at
+            "#,
+        )
+        .bind(session_id)
+        .bind(&song_2)
+        .bind("{}")
+        .bind(song_2_cover_filename)
+        .bind(song_2_replacement_filename)
+        .bind("Second Replacement.mp3")
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("postgres tagger pending edit insert for song_2 should succeed");
+
+        let cover_art_response = ferrotune::api::ferrotune::tagger_session::get_cover_art(
+            auth_user(),
+            State(state.clone()),
+            Path(song_1.clone()),
+        )
+        .await
+        .expect("postgres tagger get_cover_art should succeed")
+        .into_response();
+        assert_eq!(cover_art_response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            cover_art_response.headers().get(axum::http::header::CONTENT_TYPE),
+            Some(&axum::http::HeaderValue::from_static("image/png"))
+        );
+        let cover_art_bytes = axum::body::to_bytes(cover_art_response.into_body(), usize::MAX)
+            .await
+            .expect("postgres tagger get_cover_art response body should decode");
+        assert_eq!(cover_art_bytes.as_ref(), b"\x89PNGsong1");
+
+        let mut range_headers = axum::http::HeaderMap::new();
+        range_headers.insert(
+            axum::http::header::RANGE,
+            axum::http::HeaderValue::from_static("bytes=1-3"),
+        );
+        let stream_response = ferrotune::api::ferrotune::tagger_session::stream_replacement_audio(
+            auth_user(),
+            State(state.clone()),
+            Path(song_1.clone()),
+            range_headers,
+        )
+        .await
+        .expect("postgres tagger stream_replacement_audio should succeed");
+        assert_eq!(stream_response.status(), axum::http::StatusCode::PARTIAL_CONTENT);
+        let stream_bytes = axum::body::to_bytes(stream_response.into_body(), usize::MAX)
+            .await
+            .expect("postgres tagger stream_replacement_audio body should decode");
+        assert_eq!(stream_bytes.as_ref(), b"123");
+
+        let delete_cover_art_status = ferrotune::api::ferrotune::tagger_session::delete_cover_art(
+            auth_user(),
+            State(state.clone()),
+            Path(song_1.clone()),
+        )
+        .await
+        .expect("postgres tagger delete_cover_art should succeed");
+        assert_eq!(delete_cover_art_status, axum::http::StatusCode::NO_CONTENT);
+        assert!(!cover_art_dir.join(song_1_cover_filename).exists());
+
+        let delete_replacement_audio_status =
+            ferrotune::api::ferrotune::tagger_session::delete_replacement_audio(
+                auth_user(),
+                State(state.clone()),
+                Path(song_1.clone()),
+            )
+            .await
+            .expect("postgres tagger delete_replacement_audio should succeed");
+        assert_eq!(
+            delete_replacement_audio_status,
+            axum::http::StatusCode::NO_CONTENT
+        );
+        assert!(!replacement_audio_dir.join(song_1_replacement_filename).exists());
+
+        let pending_after_asset_delete_response =
+            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+                auth_user(),
+                State(state.clone()),
+            )
+            .await
+            .into_response();
+        let pending_after_asset_delete_bytes =
+            axum::body::to_bytes(pending_after_asset_delete_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger pending edits after asset delete should decode");
+        let pending_after_asset_delete_json: serde_json::Value =
+            serde_json::from_slice(&pending_after_asset_delete_bytes)
+                .expect("postgres tagger pending edits after asset delete should be valid json");
+        let song_1_edit_after_asset_delete = pending_after_asset_delete_json["edits"]
+            .get(song_1.as_str())
+            .expect("postgres tagger song_1 edit should still exist after asset delete");
+        assert_eq!(song_1_edit_after_asset_delete["hasCoverArt"], false);
+        assert_eq!(song_1_edit_after_asset_delete["coverArtRemoved"], true);
+        assert_eq!(song_1_edit_after_asset_delete["hasReplacementAudio"], false);
+        assert!(song_1_edit_after_asset_delete["replacementAudioFilename"].is_null());
+        assert!(song_1_edit_after_asset_delete["replacementAudioOriginalName"].is_null());
+
+        let staged_track_id = "staged-track.mp3".to_string();
+        std::fs::write(tagger_staging_dir.join(&staged_track_id), b"staged-audio")
+            .expect("postgres tagger staged track file should be written");
+        let add_staged_track_status = ferrotune::api::ferrotune::tagger_session::add_tracks(
+            auth_user(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::tagger_session::AddTracksRequest {
+                    tracks: vec![ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                        id: staged_track_id.clone(),
+                        track_type: "staged".to_string(),
+                    }],
+                },
+            ),
+        )
+        .await
+        .expect("postgres tagger add staged track should succeed");
+        assert_eq!(add_staged_track_status, axum::http::StatusCode::NO_CONTENT);
+
+        let remove_tracks_status = ferrotune::api::ferrotune::tagger_session::remove_tracks(
+            auth_user(),
+            State(state.clone()),
+            Json(
+                ferrotune::api::ferrotune::tagger_session::RemoveTracksRequest {
+                    track_ids: vec![song_2.clone(), staged_track_id.clone()],
+                },
+            ),
+        )
+        .await
+        .expect("postgres tagger remove_tracks should succeed");
+        assert_eq!(remove_tracks_status, axum::http::StatusCode::NO_CONTENT);
+        assert!(!cover_art_dir.join(song_2_cover_filename).exists());
+        assert!(!replacement_audio_dir.join(song_2_replacement_filename).exists());
+        assert!(!tagger_staging_dir.join(&staged_track_id).exists());
+
+        let session_after_bulk_remove = ferrotune::api::ferrotune::tagger_session::get_session(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres tagger get_session after remove_tracks should succeed")
+        .0;
+        assert_eq!(session_after_bulk_remove.tracks.len(), 1);
+        assert_eq!(session_after_bulk_remove.tracks[0].id, song_1);
+
+        let pending_after_bulk_remove_response =
+            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+                auth_user(),
+                State(state.clone()),
+            )
+            .await
+            .into_response();
+        let pending_after_bulk_remove_bytes =
+            axum::body::to_bytes(pending_after_bulk_remove_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger pending edits after remove_tracks should decode");
+        let pending_after_bulk_remove_json: serde_json::Value =
+            serde_json::from_slice(&pending_after_bulk_remove_bytes)
+                .expect("postgres tagger pending edits after remove_tracks should be valid json");
+        assert!(pending_after_bulk_remove_json["edits"]
+            .get(song_2.as_str())
+            .is_none());
+
+        let save_library_dir = std::env::temp_dir().join(format!(
+            "ferrotune-pg-tagger-save-{}-{}",
+            user.id,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let save_song_path = save_library_dir.join("Artist/Album/01 - Opening Track.mp3");
+        std::fs::create_dir_all(
+            save_song_path
+                .parent()
+                .expect("postgres tagger save song path should have a parent directory"),
+        )
+        .expect("postgres tagger save library directory should be created");
+        std::fs::copy(
+            "/home/rasse/ferrotune/tests/fixtures/music/simple.mp3",
+            &save_song_path,
+        )
+        .expect("postgres tagger save fixture should be copied into the temp library");
+
+        let seeded_music_folder_id: i64 =
+            sqlx::query_scalar("SELECT music_folder_id FROM songs WHERE id = $1")
+                .bind(&song_1)
+                .fetch_one(pool)
+                .await
+                .expect("postgres tagger seeded music folder lookup should succeed");
+        sqlx::query("UPDATE music_folders SET path = $1 WHERE id = $2")
+            .bind(save_library_dir.to_string_lossy().to_string())
+            .bind(seeded_music_folder_id)
+            .execute(pool)
+            .await
+            .expect("postgres tagger seeded music folder path update should succeed");
+
+        let save_pending_edits_response =
+            ferrotune::api::ferrotune::tagger_session::save_pending_edits(
+                auth_user(),
+                State(state.clone()),
+                Json(
+                    ferrotune::api::ferrotune::tagger_session::SavePendingEditsRequest {
+                        track_ids: vec![song_1.clone()],
+                        path_overrides: HashMap::new(),
+                        target_music_folder_id: None,
+                    },
+                ),
+            )
+            .await
+            .expect("postgres tagger save_pending_edits should succeed");
+        assert_eq!(
+            save_pending_edits_response.status(),
+            axum::http::StatusCode::OK
+        );
+        let save_pending_edits_bytes =
+            axum::body::to_bytes(save_pending_edits_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger save_pending_edits response body should decode");
+        let save_pending_edits_json: serde_json::Value =
+            serde_json::from_slice(&save_pending_edits_bytes)
+                .expect("postgres tagger save_pending_edits response should be valid json");
+        assert_eq!(save_pending_edits_json["success"], true);
+        assert_eq!(save_pending_edits_json["savedCount"], 1);
+        assert_eq!(save_pending_edits_json["rescanRecommended"], true);
+
+        let saved_title = {
+            use lofty::prelude::*;
+            use lofty::probe::Probe;
+
+            let renamed_save_song_path = save_library_dir.join("Artist One/Album One/01 - Retagged Opening.mp3");
+            let tagged_file = Probe::open(&renamed_save_song_path)
+                .and_then(|probe| probe.read())
+                .expect("postgres tagger saved audio file should be readable");
+            tagged_file
+                .primary_tag()
+                .and_then(|tag| tag.title())
+                .map(|title| title.to_string())
+                .expect("postgres tagger saved audio file should have a title tag")
+        };
+        assert_eq!(saved_title, "Retagged Opening");
+
+        let pending_after_save_response =
+            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+                auth_user(),
+                State(state.clone()),
+            )
+            .await
+            .into_response();
+        let pending_after_save_bytes =
+            axum::body::to_bytes(pending_after_save_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger pending edits after save should decode");
+        let pending_after_save_json: serde_json::Value =
+            serde_json::from_slice(&pending_after_save_bytes)
+                .expect("postgres tagger pending edits after save should be valid json");
+        assert!(pending_after_save_json["edits"]
+            .as_object()
+            .expect("postgres tagger pending edits after save should be an object")
+            .is_empty());
+
+        let clear_pending_edits_status =
+            ferrotune::api::ferrotune::tagger_session::clear_pending_edits(
+                auth_user(),
+                State(state.clone()),
+            )
+            .await
+            .expect("postgres tagger clear_pending_edits should succeed");
+        assert_eq!(
+            clear_pending_edits_status,
+            axum::http::StatusCode::NO_CONTENT
+        );
+
+        let cleared_pending_edits_response =
+            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+                auth_user(),
+                State(state.clone()),
+            )
+            .await
+            .into_response();
+        let cleared_pending_edits_bytes =
+            axum::body::to_bytes(cleared_pending_edits_response.into_body(), usize::MAX)
+                .await
+                .expect("postgres tagger cleared pending edits response body should decode");
+        let cleared_pending_edits_json: serde_json::Value =
+            serde_json::from_slice(&cleared_pending_edits_bytes)
+                .expect("postgres tagger cleared pending edits response should be valid json");
+        assert!(cleared_pending_edits_json["edits"]
+            .as_object()
+            .expect("postgres tagger cleared pending edits should be an object")
+            .is_empty());
+
+        let clear_session_status = ferrotune::api::ferrotune::tagger_session::clear_session(
+            auth_user(),
+            State(state.clone()),
+        )
+        .await
+        .expect("postgres tagger clear_session should succeed");
+        assert_eq!(clear_session_status, axum::http::StatusCode::NO_CONTENT);
+
+        let cleared_session =
+            ferrotune::api::ferrotune::tagger_session::get_session(auth_user(), State(state))
+                .await
+                .expect("postgres tagger get_session after clear_session should succeed")
+                .0;
+        assert!(cleared_session.tracks.is_empty());
+
+        let _ = std::fs::remove_dir_all(&save_library_dir);
+        let _ = std::fs::remove_dir_all(&tagger_staging_dir);
     });
 }
 
@@ -1614,9 +3197,6 @@ fn test_postgres_stats_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1686,9 +3266,6 @@ fn test_postgres_waveform_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -1757,9 +3334,6 @@ fn test_postgres_home_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -2949,9 +4523,6 @@ fn test_postgres_playlist_start_queue_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -3088,9 +4659,6 @@ fn test_postgres_smart_playlist_start_queue_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -3210,9 +4778,6 @@ fn test_postgres_smart_playlist_read_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -3348,9 +4913,6 @@ fn test_postgres_smart_playlist_write_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -3553,9 +5115,6 @@ fn test_postgres_continue_listening_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -3637,9 +5196,6 @@ fn test_postgres_continue_listening_start_queue_handler_works() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -3852,7 +5408,191 @@ fn test_postgres_execute_search_works() {
             .into_iter()
             .map(|song| song.id)
             .collect();
-        assert_eq!(song_ids, vec![song_1, song_2]);
+        assert_eq!(song_ids, vec![song_1.clone(), song_2]);
+
+        let typo_results = ferrotune::api::common::search_utils::execute_search(
+            &database, user.id, "tegrat", &params, 5, 0, 5, 0, 5, 0, None,
+        )
+        .await
+        .expect("postgres shared fuzzy artist/album search should succeed");
+        assert_eq!(typo_results.artist_responses.len(), 1);
+        assert_eq!(typo_results.album_responses.len(), 1);
+
+        let song_typo_results = ferrotune::api::common::search_utils::execute_search(
+            &database, user.id, "pening", &params, 5, 0, 5, 0, 5, 0, None,
+        )
+        .await
+        .expect("postgres shared fuzzy song search should succeed");
+        let typo_song_ids: Vec<String> = song_typo_results
+            .song_responses
+            .into_iter()
+            .map(|song| song.id)
+            .collect();
+        assert_eq!(typo_song_ids, vec![song_1]);
+    });
+}
+
+#[test]
+fn test_postgres_thumbnail_helpers_and_inline_reads_work() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let (_user, _artist_id, album_id, song_1, _song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let image = image::DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(
+            1,
+            1,
+            image::Rgb([12, 34, 56]),
+        ));
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .expect("test image should encode as png");
+        let png_data = encoded.into_inner();
+
+        let result = ferrotune::thumbnails::ensure_cover_art_with_dimensions(&database, &png_data)
+            .await
+            .expect("postgres thumbnail helper should store thumbnails and compute dimensions");
+        assert_eq!(result.width, 1);
+        assert_eq!(result.height, 1);
+        assert!(!result.hash.is_empty());
+
+        let small_thumbnail = ferrotune::thumbnails::get_thumbnail(
+            &database,
+            &result.hash,
+            ferrotune::thumbnails::ThumbnailSize::Small,
+        )
+        .await
+        .expect("postgres small thumbnail lookup should succeed")
+        .expect("postgres small thumbnail should be stored");
+        assert!(!small_thumbnail.is_empty());
+
+        let medium_thumbnail = ferrotune::thumbnails::get_thumbnail(
+            &database,
+            &result.hash,
+            ferrotune::thumbnails::ThumbnailSize::Medium,
+        )
+        .await
+        .expect("postgres medium thumbnail lookup should succeed")
+        .expect("postgres medium thumbnail should be stored");
+        assert!(!medium_thumbnail.is_empty());
+
+        sqlx::query("UPDATE albums SET cover_art_hash = $1 WHERE id = $2")
+            .bind(&result.hash)
+            .bind(&album_id)
+            .execute(pool)
+            .await
+            .expect("postgres album cover hash update should succeed");
+
+        let album_thumbnail =
+            ferrotune::api::subsonic::inline_thumbnails::get_album_thumbnail_base64(
+                &database,
+                &album_id,
+                ferrotune::thumbnails::ThumbnailSize::Small,
+            )
+            .await
+            .expect("postgres inline album thumbnail should be available");
+
+        use base64::Engine;
+        let decoded_album_thumbnail = base64::engine::general_purpose::STANDARD
+            .decode(album_thumbnail)
+            .expect("postgres inline album thumbnail should decode");
+        assert_eq!(decoded_album_thumbnail, small_thumbnail);
+
+        let song_thumbnails =
+            ferrotune::api::subsonic::inline_thumbnails::get_song_thumbnails_base64(
+                &database,
+                &[(song_1.clone(), Some(album_id.clone()))],
+                ferrotune::thumbnails::ThumbnailSize::Small,
+            )
+            .await;
+        let decoded_song_thumbnail = base64::engine::general_purpose::STANDARD
+            .decode(
+                song_thumbnails
+                    .get(&song_1)
+                    .expect("postgres song thumbnail should fall back to album art"),
+            )
+            .expect("postgres inline song thumbnail should decode");
+        assert_eq!(decoded_song_thumbnail, small_thumbnail);
+    });
+}
+
+#[test]
+fn test_postgres_bliss_similarity_query_works() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let (user, _artist_id, _album_id, song_1, song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let seed_features = ferrotune::bliss::features_to_blob(&[0.0; 23]);
+        let candidate_features = ferrotune::bliss::features_to_blob(&[0.2; 23]);
+
+        sqlx::query("UPDATE songs SET bliss_features = $1, bliss_version = $2 WHERE id = $3")
+            .bind(seed_features)
+            .bind(2i32)
+            .bind(&song_1)
+            .execute(pool)
+            .await
+            .expect("postgres seed song bliss update should succeed");
+
+        sqlx::query("UPDATE songs SET bliss_features = $1, bliss_version = $2 WHERE id = $3")
+            .bind(candidate_features)
+            .bind(2i32)
+            .bind(&song_2)
+            .execute(pool)
+            .await
+            .expect("postgres candidate song bliss update should succeed");
+
+        let similar = ferrotune::bliss::find_similar_songs(&database, &song_1, user.id, 5)
+            .await
+            .expect("postgres bliss similarity query should succeed");
+        assert_eq!(similar.len(), 1);
+        assert_eq!(similar[0].0, song_2);
+        assert!(similar[0].1 > 0.05);
     });
 }
 
@@ -4195,9 +5935,6 @@ fn test_postgres_subsonic_playlist_read_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -4283,9 +6020,6 @@ fn test_postgres_subsonic_playlist_write_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -4447,7 +6181,7 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
         )
         .await
         .expect("postgres owned playlist should be created");
-        db::queries::add_songs_to_playlist(&database, &owned_playlist_id, &[song_1.clone()])
+        db::queries::add_songs_to_playlist(&database, &owned_playlist_id, std::slice::from_ref(&song_1))
             .await
             .expect("postgres owned playlist songs should be inserted");
 
@@ -4463,7 +6197,7 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
         )
         .await
         .expect("postgres shared playlist should be created");
-        db::queries::add_songs_to_playlist(&database, &shared_playlist_id, &[song_2.clone()])
+        db::queries::add_songs_to_playlist(&database, &shared_playlist_id, std::slice::from_ref(&song_2))
             .await
             .expect("postgres shared playlist songs should be inserted");
         sqlx::query(
@@ -4488,15 +6222,12 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
         )
         .await
         .expect("postgres public playlist should be created");
-        db::queries::add_songs_to_playlist(&database, &public_playlist_id, &[song_1.clone()])
+        db::queries::add_songs_to_playlist(&database, &public_playlist_id, std::slice::from_ref(&song_1))
             .await
             .expect("postgres public playlist songs should be inserted");
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -4736,9 +6467,6 @@ fn test_postgres_ferrotune_playlist_entry_mutation_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -5002,9 +6730,6 @@ fn test_postgres_ferrotune_playlist_write_admin_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -5034,7 +6759,7 @@ fn test_postgres_ferrotune_playlist_write_admin_handlers_work() {
         )
         .await
         .expect("postgres admin playlist should be created");
-        db::queries::add_songs_to_playlist(&database, &playlist_id, &[song_1.clone()])
+        db::queries::add_songs_to_playlist(&database, &playlist_id, std::slice::from_ref(&song_1))
             .await
             .expect("postgres admin playlist songs should be inserted");
 
@@ -5275,9 +7000,6 @@ fn test_postgres_ferrotune_playlist_read_handlers_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
@@ -5411,13 +7133,6 @@ fn test_postgres_initialize_app_state_works() {
                 .expect("postgres user count should resolve after app state init"),
             1
         );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT 1")
-                .fetch_one(&state.pool)
-                .await
-                .expect("transitional SQLite pool should remain usable"),
-            1
-        );
     });
 }
 
@@ -5473,9 +7188,6 @@ fn test_postgres_ferrotune_history_handler_work() {
 
         let state = Arc::new(AppState {
             database: database.clone(),
-            pool: sqlx::SqlitePool::connect("sqlite::memory:")
-                .await
-                .expect("legacy sqlite pool should initialize for test state"),
             config: postgres_test_app_config(config.clone()),
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),

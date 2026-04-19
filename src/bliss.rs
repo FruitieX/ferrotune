@@ -76,6 +76,9 @@ struct SongCandidate {
     features: Vec<f32>,
 }
 
+type BlissSeedRow = (Vec<u8>, String, String);
+type BlissCandidateRow = (String, Vec<u8>, String, String);
+
 /// Find the most similar songs to a seed song using bliss euclidean distance.
 ///
 /// Loads all analyzed songs' feature vectors from the database, computes
@@ -87,24 +90,85 @@ pub async fn find_similar_songs(
     user_id: i64,
     count: usize,
 ) -> Result<Vec<(String, f32)>> {
-    let pool = database.sqlite_pool()?;
+    let (seed_row, rows): (Option<BlissSeedRow>, Vec<BlissCandidateRow>) =
+        if let Ok(pool) = database.sqlite_pool() {
+            let seed_row = sqlx::query_as(
+                "SELECT s.bliss_features, s.title, s.artist_id
+             FROM songs s
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             WHERE s.id = ? AND s.bliss_features IS NOT NULL
+               AND s.marked_for_deletion_at IS NULL
+               AND mf.enabled = 1
+               AND ula.user_id = ?",
+            )
+            .bind(seed_song_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to load seed song: {}", e)))?;
 
-    // Load seed song's features (must be accessible to the user)
-    let seed_row: Option<(Vec<u8>, String, String)> = sqlx::query_as(
-        "SELECT s.bliss_features, s.title, s.artist_id
-         FROM songs s
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-         WHERE s.id = ? AND s.bliss_features IS NOT NULL
-           AND s.marked_for_deletion_at IS NULL
-           AND mf.enabled = 1
-           AND ula.user_id = ?",
-    )
-    .bind(seed_song_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to load seed song: {}", e)))?;
+            let rows = sqlx::query_as(
+                "SELECT s.id, s.bliss_features, s.title, s.artist_id
+             FROM songs s
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             LEFT JOIN disabled_songs ds ON ds.song_id = s.id AND ds.user_id = ?
+             WHERE s.bliss_features IS NOT NULL
+               AND s.id != ?
+               AND s.marked_for_deletion_at IS NULL
+               AND mf.enabled = 1
+               AND ula.user_id = ?
+               AND ds.id IS NULL",
+            )
+            .bind(user_id)
+            .bind(seed_song_id)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to load song features: {}", e)))?;
+
+            (seed_row, rows)
+        } else {
+            let pool = database.postgres_pool()?;
+            let seed_row = sqlx::query_as(
+                "SELECT s.bliss_features, s.title, s.artist_id
+                 FROM songs s
+                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                 WHERE s.id = $1 AND s.bliss_features IS NOT NULL
+                   AND s.marked_for_deletion_at IS NULL
+                   AND mf.enabled
+                   AND ula.user_id = $2",
+            )
+            .bind(seed_song_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to load seed song: {}", e)))?;
+
+            let rows = sqlx::query_as(
+                "SELECT s.id, s.bliss_features, s.title, s.artist_id
+                 FROM songs s
+                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                 LEFT JOIN disabled_songs ds ON ds.song_id = s.id AND ds.user_id = $1
+                 WHERE s.bliss_features IS NOT NULL
+                   AND s.id != $2
+                   AND s.marked_for_deletion_at IS NULL
+                   AND mf.enabled
+                   AND ula.user_id = $3
+                   AND ds.id IS NULL",
+            )
+            .bind(user_id)
+            .bind(seed_song_id)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to load song features: {}", e)))?;
+
+            (seed_row, rows)
+        };
 
     let (seed_blob, seed_title, seed_artist_id) = seed_row.ok_or_else(|| {
         Error::NotFound(format!(
@@ -117,27 +181,6 @@ pub async fn find_similar_songs(
     let seed_analysis = Analysis::new(seed_features, FeaturesVersion::Version2)
         .map_err(|e| Error::Internal(format!("Failed to create seed analysis: {}", e)))?;
     let seed_arr = seed_analysis.as_arr1();
-
-    // Load all other analyzed songs (user-accessible, not deleted, not disabled)
-    let rows: Vec<(String, Vec<u8>, String, String)> = sqlx::query_as(
-        "SELECT s.id, s.bliss_features, s.title, s.artist_id
-         FROM songs s
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-         LEFT JOIN disabled_songs ds ON ds.song_id = s.id AND ds.user_id = ?
-         WHERE s.bliss_features IS NOT NULL
-           AND s.id != ?
-           AND s.marked_for_deletion_at IS NULL
-           AND mf.enabled = 1
-           AND ula.user_id = ?
-           AND ds.id IS NULL",
-    )
-    .bind(user_id)
-    .bind(seed_song_id)
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to load song features: {}", e)))?;
 
     // Convert to candidates
     let candidates: Vec<SongCandidate> = rows

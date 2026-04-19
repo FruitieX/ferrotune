@@ -167,6 +167,33 @@ tasks:
       timeout: 600
       mutex: 'cargo'
 
+  test-integration-postgres:
+    command: 'cargo test --test integration_postgres -- --test-threads=1'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - '@group(hurl)'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+    options:
+      timeout: 900
+      mutex: 'cargo'
+
+  test-postgres:
+    command: 'cargo test --test postgres_container -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+    options:
+      timeout: 900
+      mutex: 'cargo'
+
   # Run a single integration test by name (uses auto-discovery):
   #   cargo test --test integration 01_system
   #   cargo test --test integration browse
@@ -269,6 +296,13 @@ tasks:
       - 'test-unit'
       - 'test-integration'
 
+  ci-postgres:
+    deps:
+      - 'fmt-check'
+      - 'lint'
+      - 'test-postgres'
+      - 'test-integration-postgres'
+
   # ============================================================================
   # FULL STACK CI (includes client)
   # ============================================================================
@@ -277,12 +311,14 @@ tasks:
   ci-all-lite:
     deps:
       - 'ci'
+      - 'ci-postgres'
       - 'client:ci-lite'
 
   # Full CI including E2E tests
   ci-all:
     deps:
       - 'ci'
+      - 'ci-postgres'
       - 'client:ci'
 
   pre-ci:
@@ -291,6 +327,8 @@ tasks:
       - 'lint'
       - 'test-unit'
       - 'test-integration'
+      - 'test-postgres'
+      - 'test-integration-postgres'
       - 'client:pre-ci'
     options:
       runInCI: false

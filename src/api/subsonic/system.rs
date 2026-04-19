@@ -94,7 +94,8 @@ pub async fn get_music_folders(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> crate::error::Result<FormatResponse<MusicFolders>> {
-    let folders = crate::db::queries::get_music_folders_for_user(&state.pool, user.user_id).await?;
+    let folders =
+        crate::db::queries::get_music_folders_for_user(&state.database, user.user_id).await?;
 
     let response = MusicFolders {
         music_folders: MusicFoldersInner {

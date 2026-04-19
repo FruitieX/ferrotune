@@ -286,15 +286,8 @@ async fn get_song_file_path(
     database: &(impl DatabaseHandle + ?Sized),
     song_id: &str,
 ) -> Result<(crate::db::models::Song, PathBuf), (StatusCode, Json<ErrorResponse>)> {
-    let pool = database.sqlite_pool().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details("Database error", e.to_string())),
-        )
-    })?;
-
     // Get song from database
-    let song = match queries::get_song_by_id(pool, song_id).await {
+    let song = match queries::get_song_by_id(database, song_id).await {
         Ok(Some(song)) => song,
         Ok(None) => {
             return Err((
@@ -311,7 +304,7 @@ async fn get_song_file_path(
     };
 
     // Get all music folders and find where the file exists
-    let music_folders = queries::get_music_folders(pool).await.map_err(|e| {
+    let music_folders = queries::get_music_folders(database).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::with_details("Database error", e.to_string())),

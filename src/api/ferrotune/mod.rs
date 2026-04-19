@@ -82,7 +82,7 @@
 //! - `GET /ferrotune/config/all` - Get all configuration as key-value pairs
 
 mod browse;
-mod directory;
+pub mod directory;
 mod disabled_songs;
 mod duplicates;
 mod filesystem;
@@ -98,7 +98,7 @@ pub mod playlists;
 mod playqueue;
 mod preferences;
 mod queue;
-mod recycle_bin;
+pub mod recycle_bin;
 mod scan;
 pub mod scan_state;
 mod scrobbles;
@@ -111,8 +111,8 @@ pub mod smart_playlists;
 mod songs;
 mod starring;
 mod stats;
-mod tagger;
-mod tagger_session;
+pub mod tagger;
+pub mod tagger_session;
 pub mod tags;
 mod testing;
 pub mod users;
@@ -136,6 +136,10 @@ pub use lists::{
     FerrotuneSongsByGenreResponse, ForgottenFavoritesParams, ForgottenFavoritesResponse,
     RandomSongsParams, SongsByGenreParams,
 };
+pub use match_dictionary::{
+    get_match_dictionary, save_match_dictionary, MatchDictionaryEntry, MatchDictionaryResponse,
+    SaveMatchDictionaryRequest, SaveMatchDictionaryResponse,
+};
 pub use playqueue::{
     save_play_queue as ferrotune_save_play_queue, SavePlayQueueRequest, SavePlayQueueResponse,
 };
@@ -154,6 +158,7 @@ pub use scrobbles::{
     ImportScrobbleEntry, ImportScrobblesRequest, ImportSongWithPlays, ImportWithTimestampsRequest,
     PlayEvent, ScrobbleParams as FerrotuneScrobbleParams,
 };
+pub use setup::{complete_setup, get_setup_status, SetupStatusResponse};
 pub use stats::{get_stats as ferrotune_get_stats, StatsResponse};
 pub use waveform::{get_waveform as ferrotune_get_waveform, WaveformResponse};
 

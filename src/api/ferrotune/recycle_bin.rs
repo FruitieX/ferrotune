@@ -139,16 +139,29 @@ pub async fn mark_for_deletion(
     let mut marked_count = 0;
 
     for song_id in &request.song_ids {
-        let result = sqlx::query(
-            "UPDATE songs SET marked_for_deletion_at = ? WHERE id = ? AND marked_for_deletion_at IS NULL",
-        )
-        .bind(now)
-        .bind(song_id)
-        .execute(&state.pool)
-        .await;
+        let result = if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query(
+                "UPDATE songs SET marked_for_deletion_at = ? WHERE id = ? AND marked_for_deletion_at IS NULL",
+            )
+            .bind(now)
+            .bind(song_id)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query(
+                "UPDATE songs SET marked_for_deletion_at = $1 WHERE id = $2 AND marked_for_deletion_at IS NULL",
+            )
+            .bind(now)
+            .bind(song_id)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+        };
 
-        if let Ok(r) = result {
-            if r.rows_affected() > 0 {
+        if let Ok(affected) = result {
+            if affected > 0 {
                 marked_count += 1;
             }
         }
@@ -181,15 +194,27 @@ pub async fn restore_songs(
     let mut restored_count = 0;
 
     for song_id in &request.song_ids {
-        let result = sqlx::query(
-            "UPDATE songs SET marked_for_deletion_at = NULL WHERE id = ? AND marked_for_deletion_at IS NOT NULL",
-        )
-        .bind(song_id)
-        .execute(&state.pool)
-        .await;
+        let result = if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query(
+                "UPDATE songs SET marked_for_deletion_at = NULL WHERE id = ? AND marked_for_deletion_at IS NOT NULL",
+            )
+            .bind(song_id)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query(
+                "UPDATE songs SET marked_for_deletion_at = NULL WHERE id = $1 AND marked_for_deletion_at IS NOT NULL",
+            )
+            .bind(song_id)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+        };
 
-        if let Ok(r) = result {
-            if r.rows_affected() > 0 {
+        if let Ok(affected) = result {
+            if affected > 0 {
                 restored_count += 1;
             }
         }
@@ -218,27 +243,51 @@ pub async fn list_recycle_bin(
     let limit = params.limit.unwrap_or(100).min(500);
     let offset = params.offset.unwrap_or(0);
 
-    // Get total count
-    let total_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL")
-            .fetch_one(&state.pool)
-            .await?;
-
-    // Get songs
-    let songs: Vec<RecycleBinSong> = sqlx::query_as(
-        "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, \
-         s.duration, s.file_path, s.file_size, s.cover_art_hash, s.marked_for_deletion_at \
-         FROM songs s \
-         INNER JOIN artists ar ON s.artist_id = ar.id \
-         LEFT JOIN albums al ON s.album_id = al.id \
-         WHERE s.marked_for_deletion_at IS NOT NULL \
-         ORDER BY s.marked_for_deletion_at DESC \
-         LIMIT ? OFFSET ?",
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.pool)
-    .await?;
+    // Get total count + songs
+    let (total_count, songs): ((i64,), Vec<RecycleBinSong>) = if let Ok(pool) =
+        state.database.sqlite_pool()
+    {
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL")
+                .fetch_one(pool)
+                .await?;
+        let songs: Vec<RecycleBinSong> = sqlx::query_as(
+            "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, \
+                 s.duration, s.file_path, s.file_size, s.cover_art_hash, s.marked_for_deletion_at \
+                 FROM songs s \
+                 INNER JOIN artists ar ON s.artist_id = ar.id \
+                 LEFT JOIN albums al ON s.album_id = al.id \
+                 WHERE s.marked_for_deletion_at IS NOT NULL \
+                 ORDER BY s.marked_for_deletion_at DESC \
+                 LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+        (total, songs)
+    } else {
+        let pool = state.database.postgres_pool()?;
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL")
+                .fetch_one(pool)
+                .await?;
+        let songs: Vec<RecycleBinSong> = sqlx::query_as(
+            "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, \
+                 s.duration, s.file_path, s.file_size, s.cover_art_hash, s.marked_for_deletion_at \
+                 FROM songs s \
+                 INNER JOIN artists ar ON s.artist_id = ar.id \
+                 LEFT JOIN albums al ON s.album_id = al.id \
+                 WHERE s.marked_for_deletion_at IS NOT NULL \
+                 ORDER BY s.marked_for_deletion_at DESC \
+                 LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+        (total, songs)
+    };
 
     // Calculate days remaining for each song
     let now = Utc::now();
@@ -270,20 +319,41 @@ async fn delete_songs_internal(
     for song_id in song_ids {
         // Get song info including path
         let song_with_folder: Option<(String, String, Option<DateTime<Utc>>)> =
-            match sqlx::query_as(
-                "SELECT s.file_path, mf.path as folder_path, s.marked_for_deletion_at \
-             FROM songs s \
-             JOIN music_folders mf ON s.music_folder_id = mf.id \
-             WHERE s.id = ?",
-            )
-            .bind(song_id)
-            .fetch_optional(&state.pool)
-            .await
             {
-                Ok(result) => result,
-                Err(e) => {
-                    errors.push(format!("Error finding song {}: {}", song_id, e));
-                    continue;
+                let result =
+                    if let Ok(pool) = state.database.sqlite_pool() {
+                        sqlx::query_as(
+                            "SELECT s.file_path, mf.path as folder_path, s.marked_for_deletion_at \
+                 FROM songs s \
+                 JOIN music_folders mf ON s.music_folder_id = mf.id \
+                 WHERE s.id = ?",
+                        )
+                        .bind(song_id)
+                        .fetch_optional(pool)
+                        .await
+                    } else {
+                        match state.database.postgres_pool() {
+                    Ok(pool) => sqlx::query_as(
+                        "SELECT s.file_path, mf.path as folder_path, s.marked_for_deletion_at \
+                     FROM songs s \
+                     JOIN music_folders mf ON s.music_folder_id = mf.id \
+                     WHERE s.id = $1",
+                    )
+                    .bind(song_id)
+                    .fetch_optional(pool)
+                    .await,
+                    Err(e) => {
+                        errors.push(format!("Database not available for song {}: {}", song_id, e));
+                        continue;
+                    }
+                }
+                    };
+                match result {
+                    Ok(result) => result,
+                    Err(e) => {
+                        errors.push(format!("Error finding song {}: {}", song_id, e));
+                        continue;
+                    }
                 }
             };
 
@@ -315,7 +385,7 @@ async fn delete_songs_internal(
         }
 
         // Delete from database
-        match crate::db::queries::delete_song(&state.pool, song_id).await {
+        match crate::db::queries::delete_song(&state.database, song_id).await {
             Ok(true) => {
                 deleted_count += 1;
             }
@@ -396,10 +466,16 @@ pub async fn empty_recycle_bin(
     }
 
     // Get all songs in recycle bin
-    let song_ids: Vec<(String,)> =
+    let song_ids: Vec<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as("SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL")
-            .fetch_all(&state.pool)
-            .await?;
+            .fetch_all(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL")
+            .fetch_all(pool)
+            .await?
+    };
 
     if song_ids.is_empty() {
         return Ok(Json(PermanentDeleteResponse {
@@ -435,12 +511,22 @@ pub async fn purge_expired(
     let cutoff = Utc::now() - Duration::days(RETENTION_DAYS);
 
     // Get all expired songs
-    let song_ids: Vec<(String,)> = sqlx::query_as(
-        "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL AND marked_for_deletion_at < ?",
-    )
-    .bind(cutoff)
-    .fetch_all(&state.pool)
-    .await?;
+    let song_ids: Vec<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL AND marked_for_deletion_at < ?",
+        )
+        .bind(cutoff)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL AND marked_for_deletion_at < $1",
+        )
+        .bind(cutoff)
+        .fetch_all(pool)
+        .await?
+    };
 
     if song_ids.is_empty() {
         return Ok(Json(PermanentDeleteResponse {

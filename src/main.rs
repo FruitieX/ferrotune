@@ -160,7 +160,7 @@ async fn main() -> Result<()> {
             dry_run,
         }) => {
             // Initialize music folders before scanning
-            init_music_folders(&pool, &config).await?;
+            ferrotune::init_music_folders(&pool, &config).await?;
             if dry_run {
                 tracing::info!("Starting music library scan (dry-run mode)...");
             } else {
@@ -246,8 +246,6 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         config.server.port
     );
 
-    let sqlite_pool = pool.legacy_sqlite_pool_for_state().await?;
-
     // Check if we need to create initial admin user
     let user_count = db::queries::count_users(&pool).await?;
 
@@ -262,7 +260,7 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     }
 
     // Initialize music folders
-    init_music_folders(&pool, &config).await?;
+    ferrotune::init_music_folders(&pool, &config).await?;
 
     // Clean up orphaned queues (queues with no active session, older than 7 days)
     match db::queries::cleanup_orphaned_queues(&pool, 7).await {
@@ -276,7 +274,6 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     let session_manager = Arc::new(api::SessionManager::new());
     let state = Arc::new(api::AppState {
         database: pool.clone(),
-        pool: sqlite_pool,
         config: config.clone(),
         scan_state: scan_state.clone(),
         shuffle_cache: Default::default(),
@@ -533,50 +530,4 @@ fn build_cors_layer(config: &config::Config) -> CorsLayer {
     }
 
     cors
-}
-
-/// Initialize music folders from config into the database
-async fn init_music_folders(pool: &sqlx::SqlitePool, config: &config::Config) -> Result<()> {
-    for folder in &config.music.folders {
-        if !folder.path.exists() {
-            tracing::warn!("Music folder does not exist: {}", folder.path.display());
-        } else {
-            // Ensure folder is in database
-            let existing: Option<(i64,)> =
-                sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
-                    .bind(folder.path.to_string_lossy().as_ref())
-                    .fetch_optional(pool)
-                    .await?;
-
-            if existing.is_none() {
-                let folder_id = db::queries::create_music_folder(
-                    pool,
-                    &folder.name,
-                    &folder.path.to_string_lossy(),
-                )
-                .await?;
-                tracing::info!(
-                    "Added music folder: {} -> {}",
-                    folder.name,
-                    folder.path.display()
-                );
-
-                // Grant access to all existing users for new music folders
-                let users: Vec<(i64,)> = sqlx::query_as("SELECT id FROM users")
-                    .fetch_all(pool)
-                    .await?;
-
-                for (user_id,) in users {
-                    sqlx::query(
-                        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)"
-                    )
-                    .bind(user_id)
-                    .bind(folder_id)
-                    .execute(pool)
-                    .await?;
-                }
-            }
-        }
-    }
-    Ok(())
 }

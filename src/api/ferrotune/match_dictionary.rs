@@ -85,8 +85,9 @@ pub async fn get_match_dictionary(
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<MatchDictionaryResponse>> {
     // Query entries from the dedicated match_dictionary table
-    let dict_rows: Vec<DictRow> = sqlx::query_as(
-        r#"
+    let dict_rows: Vec<DictRow> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            r#"
             SELECT
                 original_title,
                 original_artist,
@@ -96,15 +97,33 @@ pub async fn get_match_dictionary(
             FROM match_dictionary
             WHERE user_id = ?
             "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT
+                original_title,
+                original_artist,
+                original_album,
+                original_duration_ms,
+                song_id
+            FROM match_dictionary
+            WHERE user_id = $1
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(state.database.postgres_pool()?)
+        .await?
+    };
 
     // Query legacy entries from playlists owned by the user
     // An entry is "matched" if it has both missing_entry_data (from import) and song_id (matched)
-    let legacy_rows: Vec<(String, String)> = sqlx::query_as(
-        r#"
+    let legacy_rows: Vec<(String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            r#"
         SELECT DISTINCT
             ps.missing_entry_data,
             ps.song_id
@@ -114,10 +133,27 @@ pub async fn get_match_dictionary(
           AND ps.missing_entry_data IS NOT NULL
           AND ps.song_id IS NOT NULL
         "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+        )
+        .bind(user.user_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+        SELECT DISTINCT
+            ps.missing_entry_data,
+            ps.song_id
+        FROM playlist_songs ps
+        INNER JOIN playlists p ON ps.playlist_id = p.id
+        WHERE p.owner_id = $1
+          AND ps.missing_entry_data IS NOT NULL
+          AND ps.song_id IS NOT NULL
+        "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(state.database.postgres_pool()?)
+        .await?
+    };
 
     // Build entries from the dedicated table
     let mut entries: Vec<MatchDictionaryEntry> = dict_rows
@@ -201,8 +237,9 @@ pub async fn save_match_dictionary(
 
         // Use UPSERT to insert or update
         let result = with_retry(|| async {
-            sqlx::query(
-                r#"
+            if let Ok(pool) = state.database.sqlite_pool() {
+                sqlx::query(
+                    r#"
                 INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (user_id, lookup_key) DO UPDATE SET
@@ -213,20 +250,46 @@ pub async fn save_match_dictionary(
                     song_id = excluded.song_id,
                     updated_at = CURRENT_TIMESTAMP
                 "#,
-            )
-            .bind(user.user_id)
-            .bind(&lookup_key)
-            .bind(&entry.title)
-            .bind(&entry.artist)
-            .bind(&entry.album)
-            .bind(entry.duration)
-            .bind(&entry.song_id)
-            .execute(&state.pool)
-            .await
+                )
+                .bind(user.user_id)
+                .bind(&lookup_key)
+                .bind(&entry.title)
+                .bind(&entry.artist)
+                .bind(&entry.album)
+                .bind(entry.duration)
+                .bind(&entry.song_id)
+                .execute(pool)
+                .await
+                .map(|r| r.rows_affected())
+            } else {
+                sqlx::query(
+                    r#"
+                INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (user_id, lookup_key) DO UPDATE SET
+                    original_title = EXCLUDED.original_title,
+                    original_artist = EXCLUDED.original_artist,
+                    original_album = EXCLUDED.original_album,
+                    original_duration_ms = EXCLUDED.original_duration_ms,
+                    song_id = EXCLUDED.song_id,
+                    updated_at = CURRENT_TIMESTAMP
+                "#,
+                )
+                .bind(user.user_id)
+                .bind(&lookup_key)
+                .bind(&entry.title)
+                .bind(&entry.artist)
+                .bind(&entry.album)
+                .bind(entry.duration)
+                .bind(&entry.song_id)
+                .execute(state.database.postgres_pool().map_err(|e| sqlx::Error::Configuration(e.to_string().into()))?)
+                .await
+                .map(|r| r.rows_affected())
+            }
         }, None)
         .await?;
 
-        if result.rows_affected() > 0 {
+        if result > 0 {
             saved += 1;
         }
     }

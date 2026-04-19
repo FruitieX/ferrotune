@@ -1,7 +1,7 @@
 use tauri::{command, AppHandle, Runtime};
 
 use crate::{
-    error::Result,
+    error::{Error, Result},
     models::{
         PlaybackSettingsConfig, PlaybackState, SafeAreaInsets, SessionConfig, StartPlaybackParams,
     },

@@ -35,6 +35,23 @@ pub fn build_fts_query(query: &str) -> Option<String> {
     }
 }
 
+/// Convert a user query into a PostgreSQL `to_tsquery` string with prefix matching.
+pub fn build_postgres_tsquery(query: &str) -> Option<String> {
+    let tokens = parse_search_tokens(query);
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(
+            tokens
+                .into_iter()
+                .map(|token| format!("{}:*", token))
+                .collect::<Vec<_>>()
+                .join(" & "),
+        )
+    }
+}
+
 /// Parse a query string into search tokens.
 /// Uses the same tokenization logic as FTS queries for consistency.
 /// Returns lowercase tokens for case-insensitive matching.
@@ -141,6 +158,23 @@ fn sqlite_case_insensitive_sql_to_postgres(fragment: &str) -> String {
         .replace(" COLLATE NOCASE", "")
 }
 
+fn sqlite_placeholders_to_postgres(fragment: &str) -> String {
+    let mut result = String::with_capacity(fragment.len() + 8);
+    let mut parameter_index = 1;
+
+    for character in fragment.chars() {
+        if character == '?' {
+            result.push('$');
+            result.push_str(&parameter_index.to_string());
+            parameter_index += 1;
+        } else {
+            result.push(character);
+        }
+    }
+
+    result
+}
+
 fn paginate_search_results<T>(items: Vec<T>, limit: i64, offset: i64) -> (Vec<T>, Option<i64>) {
     let total = items.len() as i64;
     let offset = offset.max(0) as usize;
@@ -214,8 +248,7 @@ fn sort_albums_for_search(
 async fn search_songs_postgres(
     pool: &sqlx::PgPool,
     user_id: i64,
-    trimmed_query: &str,
-    is_wildcard: bool,
+    ts_query: Option<&str>,
     params: &SearchParams,
     filter_conds: &SongFilterConditions,
 ) -> crate::error::Result<Vec<crate::db::models::Song>> {
@@ -253,25 +286,25 @@ async fn search_songs_postgres(
 
     query_builder.push(" WHERE mf.enabled AND ula.user_id = ");
     query_builder.push_bind(user_id);
+    if let Some(ts_query) = ts_query {
+        query_builder
+            .push(" AND (to_tsvector('simple', COALESCE(s.title, '')) @@ to_tsquery('simple', ");
+        query_builder.push_bind(ts_query);
+        query_builder
+            .push(") OR to_tsvector('simple', COALESCE(ar.name, '')) @@ to_tsquery('simple', ");
+        query_builder.push_bind(ts_query);
+        query_builder
+            .push(") OR to_tsvector('simple', COALESCE(al.name, '')) @@ to_tsquery('simple', ");
+        query_builder.push_bind(ts_query);
+        query_builder.push("))");
+    }
     for condition in &postgres_conditions {
         query_builder.push(" AND ");
         query_builder.push(condition);
     }
 
-    let mut songs: Vec<crate::db::models::Song> =
+    let songs: Vec<crate::db::models::Song> =
         query_builder.build_query_as().fetch_all(pool).await?;
-
-    if !is_wildcard {
-        songs.retain(|song| {
-            let search_text = format!(
-                "{} {} {}",
-                song.title,
-                song.artist_name,
-                song.album_name.as_deref().unwrap_or("")
-            );
-            text_matches_query(&search_text, trimmed_query)
-        });
-    }
 
     Ok(crate::api::common::sorting::sort_songs(
         songs,
@@ -710,6 +743,11 @@ pub async fn search_songs_for_queue(
     } else {
         None
     };
+    let postgres_ts_query = if !is_wildcard {
+        build_postgres_tsquery(trimmed_query)
+    } else {
+        None
+    };
 
     // If the FTS query is None after processing, treat as wildcard
     let is_wildcard = is_wildcard || fts_query.is_none();
@@ -717,65 +755,14 @@ pub async fn search_songs_for_queue(
     let filter_conds = build_song_filter_conditions(params, user_id);
 
     if let Ok(pool) = database.postgres_pool() {
-        let postgres_conditions: Vec<String> = filter_conds
-            .conditions
-            .iter()
-            .map(|condition| sqlite_case_insensitive_sql_to_postgres(condition))
-            .collect();
-
-        let mut query_builder = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-            r#"SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
-               FROM songs s
-               INNER JOIN artists ar ON s.artist_id = ar.id
-               LEFT JOIN albums al ON s.album_id = al.id
-               INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-               INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-               LEFT JOIN (SELECT song_id, SUM(play_count)::BIGINT as play_count, MAX(played_at) as last_played
-                          FROM scrobbles WHERE submission AND user_id = "#,
-        );
-        query_builder.push_bind(user_id);
-        query_builder.push(" GROUP BY song_id) pc ON s.id = pc.song_id");
-
-        if filter_conds.has_rating_filter {
-            query_builder.push(
-                " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ",
-            );
-            query_builder.push_bind(user_id);
-        }
-        if filter_conds.has_starred_filter {
-            query_builder.push(
-                " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = ",
-            );
-            query_builder.push_bind(user_id);
-        }
-
-        query_builder.push(" WHERE mf.enabled AND ula.user_id = ");
-        query_builder.push_bind(user_id);
-        for condition in &postgres_conditions {
-            query_builder.push(" AND ");
-            query_builder.push(condition);
-        }
-
-        let mut songs: Vec<crate::db::models::Song> =
-            query_builder.build_query_as().fetch_all(pool).await?;
-
-        if !is_wildcard {
-            songs.retain(|song| {
-                let search_text = format!(
-                    "{} {} {}",
-                    song.title,
-                    song.artist_name,
-                    song.album_name.as_deref().unwrap_or("")
-                );
-                text_matches_query(&search_text, trimmed_query)
-            });
-        }
-
-        return Ok(crate::api::common::sorting::sort_songs(
-            songs,
-            params.song_sort.as_deref().or(Some("name")),
-            params.song_sort_dir.as_deref(),
-        ));
+        return search_songs_postgres(
+            pool,
+            user_id,
+            postgres_ts_query.as_deref(),
+            params,
+            &filter_conds,
+        )
+        .await;
     }
 
     let pool = database.sqlite_pool()?;
@@ -881,6 +868,11 @@ pub async fn search_artists(
     } else {
         None
     };
+    let postgres_ts_query = if !is_wildcard {
+        build_postgres_tsquery(trimmed_query)
+    } else {
+        None
+    };
     let is_wildcard = is_wildcard || fts_query.is_none();
 
     let artist_has_starred_filter = params.starred_only.unwrap_or(false);
@@ -955,24 +947,47 @@ pub async fn search_artists(
         );
         query_builder.push_bind(user_id);
         query_builder.push(")");
+        if let Some(ts_query) = postgres_ts_query.as_deref() {
+            query_builder.push(
+                " AND to_tsvector('simple', COALESCE(a.name, '') || ' ' || COALESCE(a.sort_name, '')) @@ to_tsquery('simple', ",
+            );
+            query_builder.push_bind(ts_query);
+            query_builder.push(")");
+        }
         for condition in &postgres_filter_conds {
             query_builder.push(" AND ");
             query_builder.push(condition);
         }
 
-        let mut artists: Vec<crate::db::models::Artist> =
+        let artists: Vec<crate::db::models::Artist> =
             query_builder.build_query_as().fetch_all(pool).await?;
-
-        if !is_wildcard {
-            artists.retain(|artist| text_matches_query(&artist.name, trimmed_query));
-        }
 
         let artists = sort_artists_for_search(
             artists,
             params.artist_sort.as_ref(),
             params.artist_sort_dir.as_ref(),
         );
-        let (artists, total) = paginate_search_results(artists, limit, offset);
+        let total = Some(artists.len() as i64);
+        let artists = if !is_wildcard && offset == 0 && (artists.len() as i64) < limit {
+            match fuzzy_supplement_artists(
+                database,
+                user_id,
+                trimmed_query,
+                &artists,
+                limit,
+                &artist_joins,
+                &artist_join_user_ids,
+                &artist_filter_conds,
+            )
+            .await
+            {
+                Ok(supplemented) => supplemented,
+                Err(_) => artists,
+            }
+        } else {
+            artists
+        };
+        let (artists, _) = paginate_search_results(artists, limit, offset);
         return Ok(ArtistSearchResult { artists, total });
     }
 
@@ -1103,6 +1118,11 @@ pub async fn search_albums(
     } else {
         None
     };
+    let postgres_ts_query = if !is_wildcard {
+        build_postgres_tsquery(trimmed_query)
+    } else {
+        None
+    };
     let is_wildcard = is_wildcard || fts_query.is_none();
 
     let album_order_clause = get_album_order_clause(
@@ -1168,27 +1188,38 @@ pub async fn search_albums(
         );
         query_builder.push_bind(user_id);
         query_builder.push(")");
+        if let Some(ts_query) = postgres_ts_query.as_deref() {
+            query_builder
+                .push(" AND (to_tsvector('simple', COALESCE(a.name, '')) @@ to_tsquery('simple', ");
+            query_builder.push_bind(ts_query);
+            query_builder
+                .push(") OR to_tsvector('simple', COALESCE(ar.name, '')) @@ to_tsquery('simple', ");
+            query_builder.push_bind(ts_query);
+            query_builder.push("))");
+        }
         for condition in &postgres_filter_conds {
             query_builder.push(" AND ");
             query_builder.push(condition);
         }
 
-        let mut albums: Vec<crate::db::models::Album> =
+        let albums: Vec<crate::db::models::Album> =
             query_builder.build_query_as().fetch_all(pool).await?;
-
-        if !is_wildcard {
-            albums.retain(|album| {
-                let search_text = format!("{} {}", album.name, album.artist_name);
-                text_matches_query(&search_text, trimmed_query)
-            });
-        }
 
         let albums = sort_albums_for_search(
             albums,
             params.album_sort.as_ref(),
             params.album_sort_dir.as_ref(),
         );
-        let (albums, total) = paginate_search_results(albums, limit, offset);
+        let total = Some(albums.len() as i64);
+        let albums = if !is_wildcard && offset == 0 && (albums.len() as i64) < limit {
+            match fuzzy_supplement_albums(database, user_id, trimmed_query, &albums, limit).await {
+                Ok(supplemented) => supplemented,
+                Err(_) => albums,
+            }
+        } else {
+            albums
+        };
+        let (albums, _) = paginate_search_results(albums, limit, offset);
         return Ok(AlbumSearchResult { albums, total });
     }
 
@@ -1307,6 +1338,11 @@ pub async fn search_songs(
     } else {
         None
     };
+    let postgres_ts_query = if !is_wildcard {
+        build_postgres_tsquery(trimmed_query)
+    } else {
+        None
+    };
     let is_wildcard = is_wildcard || fts_query.is_none();
 
     // Use relevance-based sorting when this is an FTS query and no explicit sort is specified
@@ -1322,13 +1358,26 @@ pub async fn search_songs(
         let songs = search_songs_postgres(
             pool,
             user_id,
-            trimmed_query,
-            is_wildcard,
+            postgres_ts_query.as_deref(),
             params,
             &filter_conds,
         )
         .await?;
-        let (songs, total) = paginate_search_results(songs, limit, offset);
+        let songs = crate::api::common::sorting::sort_songs(
+            songs,
+            params.song_sort.as_deref().or(Some("name")),
+            params.song_sort_dir.as_deref(),
+        );
+        let total = Some(songs.len() as i64);
+        let songs = if !is_wildcard && offset == 0 && (songs.len() as i64) < limit {
+            match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, limit).await {
+                Ok(supplemented) => supplemented,
+                Err(_) => songs,
+            }
+        } else {
+            songs
+        };
+        let (songs, _) = paginate_search_results(songs, limit, offset);
         return Ok(SongSearchResult { songs, total });
     }
 
@@ -1462,30 +1511,54 @@ async fn fuzzy_supplement_artists(
     join_user_ids: &[i64],
     filter_conds: &[String],
 ) -> crate::error::Result<Vec<crate::db::models::Artist>> {
-    let pool = database.sqlite_pool()?;
-
     let (like_clause, like_binds) = match build_like_conditions(query, &["a.name", "a.sort_name"]) {
         Some(v) => v,
         None => return Ok(existing.to_vec()),
     };
 
-    let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
+    let candidates = if let Ok(pool) = database.sqlite_pool() {
+        let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
 
-    let mut all_conditions = vec![enabled_condition.to_string(), like_clause];
-    all_conditions.extend(filter_conds.iter().cloned());
-    let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
+        let mut all_conditions = vec![enabled_condition.to_string(), like_clause];
+        all_conditions.extend(filter_conds.iter().cloned());
+        let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
 
-    let query_str = format!("SELECT a.* FROM artists a {joins} {where_clause} LIMIT ?");
-    let mut qb = sqlx::query_as::<_, crate::db::models::Artist>(&query_str);
-    for uid in join_user_ids {
-        qb = qb.bind(*uid);
-    }
-    qb = qb.bind(user_id);
-    for val in &like_binds {
-        qb = qb.bind(val);
-    }
-    // Fetch up to limit candidates for scoring
-    let candidates = qb.bind(limit * 3).fetch_all(pool).await?;
+        let query_str = format!("SELECT a.* FROM artists a {joins} {where_clause} LIMIT ?");
+        let mut qb = sqlx::query_as::<_, crate::db::models::Artist>(&query_str);
+        for uid in join_user_ids {
+            qb = qb.bind(*uid);
+        }
+        qb = qb.bind(user_id);
+        for val in &like_binds {
+            qb = qb.bind(val);
+        }
+        qb.bind(limit * 3).fetch_all(pool).await?
+    } else {
+        let pool = database.postgres_pool()?;
+        let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled AND ula_check.user_id = ?)";
+        let mut all_conditions = vec![
+            enabled_condition.to_string(),
+            sqlite_case_insensitive_sql_to_postgres(&like_clause),
+        ];
+        all_conditions.extend(
+            filter_conds
+                .iter()
+                .map(|condition| sqlite_case_insensitive_sql_to_postgres(condition)),
+        );
+        let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
+        let query_str = sqlite_placeholders_to_postgres(&format!(
+            "SELECT a.* FROM artists a {joins} {where_clause} LIMIT ?"
+        ));
+        let mut qb = sqlx::query_as::<_, crate::db::models::Artist>(&query_str);
+        for uid in join_user_ids {
+            qb = qb.bind(*uid);
+        }
+        qb = qb.bind(user_id);
+        for val in &like_binds {
+            qb = qb.bind(val);
+        }
+        qb.bind(limit * 3).fetch_all(pool).await?
+    };
 
     merge_results(existing, candidates, query, limit, |a| &a.name, |a| &a.id)
 }
@@ -1498,26 +1571,45 @@ async fn fuzzy_supplement_albums(
     existing: &[crate::db::models::Album],
     limit: i64,
 ) -> crate::error::Result<Vec<crate::db::models::Album>> {
-    let pool = database.sqlite_pool()?;
-
     let (like_clause, like_binds) = match build_like_conditions(query, &["a.name", "ar.name"]) {
         Some(v) => v,
         None => return Ok(existing.to_vec()),
     };
 
-    let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
+    let candidates = if let Ok(pool) = database.sqlite_pool() {
+        let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
 
-    let where_clause = format!("WHERE {} AND {}", enabled_condition, like_clause);
+        let where_clause = format!("WHERE {} AND {}", enabled_condition, like_clause);
 
-    let query_str = format!(
-        "SELECT a.*, ar.name as artist_name FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id {where_clause} LIMIT ?"
-    );
-    let mut qb = sqlx::query_as::<_, crate::db::models::Album>(&query_str);
-    qb = qb.bind(user_id);
-    for val in &like_binds {
-        qb = qb.bind(val);
-    }
-    let candidates = qb.bind(limit * 3).fetch_all(pool).await?;
+        let query_str = format!(
+            "SELECT a.*, ar.name as artist_name FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id {where_clause} LIMIT ?"
+        );
+        let mut qb = sqlx::query_as::<_, crate::db::models::Album>(&query_str);
+        qb = qb.bind(user_id);
+        for val in &like_binds {
+            qb = qb.bind(val);
+        }
+        qb.bind(limit * 3).fetch_all(pool).await?
+    } else {
+        let pool = database.postgres_pool()?;
+        let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled AND ula_check.user_id = ?)";
+
+        let where_clause = format!(
+            "WHERE {} AND {}",
+            enabled_condition,
+            sqlite_case_insensitive_sql_to_postgres(&like_clause)
+        );
+
+        let query_str = sqlite_placeholders_to_postgres(&format!(
+            "SELECT a.*, ar.name as artist_name FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id {where_clause} LIMIT ?"
+        ));
+        let mut qb = sqlx::query_as::<_, crate::db::models::Album>(&query_str);
+        qb = qb.bind(user_id);
+        for val in &like_binds {
+            qb = qb.bind(val);
+        }
+        qb.bind(limit * 3).fetch_all(pool).await?
+    };
 
     merge_results(existing, candidates, query, limit, |a| &a.name, |a| &a.id)
 }
@@ -1530,32 +1622,56 @@ async fn fuzzy_supplement_songs(
     existing: &[crate::db::models::Song],
     limit: i64,
 ) -> crate::error::Result<Vec<crate::db::models::Song>> {
-    let pool = database.sqlite_pool()?;
-
     let (like_clause, like_binds) =
         match build_like_conditions(query, &["s.title", "ar.name", "al.name"]) {
             Some(v) => v,
             None => return Ok(existing.to_vec()),
         };
 
-    let enabled_condition = "EXISTS (SELECT 1 FROM music_folders mf_check JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE mf_check.id = s.music_folder_id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
+    let candidates = if let Ok(pool) = database.sqlite_pool() {
+        let enabled_condition = "EXISTS (SELECT 1 FROM music_folders mf_check JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE mf_check.id = s.music_folder_id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
 
-    let where_clause = format!("WHERE {} AND {}", enabled_condition, like_clause);
+        let where_clause = format!("WHERE {} AND {}", enabled_condition, like_clause);
 
-    let query_str = format!(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name, NULL as play_count, NULL as last_played, NULL as starred_at
-         FROM songs s
-         LEFT JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         {where_clause}
-         LIMIT ?"
-    );
-    let mut qb = sqlx::query_as::<_, crate::db::models::Song>(&query_str);
-    qb = qb.bind(user_id);
-    for val in &like_binds {
-        qb = qb.bind(val);
-    }
-    let candidates = qb.bind(limit * 3).fetch_all(pool).await?;
+        let query_str = format!(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, NULL as play_count, NULL as last_played, NULL as starred_at
+             FROM songs s
+             LEFT JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             {where_clause}
+             LIMIT ?"
+        );
+        let mut qb = sqlx::query_as::<_, crate::db::models::Song>(&query_str);
+        qb = qb.bind(user_id);
+        for val in &like_binds {
+            qb = qb.bind(val);
+        }
+        qb.bind(limit * 3).fetch_all(pool).await?
+    } else {
+        let pool = database.postgres_pool()?;
+        let enabled_condition = "EXISTS (SELECT 1 FROM music_folders mf_check JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE mf_check.id = s.music_folder_id AND mf_check.enabled AND ula_check.user_id = ?)";
+
+        let where_clause = format!(
+            "WHERE {} AND {}",
+            enabled_condition,
+            sqlite_case_insensitive_sql_to_postgres(&like_clause)
+        );
+
+        let query_str = sqlite_placeholders_to_postgres(&format!(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, NULL as play_count, NULL as last_played, NULL as starred_at
+             FROM songs s
+             LEFT JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             {where_clause}
+             LIMIT ?"
+        ));
+        let mut qb = sqlx::query_as::<_, crate::db::models::Song>(&query_str);
+        qb = qb.bind(user_id);
+        for val in &like_binds {
+            qb = qb.bind(val);
+        }
+        qb.bind(limit * 3).fetch_all(pool).await?
+    };
 
     merge_results(existing, candidates, query, limit, |s| &s.title, |s| &s.id)
 }

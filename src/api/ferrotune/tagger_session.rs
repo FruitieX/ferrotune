@@ -12,7 +12,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -256,9 +256,25 @@ struct PendingEditRow {
     replacement_audio_filename: Option<String>,
     replacement_audio_original_name: Option<String>,
     #[allow(dead_code)]
-    created_at: String,
+    created_at: DateTime<Utc>,
     #[allow(dead_code)]
-    updated_at: String,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct TrackCleanupInfo {
+    track_type: String,
+    cover_art_filename: Option<String>,
+    replacement_audio_filename: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct PendingEditMergeState {
+    edited_tags: String,
+    cover_art_filename: Option<String>,
+    cover_art_removed: bool,
+    replacement_audio_filename: Option<String>,
+    replacement_audio_original_name: Option<String>,
 }
 
 /// Request to save pending edits for specific tracks
@@ -356,26 +372,120 @@ async fn seed_default_scripts(
     database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now();
+
+    if let Ok(pool) = database.sqlite_pool() {
+        // Check if user already has scripts
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tagger_scripts WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+
+        if count.0 > 0 {
+            return Ok(());
+        }
+
+        // Script 1: AlbumArtist/Album/Artist - Title (rename)
+        sqlx::query(
+            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(format!("default-rename-{}", user_id))
+        .bind(user_id)
+        .bind("AlbumArtist/Album/Artist - Title")
+        .bind("rename")
+        .bind(DEFAULT_SCRIPT_RENAME_ARTIST_TITLE)
+        .bind(0i64)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        // Script 2: AlbumArtist/Album/NN - Title (rename)
+        sqlx::query(
+            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(format!("default-rename-tracknum-{}", user_id))
+        .bind(user_id)
+        .bind("AlbumArtist/Album/NN - Title")
+        .bind("rename")
+        .bind(DEFAULT_SCRIPT_RENAME_TRACKNUM_TITLE)
+        .bind(1i64)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        // Script 3: Parse: Artist - Title (tags)
+        sqlx::query(
+            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(format!("default-parse-artist-title-{}", user_id))
+        .bind(user_id)
+        .bind("Parse: Artist - Title")
+        .bind("tags")
+        .bind(DEFAULT_SCRIPT_PARSE_ARTIST_TITLE)
+        .bind(2i64)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        // Script 4: Parse: NN - Artist - Title (tags)
+        sqlx::query(
+            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(format!("default-parse-tracknum-{}", user_id))
+        .bind(user_id)
+        .bind("Parse: NN - Artist - Title")
+        .bind("tags")
+        .bind(DEFAULT_SCRIPT_PARSE_TRACKNUM_ARTIST_TITLE)
+        .bind(3i64)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        // Script 5: Trim Whitespace (tags)
+        sqlx::query(
+            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(format!("default-trim-{}", user_id))
+        .bind(user_id)
+        .bind("Trim Whitespace")
+        .bind("tags")
+        .bind(DEFAULT_SCRIPT_TRIM_WHITESPACE)
+        .bind(4i64)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        return Ok(());
+    }
+
     let pool = database
-        .sqlite_pool()
+        .postgres_pool()
         .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
-    // Check if user already has scripts
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tagger_scripts WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::BIGINT FROM tagger_scripts WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
 
     if count.0 > 0 {
         return Ok(()); // User already has scripts
     }
 
-    let now = chrono::Utc::now().to_rfc3339();
-
     // Script 1: AlbumArtist/Album/Artist - Title (rename)
     sqlx::query(
         r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(format!("default-rename-{}", user_id))
     .bind(user_id)
@@ -383,15 +493,15 @@ async fn seed_default_scripts(
     .bind("rename")
     .bind(DEFAULT_SCRIPT_RENAME_ARTIST_TITLE)
     .bind(0i64)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(pool)
     .await?;
 
     // Script 2: AlbumArtist/Album/NN - Title (rename)
     sqlx::query(
         r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(format!("default-rename-tracknum-{}", user_id))
     .bind(user_id)
@@ -399,15 +509,15 @@ async fn seed_default_scripts(
     .bind("rename")
     .bind(DEFAULT_SCRIPT_RENAME_TRACKNUM_TITLE)
     .bind(1i64)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(pool)
     .await?;
 
     // Script 3: Parse: Artist - Title (tags)
     sqlx::query(
         r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(format!("default-parse-artist-title-{}", user_id))
     .bind(user_id)
@@ -415,15 +525,15 @@ async fn seed_default_scripts(
     .bind("tags")
     .bind(DEFAULT_SCRIPT_PARSE_ARTIST_TITLE)
     .bind(2i64)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(pool)
     .await?;
 
     // Script 4: Parse: NN - Artist - Title (tags)
     sqlx::query(
         r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(format!("default-parse-tracknum-{}", user_id))
     .bind(user_id)
@@ -431,15 +541,15 @@ async fn seed_default_scripts(
     .bind("tags")
     .bind(DEFAULT_SCRIPT_PARSE_TRACKNUM_ARTIST_TITLE)
     .bind(3i64)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(pool)
     .await?;
 
     // Script 5: Trim Whitespace (tags)
     sqlx::query(
         r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(format!("default-trim-{}", user_id))
     .bind(user_id)
@@ -447,8 +557,8 @@ async fn seed_default_scripts(
     .bind("tags")
     .bind(DEFAULT_SCRIPT_TRIM_WHITESPACE)
     .bind(4i64)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(pool)
     .await?;
 
@@ -460,13 +570,39 @@ pub async fn get_or_create_session(
     database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> Result<i64, sqlx::Error> {
-    let pool = database
-        .sqlite_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    if let Ok(pool) = database.sqlite_pool() {
+        let session: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
 
-    // Try to get existing session
+        if let Some((id,)) = session {
+            return Ok(id);
+        }
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO tagger_sessions (user_id)
+            VALUES (?)
+            "#,
+        )
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+        if let Err(e) = seed_default_scripts(database, user_id).await {
+            tracing::warn!("Failed to seed default scripts for user {}: {}", user_id, e);
+        }
+
+        return Ok(result.last_insert_rowid());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
     let session: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
+        sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await?;
@@ -475,23 +611,745 @@ pub async fn get_or_create_session(
         return Ok(id);
     }
 
-    // Create new session with defaults
-    let result = sqlx::query(
+    let (session_id,): (i64,) = sqlx::query_as(
         r#"
         INSERT INTO tagger_sessions (user_id)
-        VALUES (?)
+        VALUES ($1)
+        RETURNING id
         "#,
     )
     .bind(user_id)
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
 
-    // Seed default scripts for new users
     if let Err(e) = seed_default_scripts(database, user_id).await {
         tracing::warn!("Failed to seed default scripts for user {}: {}", user_id, e);
     }
 
-    Ok(result.last_insert_rowid())
+    Ok(session_id)
+}
+
+async fn fetch_tagger_session(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+) -> Result<Option<crate::db::models::TaggerSession>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            r#"
+            SELECT id, user_id, active_rename_script_id, active_tag_script_id,
+                   target_library_id, visible_columns, column_widths, file_column_width,
+                   show_library_prefix, show_computed_path, details_panel_open,
+                   dangerous_char_mode, dangerous_char_replacement,
+                   created_at, updated_at
+            FROM tagger_sessions WHERE id = ?
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        r#"
+        SELECT id, user_id, active_rename_script_id, active_tag_script_id,
+               target_library_id, visible_columns, column_widths, file_column_width,
+               show_library_prefix, show_computed_path, details_panel_open,
+               dangerous_char_mode, dangerous_char_replacement,
+               created_at, updated_at
+        FROM tagger_sessions WHERE id = $1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn fetch_tagger_session_track_rows(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = ? ORDER BY position",
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = $1 ORDER BY position",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+}
+
+async fn update_tagger_session_text_field(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    field: &str,
+    value: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let query = format!(
+            "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
+            field
+        );
+        sqlx::query(&query)
+            .bind(value)
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    let query = format!(
+        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        field
+    );
+    sqlx::query(&query)
+        .bind(value)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn update_tagger_session_bool_field(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    field: &str,
+    value: bool,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let query = format!(
+            "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
+            field
+        );
+        sqlx::query(&query)
+            .bind(value)
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    let query = format!(
+        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        field
+    );
+    sqlx::query(&query)
+        .bind(value)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn update_tagger_session_i64_field(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    field: &str,
+    value: i64,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let query = format!(
+            "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
+            field
+        );
+        sqlx::query(&query)
+            .bind(value)
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    let query = format!(
+        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        field
+    );
+    sqlx::query(&query)
+        .bind(value)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn fetch_pending_edits_for_session(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+) -> Result<Vec<PendingEditRow>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            r#"
+            SELECT id, session_id, track_id, edited_tags, computed_path,
+                   cover_art_removed, cover_art_filename, replacement_audio_filename,
+                   replacement_audio_original_name, created_at, updated_at
+            FROM tagger_pending_edits WHERE session_id = ?
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        r#"
+        SELECT id, session_id, track_id, edited_tags, computed_path,
+               cover_art_removed, cover_art_filename, replacement_audio_filename,
+               replacement_audio_original_name, created_at, updated_at
+        FROM tagger_pending_edits WHERE session_id = $1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+}
+
+async fn fetch_pending_edit_row(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+) -> Result<Option<PendingEditRow>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            r#"
+            SELECT id, session_id, track_id, edited_tags, computed_path,
+                   cover_art_removed, cover_art_filename, replacement_audio_filename,
+                   replacement_audio_original_name, created_at, updated_at
+            FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?
+            "#,
+        )
+        .bind(session_id)
+        .bind(track_id)
+        .fetch_optional(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        r#"
+        SELECT id, session_id, track_id, edited_tags, computed_path,
+               cover_art_removed, cover_art_filename, replacement_audio_filename,
+               replacement_audio_original_name, created_at, updated_at
+        FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2
+        "#,
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn fetch_cover_art_filenames_for_session(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+) -> Result<Vec<(Option<String>,)>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND cover_art_filename IS NOT NULL",
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = $1 AND cover_art_filename IS NOT NULL",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+}
+
+async fn fetch_session_track_type(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_scalar(
+            "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
+        )
+        .bind(session_id)
+        .bind(track_id)
+        .fetch_optional(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_scalar(
+        "SELECT track_type FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+}
+
+struct PendingEditUpsert<'a> {
+    session_id: i64,
+    track_id: &'a str,
+    track_type: &'a str,
+    edited_tags_json: &'a str,
+    computed_path: Option<&'a str>,
+    cover_art_removed: bool,
+    now: DateTime<Utc>,
+}
+
+async fn upsert_pending_edit(
+    database: &(impl DatabaseHandle + ?Sized),
+    edit: PendingEditUpsert<'_>,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            r#"
+            INSERT INTO tagger_pending_edits
+            (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, track_id) DO UPDATE SET
+                edited_tags = excluded.edited_tags,
+                computed_path = excluded.computed_path,
+                cover_art_removed = excluded.cover_art_removed,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(edit.session_id)
+        .bind(edit.track_id)
+        .bind(edit.track_type)
+        .bind(edit.edited_tags_json)
+        .bind(edit.computed_path)
+        .bind(edit.cover_art_removed)
+        .bind(edit.now)
+        .bind(edit.now)
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query(
+        r#"
+        INSERT INTO tagger_pending_edits
+        (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            edited_tags = EXCLUDED.edited_tags,
+            computed_path = EXCLUDED.computed_path,
+            cover_art_removed = EXCLUDED.cover_art_removed,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(edit.session_id)
+    .bind(edit.track_id)
+    .bind(edit.track_type)
+    .bind(edit.edited_tags_json)
+    .bind(edit.computed_path)
+    .bind(edit.cover_art_removed)
+    .bind(edit.now)
+    .bind(edit.now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn fetch_session_max_position(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+) -> Result<i64, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_scalar(
+            "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = ?",
+        )
+        .bind(session_id)
+        .fetch_one(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_scalar(
+        "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await
+}
+
+async fn insert_session_track_ignore_duplicate(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+    track_type: &str,
+    position: i64,
+) -> Result<u64, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let result = sqlx::query(
+            "INSERT OR IGNORE INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
+        )
+        .bind(session_id)
+        .bind(track_id)
+        .bind(track_type)
+        .bind(position)
+        .execute(pool)
+        .await?;
+        return Ok(result.rows_affected());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    let result = sqlx::query(
+        "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4) ON CONFLICT(session_id, track_id) DO NOTHING",
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .bind(track_type)
+    .bind(position)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+async fn delete_pending_edit(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
+            .bind(session_id)
+            .bind(track_id)
+            .execute(pool)
+            .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2")
+        .bind(session_id)
+        .bind(track_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn delete_session_track(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
+            .bind(session_id)
+            .bind(track_id)
+            .execute(pool)
+            .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2")
+        .bind(session_id)
+        .bind(track_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn fetch_track_cleanup_info(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+) -> Result<Option<TrackCleanupInfo>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
+               FROM tagger_session_tracks t
+               LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
+               WHERE t.session_id = ? AND t.track_id = ?"#,
+        )
+        .bind(session_id)
+        .bind(track_id)
+        .fetch_optional(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
+           FROM tagger_session_tracks t
+           LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
+           WHERE t.session_id = $1 AND t.track_id = $2"#,
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn fetch_pending_edit_merge_state(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+) -> Result<Option<PendingEditMergeState>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_as(
+            r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
+                      replacement_audio_filename, replacement_audio_original_name
+               FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?"#,
+        )
+        .bind(session_id)
+        .bind(track_id)
+        .fetch_optional(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_as(
+        r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
+                  replacement_audio_filename, replacement_audio_original_name
+           FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2"#,
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn fetch_existing_tagger_session_id(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM tagger_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await;
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM tagger_sessions WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+}
+
+struct CoverArtStateUpsert<'a> {
+    session_id: i64,
+    track_id: &'a str,
+    track_type: &'a str,
+    cover_art_filename: Option<&'a str>,
+    cover_art_removed: bool,
+    now: DateTime<Utc>,
+}
+
+async fn upsert_pending_edit_cover_art_state(
+    database: &(impl DatabaseHandle + ?Sized),
+    edit: CoverArtStateUpsert<'_>,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            r#"
+            INSERT INTO tagger_pending_edits
+            (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, track_id) DO UPDATE SET
+                cover_art_filename = excluded.cover_art_filename,
+                cover_art_removed = excluded.cover_art_removed,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(edit.session_id)
+        .bind(edit.track_id)
+        .bind(edit.track_type)
+        .bind("{}")
+        .bind(edit.cover_art_filename)
+        .bind(edit.cover_art_removed)
+        .bind(edit.now)
+        .bind(edit.now)
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query(
+        r#"
+        INSERT INTO tagger_pending_edits
+        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            cover_art_filename = EXCLUDED.cover_art_filename,
+            cover_art_removed = EXCLUDED.cover_art_removed,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(edit.session_id)
+    .bind(edit.track_id)
+    .bind(edit.track_type)
+    .bind("{}")
+    .bind(edit.cover_art_filename)
+    .bind(edit.cover_art_removed)
+    .bind(edit.now)
+    .bind(edit.now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+struct LibraryPendingEditUpsert<'a> {
+    session_id: i64,
+    track_id: &'a str,
+    edited_tags_json: &'a str,
+    cover_art_filename: Option<&'a str>,
+    cover_art_removed: bool,
+    replacement_audio_filename: Option<&'a str>,
+    replacement_audio_original_name: Option<&'a str>,
+    now: DateTime<Utc>,
+}
+
+async fn upsert_library_pending_edit(
+    database: &(impl DatabaseHandle + ?Sized),
+    edit: LibraryPendingEditUpsert<'_>,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            r#"
+            INSERT INTO tagger_pending_edits
+            (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
+            VALUES (?, ?, 'library', ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, track_id) DO UPDATE SET
+                edited_tags = excluded.edited_tags,
+                cover_art_filename = excluded.cover_art_filename,
+                cover_art_removed = excluded.cover_art_removed,
+                replacement_audio_filename = excluded.replacement_audio_filename,
+                replacement_audio_original_name = excluded.replacement_audio_original_name,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(edit.session_id)
+        .bind(edit.track_id)
+        .bind(edit.edited_tags_json)
+        .bind(edit.cover_art_filename)
+        .bind(edit.cover_art_removed)
+        .bind(edit.replacement_audio_filename)
+        .bind(edit.replacement_audio_original_name)
+        .bind(edit.now)
+        .bind(edit.now)
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query(
+        r#"
+        INSERT INTO tagger_pending_edits
+        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
+        VALUES ($1, $2, 'library', $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            edited_tags = EXCLUDED.edited_tags,
+            cover_art_filename = EXCLUDED.cover_art_filename,
+            cover_art_removed = EXCLUDED.cover_art_removed,
+            replacement_audio_filename = EXCLUDED.replacement_audio_filename,
+            replacement_audio_original_name = EXCLUDED.replacement_audio_original_name,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(edit.session_id)
+    .bind(edit.track_id)
+    .bind(edit.edited_tags_json)
+    .bind(edit.cover_art_filename)
+    .bind(edit.cover_art_removed)
+    .bind(edit.replacement_audio_filename)
+    .bind(edit.replacement_audio_original_name)
+    .bind(edit.now)
+    .bind(edit.now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn clear_pending_edit_replacement_audio(
+    database: &(impl DatabaseHandle + ?Sized),
+    session_id: i64,
+    track_id: &str,
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = ? WHERE session_id = ? AND track_id = ?",
+        )
+        .bind(now)
+        .bind(session_id)
+        .bind(track_id)
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
+
+    let pool = database
+        .postgres_pool()
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    sqlx::query(
+        "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = $1 WHERE session_id = $2 AND track_id = $3",
+    )
+    .bind(now)
+    .bind(session_id)
+    .bind(track_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 // =============================================================================
@@ -505,36 +1363,22 @@ pub async fn get_session(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<TaggerSessionResponse>> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get session data
-    let session: crate::db::models::TaggerSession = sqlx::query_as(
-        r#"
-        SELECT id, user_id, active_rename_script_id, active_tag_script_id,
-               target_library_id, visible_columns, column_widths, file_column_width,
-               show_library_prefix, show_computed_path, details_panel_open,
-               dangerous_char_mode, dangerous_char_replacement,
-               created_at, updated_at
-        FROM tagger_sessions WHERE id = ?
-        "#,
-    )
-    .bind(session_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch session: {}", e)))?
-    .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+    let session: crate::db::models::TaggerSession =
+        fetch_tagger_session(&state.database, session_id)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to fetch session: {}", e)))?
+            .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
     // Get tracks with types
     // Get tracks with types
-    let track_rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = ? ORDER BY position",
-    )
-    .bind(session_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch tracks: {}", e)))?;
+    let track_rows = fetch_tagger_session_track_rows(&state.database, session_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch tracks: {}", e)))?;
 
     let tracks: Vec<TaggerTrackEntry> = track_rows
         .into_iter()
@@ -583,7 +1427,7 @@ pub async fn update_session(
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdateTaggerSessionRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
@@ -606,96 +1450,105 @@ pub async fn update_session(
     // Execute with a simpler approach - rebuild per field
     // Since sqlx doesn't support dynamic binding easily, we'll do individual updates
     if let Some(ref cols) = request.visible_columns {
-        sqlx::query("UPDATE tagger_sessions SET visible_columns = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(serde_json::to_string(cols).unwrap_or_default())
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update visible columns: {}", e)))?;
+        let serialized = serde_json::to_string(cols).unwrap_or_default();
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "visible_columns",
+            Some(serialized.as_str()),
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update visible columns: {}", e)))?;
     }
     if let Some(ref id) = request.active_rename_script_id {
         // Empty string means clear to NULL
         let value_to_bind: Option<&str> = if id.is_empty() { None } else { Some(id) };
-        sqlx::query("UPDATE tagger_sessions SET active_rename_script_id = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(value_to_bind)
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update active rename script: {}", e)))?;
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "active_rename_script_id",
+            value_to_bind,
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update active rename script: {}", e)))?;
     }
     if let Some(ref id) = request.active_tag_script_id {
         // Empty string means clear to NULL
         let value_to_bind: Option<&str> = if id.is_empty() { None } else { Some(id) };
-        sqlx::query("UPDATE tagger_sessions SET active_tag_script_id = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(value_to_bind)
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update active tag script: {}", e)))?;
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "active_tag_script_id",
+            value_to_bind,
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update active tag script: {}", e)))?;
     }
     if request.target_library_id.is_some() {
-        sqlx::query("UPDATE tagger_sessions SET target_library_id = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&request.target_library_id)
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update target library: {}", e)))?;
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "target_library_id",
+            request.target_library_id.as_deref(),
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update target library: {}", e)))?;
     }
     if let Some(show) = request.show_library_prefix {
-        sqlx::query("UPDATE tagger_sessions SET show_library_prefix = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(show)
-            .bind(session_id)
-            .execute(&state.pool)
+        update_tagger_session_bool_field(&state.database, session_id, "show_library_prefix", show)
             .await
             .map_err(|e| Error::Internal(format!("Failed to update show_library_prefix: {}", e)))?;
     }
     if let Some(show) = request.show_computed_path {
-        sqlx::query("UPDATE tagger_sessions SET show_computed_path = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(show)
-            .bind(session_id)
-            .execute(&state.pool)
+        update_tagger_session_bool_field(&state.database, session_id, "show_computed_path", show)
             .await
             .map_err(|e| Error::Internal(format!("Failed to update show_computed_path: {}", e)))?;
     }
     if let Some(ref widths) = request.column_widths {
-        sqlx::query("UPDATE tagger_sessions SET column_widths = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(serde_json::to_string(widths).unwrap_or_default())
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update column widths: {}", e)))?;
+        let serialized = serde_json::to_string(widths).unwrap_or_default();
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "column_widths",
+            Some(serialized.as_str()),
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update column widths: {}", e)))?;
     }
     if let Some(width) = request.file_column_width {
-        sqlx::query("UPDATE tagger_sessions SET file_column_width = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(width)
-            .bind(session_id)
-            .execute(&state.pool)
+        update_tagger_session_i64_field(&state.database, session_id, "file_column_width", width)
             .await
             .map_err(|e| Error::Internal(format!("Failed to update file column width: {}", e)))?;
     }
     if let Some(open) = request.details_panel_open {
-        sqlx::query("UPDATE tagger_sessions SET details_panel_open = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(open)
-            .bind(session_id)
-            .execute(&state.pool)
+        update_tagger_session_bool_field(&state.database, session_id, "details_panel_open", open)
             .await
             .map_err(|e| Error::Internal(format!("Failed to update details panel state: {}", e)))?;
     }
     if let Some(ref mode) = request.dangerous_char_mode {
-        sqlx::query("UPDATE tagger_sessions SET dangerous_char_mode = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(mode)
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update dangerous char mode: {}", e)))?;
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "dangerous_char_mode",
+            Some(mode.as_str()),
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update dangerous char mode: {}", e)))?;
     }
     if let Some(ref replacement) = request.dangerous_char_replacement {
-        sqlx::query("UPDATE tagger_sessions SET dangerous_char_replacement = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(replacement)
-            .bind(session_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to update dangerous char replacement: {}", e)))?;
+        update_tagger_session_text_field(
+            &state.database,
+            session_id,
+            "dangerous_char_replacement",
+            Some(replacement.as_str()),
+        )
+        .await
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to update dangerous char replacement: {}",
+                e
+            ))
+        })?;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -709,31 +1562,56 @@ pub async fn set_session_tracks(
     State(state): State<Arc<AppState>>,
     Json(request): Json<SetTaggerTracksRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete existing tracks
-    if let Err(e) = sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&state.pool)
-        .await
-    {
+    let clear_result = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map(|result| result.rows_affected())
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map(|result| result.rows_affected())
+    };
+    if let Err(e) = clear_result {
         return Err(Error::Internal(format!("Failed to clear tracks: {}", e)).into());
     }
 
     // Insert new tracks
     for (position, track) in request.tracks.iter().enumerate() {
-        if let Err(e) = sqlx::query(
-            "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
-        )
-        .bind(session_id)
-        .bind(&track.id)
-        .bind(&track.track_type)
-        .bind(position as i64)
-        .execute(&state.pool)
-        .await
-        {
+        let insert_result = if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query(
+                "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
+            )
+            .bind(session_id)
+            .bind(&track.id)
+            .bind(&track.track_type)
+            .bind(position as i64)
+            .execute(pool)
+            .await
+            .map(|result| result.rows_affected())
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query(
+                "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(session_id)
+            .bind(&track.id)
+            .bind(&track.track_type)
+            .bind(position as i64)
+            .execute(pool)
+            .await
+            .map(|result| result.rows_affected())
+        };
+        if let Err(e) = insert_result {
             return Err(Error::Internal(format!("Failed to add track: {}", e)).into());
         }
     }
@@ -752,7 +1630,7 @@ pub async fn get_pending_edits(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
+    let session_id = match get_or_create_session(&state.database, user.user_id).await {
         Ok(id) => id,
         Err(e) => {
             return (
@@ -767,30 +1645,20 @@ pub async fn get_pending_edits(
     };
 
     // Query pending edits
-    let edits: Vec<PendingEditRow> = match sqlx::query_as(
-        r#"
-        SELECT id, session_id, track_id, edited_tags, computed_path,
-               cover_art_removed, cover_art_filename, replacement_audio_filename,
-               replacement_audio_original_name, created_at, updated_at
-        FROM tagger_pending_edits WHERE session_id = ?
-        "#,
-    )
-    .bind(session_id)
-    .fetch_all(&state.pool)
-    .await
-    {
-        Ok(e) => e,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to fetch edits",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    let edits: Vec<PendingEditRow> =
+        match fetch_pending_edits_for_session(&state.database, session_id).await {
+            Ok(e) => e,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to fetch edits",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+        };
 
     let mut edits_map = HashMap::new();
     for edit in edits {
@@ -829,25 +1697,31 @@ pub async fn clear_pending_edits(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get cover art filenames before deleting
-    let cover_art_filenames: Vec<(Option<String>,)> = sqlx::query_as(
-        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND cover_art_filename IS NOT NULL",
-    )
-    .bind(session_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let cover_art_filenames = fetch_cover_art_filenames_for_session(&state.database, session_id)
+        .await
+        .unwrap_or_default();
 
     // Delete the edits
-    if let Err(e) = sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&state.pool)
-        .await
-    {
+    let delete_result = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map(|result| result.rows_affected())
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map(|result| result.rows_affected())
+    };
+    if let Err(e) = delete_result {
         return Err(Error::Internal(format!("Failed to clear edits: {}", e)).into());
     }
 
@@ -871,47 +1745,33 @@ pub async fn update_edit(
     Path(track_id): Path<String>,
     Json(request): Json<UpdatePendingEditRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     let edited_tags_json = serde_json::to_string(&request.edited_tags).unwrap_or_default();
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now();
 
     // Look up the track_type from tagger_session_tracks
-    let track_type: String = sqlx::query_scalar(
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
-    .unwrap_or_else(|| "library".to_string()); // Default to library if track not found
+    let track_type = fetch_session_track_type(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
+        .unwrap_or_else(|| "library".to_string());
 
-    // Upsert the edit (INSERT OR REPLACE)
-    if let Err(e) = sqlx::query(
-        r#"
-        INSERT INTO tagger_pending_edits 
-        (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            edited_tags = excluded.edited_tags,
-            computed_path = excluded.computed_path,
-            cover_art_removed = excluded.cover_art_removed,
-            updated_at = excluded.updated_at
-        "#,
+    if let Err(e) = upsert_pending_edit(
+        &state.database,
+        PendingEditUpsert {
+            session_id,
+            track_id: &track_id,
+            track_type: &track_type,
+            edited_tags_json: &edited_tags_json,
+            computed_path: request.computed_path.as_deref(),
+            cover_art_removed: request.cover_art_removed,
+            now,
+        },
     )
-    .bind(session_id)
-    .bind(&track_id)
-    .bind(&track_type)
-    .bind(&edited_tags_json)
-    .bind(&request.computed_path)
-    .bind(request.cover_art_removed)
-    .bind(&now)
-    .bind(&now)
-    .execute(&state.pool)
-    .await {
+    .await
+    {
         return Err(Error::Internal(format!("Failed to save edit: {}", e)).into());
     }
 
@@ -926,17 +1786,11 @@ pub async fn delete_edit(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
-    if let Err(e) =
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-            .bind(session_id)
-            .bind(&track_id)
-            .execute(&state.pool)
-            .await
-    {
+    if let Err(e) = delete_pending_edit(&state.database, session_id, &track_id).await {
         return Err(Error::Internal(format!("Failed to delete edit: {}", e)).into());
     }
 
@@ -951,42 +1805,34 @@ pub async fn add_tracks(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AddTracksRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get current max position
-    let max_pos: (i64,) = sqlx::query_as(
-        "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = ?",
-    )
-    .bind(session_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((-1,));
-
-    let mut position = max_pos.0 + 1;
+    let mut position = fetch_session_max_position(&state.database, session_id)
+        .await
+        .unwrap_or(-1)
+        + 1;
 
     // Insert new tracks (skip duplicates)
     for track in request.tracks {
-        match sqlx::query(
-            "INSERT OR IGNORE INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
+        match insert_session_track_ignore_duplicate(
+            &state.database,
+            session_id,
+            &track.id,
+            &track.track_type,
+            position,
         )
-        .bind(session_id)
-        .bind(&track.id)
-        .bind(&track.track_type)
-        .bind(position)
-        .execute(&state.pool)
         .await
         {
-            Ok(result) => {
-                if result.rows_affected() > 0 {
+            Ok(rows_affected) => {
+                if rows_affected > 0 {
                     position += 1;
                 }
             }
             Err(e) => {
-                return Err(
-                    Error::Internal(format!("Failed to add track: {}", e)).into()
-                );
+                return Err(Error::Internal(format!("Failed to add track: {}", e)).into());
             }
         }
     }
@@ -1002,29 +1848,17 @@ pub async fn remove_track(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete the track
-    if let Err(e) =
-        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
-            .bind(session_id)
-            .bind(&track_id)
-            .execute(&state.pool)
-            .await
-    {
+    if let Err(e) = delete_session_track(&state.database, session_id, &track_id).await {
         return Err(Error::Internal(format!("Failed to remove track: {}", e)).into());
     }
 
     // Also delete any pending edit for this track
-    if let Err(e) =
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-            .bind(session_id)
-            .bind(&track_id)
-            .execute(&state.pool)
-            .await
-    {
+    if let Err(e) = delete_pending_edit(&state.database, session_id, &track_id).await {
         tracing::warn!(
             "Failed to delete pending edit for track {}: {}",
             track_id,
@@ -1043,38 +1877,34 @@ pub async fn remove_tracks(
     State(state): State<Arc<AppState>>,
     Json(request): Json<RemoveTracksRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     let cover_art_dir = get_cover_art_dir(&user.username);
+    let replacement_audio_dir = get_replacement_audio_dir(&user.username);
     let staging_dir = crate::config::get_data_dir()
         .join("staging")
         .join(&user.username);
 
     for track_id in &request.track_ids {
-        // Get track type and cover art filename before deleting
-        let track_info: Option<(String, Option<String>)> = sqlx::query_as(
-            r#"SELECT t.track_type, e.cover_art_filename 
-               FROM tagger_session_tracks t 
-               LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
-               WHERE t.session_id = ? AND t.track_id = ?"#,
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten();
+        let track_info = fetch_track_cleanup_info(&state.database, session_id, track_id)
+            .await
+            .ok()
+            .flatten();
 
-        if let Some((track_type, cover_art_filename)) = track_info {
+        if let Some(track_info) = track_info {
             // Clean up cover art file if it exists
-            if let Some(filename) = cover_art_filename {
+            if let Some(filename) = track_info.cover_art_filename {
                 let _ = fs::remove_file(cover_art_dir.join(&filename)).await;
             }
 
+            if let Some(filename) = track_info.replacement_audio_filename {
+                let _ = fs::remove_file(replacement_audio_dir.join(&filename)).await;
+            }
+
             // If this is a staged track, also clean up the staged audio file
-            if track_type == "staged" {
+            if track_info.track_type == "staged" {
                 // The track_id IS the filename in format: {uuid}_{original_filename}
                 let full_path = staging_dir.join(track_id);
                 let _ = fs::remove_file(&full_path).await;
@@ -1082,24 +1912,12 @@ pub async fn remove_tracks(
         }
 
         // Delete the track from session
-        if let Err(e) =
-            sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(track_id)
-                .execute(&state.pool)
-                .await
-        {
+        if let Err(e) = delete_session_track(&state.database, session_id, track_id).await {
             tracing::warn!("Failed to delete session track {}: {}", track_id, e);
         }
 
         // Also delete any pending edit
-        if let Err(e) =
-            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(track_id)
-                .execute(&state.pool)
-                .await
-        {
+        if let Err(e) = delete_pending_edit(&state.database, session_id, track_id).await {
             tracing::warn!(
                 "Failed to delete pending edit during bulk remove for track {}: {}",
                 track_id,
@@ -1121,7 +1939,7 @@ pub async fn upload_cover_art(
     Path(track_id): Path<String>,
     mut multipart: axum::extract::Multipart,
 ) -> FerrotuneApiResult<Json<CoverArtUploadResponse>> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
@@ -1155,19 +1973,15 @@ pub async fn upload_cover_art(
     }
 
     // Get existing cover art filename to clean up
-    let existing_filename: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    let existing_filename = fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|edit| edit.cover_art_filename);
 
     // Delete old cover art file if exists
-    if let Some((Some(old_filename),)) = existing_filename {
-        let old_path = cover_art_dir.join(&old_filename);
+    if let Some(old_filename) = existing_filename {
+        let old_path = cover_art_dir.join(old_filename);
         let _ = fs::remove_file(&old_path).await;
     }
 
@@ -1192,37 +2006,25 @@ pub async fn upload_cover_art(
     }
 
     // Look up the track_type from tagger_session_tracks
-    let track_type: String = sqlx::query_scalar(
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or_else(|| "library".to_string());
+    let track_type = fetch_session_track_type(&state.database, session_id, &track_id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "library".to_string());
 
     // Update the database with the filename
-    let now = Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        r#"
-        INSERT INTO tagger_pending_edits 
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
-        VALUES (?, ?, ?, '{}', ?, 0, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            cover_art_filename = excluded.cover_art_filename,
-            cover_art_removed = 0,
-            updated_at = excluded.updated_at
-        "#,
+    let now = Utc::now();
+    if let Err(e) = upsert_pending_edit_cover_art_state(
+        &state.database,
+        CoverArtStateUpsert {
+            session_id,
+            track_id: &track_id,
+            track_type: &track_type,
+            cover_art_filename: Some(&filename),
+            cover_art_removed: false,
+            now,
+        },
     )
-    .bind(session_id)
-    .bind(&track_id)
-    .bind(&track_type)
-    .bind(&filename)
-    .bind(&now)
-    .bind(&now)
-    .execute(&state.pool)
     .await
     {
         // Clean up the file we just wrote
@@ -1241,56 +2043,40 @@ pub async fn delete_cover_art(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get and delete the cover art file
-    let existing: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
+    let existing = fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
-    if let Some((Some(filename),)) = existing {
+    if let Some(filename) = existing.and_then(|edit| edit.cover_art_filename) {
         let cover_art_dir = get_cover_art_dir(&user.username);
         let _ = fs::remove_file(cover_art_dir.join(&filename)).await;
     }
 
     // Look up the track_type from tagger_session_tracks
-    let track_type: String = sqlx::query_scalar(
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
-    .unwrap_or_else(|| "library".to_string());
+    let track_type = fetch_session_track_type(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
+        .unwrap_or_else(|| "library".to_string());
 
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now();
 
     // Upsert to mark cover art as removed and clear the filename
-    if let Err(e) = sqlx::query(
-        r#"
-        INSERT INTO tagger_pending_edits 
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
-        VALUES (?, ?, ?, '{}', NULL, 1, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            cover_art_filename = NULL,
-            cover_art_removed = 1,
-            updated_at = excluded.updated_at
-        "#,
+    if let Err(e) = upsert_pending_edit_cover_art_state(
+        &state.database,
+        CoverArtStateUpsert {
+            session_id,
+            track_id: &track_id,
+            track_type: &track_type,
+            cover_art_filename: None,
+            cover_art_removed: true,
+            now,
+        },
     )
-    .bind(session_id)
-    .bind(&track_id)
-    .bind(&track_type)
-    .bind(&now)
-    .bind(&now)
-    .execute(&state.pool)
     .await
     {
         return Err(Error::Internal(format!("Failed to remove cover art: {}", e)).into());
@@ -1307,22 +2093,17 @@ pub async fn get_cover_art(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get cover art filename from database
-    let result: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
+    let result = fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
-    let filename = match result {
-        Some((Some(f),)) => f,
+    let filename = match result.and_then(|edit| edit.cover_art_filename) {
+        Some(f) => f,
         _ => return Err(Error::NotFound("Cover art not found".to_string()).into()),
     };
 
@@ -1418,22 +2199,16 @@ pub async fn upload_replacement_audio(
     Path(track_id): Path<String>,
     mut multipart: axum::extract::Multipart,
 ) -> FerrotuneApiResult<Json<ReplacementAudioUploadResponse>> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Check that this is a library track (not staged)
-    let track_type: Option<(String,)> = sqlx::query_as(
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?;
-
-    match track_type {
-        Some((t,)) if t == "staged" => {
+    match fetch_session_track_type(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
+    {
+        Some(t) if t == "staged" => {
             return Err(
                 Error::InvalidRequest("Cannot replace audio for staged files".to_string()).into(),
             );
@@ -1643,17 +2418,15 @@ pub async fn upload_replacement_audio(
         }
 
         // Get existing replacement audio filename to clean up
-        let existing_filename: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-        )
-        .bind(session_id)
-        .bind(&track_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
+        let existing_filename =
+            fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
         // Delete old replacement audio file if exists
-        if let Some((Some(old_filename),)) = existing_filename {
+        if let Some(old_filename) =
+            existing_filename.and_then(|edit| edit.replacement_audio_filename)
+        {
             let old_path = replacement_dir.join(&old_filename);
             let _ = fs::remove_file(&old_path).await;
         }
@@ -1687,17 +2460,13 @@ pub async fn upload_replacement_audio(
             }
 
             // Get existing cover art filename to clean up
-            let existing_cover: Option<(Option<String>,)> = sqlx::query_as(
-                "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-            )
-            .bind(session_id)
-            .bind(&track_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
+            let existing_cover =
+                fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+                    .await
+                    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
             // Delete old cover art file if exists
-            if let Some((Some(old_filename),)) = existing_cover {
+            if let Some(old_filename) = existing_cover.and_then(|edit| edit.cover_art_filename) {
                 let old_path = cover_art_dir.join(&old_filename);
                 let _ = fs::remove_file(&old_path).await;
             }
@@ -1737,24 +2506,19 @@ pub async fn upload_replacement_audio(
     };
 
     // Update the database
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now();
 
     // Get existing pending edit to merge with
-    let existing_edit: Option<(String, Option<String>, i32, Option<String>)> = sqlx::query_as(
-        "SELECT edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
+    let existing_edit = fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
     // Replace edited tags if importing tags (no merging - clear all existing and replace with imported)
     let final_edited_tags = if let Some(ref new_tags) = imported_tags {
         // Don't merge - just use the imported tags directly, clearing any previously edited tags
         serde_json::to_string(new_tags).unwrap_or_else(|_| "{}".to_string())
-    } else if let Some((ref existing_tags_json, _, _, _)) = existing_edit {
-        existing_tags_json.clone()
+    } else if let Some(existing_edit) = existing_edit.as_ref() {
+        existing_edit.edited_tags.clone()
     } else {
         "{}".to_string()
     };
@@ -1765,8 +2529,8 @@ pub async fn upload_replacement_audio(
         None // Clear any staged cover art since we're removing it
     } else if cover_art_filename.is_some() {
         cover_art_filename
-    } else if let Some((_, ref existing_cover, _, _)) = existing_edit {
-        existing_cover.clone()
+    } else if let Some(existing_edit) = existing_edit.as_ref() {
+        existing_edit.cover_art_filename.clone()
     } else {
         None
     };
@@ -1775,48 +2539,40 @@ pub async fn upload_replacement_audio(
     // Set to 1 if we're marking cover art as removed (source file had no cover art)
     // Reset to 0 if we're adding new cover art
     let cover_art_removed = if should_remove_cover_art {
-        1 // Mark as removed
+        true // Mark as removed
     } else if final_cover_art_filename.is_some() {
-        0 // Adding new cover art, so not removed
-    } else if let Some((_, _, existing_removed, _)) = existing_edit {
-        existing_removed
+        false // Adding new cover art, so not removed
+    } else if let Some(existing_edit) = existing_edit.as_ref() {
+        existing_edit.cover_art_removed
     } else {
-        0
+        false
     };
 
     // Determine final replacement audio
     let (final_replacement_filename, final_replacement_original_name) = if options.import_audio {
         (replacement_audio_filename, Some(original_filename.clone()))
-    } else if let Some((_, _, _, ref existing_replacement)) = existing_edit {
-        (existing_replacement.clone(), None) // Keep existing
+    } else if let Some(existing_edit) = existing_edit.as_ref() {
+        (
+            existing_edit.replacement_audio_filename.clone(),
+            existing_edit.replacement_audio_original_name.clone(),
+        )
     } else {
         (None, None)
     };
 
-    if let Err(e) = sqlx::query(
-        r#"
-        INSERT INTO tagger_pending_edits 
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
-        VALUES (?, ?, 'library', ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            edited_tags = excluded.edited_tags,
-            cover_art_filename = excluded.cover_art_filename,
-            cover_art_removed = excluded.cover_art_removed,
-            replacement_audio_filename = COALESCE(excluded.replacement_audio_filename, tagger_pending_edits.replacement_audio_filename),
-            replacement_audio_original_name = COALESCE(excluded.replacement_audio_original_name, tagger_pending_edits.replacement_audio_original_name),
-            updated_at = excluded.updated_at
-        "#,
+    if let Err(e) = upsert_library_pending_edit(
+        &state.database,
+        LibraryPendingEditUpsert {
+            session_id,
+            track_id: &track_id,
+            edited_tags_json: &final_edited_tags,
+            cover_art_filename: final_cover_art_filename.as_deref(),
+            cover_art_removed,
+            replacement_audio_filename: final_replacement_filename.as_deref(),
+            replacement_audio_original_name: final_replacement_original_name.as_deref(),
+            now,
+        },
     )
-    .bind(session_id)
-    .bind(&track_id)
-    .bind(&final_edited_tags)
-    .bind(&final_cover_art_filename)
-    .bind(cover_art_removed)
-    .bind(&final_replacement_filename)
-    .bind(&final_replacement_original_name)
-    .bind(&now)
-    .bind(&now)
-    .execute(&state.pool)
     .await
     {
         return Err(Error::Internal(format!("Failed to update pending edits: {}", e)).into());
@@ -1840,35 +2596,25 @@ pub async fn delete_replacement_audio(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get and delete the replacement audio file
-    let existing: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
+    let existing = fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
-    if let Some((Some(filename),)) = existing {
+    if let Some(filename) = existing.and_then(|edit| edit.replacement_audio_filename) {
         let replacement_dir = get_replacement_audio_dir(&user.username);
         let _ = fs::remove_file(replacement_dir.join(&filename)).await;
     }
 
     // Clear the replacement_audio_filename in database
-    let now = Utc::now().to_rfc3339();
-    let _ = sqlx::query(
-        "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, updated_at = ? WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(&now)
-    .bind(session_id)
-    .bind(&track_id)
-    .execute(&state.pool)
-    .await;
+    let now = Utc::now();
+    clear_pending_edit_replacement_audio(&state.database, session_id, &track_id, now)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to clear replacement audio: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1886,31 +2632,19 @@ pub async fn stream_replacement_audio(
     use tokio::io::AsyncReadExt;
 
     // Get user's session
-    let session_id: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM tagger_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
-    )
-    .bind(user.user_id)
-    .fetch_optional(&state.pool)
-    .await?;
-
-    let session_id = match session_id {
-        Some((id,)) => id,
+    let session_id = match fetch_existing_tagger_session_id(&state.database, user.user_id).await? {
+        Some(id) => id,
         None => {
             return Err(Error::NotFound("Tagger session not found".to_string()).into());
         }
     };
 
     // Get replacement audio filename from database
-    let filename: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(&track_id)
-    .fetch_optional(&state.pool)
-    .await?;
-
-    let filename = match filename {
-        Some((Some(f),)) => f,
+    let filename = match fetch_pending_edit_merge_state(&state.database, session_id, &track_id)
+        .await?
+        .and_then(|edit| edit.replacement_audio_filename)
+    {
+        Some(f) => f,
         _ => {
             return Err(Error::NotFound("No replacement audio found".to_string()).into());
         }
@@ -2033,28 +2767,45 @@ pub async fn get_scripts(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let scripts: Vec<crate::db::models::TaggerScript> = match sqlx::query_as(
-        r#"
-        SELECT id, user_id, name, type, script, position, created_at, updated_at
-        FROM tagger_scripts WHERE user_id = ? ORDER BY position
-        "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to fetch scripts",
-                    e.to_string(),
-                )),
+    let scripts: Vec<crate::db::models::TaggerScript> =
+        match if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query_as(
+                r#"
+            SELECT id, user_id, name, type, script, position, created_at, updated_at
+            FROM tagger_scripts WHERE user_id = ? ORDER BY position
+            "#,
             )
-                .into_response();
-        }
-    };
+            .bind(user.user_id)
+            .fetch_all(pool)
+            .await
+        } else {
+            match state.database.postgres_pool() {
+                Ok(pool) => {
+                    sqlx::query_as(
+                        r#"
+                    SELECT id, user_id, name, type, script, position, created_at, updated_at
+                    FROM tagger_scripts WHERE user_id = $1 ORDER BY position
+                    "#,
+                    )
+                    .bind(user.user_id)
+                    .fetch_all(pool)
+                    .await
+                }
+                Err(e) => Err(sqlx::Error::Protocol(e.to_string())),
+            }
+        } {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to fetch scripts",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+        };
 
     let scripts_data: Vec<TaggerScriptData> = scripts
         .into_iter()
@@ -2081,32 +2832,62 @@ pub async fn save_scripts(
     Json(scripts): Json<Vec<TaggerScriptData>>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Delete existing scripts
-    sqlx::query("DELETE FROM tagger_scripts WHERE user_id = ?")
-        .bind(user.user_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_scripts WHERE user_id = ?")
+            .bind(user.user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM tagger_scripts WHERE user_id = $1")
+            .bind(user.user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
+    }
 
     // Insert new scripts
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now();
     for (position, script) in scripts.iter().enumerate() {
-        sqlx::query(
-            r#"
-            INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#
-        )
-        .bind(&script.id)
-        .bind(user.user_id)
-        .bind(&script.name)
-        .bind(&script.script_type)
-        .bind(&script.script)
-        .bind(position as i64)
-        .bind(&now)
-        .bind(&now)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query(
+                r#"
+                INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                "#
+            )
+            .bind(&script.id)
+            .bind(user.user_id)
+            .bind(&script.name)
+            .bind(&script.script_type)
+            .bind(&script.script)
+            .bind(position as i64)
+            .bind(now)
+            .bind(now)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query(
+                r#"
+                INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                "#
+            )
+            .bind(&script.id)
+            .bind(user.user_id)
+            .bind(&script.name)
+            .bind(&script.script_type)
+            .bind(&script.script)
+            .bind(position as i64)
+            .bind(now)
+            .bind(now)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -2120,12 +2901,22 @@ pub async fn delete_script(
     State(state): State<Arc<AppState>>,
     Path(script_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    sqlx::query("DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?")
-        .bind(&script_id)
-        .bind(user.user_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?")
+            .bind(&script_id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM tagger_scripts WHERE id = $1 AND user_id = $2")
+            .bind(&script_id)
+            .bind(user.user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2137,23 +2928,41 @@ pub async fn clear_session(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<StatusCode> {
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete tracks
-    sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
+    }
 
     // Delete edits
-    sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2172,7 +2981,7 @@ pub async fn save_pending_edits(
 ) -> FerrotuneApiResult<axum::response::Response> {
     use crate::db::queries;
 
-    let session_id = get_or_create_session(&state.pool, user.user_id)
+    let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
@@ -2198,711 +3007,43 @@ pub async fn save_pending_edits(
     ];
 
     // Get music folders once for all tracks
-    let music_folders = queries::get_music_folders(&state.pool)
+    let music_folders = queries::get_music_folders(&state.database)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get music folders: {}", e)))?;
 
     for track_id in &request.track_ids {
-        // First, determine if this is a staged or library track
-        let track_type: Option<(String,)> = match sqlx::query_as(
-            "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
+        match save_single_track(
+            &state.database,
+            session_id,
+            track_id,
+            &request.path_overrides,
+            request.target_music_folder_id,
+            &music_folders,
+            &cover_art_dir,
+            &staging_dir,
+            &rescan_keys,
+            &user.username,
         )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(&state.pool)
         .await
         {
-            Ok(t) => t,
-            Err(e) => {
-                errors.push(SessionSaveError {
-                    track_id: track_id.clone(),
-                    error: format!("Database error: {}", e),
-                });
-                continue;
-            }
-        };
-
-        let track_type = match track_type {
-            Some((t,)) => t,
-            None => {
-                // Track not in session, skip
-                continue;
-            }
-        };
-
-        let is_staged = track_type == "staged";
-        // Get the pending edit from database
-        let pending: Option<PendingEditRow> = match sqlx::query_as(
-            r#"SELECT id, session_id, track_id, edited_tags, computed_path, 
-                      cover_art_removed, cover_art_filename, replacement_audio_filename,
-                      replacement_audio_original_name, created_at, updated_at
-               FROM tagger_pending_edits 
-               WHERE session_id = ? AND track_id = ?"#,
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(&state.pool)
-        .await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                errors.push(SessionSaveError {
-                    track_id: track_id.clone(),
-                    error: format!("Database error: {}", e),
-                });
-                continue;
-            }
-        };
-
-        let pending = match pending {
-            Some(p) => p,
-            None => {
-                // No pending edits for this track - skip
-                continue;
-            }
-        };
-
-        // Parse edited tags
-        let edited_tags: HashMap<String, String> =
-            serde_json::from_str(&pending.edited_tags).unwrap_or_default();
-
-        // Check if this update requires rescan
-        if edited_tags
-            .keys()
-            .any(|k| rescan_keys.contains(&k.to_uppercase().as_str()))
-        {
-            rescan_recommended = true;
-        }
-
-        if is_staged {
-            // === STAGED FILE HANDLING ===
-
-            // Check if we have a target music folder
-            let target_folder = match request.target_music_folder_id {
-                Some(id) => match music_folders.iter().find(|f| f.id == id) {
-                    Some(f) => f,
-                    None => {
-                        errors.push(SessionSaveError {
-                            track_id: track_id.clone(),
-                            error: "Target music folder not found".to_string(),
-                        });
-                        continue;
-                    }
-                },
-                None => {
-                    errors.push(SessionSaveError {
-                        track_id: track_id.clone(),
-                        error: "Target music folder required for staged files".to_string(),
-                    });
-                    continue;
-                }
-            };
-
-            // Get staged file info - the track_id IS the filename in format: {uuid}_{original_filename}
-            // Extract original_filename by stripping the UUID prefix (36 chars + underscore)
-            let original_filename = if track_id.len() > 37 && track_id.chars().nth(36) == Some('_')
-            {
-                track_id[37..].to_string()
-            } else {
-                track_id.clone()
-            };
-
-            let staging_path = staging_dir.join(track_id);
-            if !staging_path.exists() {
-                errors.push(SessionSaveError {
-                    track_id: track_id.clone(),
-                    error: "Staged file not found".to_string(),
-                });
-                continue;
-            }
-
-            // Determine cover art action
-            let cover_art_action = if pending.cover_art_removed {
-                super::tags::CoverArtAction::Remove
-            } else if let Some(ref filename) = pending.cover_art_filename {
-                let cover_art_path = cover_art_dir.join(filename);
-                match fs::read(&cover_art_path).await {
-                    Ok(data) => {
-                        let mime_type = match filename.rsplit('.').next() {
-                            Some("jpg") | Some("jpeg") => "image/jpeg",
-                            Some("png") => "image/png",
-                            Some("gif") => "image/gif",
-                            Some("webp") => "image/webp",
-                            _ => "image/jpeg",
-                        };
-                        super::tags::CoverArtAction::Set(data, mime_type.to_string())
-                    }
-                    Err(e) => {
-                        errors.push(SessionSaveError {
-                            track_id: track_id.clone(),
-                            error: format!("Failed to read cover art: {}", e),
-                        });
-                        continue;
-                    }
-                }
-            } else {
-                super::tags::CoverArtAction::Keep
-            };
-
-            // Build update request for tags
-            let update_request = super::tags::UpdateTagsRequest {
-                set: edited_tags
-                    .iter()
-                    .map(|(k, v)| super::tags::TagEntry {
-                        key: k.clone(),
-                        value: v.clone(),
-                    })
-                    .collect(),
-                delete: vec![],
-            };
-
-            // Apply tags and cover art to the staged file (in place)
-            if let Err(e) = super::tags::update_tags_with_cover_art(
-                &staging_path,
-                &update_request,
-                cover_art_action,
-            )
-            .await
-            {
-                errors.push(SessionSaveError {
-                    track_id: track_id.clone(),
-                    error: e,
-                });
-                continue;
-            }
-
-            // Clean up cover art staging file
-            if let Some(ref filename) = pending.cover_art_filename {
-                let cover_art_path = cover_art_dir.join(filename);
-                let _ = fs::remove_file(&cover_art_path).await;
-            }
-
-            // Determine target path - use computed_path, path_override, or original filename
-            let target_rel_path = request
-                .path_overrides
-                .get(track_id)
-                .cloned()
-                .or(pending.computed_path.clone())
-                .unwrap_or_else(|| original_filename.clone());
-
-            let target_path = match resolve_path_within_music_folder(
-                std::path::Path::new(&target_folder.path),
-                &target_rel_path,
-            )
-            .await
-            {
-                Ok(path) => path,
-                Err(e) => {
-                    errors.push(SessionSaveError {
-                        track_id: track_id.clone(),
-                        error: e,
-                    });
-                    continue;
-                }
-            };
-
-            // Move file from staging to target (with cross-filesystem support)
-            if let Err(e) = move_file_cross_fs(&staging_path, &target_path).await {
-                errors.push(SessionSaveError {
-                    track_id: track_id.clone(),
-                    error: format!("Failed to move file: {}", e),
-                });
-                continue;
-            }
-
-            // Remove from session tracks (file is moved, no separate cleanup needed)
-            let _ = sqlx::query(
-                "DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-            )
-            .bind(session_id)
-            .bind(track_id)
-            .execute(&state.pool)
-            .await;
-
-            // Clear the pending edit
-            let _ = sqlx::query(
-                "DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-            )
-            .bind(session_id)
-            .bind(track_id)
-            .execute(&state.pool)
-            .await;
-
-            // Add the relative path to new_song_ids for rescanning
-            new_song_ids.push(target_rel_path);
-            rescan_recommended = true;
-            saved_count += 1;
-        } else {
-            // === LIBRARY FILE HANDLING ===
-
-            // Get song info
-            let song = match queries::get_song_by_id(&state.pool, track_id).await {
-                Ok(Some(song)) => song,
-                Ok(None) => {
-                    errors.push(SessionSaveError {
-                        track_id: track_id.clone(),
-                        error: "Song not found in library".to_string(),
-                    });
-                    continue;
-                }
-                Err(e) => {
-                    errors.push(SessionSaveError {
-                        track_id: track_id.clone(),
-                        error: format!("Database error: {}", e),
-                    });
-                    continue;
-                }
-            };
-
-            // Find the file path and which music folder it's in
-            let mut full_path: Option<PathBuf> = None;
-            let mut folder_path: Option<PathBuf> = None;
-            for folder in &music_folders {
-                let candidate = PathBuf::from(&folder.path).join(&song.file_path);
-                if candidate.exists() {
-                    full_path = Some(candidate);
-                    folder_path = Some(PathBuf::from(&folder.path));
-                    break;
-                }
-            }
-
-            let (current_path, folder) = match (full_path, folder_path) {
-                (Some(p), Some(f)) => (p, f),
-                _ => {
-                    errors.push(SessionSaveError {
-                        track_id: track_id.clone(),
-                        error: "File not found on disk".to_string(),
-                    });
-                    continue;
-                }
-            };
-
-            // Track the actual path we'll be working with (may change if replacement audio)
-            let mut working_path = current_path.clone();
-
-            // Track if we need to copy original tags/cover to replacement audio
-            let mut original_tags_for_replacement: Option<Vec<super::tags::TagEntry>> = None;
-            let mut original_cover_for_replacement: Option<(Vec<u8>, String)> = None;
-
-            // Track if audio was replaced with a different format (e.g. .opus -> .mp3)
-            let mut replaced_ext: Option<String> = None;
-
-            // Handle replacement audio if present
-            if let Some(ref replacement_filename) = pending.replacement_audio_filename {
-                let replacement_dir = get_replacement_audio_dir(&user.username);
-                let replacement_file_path = replacement_dir.join(replacement_filename);
-
-                if replacement_file_path.exists() {
-                    // BEFORE replacing, read tags and cover art from the ORIGINAL file
-                    // so we can apply them to the replacement
-                    let original_path_clone = current_path.clone();
-                    let original_data = tokio::task::spawn_blocking(move || {
-                        use lofty::prelude::*;
-                        use lofty::probe::Probe;
-
-                        let tagged_file = match Probe::open(&original_path_clone)
-                            .and_then(|probe| probe.read())
-                        {
-                            Ok(f) => f,
-                            Err(e) => {
-                                tracing::warn!("Failed to read original file tags: {}", e);
-                                return (Vec::new(), None);
-                            }
-                        };
-
-                        // Extract tags from primary tag
-                        let tags = if let Some(tag) = tagged_file.primary_tag() {
-                            super::tags::extract_tags_from_tag(tag)
-                        } else {
-                            Vec::new()
-                        };
-
-                        // Extract cover art
-                        let cover = tagged_file
-                            .primary_tag()
-                            .and_then(|tag| tag.pictures().first())
-                            .or_else(|| {
-                                tagged_file
-                                    .tags()
-                                    .iter()
-                                    .find_map(|tag| tag.pictures().first())
-                            })
-                            .map(|pic| {
-                                let mime = pic
-                                    .mime_type()
-                                    .map_or_else(|| "image/jpeg".to_string(), |m| m.to_string());
-                                (pic.data().to_vec(), mime)
-                            });
-
-                        (tags, cover)
-                    })
-                    .await
-                    .unwrap_or_else(|e| {
-                        tracing::warn!("Failed to spawn blocking task: {}", e);
-                        (Vec::new(), None)
-                    });
-
-                    original_tags_for_replacement = Some(original_data.0);
-                    original_cover_for_replacement = original_data.1;
-
-                    // Get the new extension from the replacement file
-                    let new_ext = replacement_filename
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or("")
-                        .to_lowercase();
-                    let old_ext = current_path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-
-                    // Determine target path - same as original but with new extension if different
-                    let target_path = if new_ext != old_ext {
-                        current_path.with_extension(&new_ext)
-                    } else {
-                        current_path.clone()
-                    };
-
-                    // Use a safe copy strategy: copy to temp file first, then rename
-                    // This prevents data loss if the copy fails partway through
-                    // Temp file is in the same directory as target so rename is atomic
-                    let temp_path = target_path.with_extension(format!("{}.tmp", new_ext));
-
-                    tracing::debug!(
-                        "Replacing audio: src={} temp={} target={}",
-                        replacement_file_path.display(),
-                        temp_path.display(),
-                        target_path.display()
-                    );
-
-                    // Step 1: Read source file and write to temp file
-                    // Using read+write instead of fs::copy for better cross-filesystem compatibility
-                    let copy_result: Result<(), std::io::Error> = async {
-                        let data = fs::read(&replacement_file_path).await?;
-                        fs::write(&temp_path, &data).await?;
-                        Ok(())
-                    }
-                    .await;
-
-                    match copy_result {
-                        Ok(_) => {
-                            // Step 2: Rename temp file to target (atomic on same filesystem)
-                            match fs::rename(&temp_path, &target_path).await {
-                                Ok(_) => {
-                                    // Step 3: Delete the old file if extension changed
-                                    if new_ext != old_ext && current_path.exists() {
-                                        if let Err(e) = fs::remove_file(&current_path).await {
-                                            tracing::warn!(
-                                                "Failed to remove old file after replacement: {}",
-                                                e
-                                            );
-                                        }
-                                    }
-
-                                    // Update working path
-                                    working_path = target_path.clone();
-
-                                    // Track the new extension for the rename block
-                                    if new_ext != old_ext {
-                                        replaced_ext = Some(new_ext.clone());
-                                    }
-
-                                    // Update database path if extension changed
-                                    if new_ext != old_ext {
-                                        let old_rel_path = &song.file_path;
-                                        // Find the position of the last dot and extract the stem
-                                        let new_rel_path =
-                                            if let Some(pos) = old_rel_path.rfind('.') {
-                                                format!("{}.{}", &old_rel_path[..pos], new_ext)
-                                            } else {
-                                                format!("{}.{}", old_rel_path, new_ext)
-                                            };
-
-                                        if let Err(e) = queries::update_song_path_and_format(
-                                            &state.pool,
-                                            track_id,
-                                            &new_rel_path,
-                                            &new_ext,
-                                        )
-                                        .await
-                                        {
-                                            tracing::warn!(
-                                                "Failed to update song path in database: {}",
-                                                e
-                                            );
-                                        }
-                                    }
-
-                                    // Clean up the staged replacement file
-                                    let _ = fs::remove_file(&replacement_file_path).await;
-                                }
-                                Err(e) => {
-                                    // Clean up temp file on rename failure
-                                    let _ = fs::remove_file(&temp_path).await;
-                                    tracing::error!(
-                                        "Failed to rename {} -> {}: {}",
-                                        temp_path.display(),
-                                        target_path.display(),
-                                        e
-                                    );
-                                    errors.push(SessionSaveError {
-                                        track_id: track_id.clone(),
-                                        error: format!(
-                                            "Failed to rename replacement audio to {}: {}",
-                                            target_path.display(),
-                                            e
-                                        ),
-                                    });
-                                    continue;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            // Clean up temp file if it was partially written
-                            let _ = fs::remove_file(&temp_path).await;
-                            tracing::error!(
-                                "Failed to copy {} -> {}: {}",
-                                replacement_file_path.display(),
-                                temp_path.display(),
-                                e
-                            );
-                            errors.push(SessionSaveError {
-                                track_id: track_id.clone(),
-                                error: format!(
-                                    "Failed to copy replacement audio from {} to {}: {}",
-                                    replacement_file_path.display(),
-                                    temp_path.display(),
-                                    e
-                                ),
-                            });
-                            continue;
-                        }
-                    }
-
+            Ok(result) => {
+                if result.needs_rescan {
                     rescan_recommended = true;
-                } else {
-                    tracing::warn!(
-                        "Replacement audio file not found: {}",
-                        replacement_file_path.display()
-                    );
                 }
+                if let Some(path) = result.new_song_path {
+                    new_song_ids.push(path);
+                }
+                if let Some(song_id) = result.library_song_id {
+                    saved_library_song_ids.push(song_id);
+                }
+                saved_count += 1;
             }
-
-            // Determine cover art action
-            // For replacement audio: use original cover unless user explicitly changed/removed it
-            let cover_art_action = if pending.cover_art_removed {
-                super::tags::CoverArtAction::Remove
-            } else if let Some(ref filename) = pending.cover_art_filename {
-                // User explicitly set new cover art
-                let cover_art_path = cover_art_dir.join(filename);
-                match fs::read(&cover_art_path).await {
-                    Ok(data) => {
-                        let mime_type = match filename.rsplit('.').next() {
-                            Some("jpg") | Some("jpeg") => "image/jpeg",
-                            Some("png") => "image/png",
-                            Some("gif") => "image/gif",
-                            Some("webp") => "image/webp",
-                            _ => "image/jpeg",
-                        };
-                        super::tags::CoverArtAction::Set(data, mime_type.to_string())
-                    }
-                    Err(e) => {
-                        errors.push(SessionSaveError {
-                            track_id: track_id.clone(),
-                            error: format!("Failed to read cover art: {}", e),
-                        });
-                        continue;
-                    }
-                }
-            } else if let Some((cover_data, mime)) = original_cover_for_replacement {
-                // Replacement audio: copy cover art from original file
-                super::tags::CoverArtAction::Set(cover_data, mime)
-            } else {
-                super::tags::CoverArtAction::Keep
-            };
-
-            // Build update request for tags
-            // For replacement audio: start with original tags, then overlay user edits
-            let tags_to_set = if let Some(original_tags) = original_tags_for_replacement {
-                // Start with original tags
-                let mut tag_map: std::collections::HashMap<String, String> = original_tags
-                    .into_iter()
-                    .map(|t| (t.key, t.value))
-                    .collect();
-                // Apply user edits on top
-                for (key, value) in &edited_tags {
-                    tag_map.insert(key.clone(), value.clone());
-                }
-                tag_map
-                    .into_iter()
-                    .map(|(key, value)| super::tags::TagEntry { key, value })
-                    .collect()
-            } else {
-                // No replacement - just apply user edits
-                edited_tags
-                    .iter()
-                    .map(|(k, v)| super::tags::TagEntry {
-                        key: k.clone(),
-                        value: v.clone(),
-                    })
-                    .collect()
-            };
-
-            let update_request = super::tags::UpdateTagsRequest {
-                set: tags_to_set,
-                delete: vec![],
-            };
-
-            // Apply tag changes with cover art support (on working path - could be replacement file)
-            if let Err(e) = super::tags::update_tags_with_cover_art(
-                &working_path,
-                &update_request,
-                cover_art_action,
-            )
-            .await
-            {
+            Err(error) => {
                 errors.push(SessionSaveError {
                     track_id: track_id.clone(),
-                    error: e,
+                    error,
                 });
-                continue;
             }
-
-            // Clean up cover art staging file
-            if let Some(ref filename) = pending.cover_art_filename {
-                let cover_art_path = cover_art_dir.join(filename);
-                let _ = fs::remove_file(&cover_art_path).await;
-            }
-
-            // Handle file rename if there's a new path (from path_overrides or computed_path)
-            let new_relative_path = request
-                .path_overrides
-                .get(track_id)
-                .cloned()
-                .or(pending.computed_path.clone());
-
-            if let Some(new_rel_path) = new_relative_path {
-                // If audio was replaced with a different format, update the extension
-                // in the rename path (computed_path was calculated before replacement)
-                let new_rel_path = if let Some(ref ext) = replaced_ext {
-                    if let Some(pos) = new_rel_path.rfind('.') {
-                        format!("{}.{}", &new_rel_path[..pos], ext)
-                    } else {
-                        new_rel_path
-                    }
-                } else {
-                    new_rel_path
-                };
-
-                // Compare against the current DB path (which may have been updated
-                // by audio replacement) rather than the stale song.file_path
-                let current_rel_path = working_path
-                    .strip_prefix(&folder)
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| song.file_path.clone());
-
-                // Only rename if path actually changed
-                if new_rel_path != current_rel_path {
-                    rescan_recommended = true;
-
-                    let new_path = folder.join(&new_rel_path);
-
-                    // Security check: ensure new path is still within the music folder
-                    match new_path.canonicalize().or_else(|_| {
-                        new_path
-                            .parent()
-                            .map(|p| p.join(new_path.file_name().unwrap_or_default()))
-                            .ok_or(std::io::Error::new(
-                                std::io::ErrorKind::NotFound,
-                                "No parent",
-                            ))
-                    }) {
-                        Ok(canonical) => {
-                            if !canonical.starts_with(&folder) {
-                                errors.push(SessionSaveError {
-                                    track_id: track_id.clone(),
-                                    error: "New path must be within music folder".to_string(),
-                                });
-                                continue;
-                            }
-                        }
-                        Err(_) => {
-                            if !new_path
-                                .to_string_lossy()
-                                .starts_with(folder.to_string_lossy().as_ref())
-                            {
-                                errors.push(SessionSaveError {
-                                    track_id: track_id.clone(),
-                                    error: "New path must be within music folder".to_string(),
-                                });
-                                continue;
-                            }
-                        }
-                    }
-
-                    // Create parent directories if needed
-                    if let Some(parent) = new_path.parent() {
-                        if let Err(e) = fs::create_dir_all(parent).await {
-                            errors.push(SessionSaveError {
-                                track_id: track_id.clone(),
-                                error: format!("Failed to create directory: {}", e),
-                            });
-                            continue;
-                        }
-                    }
-
-                    // Move the file (use working_path which reflects the actual
-                    // file location after audio replacement)
-                    if let Err(e) = move_file_cross_fs(&working_path, &new_path).await {
-                        errors.push(SessionSaveError {
-                            track_id: track_id.clone(),
-                            error: format!("Failed to move file: {}", e),
-                        });
-                        continue;
-                    }
-
-                    // Update database path (and format if audio was replaced)
-                    let db_result = if replaced_ext.is_some() {
-                        let ext = working_path
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("")
-                            .to_lowercase();
-                        queries::update_song_path_and_format(
-                            &state.pool,
-                            track_id,
-                            &new_rel_path,
-                            &ext,
-                        )
-                        .await
-                    } else {
-                        queries::update_song_path(&state.pool, track_id, &new_rel_path).await
-                    };
-
-                    if let Err(e) = db_result {
-                        // Try to move back on failure
-                        let _ = move_file_cross_fs(&new_path, &working_path).await;
-                        errors.push(SessionSaveError {
-                            track_id: track_id.clone(),
-                            error: format!("Failed to update database: {}", e),
-                        });
-                        continue;
-                    }
-                }
-            }
-
-            // Clear the pending edit for this track (it's now saved)
-            let _ = sqlx::query(
-                "DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-            )
-            .bind(session_id)
-            .bind(track_id)
-            .execute(&state.pool)
-            .await;
-
-            saved_library_song_ids.push(track_id.clone());
-            saved_count += 1;
         }
     }
 
@@ -2914,7 +3055,7 @@ pub async fn save_pending_edits(
             std::collections::HashMap::new();
 
         for song_id in &saved_library_song_ids {
-            if let Ok(Some(song)) = queries::get_song_by_id(&state.pool, song_id).await {
+            if let Ok(Some(song)) = queries::get_song_by_id(&state.database, song_id).await {
                 // Find which folder contains this file
                 for folder in &music_folders {
                     let candidate = std::path::PathBuf::from(&folder.path).join(&song.file_path);
@@ -2984,29 +3125,46 @@ pub async fn get_session_track_ids(
     database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> Result<Vec<String>, sqlx::Error> {
-    let pool = database
-        .sqlite_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    let tracks: Vec<(String,)> = if let Ok(pool) = database.sqlite_pool() {
+        let session: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
 
-    // First get the session ID
-    let session: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?;
+        let session_id = match session {
+            Some((id,)) => id,
+            None => return Ok(vec![]),
+        };
 
-    let session_id = match session {
-        Some((id,)) => id,
-        None => return Ok(vec![]),
+        sqlx::query_as(
+            "SELECT track_id FROM tagger_session_tracks WHERE session_id = ? AND track_type = 'staged'",
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let session: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+
+        let session_id = match session {
+            Some((id,)) => id,
+            None => return Ok(vec![]),
+        };
+
+        sqlx::query_as(
+            "SELECT track_id FROM tagger_session_tracks WHERE session_id = $1 AND track_type = 'staged'",
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await?
     };
-
-    // Get all track IDs from the session (staged tracks only)
-    let tracks: Vec<(String,)> = sqlx::query_as(
-        "SELECT track_id FROM tagger_session_tracks WHERE session_id = ? AND track_type = 'staged'",
-    )
-    .bind(session_id)
-    .fetch_all(pool)
-    .await?;
 
     Ok(tracks.into_iter().map(|(id,)| id).collect())
 }
@@ -3057,7 +3215,7 @@ async fn save_pending_edits_internal(
 
     let total = request.track_ids.len() as i32;
 
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
+    let session_id = match get_or_create_session(&state.database, user.user_id).await {
         Ok(id) => id,
         Err(e) => {
             let _ = tx
@@ -3102,7 +3260,7 @@ async fn save_pending_edits_internal(
     ];
 
     // Get music folders once for all tracks
-    let music_folders = match queries::get_music_folders(&state.pool).await {
+    let music_folders = match queries::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
             let _ = tx
@@ -3140,7 +3298,7 @@ async fn save_pending_edits_internal(
 
         // Process this track using the same logic as save_pending_edits
         let track_result = save_single_track(
-            &state.pool,
+            &state.database,
             session_id,
             track_id,
             &request.path_overrides,
@@ -3181,7 +3339,7 @@ async fn save_pending_edits_internal(
             std::collections::HashMap::new();
 
         for song_id in &saved_library_song_ids {
-            if let Ok(Some(song)) = queries::get_song_by_id(&state.pool, song_id).await {
+            if let Ok(Some(song)) = queries::get_song_by_id(&state.database, song_id).await {
                 for folder in &music_folders {
                     let candidate = PathBuf::from(&folder.path).join(&song.file_path);
                     if candidate.exists() {
@@ -3278,10 +3436,6 @@ async fn save_single_track(
 ) -> Result<SaveSingleTrackResult, String> {
     use crate::db::queries;
 
-    let pool = database
-        .sqlite_pool()
-        .map_err(|e| format!("Database error: {}", e))?;
-
     let mut result = SaveSingleTrackResult {
         needs_rescan: false,
         new_song_path: None,
@@ -3289,35 +3443,21 @@ async fn save_single_track(
     };
 
     // First, determine if this is a staged or library track
-    let track_type: Option<(String,)> = sqlx::query_as(
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-    )
-    .bind(session_id)
-    .bind(track_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
+    let track_type = fetch_session_track_type(database, session_id, track_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
 
     let track_type = match track_type {
-        Some((t,)) => t,
+        Some(t) => t,
         None => return Err("Track not in session".to_string()),
     };
 
     let is_staged = track_type == "staged";
 
     // Get the pending edit from database
-    let pending: Option<PendingEditRow> = sqlx::query_as(
-        r#"SELECT id, session_id, track_id, edited_tags, computed_path, 
-                  cover_art_removed, cover_art_filename, replacement_audio_filename,
-                  replacement_audio_original_name, created_at, updated_at
-           FROM tagger_pending_edits 
-           WHERE session_id = ? AND track_id = ?"#,
-    )
-    .bind(session_id)
-    .bind(track_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
+    let pending = fetch_pending_edit_row(database, session_id, track_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
 
     // For library tracks, pending edit is required. For staged tracks, it's optional.
     let pending = match pending {
@@ -3440,26 +3580,16 @@ async fn save_single_track(
             .map_err(|e| format!("Failed to move file: {}", e))?;
 
         // Remove from session tracks
-        let _ =
-            sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(track_id)
-                .execute(pool)
-                .await;
+        let _ = delete_session_track(database, session_id, track_id).await;
 
         // Clear the pending edit
-        let _ =
-            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(track_id)
-                .execute(pool)
-                .await;
+        let _ = delete_pending_edit(database, session_id, track_id).await;
 
         result.new_song_path = Some(target_rel_path);
         result.needs_rescan = true;
     } else {
         // === LIBRARY FILE HANDLING ===
-        let song = match queries::get_song_by_id(pool, track_id).await {
+        let song = match queries::get_song_by_id(database, track_id).await {
             Ok(Some(song)) => song,
             Ok(None) => return Err("Song not found in library".to_string()),
             Err(e) => return Err(format!("Database error: {}", e)),
@@ -3589,7 +3719,7 @@ async fn save_single_track(
                     };
 
                     if let Err(e) = queries::update_song_path_and_format(
-                        pool,
+                        database,
                         track_id,
                         &new_rel_path,
                         &new_ext,
@@ -3701,9 +3831,29 @@ async fn save_single_track(
             if new_rel_path != current_rel_path {
                 let new_path = folder.join(&new_rel_path);
 
-                // Security check
-                if !new_path.starts_with(&folder) {
-                    return Err("New path must be within music folder".to_string());
+                // Security check: ensure new path is still within the music folder.
+                match new_path.canonicalize().or_else(|_| {
+                    new_path
+                        .parent()
+                        .map(|parent| parent.join(new_path.file_name().unwrap_or_default()))
+                        .ok_or(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "No parent",
+                        ))
+                }) {
+                    Ok(canonical) => {
+                        if !canonical.starts_with(&folder) {
+                            return Err("New path must be within music folder".to_string());
+                        }
+                    }
+                    Err(_) => {
+                        if !new_path
+                            .to_string_lossy()
+                            .starts_with(folder.to_string_lossy().as_ref())
+                        {
+                            return Err("New path must be within music folder".to_string());
+                        }
+                    }
                 }
 
                 // Create parent directories
@@ -3725,9 +3875,10 @@ async fn save_single_track(
                         .and_then(|e| e.to_str())
                         .unwrap_or("")
                         .to_lowercase();
-                    queries::update_song_path_and_format(pool, track_id, &new_rel_path, &ext).await
+                    queries::update_song_path_and_format(database, track_id, &new_rel_path, &ext)
+                        .await
                 } else {
-                    queries::update_song_path(pool, track_id, &new_rel_path).await
+                    queries::update_song_path(database, track_id, &new_rel_path).await
                 };
 
                 if let Err(e) = db_result {
@@ -3739,12 +3890,7 @@ async fn save_single_track(
         }
 
         // Clear the pending edit (but keep track in session)
-        let _ =
-            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(track_id)
-                .execute(pool)
-                .await;
+        let _ = delete_pending_edit(database, session_id, track_id).await;
 
         result.library_song_id = Some(track_id.to_string());
     }

@@ -70,7 +70,7 @@ pub async fn get_play_history(
     Query(params): Query<PlayHistoryParams>,
 ) -> Result<FormatResponse<PlayHistoryResponse>> {
     let result = fetch_play_history(
-        &state.pool,
+        &state.database,
         user.user_id,
         CommonPlayHistoryParams {
             size: params.size.unwrap_or(50).min(500) as i64,

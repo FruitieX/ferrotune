@@ -93,126 +93,68 @@ async fn reset_user_state(
     database: &(impl DatabaseHandle + ?Sized),
     user_id: i64,
 ) -> Result<(), sqlx::Error> {
-    let pool = database
-        .sqlite_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    if let Ok(pool) = database.sqlite_pool() {
+        let mut tx = pool.begin().await?;
 
-    // Use a transaction for atomicity
-    let mut tx = pool.begin().await?;
+        for stmt in [
+            "DELETE FROM play_queue_entries WHERE user_id = ?",
+            "DELETE FROM play_queues WHERE user_id = ?",
+            "DELETE FROM user_preferences WHERE user_id = ?",
+            "DELETE FROM starred WHERE user_id = ?",
+            "DELETE FROM ratings WHERE user_id = ?",
+            "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
+            "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
+            "DELETE FROM playlists WHERE owner_id = ?",
+            "DELETE FROM playlist_folders WHERE owner_id = ?",
+            "DELETE FROM smart_playlists WHERE owner_id = ?",
+            "DELETE FROM scrobbles WHERE user_id = ?",
+            "DELETE FROM listening_sessions WHERE user_id = ?",
+            "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
+            "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
+            "DELETE FROM tagger_sessions WHERE user_id = ?",
+            "DELETE FROM shuffle_excludes WHERE user_id = ?",
+            "DELETE FROM playback_sessions WHERE user_id = ?",
+        ] {
+            sqlx::query(stmt)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
 
-    // Clear play queue entries
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+        tx.commit().await?;
+    } else {
+        let pool = database
+            .postgres_pool()
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let mut tx = pool.begin().await?;
 
-    // Clear play queue
-    sqlx::query("DELETE FROM play_queues WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+        for stmt in [
+            "DELETE FROM play_queue_entries WHERE user_id = $1",
+            "DELETE FROM play_queues WHERE user_id = $1",
+            "DELETE FROM user_preferences WHERE user_id = $1",
+            "DELETE FROM starred WHERE user_id = $1",
+            "DELETE FROM ratings WHERE user_id = $1",
+            "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = $1)",
+            "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = $1)",
+            "DELETE FROM playlists WHERE owner_id = $1",
+            "DELETE FROM playlist_folders WHERE owner_id = $1",
+            "DELETE FROM smart_playlists WHERE owner_id = $1",
+            "DELETE FROM scrobbles WHERE user_id = $1",
+            "DELETE FROM listening_sessions WHERE user_id = $1",
+            "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = $1)",
+            "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = $1)",
+            "DELETE FROM tagger_sessions WHERE user_id = $1",
+            "DELETE FROM shuffle_excludes WHERE user_id = $1",
+            "DELETE FROM playback_sessions WHERE user_id = $1",
+        ] {
+            sqlx::query(stmt)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
 
-    // Reset user preferences to defaults (delete to let defaults take effect)
-    sqlx::query("DELETE FROM user_preferences WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear starred items
-    sqlx::query("DELETE FROM starred WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear ratings
-    sqlx::query("DELETE FROM ratings WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear playlist songs first (foreign key)
-    sqlx::query(
-        "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Clear playlist shares
-    sqlx::query(
-        "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Clear playlists
-    sqlx::query("DELETE FROM playlists WHERE owner_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear playlist folders
-    sqlx::query("DELETE FROM playlist_folders WHERE owner_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear smart playlists
-    sqlx::query("DELETE FROM smart_playlists WHERE owner_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear scrobbles
-    sqlx::query("DELETE FROM scrobbles WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear listening sessions
-    sqlx::query("DELETE FROM listening_sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear tagger pending edits (via session foreign key cascade)
-    // First get the session ID, then delete
-    sqlx::query(
-        "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Clear tagger session tracks
-    sqlx::query(
-        "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Clear tagger sessions
-    sqlx::query("DELETE FROM tagger_sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear shuffle excludes
-    sqlx::query("DELETE FROM shuffle_excludes WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Clear playback sessions (resets session ownership so next connect gets a fresh session)
-    sqlx::query("DELETE FROM playback_sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Commit transaction
-    tx.commit().await?;
+        tx.commit().await?;
+    }
 
     tracing::info!(user_id = user_id, "Reset user state for testing");
 
