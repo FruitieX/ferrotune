@@ -20,7 +20,6 @@ pub use subsonic::string_or_seq;
 pub use subsonic::QsQuery;
 
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -221,7 +220,6 @@ impl SessionManager {
 /// Shared application state for all API handlers.
 pub struct AppState {
     pub database: crate::db::Database,
-    pub pool: SqlitePool,
     pub config: crate::config::Config,
     pub scan_state: Arc<ScanState>,
     /// Cache of parsed shuffle indices.

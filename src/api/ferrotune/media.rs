@@ -45,13 +45,13 @@ pub async fn delete_song(
     require_admin(&user)?;
 
     // First verify the song exists
-    let song = queries::get_song_by_id(&state.pool, &id)
+    let song = queries::get_song_by_id(&state.database, &id)
         .await
         .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
         .ok_or_else(|| Error::NotFound(format!("Song not found: {}", id)))?;
 
     // Delete the song
-    let deleted = queries::delete_song(&state.pool, &id)
+    let deleted = queries::delete_song(&state.database, &id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to delete song: {}", e)))?;
 
@@ -120,20 +120,45 @@ pub async fn delete_song_files(
 
     for song_id in &request.song_ids {
         // Get the song and its folder path to construct the full file path
-        let song_with_folder: Option<(String, String)> = match sqlx::query_as(
-            "SELECT s.file_path, mf.path as folder_path \
-             FROM songs s \
-             JOIN music_folders mf ON s.music_folder_id = mf.id \
-             WHERE s.id = ?",
-        )
-        .bind(song_id)
-        .fetch_optional(&state.pool)
-        .await
-        {
-            Ok(result) => result,
-            Err(e) => {
-                errors.push(format!("Error finding song {}: {}", song_id, e));
-                continue;
+        let song_with_folder: Option<(String, String)> = {
+            let result = if let Ok(pool) = state.database.sqlite_pool() {
+                sqlx::query_as(
+                    "SELECT s.file_path, mf.path as folder_path \
+                 FROM songs s \
+                 JOIN music_folders mf ON s.music_folder_id = mf.id \
+                 WHERE s.id = ?",
+                )
+                .bind(song_id)
+                .fetch_optional(pool)
+                .await
+            } else {
+                match state.database.postgres_pool() {
+                    Ok(pool) => {
+                        sqlx::query_as(
+                            "SELECT s.file_path, mf.path as folder_path \
+                     FROM songs s \
+                     JOIN music_folders mf ON s.music_folder_id = mf.id \
+                     WHERE s.id = $1",
+                        )
+                        .bind(song_id)
+                        .fetch_optional(pool)
+                        .await
+                    }
+                    Err(e) => {
+                        errors.push(format!(
+                            "Database not available for song {}: {}",
+                            song_id, e
+                        ));
+                        continue;
+                    }
+                }
+            };
+            match result {
+                Ok(r) => r,
+                Err(e) => {
+                    errors.push(format!("Error finding song {}: {}", song_id, e));
+                    continue;
+                }
             }
         };
 
@@ -157,7 +182,7 @@ pub async fn delete_song_files(
         }
 
         // Delete from database
-        match queries::delete_song(&state.pool, song_id).await {
+        match queries::delete_song(&state.database, song_id).await {
             Ok(true) => {
                 deleted_count += 1;
             }

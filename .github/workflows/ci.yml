@@ -17,9 +17,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
-    name: CI
+  backend:
+    name: Backend (${{ matrix.database }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,9 +48,34 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install libopus dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake
+      - run: moon run ferrotune:ci${{ matrix.database == 'postgres' && '-postgres' || '' }}
+
+  client:
+    name: Client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+      - uses: moonrepo/setup-toolchain@v0
+        with:
+          auto-install: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: client/pnpm-lock.yaml
+      - name: Install ffmpeg for test fixtures
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install libopus dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake
       - name: Install Playwright browsers
         run: moon run client:playwright-install -- --with-deps
-      - run: moon run ferrotune:ci-all
+      - run: moon run client:ci
 
   e2e-tests:
     if: false

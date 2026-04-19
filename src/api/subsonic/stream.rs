@@ -37,12 +37,12 @@ pub async fn stream(
     Query(params): Query<StreamParams>,
 ) -> Result<Response> {
     // Get song from database
-    let song = crate::db::queries::get_song_by_id(&state.pool, &params.id)
+    let song = crate::db::queries::get_song_by_id(&state.database, &params.id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", params.id)))?;
 
     // Check if user has access to this song's library
-    if !user_has_song_access(&state.pool, user.user_id, &params.id).await? {
+    if !user_has_song_access(&state.database, user.user_id, &params.id).await? {
         return Err(Error::Forbidden(format!(
             "You do not have access to song {}",
             params.id
@@ -50,7 +50,7 @@ pub async fn stream(
     }
 
     // Find the music folder for this song
-    let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
+    let music_folders = crate::db::queries::get_music_folders(&state.database).await?;
 
     let mut full_path: Option<PathBuf> = None;
     for folder in &music_folders {

@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 use axum::body::Body;
 use axum::Router;
+use ferrotune::config::DatabaseConfig;
 use ferrotune::Config;
 use http::{Request, Response};
 use rand::Rng;
@@ -41,6 +42,15 @@ fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("ferrotune-desktop")
     })
+}
+
+fn build_embedded_config(data_dir: &std::path::Path, admin_password: &str) -> Config {
+    let mut config = Config::default_configless();
+    config.server.admin_user = "admin".to_string();
+    config.server.admin_password = admin_password.to_string();
+    config.database = DatabaseConfig::sqlite(data_dir.join("ferrotune.db"));
+    config.cache.path = data_dir.join("cache");
+    config
 }
 
 /// Register the custom protocol handler for the embedded server.
@@ -102,20 +112,17 @@ async fn handle_request(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
 pub fn initialize_server(app_handle: tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = get_data_dir(&app_handle);
     let admin_password = generate_random_password();
+    let config = build_embedded_config(&data_dir, &admin_password);
 
     log::info!("Initializing embedded Ferrotune server");
     log::info!("  Data directory: {}", data_dir.display());
+    log::info!("  Database backend: sqlite (embedded desktop mode)");
 
     // Store the admin password for later retrieval
     let _ = ADMIN_PASSWORD.set(admin_password.clone());
 
     // Set the data directory environment variable
     ferrotune::set_data_dir(&data_dir);
-
-    // Create default config for embedded operation
-    let mut config = Config::default_configless();
-    config.server.admin_user = "admin".to_string();
-    config.server.admin_password = admin_password.clone();
 
     // Spawn initialization in background
     let app_handle_clone = app_handle.clone();
@@ -163,4 +170,24 @@ pub fn initialize_server(app_handle: tauri::AppHandle) -> Result<(), Box<dyn std
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_embedded_config;
+    use ferrotune::config::DatabaseBackend;
+    use std::path::PathBuf;
+
+    #[test]
+    fn embedded_server_config_stays_sqlite_only() {
+        let data_dir = PathBuf::from("/tmp/ferrotune-embedded-test");
+        let config = build_embedded_config(&data_dir, "secret");
+
+        assert_eq!(config.database.backend, DatabaseBackend::Sqlite);
+        assert_eq!(config.database.path, data_dir.join("ferrotune.db"));
+        assert!(config.database.url.is_none());
+        assert_eq!(config.cache.path, data_dir.join("cache"));
+        assert_eq!(config.server.admin_user, "admin");
+        assert_eq!(config.server.admin_password, "secret");
+    }
 }

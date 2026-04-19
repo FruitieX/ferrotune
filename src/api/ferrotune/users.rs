@@ -191,12 +191,7 @@ pub async fn list_shareable_users(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<ShareableUsersResponse>> {
-    let users: Vec<ShareableUser> = sqlx::query_as(
-        "SELECT id, username FROM users WHERE id != ? ORDER BY username COLLATE NOCASE",
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await?;
+    let users = list_shareable_users_db(&state.database, user.user_id).await?;
 
     Ok(Json(ShareableUsersResponse { users }))
 }
@@ -207,12 +202,11 @@ pub async fn get_current_user(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<UserInfo>> {
     // Fetch the full user record from database to get all fields
-    let u: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(user.user_id)
-        .fetch_one(&state.pool)
-        .await?;
+    let u = fetch_user_by_id(&state.database, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("User {} not found", user.user_id)))?;
 
-    let library_access = get_user_library_access(&state, user.user_id).await?;
+    let library_access = get_user_library_access(&state.database, user.user_id).await?;
 
     Ok(Json(UserInfo {
         id: u.id,
@@ -231,13 +225,11 @@ pub async fn list_users(
 ) -> FerrotuneApiResult<Json<UsersResponse>> {
     require_admin(&user)?;
 
-    let users: Vec<User> = sqlx::query_as("SELECT * FROM users ORDER BY id")
-        .fetch_all(&state.pool)
-        .await?;
+    let users = list_users_db(&state.database).await?;
 
     let mut user_infos = Vec::with_capacity(users.len());
     for u in users {
-        let library_access = get_user_library_access(&state, u.id).await?;
+        let library_access = get_user_library_access(&state.database, u.id).await?;
         user_infos.push(UserInfo {
             id: u.id,
             username: u.username,
@@ -259,13 +251,11 @@ pub async fn get_user(
 ) -> FerrotuneApiResult<Json<UserInfo>> {
     require_admin(&user)?;
 
-    let u: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
+    let u = fetch_user_by_id(&state.database, id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("User {} not found", id)))?;
 
-    let library_access = get_user_library_access(&state, u.id).await?;
+    let library_access = get_user_library_access(&state.database, u.id).await?;
 
     Ok(Json(UserInfo {
         id: u.id,
@@ -296,12 +286,7 @@ pub async fn create_user(
     }
 
     // Check if username already exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE username = ?")
-        .bind(&request.username)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_some() {
+    if username_exists(&state.database, &request.username, None).await? {
         return Err(Error::InvalidRequest(format!(
             "Username '{}' is already taken",
             request.username
@@ -316,36 +301,26 @@ pub async fn create_user(
     let subsonic_token = password::create_subsonic_token(&request.password);
 
     // Create the user with hashed password
-    let result = sqlx::query(
-        "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin) VALUES (?, ?, ?, ?, ?)",
+    let user_id = insert_user_db(
+        &state.database,
+        &request.username,
+        &password_hash,
+        &subsonic_token,
+        request.email.as_deref(),
+        request.is_admin,
     )
-    .bind(&request.username)
-    .bind(&password_hash)
-    .bind(&subsonic_token)
-    .bind(&request.email)
-    .bind(request.is_admin)
-    .execute(&state.pool)
     .await?;
-
-    let user_id = result.last_insert_rowid();
 
     // Set up library access
     let folder_ids = if request.library_access.is_empty() {
         // Grant access to all folders by default
-        let folders: Vec<(i64,)> = sqlx::query_as("SELECT id FROM music_folders")
-            .fetch_all(&state.pool)
-            .await?;
-        folders.into_iter().map(|(id,)| id).collect()
+        list_music_folder_ids_db(&state.database).await?
     } else {
         request.library_access
     };
 
     for folder_id in &folder_ids {
-        sqlx::query("INSERT INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)")
-            .bind(user_id)
-            .bind(folder_id)
-            .execute(&state.pool)
-            .await?;
+        grant_user_library_access(&state.database, user_id, *folder_id).await?;
     }
 
     Ok((
@@ -367,17 +342,9 @@ pub async fn update_user(
     require_admin(&user)?;
 
     // Check if user exists
-    let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_none() {
+    if fetch_user_by_id(&state.database, id).await?.is_none() {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
-
-    // Build update query dynamically
-    let mut updates = Vec::new();
 
     if let Some(username) = &request.username {
         if username.len() < 3 {
@@ -387,18 +354,12 @@ pub async fn update_user(
             .into());
         }
         // Check if username is taken by another user
-        let exists: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM users WHERE username = ? AND id != ?")
-                .bind(username)
-                .bind(id)
-                .fetch_optional(&state.pool)
-                .await?;
-        if exists.is_some() {
+        if username_exists(&state.database, username, Some(id)).await? {
             return Err(
                 Error::InvalidRequest(format!("Username '{}' is already taken", username)).into(),
             );
         }
-        updates.push(("username", username.clone()));
+        update_user_username_db(&state.database, id, username).await?;
     }
 
     // Handle password update specially - need to hash it
@@ -410,16 +371,11 @@ pub async fn update_user(
         let subsonic_token = password::create_subsonic_token(password);
 
         // Update both password_hash and subsonic_token
-        sqlx::query("UPDATE users SET password_hash = ?, subsonic_token = ? WHERE id = ?")
-            .bind(&password_hash)
-            .bind(&subsonic_token)
-            .bind(id)
-            .execute(&state.pool)
-            .await?;
+        update_user_password_db(&state.database, id, &password_hash, &subsonic_token).await?;
     }
 
     if let Some(email) = &request.email {
-        updates.push(("email", email.clone()));
+        update_user_email_db(&state.database, id, Some(email.as_str())).await?;
     }
 
     if let Some(is_admin) = request.is_admin {
@@ -430,46 +386,20 @@ pub async fn update_user(
             )
             .into());
         }
-        updates.push(("is_admin", if is_admin { "1" } else { "0" }.to_string()));
-    }
-
-    // Apply non-password updates
-    if !updates.is_empty() {
-        for (field, value) in &updates {
-            let query = format!("UPDATE users SET {} = ? WHERE id = ?", field);
-            sqlx::query(&query)
-                .bind(value)
-                .bind(id)
-                .execute(&state.pool)
-                .await?;
-        }
+        update_user_admin_db(&state.database, id, is_admin).await?;
     }
 
     // Update library access if provided
     if let Some(folder_ids) = request.library_access {
-        // Remove existing access
-        sqlx::query("DELETE FROM user_library_access WHERE user_id = ?")
-            .bind(id)
-            .execute(&state.pool)
-            .await?;
-
-        // Add new access
-        for folder_id in &folder_ids {
-            sqlx::query("INSERT INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)")
-                .bind(id)
-                .bind(folder_id)
-                .execute(&state.pool)
-                .await?;
-        }
+        replace_user_library_access(&state.database, id, &folder_ids).await?;
     }
 
     // Return updated user info
-    let u: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let u = fetch_user_by_id(&state.database, id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("User {} not found", id)))?;
 
-    let library_access = get_user_library_access(&state, u.id).await?;
+    let library_access = get_user_library_access(&state.database, u.id).await?;
 
     Ok(Json(UserInfo {
         id: u.id,
@@ -495,20 +425,12 @@ pub async fn delete_user(
     }
 
     // Check if user exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_none() {
+    if !user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Delete the user (cascades to api_keys, user_library_access, playlists, etc.)
-    sqlx::query("DELETE FROM users WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    delete_user_db(&state.database, id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -526,16 +448,11 @@ pub async fn get_library_access(
     require_admin(&user)?;
 
     // Check if user exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_none() {
+    if !user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
-    let access = get_user_library_access(&state, id).await?;
+    let access = get_user_library_access(&state.database, id).await?;
     Ok(Json(LibraryAccessResponse {
         user_id: id,
         folder_ids: access,
@@ -552,28 +469,12 @@ pub async fn set_library_access(
     require_admin(&user)?;
 
     // Check if user exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_none() {
+    if !user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Replace existing access
-    sqlx::query("DELETE FROM user_library_access WHERE user_id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-
-    for folder_id in &request.folder_ids {
-        sqlx::query("INSERT INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)")
-            .bind(id)
-            .bind(folder_id)
-            .execute(&state.pool)
-            .await?;
-    }
+    replace_user_library_access(&state.database, id, &request.folder_ids).await?;
 
     Ok(Json(LibraryAccessResponse {
         user_id: id,
@@ -597,20 +498,11 @@ pub async fn list_api_keys(
     }
 
     // Check if user exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_none() {
+    if !user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
-    let keys: Vec<(String, DateTime<Utc>, Option<DateTime<Utc>>)> =
-        sqlx::query_as("SELECT name, created_at, last_used FROM api_keys WHERE user_id = ?")
-            .bind(id)
-            .fetch_all(&state.pool)
-            .await?;
+    let keys = list_api_keys_db(&state.database, id).await?;
 
     let key_infos: Vec<ApiKeyInfo> = keys
         .into_iter()
@@ -640,12 +532,7 @@ pub async fn create_api_key(
     }
 
     // Check if user exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    if existing.is_none() {
+    if !user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
@@ -653,12 +540,7 @@ pub async fn create_api_key(
     let token = generate_api_key();
 
     // Create the key
-    sqlx::query("INSERT INTO api_keys (token, user_id, name) VALUES (?, ?, ?)")
-        .bind(&token)
-        .bind(id)
-        .bind(&request.name)
-        .execute(&state.pool)
-        .await?;
+    insert_api_key_db(&state.database, &token, id, &request.name).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -681,24 +563,13 @@ pub async fn delete_api_key(
     }
 
     // Check if key exists
-    let existing: Option<(String,)> =
-        sqlx::query_as("SELECT token FROM api_keys WHERE user_id = ? AND name = ?")
-            .bind(id)
-            .bind(&name)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    if existing.is_none() {
+    if !api_key_exists(&state.database, id, &name).await? {
         return Err(
             Error::NotFound(format!("API key '{}' not found for user {}", name, id)).into(),
         );
     }
 
-    sqlx::query("DELETE FROM api_keys WHERE user_id = ? AND name = ?")
-        .bind(id)
-        .bind(&name)
-        .execute(&state.pool)
-        .await?;
+    delete_api_key_db(&state.database, id, &name).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -707,15 +578,443 @@ pub async fn delete_api_key(
 // Helper Functions
 // ============================================================================
 
-async fn get_user_library_access(state: &AppState, user_id: i64) -> FerrotuneApiResult<Vec<i64>> {
-    let pool = state.database.sqlite_pool()?;
-    let access: Vec<(i64,)> =
+async fn get_user_library_access(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<Vec<i64>> {
+    let access: Vec<(i64,)> = if let Ok(pool) = database.sqlite_pool() {
         sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = ?")
             .bind(user_id)
             .fetch_all(pool)
-            .await?;
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?
+    };
 
     Ok(access.into_iter().map(|(id,)| id).collect())
+}
+
+async fn list_shareable_users_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    exclude_user_id: i64,
+) -> FerrotuneApiResult<Vec<ShareableUser>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return Ok(sqlx::query_as(
+            "SELECT id, username FROM users WHERE id != ? ORDER BY username COLLATE NOCASE",
+        )
+        .bind(exclude_user_id)
+        .fetch_all(pool)
+        .await?);
+    }
+
+    let pool = database.postgres_pool()?;
+    Ok(
+        sqlx::query_as("SELECT id, username FROM users WHERE id != $1 ORDER BY LOWER(username)")
+            .bind(exclude_user_id)
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
+async fn fetch_user_by_id(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<Option<User>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return Ok(sqlx::query_as("SELECT * FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?);
+    }
+
+    let pool = database.postgres_pool()?;
+    Ok(sqlx::query_as("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?)
+}
+
+async fn list_users_db(database: &(impl DatabaseHandle + ?Sized)) -> FerrotuneApiResult<Vec<User>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return Ok(sqlx::query_as("SELECT * FROM users ORDER BY id")
+            .fetch_all(pool)
+            .await?);
+    }
+
+    let pool = database.postgres_pool()?;
+    Ok(sqlx::query_as("SELECT * FROM users ORDER BY id")
+        .fetch_all(pool)
+        .await?)
+}
+
+async fn user_exists(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<bool> {
+    Ok(fetch_user_by_id(database, user_id).await?.is_some())
+}
+
+async fn username_exists(
+    database: &(impl DatabaseHandle + ?Sized),
+    username: &str,
+    exclude_user_id: Option<i64>,
+) -> FerrotuneApiResult<bool> {
+    let exists: Option<(i64,)> = if let Some(exclude_id) = exclude_user_id {
+        if let Ok(pool) = database.sqlite_pool() {
+            sqlx::query_as("SELECT id FROM users WHERE username = ? AND id != ?")
+                .bind(username)
+                .bind(exclude_id)
+                .fetch_optional(pool)
+                .await?
+        } else {
+            let pool = database.postgres_pool()?;
+            sqlx::query_as("SELECT id FROM users WHERE username = $1 AND id != $2")
+                .bind(username)
+                .bind(exclude_id)
+                .fetch_optional(pool)
+                .await?
+        }
+    } else if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as("SELECT id FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM users WHERE username = $1")
+            .bind(username)
+            .fetch_optional(pool)
+            .await?
+    };
+
+    Ok(exists.is_some())
+}
+
+async fn insert_user_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    username: &str,
+    password_hash: &str,
+    subsonic_token: &str,
+    email: Option<&str>,
+    is_admin: bool,
+) -> FerrotuneApiResult<i64> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let result = sqlx::query(
+            "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(username)
+        .bind(password_hash)
+        .bind(subsonic_token)
+        .bind(email)
+        .bind(is_admin)
+        .execute(pool)
+        .await?;
+        return Ok(result.last_insert_rowid());
+    }
+
+    let pool = database.postgres_pool()?;
+    let (user_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    )
+    .bind(username)
+    .bind(password_hash)
+    .bind(subsonic_token)
+    .bind(email)
+    .bind(is_admin)
+    .fetch_one(pool)
+    .await?;
+    Ok(user_id)
+}
+
+async fn update_user_username_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    username: &str,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("UPDATE users SET username = ? WHERE id = ?")
+            .bind(username)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("UPDATE users SET username = $1 WHERE id = $2")
+            .bind(username)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn update_user_password_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    password_hash: &str,
+    subsonic_token: &str,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("UPDATE users SET password_hash = ?, subsonic_token = ? WHERE id = ?")
+            .bind(password_hash)
+            .bind(subsonic_token)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("UPDATE users SET password_hash = $1, subsonic_token = $2 WHERE id = $3")
+            .bind(password_hash)
+            .bind(subsonic_token)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn update_user_email_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    email: Option<&str>,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("UPDATE users SET email = ? WHERE id = ?")
+            .bind(email)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("UPDATE users SET email = $1 WHERE id = $2")
+            .bind(email)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn update_user_admin_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    is_admin: bool,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
+            .bind(is_admin)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("UPDATE users SET is_admin = $1 WHERE id = $2")
+            .bind(is_admin)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn delete_user_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn list_music_folder_ids_db(
+    database: &(impl DatabaseHandle + ?Sized),
+) -> FerrotuneApiResult<Vec<i64>> {
+    let folder_ids: Vec<(i64,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as("SELECT id FROM music_folders ORDER BY id")
+            .fetch_all(pool)
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM music_folders ORDER BY id")
+            .fetch_all(pool)
+            .await?
+    };
+
+    Ok(folder_ids.into_iter().map(|(id,)| id).collect())
+}
+
+async fn clear_user_library_access(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("DELETE FROM user_library_access WHERE user_id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("DELETE FROM user_library_access WHERE user_id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn grant_user_library_access(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    folder_id: i64,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
+        )
+        .bind(user_id)
+        .bind(folder_id)
+        .execute(pool)
+        .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query(
+            "INSERT INTO user_library_access (user_id, music_folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(folder_id)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn replace_user_library_access(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    folder_ids: &[i64],
+) -> FerrotuneApiResult<()> {
+    clear_user_library_access(database, user_id).await?;
+
+    for folder_id in folder_ids {
+        grant_user_library_access(database, user_id, *folder_id).await?;
+    }
+
+    Ok(())
+}
+
+async fn list_api_keys_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+) -> FerrotuneApiResult<Vec<(String, DateTime<Utc>, Option<DateTime<Utc>>)>> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return Ok(sqlx::query_as(
+            "SELECT name, created_at, last_used FROM api_keys WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?);
+    }
+
+    let pool = database.postgres_pool()?;
+    Ok(
+        sqlx::query_as("SELECT name, created_at, last_used FROM api_keys WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
+async fn insert_api_key_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    token: &str,
+    user_id: i64,
+    name: &str,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("INSERT INTO api_keys (token, user_id, name) VALUES (?, ?, ?)")
+            .bind(token)
+            .bind(user_id)
+            .bind(name)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("INSERT INTO api_keys (token, user_id, name) VALUES ($1, $2, $3)")
+            .bind(token)
+            .bind(user_id)
+            .bind(name)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn api_key_exists(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    name: &str,
+) -> FerrotuneApiResult<bool> {
+    let existing: Option<(String,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as("SELECT token FROM api_keys WHERE user_id = ? AND name = ?")
+            .bind(user_id)
+            .bind(name)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as("SELECT token FROM api_keys WHERE user_id = $1 AND name = $2")
+            .bind(user_id)
+            .bind(name)
+            .fetch_optional(pool)
+            .await?
+    };
+
+    Ok(existing.is_some())
+}
+
+async fn delete_api_key_db(
+    database: &(impl DatabaseHandle + ?Sized),
+    user_id: i64,
+    name: &str,
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("DELETE FROM api_keys WHERE user_id = ? AND name = ?")
+            .bind(user_id)
+            .bind(name)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("DELETE FROM api_keys WHERE user_id = $1 AND name = $2")
+            .bind(user_id)
+            .bind(name)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
 }
 
 fn generate_api_key() -> String {

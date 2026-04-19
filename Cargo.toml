@@ -136,3 +136,7 @@ which = "7.0"
 [[test]]
 name = "integration"
 harness = false
+
+[[test]]
+name = "integration_postgres"
+harness = false

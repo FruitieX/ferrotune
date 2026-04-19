@@ -3,7 +3,7 @@
 
 use crate::db::models::*;
 use crate::db::DatabaseHandle;
-use sqlx::SqlitePool;
+use sqlx::{PgPool, SqlitePool};
 use uuid::Uuid;
 
 // ============================================================================
@@ -898,49 +898,6 @@ pub async fn get_song_by_id(
     }
 
     Err(unsupported_database_handle_error())
-}
-
-/// Get songs by a list of IDs, maintaining the order of the input IDs
-/// Only returns songs from enabled music folders.
-pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result<Vec<Song>> {
-    if ids.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Build the placeholder string for the IN clause
-    let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
-    let placeholder_str = placeholders.join(", ");
-
-    // Build query with JOINs before WHERE clause
-    let query = format!(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name
-         FROM songs s
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE s.marked_for_deletion_at IS NULL
-           AND s.id IN ({})
-           AND mf.enabled = 1",
-        placeholder_str
-    );
-
-    let mut query_builder = sqlx::query_as::<_, Song>(&query);
-    for id in ids {
-        query_builder = query_builder.bind(id);
-    }
-
-    let songs: Vec<Song> = query_builder.fetch_all(pool).await?;
-
-    // Reorder songs to match the input ID order
-    // Create a lookup map from id -> song
-    let song_map: std::collections::HashMap<String, Song> =
-        songs.into_iter().map(|s| (s.id.clone(), s)).collect();
-
-    // Return songs in the order of the input IDs
-    Ok(ids
-        .iter()
-        .filter_map(|id| song_map.get(id).cloned())
-        .collect())
 }
 
 pub async fn get_songs_by_ids_for_user(
@@ -2195,7 +2152,20 @@ pub async fn delete_playlist(
 ///
 /// Playlist entries are NOT deleted - they become "missing" entries with the song's
 /// metadata preserved, allowing them to be re-matched if the song is added again later.
-pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
+pub async fn delete_song(
+    database: &(impl DatabaseHandle + ?Sized),
+    id: &str,
+) -> sqlx::Result<bool> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return delete_song_sqlite(pool, id).await;
+    }
+    if let Ok(pool) = database.postgres_pool() {
+        return delete_song_postgres(pool, id).await;
+    }
+    Err(unsupported_database_handle_error())
+}
+
+async fn delete_song_sqlite(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
     // Get song metadata before deleting so we can preserve it in playlist entries
     let song_meta: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
         "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
@@ -2321,40 +2291,188 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
     Ok(true)
 }
 
+async fn delete_song_postgres(pool: &PgPool, id: &str) -> sqlx::Result<bool> {
+    let song_meta: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
+        "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
+         FROM songs s
+         LEFT JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE s.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((title, artist_name, album_name, duration)) = song_meta else {
+        return Ok(false);
+    };
+
+    let album_id: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT album_id FROM songs WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+
+    let missing_data = serde_json::json!({
+        "title": title,
+        "artist": artist_name,
+        "album": album_name,
+        "duration": duration as i32,
+        "raw": format!("{} - {}", artist_name.as_deref().unwrap_or("Unknown Artist"), title)
+    });
+    let missing_json = serde_json::to_string(&missing_data).unwrap_or_default();
+
+    let mut parts = Vec::new();
+    if let Some(ref a) = artist_name {
+        parts.push(a.as_str());
+    }
+    if let Some(ref al) = album_name {
+        parts.push(al.as_str());
+    }
+    parts.push(title.as_str());
+    let search_text = parts.join(" - ");
+
+    let mut tx = pool.begin().await?;
+
+    let affected_playlist_ids: Vec<(String,)> =
+        sqlx::query_as("SELECT DISTINCT playlist_id FROM playlist_songs WHERE song_id = $1")
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+    sqlx::query(
+        "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = $1, missing_search_text = $2 WHERE song_id = $3"
+    )
+    .bind(&missing_json)
+    .bind(&search_text)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM starred WHERE item_type = 'song' AND item_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    let result = sqlx::query("DELETE FROM songs WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+
+    if let Some((Some(album_id),)) = album_id {
+        sqlx::query(
+            "UPDATE albums SET
+                song_count = (SELECT COUNT(*) FROM songs WHERE album_id = $1),
+                duration = (SELECT COALESCE(SUM(duration), 0)::BIGINT FROM songs WHERE album_id = $2)
+             WHERE id = $3",
+        )
+        .bind(&album_id)
+        .bind(&album_id)
+        .bind(&album_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if !affected_playlist_ids.is_empty() {
+        let placeholders = (1..=affected_playlist_ids.len())
+            .map(|i| format!("${}", i))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "UPDATE playlists SET
+                song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id AND song_id IS NOT NULL),
+                duration = (SELECT COALESCE(SUM(s.duration), 0)::BIGINT FROM songs s
+                            INNER JOIN playlist_songs ps ON s.id = ps.song_id
+                            WHERE ps.playlist_id = playlists.id),
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id IN ({})",
+            placeholders
+        );
+        let mut query = sqlx::query(&sql);
+        for (pid,) in &affected_playlist_ids {
+            query = query.bind(pid);
+        }
+        query.execute(&mut *tx).await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(true)
+}
+
 /// Update a song's file path in the database
 pub async fn update_song_path(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     song_id: &str,
     new_path: &str,
 ) -> sqlx::Result<bool> {
-    let result =
-        sqlx::query("UPDATE songs SET file_path = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(new_path)
-            .bind(song_id)
-            .execute(pool)
-            .await?;
+    if let Ok(pool) = database.sqlite_pool() {
+        let result = sqlx::query(
+            "UPDATE songs SET file_path = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(new_path)
+        .bind(song_id)
+        .execute(pool)
+        .await?;
+        return Ok(result.rows_affected() > 0);
+    }
 
-    Ok(result.rows_affected() > 0)
+    if let Ok(pool) = database.postgres_pool() {
+        let result = sqlx::query(
+            "UPDATE songs SET file_path = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        )
+        .bind(new_path)
+        .bind(song_id)
+        .execute(pool)
+        .await?;
+        return Ok(result.rows_affected() > 0);
+    }
+
+    Err(sqlx::Error::Protocol(
+        "No database pool available".to_string(),
+    ))
 }
 
 /// Update a song's file path and format in the database
 /// Used when replacing audio with a different format
 pub async fn update_song_path_and_format(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     song_id: &str,
     new_path: &str,
     new_format: &str,
 ) -> sqlx::Result<bool> {
-    let result = sqlx::query(
-        "UPDATE songs SET file_path = ?, file_format = ?, updated_at = datetime('now') WHERE id = ?",
-    )
-    .bind(new_path)
-    .bind(new_format)
-    .bind(song_id)
-    .execute(pool)
-    .await?;
+    if let Ok(pool) = database.sqlite_pool() {
+        let result = sqlx::query(
+            "UPDATE songs SET file_path = ?, file_format = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(new_path)
+        .bind(new_format)
+        .bind(song_id)
+        .execute(pool)
+        .await?;
+        return Ok(result.rows_affected() > 0);
+    }
 
-    Ok(result.rows_affected() > 0)
+    if let Ok(pool) = database.postgres_pool() {
+        let result = sqlx::query(
+            "UPDATE songs SET file_path = $1, file_format = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+        )
+        .bind(new_path)
+        .bind(new_format)
+        .bind(song_id)
+        .execute(pool)
+        .await?;
+        return Ok(result.rows_affected() > 0);
+    }
+
+    Err(sqlx::Error::Protocol(
+        "No database pool available".to_string(),
+    ))
 }
 
 // ============================================================================
@@ -3983,19 +4101,6 @@ pub async fn get_shuffle_excluded_song_ids_for_user(
 // Queue source materialization helpers
 // ============================================================================
 
-/// Get all songs from the library (all songs)
-pub async fn get_all_songs(pool: &SqlitePool) -> sqlx::Result<Vec<Song>> {
-    sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
-         FROM songs s
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         ORDER BY s.title COLLATE NOCASE",
-    )
-    .fetch_all(pool)
-    .await
-}
-
 /// Get starred songs for a user (includes play stats for sorting)
 pub async fn get_starred_songs(
     database: &(impl DatabaseHandle + ?Sized),
@@ -4046,29 +4151,6 @@ pub async fn get_starred_songs(
     }
 
     Err(unsupported_database_handle_error())
-}
-
-/// Get songs by genre (includes play stats for sorting)
-pub async fn get_songs_by_genre(
-    pool: &SqlitePool,
-    genre: &str,
-    user_id: i64,
-) -> sqlx::Result<Vec<Song>> {
-    sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name,
-                pc.play_count, pc.last_played, NULL as starred_at
-         FROM songs s
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
-         WHERE s.genre = ?
-         ORDER BY s.title COLLATE NOCASE",
-    )
-    .bind(user_id)
-    .bind(genre)
-    .fetch_all(pool)
-    .await
 }
 
 /// Get songs recursively under a directory path (includes play stats for sorting)

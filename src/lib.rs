@@ -181,7 +181,6 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
         config.database.connection_label()
     );
     let pool = db::create_pool(&config.database).await?;
-    let sqlite_pool = pool.legacy_sqlite_pool_for_state().await?;
 
     // Check if we need to create initial admin user
     let user_count = db::queries::count_users(&pool).await?;
@@ -203,7 +202,6 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
     let scan_state = api::create_scan_state();
     let state = Arc::new(api::AppState {
         database: pool.clone(),
-        pool: sqlite_pool,
         config: config.clone(),
         scan_state: scan_state.clone(),
         shuffle_cache: Default::default(),
@@ -367,7 +365,7 @@ pub async fn create_admin_user(pool: &db::Database, username: &str, password: &s
 }
 
 /// Initialize music folders from config into the database
-async fn init_music_folders(pool: &db::Database, config: &config::Config) -> Result<()> {
+pub async fn init_music_folders(pool: &db::Database, config: &config::Config) -> Result<()> {
     for folder in &config.music.folders {
         if !folder.path.exists() {
             tracing::warn!("Music folder does not exist: {}", folder.path.display());

@@ -69,14 +69,22 @@ pub struct UpdateServerConfigRequest {
 
 /// Get server configuration from database
 async fn get_config_value(database: &(impl DatabaseHandle + ?Sized), key: &str) -> Option<String> {
-    let pool = database.sqlite_pool().ok()?;
-
-    sqlx::query_scalar::<_, String>("SELECT value FROM server_config WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_scalar::<_, String>("SELECT value FROM server_config WHERE key = ?")
+            .bind(key)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+    } else {
+        let pool = database.postgres_pool().ok()?;
+        sqlx::query_scalar::<_, String>("SELECT value FROM server_config WHERE key = $1")
+            .bind(key)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+    }
 }
 
 /// Set server configuration value in database
@@ -85,16 +93,27 @@ async fn set_config_value(
     key: &str,
     value: &str,
 ) -> FerrotuneApiResult<()> {
-    let pool = database.sqlite_pool()?;
-
-    sqlx::query(
-        "INSERT OR REPLACE INTO server_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)"
-    )
-    .bind(key)
-    .bind(value)
-    .execute(pool)
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to set config value: {}", e)))?;
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query(
+            "INSERT OR REPLACE INTO server_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)"
+        )
+        .bind(key)
+        .bind(value)
+        .execute(pool)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to set config value: {}", e)))?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query(
+            "INSERT INTO server_config (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) \
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP"
+        )
+        .bind(key)
+        .bind(value)
+        .execute(pool)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to set config value: {}", e)))?;
+    }
     Ok(())
 }
 
@@ -275,12 +294,18 @@ pub async fn get_all_config(
         )));
     }
 
-    let pool = state.database.sqlite_pool()?;
-
-    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM server_config")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?;
+    let rows: Vec<(String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT key, value FROM server_config")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT key, value FROM server_config")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?
+    };
 
     let config: HashMap<String, serde_json::Value> = rows
         .into_iter()

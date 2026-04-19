@@ -139,10 +139,18 @@ pub async fn create_music_folder(
     }
 
     // Check if path is already registered
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
-        .bind(&request.path)
-        .fetch_optional(&state.pool)
-        .await?;
+    let existing: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
+            .bind(&request.path)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM music_folders WHERE path = $1")
+            .bind(&request.path)
+            .fetch_optional(pool)
+            .await?
+    };
 
     if existing.is_some() {
         return Err(Error::InvalidRequest(format!(
@@ -153,25 +161,47 @@ pub async fn create_music_folder(
     }
 
     // Create the folder
-    let result = sqlx::query(
-        "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES (?, ?, 1, ?)",
-    )
-    .bind(&request.name)
-    .bind(&request.path)
-    .bind(request.watch_enabled)
-    .execute(&state.pool)
-    .await?;
-
-    let id = result.last_insert_rowid();
+    let id = if let Ok(pool) = state.database.sqlite_pool() {
+        let result = sqlx::query(
+            "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES (?, ?, 1, ?)",
+        )
+        .bind(&request.name)
+        .bind(&request.path)
+        .bind(request.watch_enabled)
+        .execute(pool)
+        .await?;
+        result.last_insert_rowid()
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_scalar(
+            "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES ($1, $2, TRUE, $3) RETURNING id",
+        )
+        .bind(&request.name)
+        .bind(&request.path)
+        .bind(request.watch_enabled)
+        .fetch_one(pool)
+        .await?
+    };
 
     // Grant access to the current user for the new music folder
-    sqlx::query(
-        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-    )
-    .bind(user.user_id)
-    .bind(id)
-    .execute(&state.pool)
-    .await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
+        )
+        .bind(user.user_id)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query(
+            "INSERT INTO user_library_access (user_id, music_folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(user.user_id)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -193,59 +223,152 @@ pub async fn update_music_folder(
     require_admin(&user)?;
 
     // Check if folder exists
-    let existing: Option<MusicFolder> =
+    let existing: Option<MusicFolder> = if let Ok(pool) = state.database.sqlite_pool() {
         sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?")
             .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+    };
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
-    // Build update query dynamically
-    let mut updates = Vec::new();
-    let mut values: Vec<String> = Vec::new();
-
     if let Some(name) = &request.name {
-        updates.push("name = ?");
-        values.push(name.clone());
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("UPDATE music_folders SET name = ? WHERE id = ?")
+                .bind(name)
+                .bind(id)
+                .execute(pool)
+                .await?;
+        } else {
+            let pool = state.database.postgres_pool()?;
+            sqlx::query("UPDATE music_folders SET name = $1 WHERE id = $2")
+                .bind(name)
+                .bind(id)
+                .execute(pool)
+                .await?;
+        }
     }
     if let Some(enabled) = request.enabled {
-        updates.push("enabled = ?");
-        values.push(if enabled {
-            "1".to_string()
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("UPDATE music_folders SET enabled = ? WHERE id = ?")
+                .bind(enabled)
+                .bind(id)
+                .execute(pool)
+                .await?;
         } else {
-            "0".to_string()
-        });
+            let pool = state.database.postgres_pool()?;
+            sqlx::query("UPDATE music_folders SET enabled = $1 WHERE id = $2")
+                .bind(enabled)
+                .bind(id)
+                .execute(pool)
+                .await?;
+        }
     }
     if let Some(watch_enabled) = request.watch_enabled {
-        updates.push("watch_enabled = ?");
-        values.push(if watch_enabled {
-            "1".to_string()
+        if let Ok(pool) = state.database.sqlite_pool() {
+            sqlx::query("UPDATE music_folders SET watch_enabled = ? WHERE id = ?")
+                .bind(watch_enabled)
+                .bind(id)
+                .execute(pool)
+                .await?;
         } else {
-            "0".to_string()
-        });
+            let pool = state.database.postgres_pool()?;
+            sqlx::query("UPDATE music_folders SET watch_enabled = $1 WHERE id = $2")
+                .bind(watch_enabled)
+                .bind(id)
+                .execute(pool)
+                .await?;
+        }
     }
-
-    if updates.is_empty() {
-        return Ok(StatusCode::OK.into_response());
-    }
-
-    let query = format!(
-        "UPDATE music_folders SET {} WHERE id = ?",
-        updates.join(", ")
-    );
-    let mut q = sqlx::query(&query);
-
-    for value in &values {
-        q = q.bind(value);
-    }
-    q = q.bind(id);
-
-    q.execute(&state.pool).await?;
 
     Ok(StatusCode::OK.into_response())
+}
+
+fn build_in_placeholders(count: usize, postgres: bool) -> String {
+    if postgres {
+        (1..=count)
+            .map(|index| format!("${}", index))
+            .collect::<Vec<_>>()
+            .join(",")
+    } else {
+        vec!["?"; count].join(",")
+    }
+}
+
+async fn execute_bound_string_query(
+    database: &(impl DatabaseHandle + ?Sized),
+    sqlite_sql: String,
+    postgres_sql: String,
+    values: &[String],
+) -> FerrotuneApiResult<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        let mut query = sqlx::query(&sqlite_sql);
+        for value in values {
+            query = query.bind(value);
+        }
+        query.execute(pool).await?;
+        return Ok(());
+    }
+
+    let pool = database.postgres_pool()?;
+    let mut query = sqlx::query(&postgres_sql);
+    for value in values {
+        query = query.bind(value);
+    }
+    query.execute(pool).await?;
+    Ok(())
+}
+
+async fn list_string_rows_for_folder(
+    database: &(impl DatabaseHandle + ?Sized),
+    sqlite_sql: &str,
+    postgres_sql: &str,
+    folder_id: i64,
+) -> FerrotuneApiResult<Vec<String>> {
+    let rows: Vec<(String,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(sqlite_sql)
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(postgres_sql)
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+    };
+
+    Ok(rows.into_iter().map(|(value,)| value).collect())
+}
+
+async fn list_optional_string_rows_for_folder(
+    database: &(impl DatabaseHandle + ?Sized),
+    sqlite_sql: &str,
+    postgres_sql: &str,
+    folder_id: i64,
+) -> FerrotuneApiResult<Vec<String>> {
+    let rows: Vec<(Option<String>,)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(sqlite_sql)
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(postgres_sql)
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+    };
+
+    Ok(rows.into_iter().filter_map(|(value,)| value).collect())
 }
 
 /// DELETE /ferrotune/music-folders/{id} - Delete a music folder
@@ -257,301 +380,230 @@ pub async fn delete_music_folder(
     require_admin(&user)?;
 
     // Check if folder exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
+    let existing: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM music_folders WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+    };
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
     // Get song IDs being deleted for cleanup
-    let song_ids: Vec<(String,)> = sqlx::query_as("SELECT id FROM songs WHERE music_folder_id = ?")
-        .bind(id)
-        .fetch_all(&state.pool)
-        .await?;
-    let song_ids: Vec<String> = song_ids.into_iter().map(|(id,)| id).collect();
+    let song_ids = list_string_rows_for_folder(
+        &state.database,
+        "SELECT id FROM songs WHERE music_folder_id = ?",
+        "SELECT id FROM songs WHERE music_folder_id = $1",
+        id,
+    )
+    .await?;
 
     // Get album IDs from songs being deleted
-    let album_ids: Vec<(Option<String>,)> =
-        sqlx::query_as("SELECT DISTINCT album_id FROM songs WHERE music_folder_id = ?")
-            .bind(id)
-            .fetch_all(&state.pool)
-            .await?;
-    let album_ids: Vec<String> = album_ids.into_iter().filter_map(|(id,)| id).collect();
+    let album_ids = list_optional_string_rows_for_folder(
+        &state.database,
+        "SELECT DISTINCT album_id FROM songs WHERE music_folder_id = ?",
+        "SELECT DISTINCT album_id FROM songs WHERE music_folder_id = $1",
+        id,
+    )
+    .await?;
 
     // Get artist IDs from songs being deleted
-    let artist_ids: Vec<(String,)> =
-        sqlx::query_as("SELECT DISTINCT artist_id FROM songs WHERE music_folder_id = ?")
-            .bind(id)
-            .fetch_all(&state.pool)
-            .await?;
-    let artist_ids: Vec<String> = artist_ids.into_iter().map(|(id,)| id).collect();
+    let artist_ids = list_string_rows_for_folder(
+        &state.database,
+        "SELECT DISTINCT artist_id FROM songs WHERE music_folder_id = ?",
+        "SELECT DISTINCT artist_id FROM songs WHERE music_folder_id = $1",
+        id,
+    )
+    .await?;
 
-    // Delete play history (scrobbles) for songs in this folder
     if !song_ids.is_empty() {
-        let placeholders = song_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let query = format!("DELETE FROM scrobbles WHERE song_id IN ({})", placeholders);
-        let mut q = sqlx::query(&query);
+        let sqlite_placeholders = build_in_placeholders(song_ids.len(), false);
+        let postgres_placeholders = build_in_placeholders(song_ids.len(), true);
+
+        for (sqlite_sql, postgres_sql) in [
+            (
+                format!(
+                    "DELETE FROM scrobbles WHERE song_id IN ({})",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM scrobbles WHERE song_id IN ({})",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM listening_sessions WHERE song_id IN ({})",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM listening_sessions WHERE song_id IN ({})",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM ratings WHERE item_type = 'song' AND item_id IN ({})",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM ratings WHERE item_type = 'song' AND item_id IN ({})",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM shuffle_excludes WHERE song_id IN ({})",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM shuffle_excludes WHERE song_id IN ({})",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM play_queue_entries WHERE song_id IN ({})",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM play_queue_entries WHERE song_id IN ({})",
+                    postgres_placeholders
+                ),
+            ),
+        ] {
+            execute_bound_string_query(&state.database, sqlite_sql, postgres_sql, &song_ids)
+                .await?;
+        }
+
         for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete listening sessions
-        let query = format!(
-            "DELETE FROM listening_sessions WHERE song_id IN ({})",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete starred items for songs
-        let query = format!(
-            "DELETE FROM starred WHERE item_type = 'song' AND item_id IN ({})",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete ratings for songs
-        let query = format!(
-            "DELETE FROM ratings WHERE item_type = 'song' AND item_id IN ({})",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete shuffle excludes
-        let query = format!(
-            "DELETE FROM shuffle_excludes WHERE song_id IN ({})",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete play queue entries
-        let query = format!(
-            "DELETE FROM play_queue_entries WHERE song_id IN ({})",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Convert playlist entries to "missing" entries instead of deleting them.
-        // This preserves the song info so entries can be re-matched if the library is re-scanned.
-        // Helper struct for song metadata (to avoid complex tuple type)
-        #[derive(sqlx::FromRow)]
-        struct SongMeta {
-            id: String,
-            title: String,
-            artist_name: Option<String>,
-            album_name: Option<String>,
-            duration: i64,
-        }
-
-        // First, get song metadata for all songs being deleted
-        let song_metadata: Vec<SongMeta> = sqlx::query_as(
-            "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, s.duration
-             FROM songs s
-             LEFT JOIN artists ar ON s.artist_id = ar.id
-             LEFT JOIN albums al ON s.album_id = al.id
-             WHERE s.music_folder_id = ?",
-        )
-        .bind(id)
-        .fetch_all(&state.pool)
-        .await?;
-
-        // Build a map of song_id -> metadata for quick lookup
-        let song_info: std::collections::HashMap<String, SongMeta> = song_metadata
-            .into_iter()
-            .map(|meta| (meta.id.clone(), meta))
-            .collect();
-
-        // Get all playlist entries referencing these songs
-        let playlist_entries_query = format!(
-            "SELECT playlist_id, position, song_id FROM playlist_songs WHERE song_id IN ({})",
-            placeholders
-        );
-        let mut q = sqlx::query_as::<_, (String, i64, Option<String>)>(&playlist_entries_query);
-        for song_id in &song_ids {
-            q = q.bind(song_id);
-        }
-        let playlist_entries: Vec<(String, i64, Option<String>)> = q.fetch_all(&state.pool).await?;
-
-        // Collect unique playlist IDs for updating totals later
-        let mut affected_playlist_ids: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
-
-        // Update each playlist entry to be a missing entry
-        for (playlist_id, position, song_id_opt) in &playlist_entries {
-            if let Some(song_id) = song_id_opt {
-                if let Some(meta) = song_info.get(song_id) {
-                    // Build the missing entry data JSON
-                    let missing_data = serde_json::json!({
-                        "title": meta.title,
-                        "artist": meta.artist_name,
-                        "album": meta.album_name,
-                        "duration": meta.duration as i32,
-                        "raw": format!("{} - {}", meta.artist_name.as_deref().unwrap_or("Unknown Artist"), meta.title)
-                    });
-                    let missing_json = serde_json::to_string(&missing_data).unwrap_or_default();
-
-                    // Build search text: "artist - album - title" for filtering
-                    let mut parts = Vec::new();
-                    if let Some(a) = &meta.artist_name {
-                        parts.push(a.as_str());
-                    }
-                    if let Some(al) = &meta.album_name {
-                        parts.push(al.as_str());
-                    }
-                    parts.push(meta.title.as_str());
-                    let search_text = parts.join(" - ");
-
-                    // Update the entry to be missing
-                    sqlx::query(
-                        "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = ?, missing_search_text = ? WHERE playlist_id = ? AND position = ?"
-                    )
-                    .bind(&missing_json)
-                    .bind(&search_text)
-                    .bind(playlist_id)
-                    .bind(position)
-                    .execute(&state.pool)
-                    .await?;
-
-                    affected_playlist_ids.insert(playlist_id.clone());
-                }
-            }
-        }
-
-        // Update totals for all affected playlists
-        for playlist_id in &affected_playlist_ids {
-            sqlx::query(
-                "UPDATE playlists SET
-                    song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL),
-                    duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s
-                                INNER JOIN playlist_songs ps ON s.id = ps.song_id
-                                WHERE ps.playlist_id = ?),
-                    updated_at = datetime('now')
-                WHERE id = ?"
-            )
-            .bind(playlist_id)
-            .bind(playlist_id)
-            .bind(playlist_id)
-            .execute(&state.pool)
-            .await?;
+            crate::db::queries::delete_song(&state.database, song_id)
+                .await
+                .map_err(|e| {
+                    Error::Internal(format!("Failed to delete song {}: {}", song_id, e))
+                })?;
         }
     }
 
-    // Delete all songs from this folder
-    sqlx::query("DELETE FROM songs WHERE music_folder_id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-
     // Clean up orphaned albums (albums with no remaining songs)
     if !album_ids.is_empty() {
-        let placeholders = album_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sqlite_placeholders = build_in_placeholders(album_ids.len(), false);
+        let postgres_placeholders = build_in_placeholders(album_ids.len(), true);
 
-        // Delete starred items for orphaned albums
-        let query = format!(
-            "DELETE FROM starred WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for album_id in &album_ids {
-            q = q.bind(album_id);
+        for (sqlite_sql, postgres_sql) in [
+            (
+                format!(
+                    "DELETE FROM starred WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM starred WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM ratings WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM ratings WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM albums WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM albums WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+                    postgres_placeholders
+                ),
+            ),
+        ] {
+            execute_bound_string_query(&state.database, sqlite_sql, postgres_sql, &album_ids)
+                .await?;
         }
-        q.execute(&state.pool).await?;
-
-        // Delete ratings for orphaned albums
-        let query = format!(
-            "DELETE FROM ratings WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for album_id in &album_ids {
-            q = q.bind(album_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete orphaned albums
-        let query = format!(
-            "DELETE FROM albums WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for album_id in &album_ids {
-            q = q.bind(album_id);
-        }
-        q.execute(&state.pool).await?;
     }
 
     // Clean up orphaned artists (artists with no remaining songs)
     if !artist_ids.is_empty() {
-        let placeholders = artist_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sqlite_placeholders = build_in_placeholders(artist_ids.len(), false);
+        let postgres_placeholders = build_in_placeholders(artist_ids.len(), true);
 
-        // Delete starred items for orphaned artists
-        let query = format!(
-            "DELETE FROM starred WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for artist_id in &artist_ids {
-            q = q.bind(artist_id);
+        for (sqlite_sql, postgres_sql) in [
+            (
+                format!(
+                    "DELETE FROM starred WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM starred WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM ratings WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM ratings WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+                    postgres_placeholders
+                ),
+            ),
+            (
+                format!(
+                    "DELETE FROM artists WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+                    sqlite_placeholders
+                ),
+                format!(
+                    "DELETE FROM artists WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+                    postgres_placeholders
+                ),
+            ),
+        ] {
+            execute_bound_string_query(&state.database, sqlite_sql, postgres_sql, &artist_ids)
+                .await?;
         }
-        q.execute(&state.pool).await?;
-
-        // Delete ratings for orphaned artists
-        let query = format!(
-            "DELETE FROM ratings WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for artist_id in &artist_ids {
-            q = q.bind(artist_id);
-        }
-        q.execute(&state.pool).await?;
-
-        // Delete orphaned artists
-        let query = format!(
-            "DELETE FROM artists WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT artist_id FROM songs)",
-            placeholders
-        );
-        let mut q = sqlx::query(&query);
-        for artist_id in &artist_ids {
-            q = q.bind(artist_id);
-        }
-        q.execute(&state.pool).await?;
     }
 
     // Delete user library access for this folder
-    sqlx::query("DELETE FROM user_library_access WHERE music_folder_id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM user_library_access WHERE music_folder_id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM user_library_access WHERE music_folder_id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
 
     // Delete the folder
-    sqlx::query("DELETE FROM music_folders WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query("DELETE FROM music_folders WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query("DELETE FROM music_folders WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -562,13 +614,19 @@ pub async fn get_music_folder_stats(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> FerrotuneApiResult<Json<MusicFolderStats>> {
-    let pool = state.database.sqlite_pool()?;
-
     // Check if folder exists
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let existing: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as("SELECT id FROM music_folders WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+    };
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
@@ -582,12 +640,20 @@ pub async fn get_music_folder_stats(
 async fn get_all_music_folders_with_stats(
     state: &AppState,
 ) -> FerrotuneApiResult<Vec<MusicFolderInfo>> {
-    let pool = state.database.sqlite_pool()?;
-    let folders: Vec<MusicFolder> = sqlx::query_as(
-        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
-    )
-    .fetch_all(pool)
-    .await?;
+    let folders: Vec<MusicFolder> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
+        )
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
+        )
+        .fetch_all(pool)
+        .await?
+    };
 
     let mut result = Vec::with_capacity(folders.len());
     for folder in folders {
@@ -612,13 +678,22 @@ async fn get_music_folder_with_stats(
     state: &AppState,
     id: i64,
 ) -> FerrotuneApiResult<Option<MusicFolderInfo>> {
-    let pool = state.database.sqlite_pool()?;
-    let folder: Option<MusicFolder> = sqlx::query_as(
-        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?;
+    let folder: Option<MusicFolder> = if let Ok(pool) = state.database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        let pool = state.database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+    };
 
     match folder {
         Some(folder) => {
@@ -643,41 +718,70 @@ async fn get_folder_stats(
     database: &(impl DatabaseHandle + ?Sized),
     folder_id: i64,
 ) -> FerrotuneApiResult<MusicFolderStats> {
-    let pool = database.sqlite_pool()?;
-
-    let (song_count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = ?")
-            .bind(folder_id)
-            .fetch_one(pool)
-            .await?;
-
-    let (album_count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = ? AND album_id IS NOT NULL"
-    )
-    .bind(folder_id)
-    .fetch_one(pool)
-    .await?;
-
-    let (artist_count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = ? AND artist_id IS NOT NULL"
-    )
-    .bind(folder_id)
-    .fetch_one(pool)
-    .await?;
-
-    let (total_duration, total_size): (Option<i64>, Option<i64>) =
-        sqlx::query_as("SELECT SUM(duration), SUM(file_size) FROM songs WHERE music_folder_id = ?")
-            .bind(folder_id)
-            .fetch_one(pool)
-            .await?;
-
-    Ok(MusicFolderStats {
-        song_count,
-        album_count,
-        artist_count,
-        total_duration_seconds: total_duration.unwrap_or(0),
-        total_size_bytes: total_size.unwrap_or(0),
-    })
+    if let Ok(pool) = database.sqlite_pool() {
+        let (song_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = ?")
+                .bind(folder_id)
+                .fetch_one(pool)
+                .await?;
+        let (album_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = ? AND album_id IS NOT NULL"
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await?;
+        let (artist_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = ? AND artist_id IS NOT NULL"
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await?;
+        let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT SUM(duration), SUM(file_size) FROM songs WHERE music_folder_id = ?",
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await?;
+        Ok(MusicFolderStats {
+            song_count,
+            album_count,
+            artist_count,
+            total_duration_seconds: total_duration.unwrap_or(0),
+            total_size_bytes: total_size.unwrap_or(0),
+        })
+    } else {
+        let pool = database.postgres_pool()?;
+        let (song_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = $1")
+                .bind(folder_id)
+                .fetch_one(pool)
+                .await?;
+        let (album_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = $1 AND album_id IS NOT NULL"
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await?;
+        let (artist_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = $1 AND artist_id IS NOT NULL"
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await?;
+        let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT SUM(duration)::BIGINT, SUM(file_size)::BIGINT FROM songs WHERE music_folder_id = $1",
+        )
+        .bind(folder_id)
+        .fetch_one(pool)
+        .await?;
+        Ok(MusicFolderStats {
+            song_count,
+            album_count,
+            artist_count,
+            total_duration_seconds: total_duration.unwrap_or(0),
+            total_size_bytes: total_size.unwrap_or(0),
+        })
+    }
 }
 
 /// Update the last_scanned_at timestamp for a folder after a successful scan.
@@ -685,12 +789,22 @@ pub async fn update_folder_scan_timestamp(
     database: &(impl DatabaseHandle + ?Sized),
     folder_id: i64,
 ) -> FerrotuneApiResult<()> {
-    let pool = database.sqlite_pool()?;
-    sqlx::query("UPDATE music_folders SET last_scanned_at = ?, scan_error = NULL WHERE id = ?")
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("UPDATE music_folders SET last_scanned_at = ?, scan_error = NULL WHERE id = ?")
+            .bind(Utc::now())
+            .bind(folder_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query(
+            "UPDATE music_folders SET last_scanned_at = $1, scan_error = NULL WHERE id = $2",
+        )
         .bind(Utc::now())
         .bind(folder_id)
         .execute(pool)
         .await?;
+    }
     Ok(())
 }
 
@@ -700,11 +814,19 @@ pub async fn update_folder_scan_error(
     folder_id: i64,
     error: &str,
 ) -> FerrotuneApiResult<()> {
-    let pool = database.sqlite_pool()?;
-    sqlx::query("UPDATE music_folders SET scan_error = ? WHERE id = ?")
-        .bind(error)
-        .bind(folder_id)
-        .execute(pool)
-        .await?;
+    if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query("UPDATE music_folders SET scan_error = ? WHERE id = ?")
+            .bind(error)
+            .bind(folder_id)
+            .execute(pool)
+            .await?;
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query("UPDATE music_folders SET scan_error = $1 WHERE id = $2")
+            .bind(error)
+            .bind(folder_id)
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }

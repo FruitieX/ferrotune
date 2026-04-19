@@ -100,8 +100,7 @@ pub async fn get_duplicates(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<DuplicatesResponse>> {
     // Query for all songs with non-null full_file_hash, grouped by hash
-    let query =
-        "SELECT 
+    let query = "SELECT 
                 s.full_file_hash,
                 s.id,
                 s.file_path,

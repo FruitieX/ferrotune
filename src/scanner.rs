@@ -1,5 +1,5 @@
 use crate::api::ScanState;
-use crate::db::DatabaseHandle;
+use crate::db::{Database, DatabaseHandle};
 use crate::error::{Error, Result};
 use async_walkdir::WalkDir;
 use futures::stream::{self, StreamExt};
@@ -105,6 +105,14 @@ fn format_eta(total_secs: u64) -> String {
     }
 }
 
+fn clone_runtime_database(database: &(impl DatabaseHandle + ?Sized)) -> Result<Database> {
+    if let Ok(pool) = database.sqlite_pool_cloned() {
+        return Ok(Database::Sqlite(pool));
+    }
+
+    Ok(Database::Postgres(database.postgres_pool_cloned()?))
+}
+
 pub async fn scan_library(
     database: &(impl DatabaseHandle + ?Sized),
     full: bool,
@@ -141,14 +149,12 @@ pub async fn scan_specific_files(
     folder_id: i64,
     file_paths: Vec<PathBuf>,
 ) -> Result<()> {
-    let pool = database.sqlite_pool()?;
-
     if file_paths.is_empty() {
         return Ok(());
     }
 
     // Get the folder info
-    let folder = get_music_folder(pool, folder_id).await?;
+    let folder = get_music_folder(database, folder_id).await?;
     let base_path = PathBuf::from(&folder.path);
 
     tracing::info!(
@@ -162,6 +168,7 @@ pub async fn scan_specific_files(
     let mut updated = 0;
     let mut removed = 0;
     let mut errors = 0;
+    let mut first_error_message: Option<String> = None;
 
     for path in file_paths {
         // Check if file extension is supported
@@ -193,7 +200,7 @@ pub async fn scan_specific_files(
             // No analysis in watcher mode, but semaphore is still required by the API
             let no_analysis_semaphore = Semaphore::new(1);
             match extract_metadata(
-                pool,
+                database,
                 &path,
                 file_mtime,
                 false,
@@ -204,7 +211,7 @@ pub async fn scan_specific_files(
             .await
             {
                 Ok(metadata) => {
-                    match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
+                    match upsert_song(database, metadata, relative_path.clone(), folder_id).await {
                         Ok(is_new) => {
                             if is_new {
                                 added += 1;
@@ -220,25 +227,48 @@ pub async fn scan_specific_files(
                                 relative_path,
                                 e
                             );
+                            if first_error_message.is_none() {
+                                first_error_message = Some(format!(
+                                    "Failed to save song metadata for {}: {}",
+                                    relative_path, e
+                                ));
+                            }
                             errors += 1;
                         }
                     }
                 }
                 Err(e) => {
                     tracing::debug!("Failed to extract metadata from {}: {}", path.display(), e);
+                    if first_error_message.is_none() {
+                        first_error_message = Some(format!(
+                            "Failed to extract metadata from {}: {}",
+                            path.display(),
+                            e
+                        ));
+                    }
                     errors += 1;
                 }
             }
         } else {
             // File was deleted - remove from database
-            let result =
+            let rows_affected = if let Ok(pool) = database.sqlite_pool() {
                 sqlx::query("DELETE FROM songs WHERE file_path = ? AND music_folder_id = ?")
                     .bind(&relative_path)
                     .bind(folder_id)
                     .execute(pool)
-                    .await?;
+                    .await?
+                    .rows_affected()
+            } else {
+                let pool = database.postgres_pool()?;
+                sqlx::query("DELETE FROM songs WHERE file_path = $1 AND music_folder_id = $2")
+                    .bind(&relative_path)
+                    .bind(folder_id)
+                    .execute(pool)
+                    .await?
+                    .rows_affected()
+            };
 
-            if result.rows_affected() > 0 {
+            if rows_affected > 0 {
                 removed += 1;
                 tracing::info!("Removed: {}", relative_path);
             }
@@ -252,6 +282,12 @@ pub async fn scan_specific_files(
         removed,
         errors
     );
+
+    if errors > 0 && added == 0 && updated == 0 && removed == 0 {
+        return Err(Error::Internal(first_error_message.unwrap_or_else(|| {
+            "Specific file scan failed without a detailed error".to_string()
+        })));
+    }
 
     Ok(())
 }
@@ -286,15 +322,15 @@ pub async fn scan_library_with_progress(
     opts: ScanOptions,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
-    let pool = database.sqlite_pool()?;
+    let runtime_database = clone_runtime_database(database)?;
 
     let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
 
     // Get music folders from database (database is the source of truth)
     let folders = if let Some(id) = opts.folder_id {
-        vec![get_music_folder(pool, id).await?]
+        vec![get_music_folder(&runtime_database, id).await?]
     } else {
-        crate::db::queries::get_music_folders(pool).await?
+        crate::db::queries::get_music_folders(&runtime_database).await?
     };
 
     // ==========================================
@@ -341,7 +377,9 @@ pub async fn scan_library_with_progress(
             // Update folder with error
             if !opts.dry_run {
                 let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
-                    pool, folder.id, &error_msg,
+                    &runtime_database,
+                    folder.id,
+                    &error_msg,
                 )
                 .await;
             }
@@ -356,7 +394,9 @@ pub async fn scan_library_with_progress(
             }
             if !opts.dry_run {
                 let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
-                    pool, folder.id, &error_msg,
+                    &runtime_database,
+                    folder.id,
+                    &error_msg,
                 )
                 .await;
             }
@@ -375,7 +415,9 @@ pub async fn scan_library_with_progress(
             }
             if !opts.dry_run {
                 let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
-                    pool, folder.id, &error_msg,
+                    &runtime_database,
+                    folder.id,
+                    &error_msg,
                 )
                 .await;
             }
@@ -489,9 +531,10 @@ pub async fn scan_library_with_progress(
     let mut all_missing_files: Vec<FolderMissingFiles> = Vec::new();
 
     for folder in &folders {
-        let Some(files) = files_by_folder.get(&folder.id) else {
-            continue; // No files for this folder (maybe it errored during enumeration)
-        };
+        let files: &[(PathBuf, PathBuf)] = files_by_folder
+            .get(&folder.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
 
         if let Some(ref state) = scan_state {
             state.set_current_folder(Some(folder.name.clone())).await;
@@ -505,7 +548,7 @@ pub async fn scan_library_with_progress(
         }
 
         let folder_result = scan_folder_files(
-            pool,
+            &runtime_database,
             folder.id,
             &folder.path,
             files,
@@ -526,7 +569,8 @@ pub async fn scan_library_with_progress(
                     // Update last_scanned_at timestamp on success
                     if let Err(e) =
                         crate::api::ferrotune::music_folders::update_folder_scan_timestamp(
-                            pool, folder.id,
+                            &runtime_database,
+                            folder.id,
                         )
                         .await
                     {
@@ -538,7 +582,9 @@ pub async fn scan_library_with_progress(
                     let error_msg = e.to_string();
                     if let Err(update_err) =
                         crate::api::ferrotune::music_folders::update_folder_scan_error(
-                            pool, folder.id, &error_msg,
+                            &runtime_database,
+                            folder.id,
+                            &error_msg,
                         )
                         .await
                     {
@@ -566,7 +612,13 @@ pub async fn scan_library_with_progress(
                 .await;
             state.broadcast().await;
         }
-        resolve_missing_songs(pool, all_missing_files, opts.dry_run, scan_state.clone()).await?;
+        resolve_missing_songs(
+            &runtime_database,
+            all_missing_files,
+            opts.dry_run,
+            scan_state.clone(),
+        )
+        .await?;
     }
 
     // After scanning all folders, detect and resolve hash collisions
@@ -574,7 +626,8 @@ pub async fn scan_library_with_progress(
         if let Some(ref state) = scan_state {
             state.log("INFO", "Detecting duplicates...").await;
         }
-        let duplicate_count = detect_duplicates(pool, opts.folder_id, scan_state.clone()).await?;
+        let duplicate_count =
+            detect_duplicates(&runtime_database, opts.folder_id, scan_state.clone()).await?;
         if let Some(ref state) = scan_state {
             if duplicate_count > 0 {
                 state
@@ -590,39 +643,69 @@ pub async fn scan_library_with_progress(
 
         // Remove thumbnails that are no longer referenced by any song, album, or artist
         // Use a single DELETE with LEFT JOINs which is more efficient than triple NOT IN subqueries
-        let orphan_result = sqlx::query(
-            "DELETE FROM cover_art_thumbnails 
-             WHERE hash NOT IN (
-                 SELECT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL
-                 UNION
-                 SELECT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL
-                 UNION  
-                 SELECT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL
-             )",
-        )
-        .execute(pool)
-        .await?;
-
-        let orphaned_thumbnails = orphan_result.rows_affected();
+        let orphaned_thumbnails = if let Ok(pool) = runtime_database.sqlite_pool() {
+            sqlx::query(
+                "DELETE FROM cover_art_thumbnails 
+                 WHERE hash NOT IN (
+                     SELECT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL
+                     UNION
+                     SELECT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL
+                     UNION  
+                     SELECT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL
+                 )",
+            )
+            .execute(pool)
+            .await?
+            .rows_affected()
+        } else {
+            let pool = runtime_database.postgres_pool()?;
+            sqlx::query(
+                "DELETE FROM cover_art_thumbnails 
+                 WHERE hash NOT IN (
+                     SELECT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL
+                     UNION
+                     SELECT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL
+                     UNION  
+                     SELECT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL
+                 )",
+            )
+            .execute(pool)
+            .await?
+            .rows_affected()
+        };
         if orphaned_thumbnails > 0 {
             tracing::info!("Removed {} orphaned thumbnails", orphaned_thumbnails);
         }
     } else {
         // In dry-run mode, just report potential duplicates
-        detect_duplicates_dry_run(pool, opts.folder_id).await?;
+        detect_duplicates_dry_run(&runtime_database, opts.folder_id).await?;
     }
 
     Ok(())
 }
 
-async fn get_music_folder(pool: &SqlitePool, id: i64) -> Result<crate::db::models::MusicFolder> {
-    sqlx::query_as::<_, crate::db::models::MusicFolder>(
-        "SELECT * FROM music_folders WHERE id = ? AND enabled = 1",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
+async fn get_music_folder(
+    database: &(impl DatabaseHandle + ?Sized),
+    id: i64,
+) -> Result<crate::db::models::MusicFolder> {
+    let folder = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as::<_, crate::db::models::MusicFolder>(
+            "SELECT * FROM music_folders WHERE id = ? AND enabled = 1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as::<_, crate::db::models::MusicFolder>(
+            "SELECT * FROM music_folders WHERE id = $1 AND enabled",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+    };
+
+    folder.ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
 }
 
 /// Info about missing files from a scanned folder, used for cross-library rename detection.
@@ -645,7 +728,7 @@ struct FolderMissingFiles {
 /// to handle renames (including cross-library moves) and deletions.
 #[allow(clippy::too_many_arguments)]
 async fn scan_folder_files(
-    pool: &SqlitePool,
+    database: &Database,
     folder_id: i64,
     folder_path: &str,
     files: &[(PathBuf, PathBuf)],
@@ -676,16 +759,32 @@ async fn scan_folder_files(
     }
 
     // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise), has_bliss, has_waveform
-    let existing_paths: Vec<(String, String, Option<i64>, i32, i32, i32)> = sqlx::query_as(
-        "SELECT id, file_path, file_mtime, 
-                CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
-                CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss,
-                CASE WHEN waveform_data IS NOT NULL THEN 1 ELSE 0 END as has_waveform
-         FROM songs WHERE music_folder_id = ?",
-    )
-    .bind(folder_id)
-    .fetch_all(pool)
-    .await?;
+    let existing_paths: Vec<(String, String, Option<i64>, i32, i32, i32)> = if let Ok(pool) =
+        database.sqlite_pool()
+    {
+        sqlx::query_as(
+                "SELECT id, file_path, file_mtime, 
+                        CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
+                        CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss,
+                        CASE WHEN waveform_data IS NOT NULL THEN 1 ELSE 0 END as has_waveform
+                 FROM songs WHERE music_folder_id = ?",
+            )
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(
+                "SELECT id, file_path, file_mtime, 
+                        CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
+                        CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss,
+                        CASE WHEN waveform_data IS NOT NULL THEN 1 ELSE 0 END as has_waveform
+                 FROM songs WHERE music_folder_id = $1",
+            )
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?
+    };
 
     // Map: file_path -> (song_id, file_mtime, has_replaygain, has_bliss, has_waveform)
     let mut unseen_files: std::collections::HashMap<
@@ -933,7 +1032,7 @@ async fn scan_folder_files(
         // STAGE 1: Extract metadata in parallel
         let extracted_results: Vec<Option<ExtractedFile>> = stream::iter(files_to_process)
             .map(|file_info| {
-                let pool = pool.clone();
+                let database = database.clone();
                 let scan_state = scan_state.clone();
                 let extracted_counter = Arc::clone(&extracted_counter);
                 let extract_errors_counter = Arc::clone(&extract_errors_counter);
@@ -971,7 +1070,7 @@ async fn scan_folder_files(
 
                     // Extract metadata (this is the CPU-intensive part, especially with ReplayGain)
                     match extract_metadata(
-                        &pool,
+                        &database,
                         &file_info.path,
                         file_info.file_mtime,
                         analyze_replaygain,
@@ -1091,7 +1190,7 @@ async fn scan_folder_files(
                 }
 
                 match upsert_song(
-                    pool,
+                    database,
                     extracted.metadata,
                     extracted.relative_path.clone(),
                     folder_id,
@@ -1246,6 +1345,20 @@ async fn scan_folder_files(
 ///
 /// This enables moving songs between libraries without losing playlist entries, starred status, etc.
 async fn resolve_missing_songs(
+    database: &Database,
+    all_missing_files: Vec<FolderMissingFiles>,
+    dry_run: bool,
+    scan_state: Option<Arc<crate::api::ScanState>>,
+) -> Result<()> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return resolve_missing_songs_sqlite(pool, all_missing_files, dry_run, scan_state).await;
+    }
+
+    let pool = database.postgres_pool()?;
+    resolve_missing_songs_postgres(pool, all_missing_files, dry_run, scan_state).await
+}
+
+async fn resolve_missing_songs_sqlite(
     pool: &SqlitePool,
     all_missing_files: Vec<FolderMissingFiles>,
     dry_run: bool,
@@ -1603,6 +1716,336 @@ async fn resolve_missing_songs(
     Ok(())
 }
 
+async fn resolve_missing_songs_postgres(
+    pool: &sqlx::PgPool,
+    all_missing_files: Vec<FolderMissingFiles>,
+    dry_run: bool,
+    scan_state: Option<Arc<crate::api::ScanState>>,
+) -> Result<()> {
+    struct MissingSong {
+        id: String,
+        old_relative_path: String,
+        old_folder_id: i64,
+        old_folder_path: PathBuf,
+        partial_hash: Option<String>,
+    }
+
+    let mut missing_songs: Vec<MissingSong> = Vec::new();
+
+    for folder_info in &all_missing_files {
+        for (relative_path, song_id) in &folder_info.missing_files {
+            let hash: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT partial_hash FROM songs WHERE id = $1")
+                    .bind(song_id)
+                    .fetch_optional(pool)
+                    .await?;
+
+            missing_songs.push(MissingSong {
+                id: song_id.clone(),
+                old_relative_path: relative_path.clone(),
+                old_folder_id: folder_info.folder_id,
+                old_folder_path: folder_info.folder_path.clone(),
+                partial_hash: hash.and_then(|(h,)| h),
+            });
+        }
+    }
+
+    if missing_songs.is_empty() {
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Checking {} missing files for renames/moves...",
+        missing_songs.len()
+    );
+
+    let mut renamed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut renamed_count = 0;
+    let mut cross_library_moves = 0;
+
+    for missing in &missing_songs {
+        if let Some(ref hash) = missing.partial_hash {
+            let potential_rename: Option<(String, String, i64)> = sqlx::query_as(
+                "SELECT id, file_path, music_folder_id FROM songs 
+                 WHERE partial_hash = $1 AND id != $2",
+            )
+            .bind(hash)
+            .bind(&missing.id)
+            .fetch_optional(pool)
+            .await?;
+
+            if let Some((new_id, new_relative_path, new_folder_id)) = potential_rename {
+                let new_folder_path: Option<(String,)> =
+                    sqlx::query_as("SELECT path FROM music_folders WHERE id = $1")
+                        .bind(new_folder_id)
+                        .fetch_optional(pool)
+                        .await?;
+
+                let new_folder_path = match new_folder_path {
+                    Some((path,)) => PathBuf::from(path),
+                    None => continue,
+                };
+
+                let full_new_path = new_folder_path.join(&new_relative_path);
+                if !full_new_path.exists() {
+                    tracing::debug!(
+                        "Skipping false rename detection: {} does not exist on disk",
+                        full_new_path.display()
+                    );
+                    continue;
+                }
+
+                let is_cross_library = new_folder_id != missing.old_folder_id;
+                let full_old_path = missing.old_folder_path.join(&missing.old_relative_path);
+
+                if dry_run {
+                    let move_type = if is_cross_library {
+                        "cross-library move"
+                    } else {
+                        "rename"
+                    };
+                    tracing::info!(
+                        "Would detect {}: {} -> {}",
+                        move_type,
+                        full_old_path.display(),
+                        full_new_path.display()
+                    );
+                    if let Some(ref state) = scan_state {
+                        state
+                            .track_renamed(
+                                &full_old_path.to_string_lossy(),
+                                &full_new_path.to_string_lossy(),
+                            )
+                            .await;
+                    }
+                } else {
+                    let mut tx = pool.begin().await?;
+
+                    let new_mtime: Option<(Option<i64>,)> =
+                        sqlx::query_as("SELECT file_mtime FROM songs WHERE id = $1")
+                            .bind(&new_id)
+                            .fetch_optional(&mut *tx)
+                            .await?;
+
+                    sqlx::query("DELETE FROM songs WHERE id = $1")
+                        .bind(&new_id)
+                        .execute(&mut *tx)
+                        .await?;
+
+                    sqlx::query(
+                        "UPDATE songs SET 
+                            file_path = $1,
+                            music_folder_id = $2,
+                            file_mtime = $3,
+                            updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $4",
+                    )
+                    .bind(&new_relative_path)
+                    .bind(new_folder_id)
+                    .bind(new_mtime.and_then(|(m,)| m))
+                    .bind(&missing.id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    tx.commit().await?;
+
+                    let move_type = if is_cross_library {
+                        "cross-library move"
+                    } else {
+                        "rename"
+                    };
+                    tracing::info!(
+                        "Detected {}: {} -> {}",
+                        move_type,
+                        full_old_path.display(),
+                        full_new_path.display()
+                    );
+                    if let Some(ref state) = scan_state {
+                        state
+                            .track_renamed(
+                                &full_old_path.to_string_lossy(),
+                                &full_new_path.to_string_lossy(),
+                            )
+                            .await;
+                    }
+                }
+
+                renamed_ids.insert(missing.id.clone());
+                renamed_count += 1;
+                if is_cross_library {
+                    cross_library_moves += 1;
+                }
+            }
+        }
+    }
+
+    let truly_missing: Vec<&MissingSong> = missing_songs
+        .iter()
+        .filter(|s| !renamed_ids.contains(&s.id))
+        .collect();
+
+    if truly_missing.is_empty() {
+        if renamed_count > 0 {
+            tracing::info!(
+                "Resolved {} renames ({} cross-library moves), no files to remove",
+                renamed_count,
+                cross_library_moves
+            );
+        }
+        return Ok(());
+    }
+
+    let remove_count = truly_missing.len();
+
+    for missing in &truly_missing {
+        let full_path = missing.old_folder_path.join(&missing.old_relative_path);
+        tracing::info!("Missing file: {}", full_path.display());
+    }
+
+    if let Some(ref state) = scan_state {
+        let full_paths: Vec<String> = truly_missing
+            .iter()
+            .map(|m| {
+                m.old_folder_path
+                    .join(&m.old_relative_path)
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        state.track_removed(&full_paths).await;
+    }
+
+    if dry_run {
+        tracing::info!(
+            "Dry-run: would remove {} missing files, {} renames detected ({} cross-library)",
+            remove_count,
+            renamed_count,
+            cross_library_moves
+        );
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+
+    for missing in &truly_missing {
+        let song_meta: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
+            "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
+             FROM songs s
+             LEFT JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             WHERE s.id = $1",
+        )
+        .bind(&missing.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some((title, artist_name, album_name, duration)) = song_meta {
+            let missing_data = serde_json::json!({
+                "title": title,
+                "artist": artist_name,
+                "album": album_name,
+                "duration": duration as i32,
+                "raw": format!("{} - {}", artist_name.as_deref().unwrap_or("Unknown Artist"), title)
+            });
+            let missing_json = serde_json::to_string(&missing_data).unwrap_or_default();
+
+            let mut parts = Vec::new();
+            if let Some(ref a) = artist_name {
+                parts.push(a.as_str());
+            }
+            if let Some(ref al) = album_name {
+                parts.push(al.as_str());
+            }
+            parts.push(title.as_str());
+            let search_text = parts.join(" - ");
+
+            sqlx::query(
+                "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = $1, missing_search_text = $2 WHERE song_id = $3",
+            )
+            .bind(&missing_json)
+            .bind(&search_text)
+            .bind(&missing.id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        sqlx::query("DELETE FROM songs WHERE id = $1")
+            .bind(&missing.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    sqlx::query(
+        "UPDATE playlists SET 
+            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id AND song_id IS NOT NULL),
+            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
+                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
+                        WHERE ps.playlist_id = playlists.id),
+            updated_at = CURRENT_TIMESTAMP",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let orphaned_albums = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if orphaned_albums > 0 {
+        sqlx::query(
+            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tracing::info!("Removed {} orphaned albums", orphaned_albums);
+    }
+
+    let orphaned_artists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
+         AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if orphaned_artists > 0 {
+        sqlx::query(
+            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
+             AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tracing::info!("Removed {} orphaned artists", orphaned_artists);
+    }
+
+    sqlx::query(
+        "UPDATE albums SET 
+            song_count = (SELECT COUNT(*) FROM songs WHERE songs.album_id = albums.id),
+            duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE songs.album_id = albums.id)",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE artists SET 
+            album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE songs.artist_id = artists.id AND album_id IS NOT NULL),
+            song_count = (SELECT COUNT(*) FROM songs WHERE songs.artist_id = artists.id)",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(
+        "Removed {} missing files, {} renames detected ({} cross-library moves)",
+        remove_count,
+        renamed_count,
+        cross_library_moves
+    );
+
+    Ok(())
+}
+
 #[derive(Debug)]
 struct SongMetadata {
     title: String,
@@ -1636,7 +2079,7 @@ struct SongMetadata {
 }
 
 async fn extract_metadata(
-    pool: &SqlitePool,
+    database: &(impl DatabaseHandle + ?Sized),
     path: &Path,
     file_mtime: Option<i64>,
     analyze_replaygain: bool,
@@ -1672,14 +2115,15 @@ async fn extract_metadata(
         // but here we just call async functions that do I/O
         match crate::thumbnails::find_external_cover_art(&full_path).await {
             Ok(data) => {
-                match crate::thumbnails::ensure_cover_art_with_dimensions(pool, &data).await {
+                match crate::thumbnails::ensure_cover_art_with_dimensions(database, &data).await {
                     Ok(result) => (Some(result.hash), Some(result.width), Some(result.height)),
                     Err(_) => (None, None, None),
                 }
             }
             Err(_) => match crate::thumbnails::extract_embedded_cover_art(&full_path).await {
                 Ok(data) => {
-                    match crate::thumbnails::ensure_cover_art_with_dimensions(pool, &data).await {
+                    match crate::thumbnails::ensure_cover_art_with_dimensions(database, &data).await
+                    {
                         Ok(result) => (Some(result.hash), Some(result.width), Some(result.height)),
                         Err(_) => (None, None, None),
                     }
@@ -1949,6 +2393,20 @@ async fn extract_metadata(
 }
 
 async fn upsert_song(
+    database: &(impl DatabaseHandle + ?Sized),
+    metadata: SongMetadata,
+    file_path: String,
+    folder_id: i64,
+) -> Result<bool> {
+    if let Ok(pool) = database.sqlite_pool() {
+        return upsert_song_sqlite(pool, metadata, file_path, folder_id).await;
+    }
+
+    let pool = database.postgres_pool()?;
+    upsert_song_postgres(pool, metadata, file_path, folder_id).await
+}
+
+async fn upsert_song_sqlite(
     pool: &SqlitePool,
     metadata: SongMetadata,
     file_path: String,
@@ -1960,16 +2418,16 @@ async fn upsert_song(
     // Get or create album artist (for the album)
     // Use album_artist tag if present, otherwise fall back to track artist
     let album_artist_name = metadata.album_artist.as_ref().unwrap_or(&metadata.artist);
-    let album_artist_id = get_or_create_artist(&mut tx, album_artist_name).await?;
+    let album_artist_id = get_or_create_artist_sqlite(&mut tx, album_artist_name).await?;
 
     // Get or create track artist (for the song)
     // This is the actual performer of this specific track
-    let track_artist_id = get_or_create_artist(&mut tx, &metadata.artist).await?;
+    let track_artist_id = get_or_create_artist_sqlite(&mut tx, &metadata.artist).await?;
 
     // Get or create album if present
     let album_id = if let Some(album_name) = &metadata.album {
         Some(
-            get_or_create_album(
+            get_or_create_album_sqlite(
                 &mut tx,
                 album_name,
                 &album_artist_id,
@@ -2161,7 +2619,240 @@ async fn upsert_song(
     Ok(is_new)
 }
 
-async fn get_or_create_artist(
+async fn upsert_song_postgres(
+    pool: &sqlx::PgPool,
+    metadata: SongMetadata,
+    file_path: String,
+    folder_id: i64,
+) -> Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    let album_artist_name = metadata.album_artist.as_ref().unwrap_or(&metadata.artist);
+    let album_artist_id = get_or_create_artist_postgres(&mut tx, album_artist_name).await?;
+    let track_artist_id = get_or_create_artist_postgres(&mut tx, &metadata.artist).await?;
+
+    let album_id = if let Some(album_name) = &metadata.album {
+        Some(
+            get_or_create_album_postgres(
+                &mut tx,
+                album_name,
+                &album_artist_id,
+                album_artist_name,
+                metadata.year,
+                metadata.genre.as_deref(),
+                metadata.cover_art_hash.as_deref(),
+                metadata.track_number,
+                metadata.disc_number,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM songs WHERE file_path = $1 AND music_folder_id = $2")
+            .bind(&file_path)
+            .bind(folder_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let is_new = existing.is_none();
+    if let Some((id,)) = existing {
+        let mut query_builder =
+            sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE songs SET title = ");
+        query_builder.push_bind(&metadata.title);
+        query_builder.push(", album_id = ");
+        query_builder.push_bind(&album_id);
+        query_builder.push(", artist_id = ");
+        query_builder.push_bind(&track_artist_id);
+        query_builder.push(", track_number = ");
+        query_builder.push_bind(metadata.track_number.map(|n| n as i32));
+        query_builder.push(", disc_number = ");
+        query_builder.push_bind(metadata.disc_number.map(|n| n as i32).unwrap_or(1));
+        query_builder.push(", year = ");
+        query_builder.push_bind(metadata.year);
+        query_builder.push(", genre = ");
+        query_builder.push_bind(&metadata.genre);
+        query_builder.push(", duration = ");
+        query_builder.push_bind(metadata.duration as i64);
+        query_builder.push(", bitrate = ");
+        query_builder.push_bind(metadata.bitrate.map(|b| b as i32));
+        query_builder.push(", file_size = ");
+        query_builder.push_bind(metadata.file_size as i64);
+        query_builder.push(", file_format = ");
+        query_builder.push_bind(&metadata.file_format);
+        query_builder.push(", music_folder_id = ");
+        query_builder.push_bind(folder_id);
+        query_builder.push(", file_mtime = ");
+        query_builder.push_bind(metadata.file_mtime);
+        query_builder.push(", partial_hash = ");
+        query_builder.push_bind(&metadata.partial_hash);
+        query_builder.push(", cover_art_hash = ");
+        query_builder.push_bind(&metadata.cover_art_hash);
+        query_builder.push(", cover_art_width = ");
+        query_builder.push_bind(metadata.cover_art_width.map(|w| w as i32));
+        query_builder.push(", cover_art_height = ");
+        query_builder.push_bind(metadata.cover_art_height.map(|h| h as i32));
+        query_builder.push(", original_replaygain_track_gain = ");
+        query_builder.push_bind(metadata.original_replaygain_track_gain);
+        query_builder.push(", original_replaygain_track_peak = ");
+        query_builder.push_bind(metadata.original_replaygain_track_peak);
+        query_builder.push(", computed_replaygain_track_gain = COALESCE(");
+        query_builder.push_bind(metadata.computed_replaygain_track_gain);
+        query_builder.push(", computed_replaygain_track_gain)");
+        query_builder.push(", computed_replaygain_track_peak = COALESCE(");
+        query_builder.push_bind(metadata.computed_replaygain_track_peak);
+        query_builder.push(", computed_replaygain_track_peak)");
+        query_builder.push(", bliss_features = COALESCE(");
+        query_builder.push_bind(metadata.bliss_features.as_deref());
+        query_builder.push(", bliss_features)");
+        query_builder.push(", bliss_version = COALESCE(");
+        query_builder.push_bind(metadata.bliss_version);
+        query_builder.push(", bliss_version)");
+        query_builder.push(", waveform_data = COALESCE(");
+        query_builder.push_bind(metadata.waveform_data.as_deref());
+        query_builder.push(", waveform_data)");
+        query_builder.push(", full_file_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ");
+        query_builder.push_bind(&id);
+        query_builder.build().execute(&mut *tx).await?;
+    } else {
+        let song_id = format!("so-{}", Uuid::new_v4());
+
+        let mut query_builder = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "INSERT INTO songs (\
+                id, title, album_id, artist_id, track_number, disc_number,\
+                year, genre, duration, bitrate, file_path, file_size,\
+                file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash,\
+                cover_art_width, cover_art_height,\
+                original_replaygain_track_gain, original_replaygain_track_peak,\
+                computed_replaygain_track_gain, computed_replaygain_track_peak,\
+                bliss_features, bliss_version, waveform_data,\
+                created_at, updated_at\
+            ) VALUES (",
+        );
+        query_builder.push_bind(&song_id);
+        query_builder.push(", ");
+        query_builder.push_bind(&metadata.title);
+        query_builder.push(", ");
+        query_builder.push_bind(&album_id);
+        query_builder.push(", ");
+        query_builder.push_bind(&track_artist_id);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.track_number.map(|n| n as i32));
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.disc_number.map(|n| n as i32).unwrap_or(1));
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.year);
+        query_builder.push(", ");
+        query_builder.push_bind(&metadata.genre);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.duration as i64);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.bitrate.map(|b| b as i32));
+        query_builder.push(", ");
+        query_builder.push_bind(&file_path);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.file_size as i64);
+        query_builder.push(", ");
+        query_builder.push_bind(&metadata.file_format);
+        query_builder.push(", ");
+        query_builder.push_bind(folder_id);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.file_mtime);
+        query_builder.push(", ");
+        query_builder.push_bind(&metadata.partial_hash);
+        query_builder.push(", ");
+        query_builder.push_bind(&metadata.cover_art_hash);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.cover_art_width.map(|w| w as i32));
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.cover_art_height.map(|h| h as i32));
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.original_replaygain_track_gain);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.original_replaygain_track_peak);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.computed_replaygain_track_gain);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.computed_replaygain_track_peak);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.bliss_features.as_deref());
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.bliss_version);
+        query_builder.push(", ");
+        query_builder.push_bind(metadata.waveform_data.as_deref());
+        query_builder.push(", CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+        query_builder.build().execute(&mut *tx).await?;
+    }
+
+    if let Some(album_id) = &album_id {
+        sqlx::query(
+            r#"
+            UPDATE albums SET
+                song_count = (SELECT COUNT(*) FROM songs WHERE album_id = $1),
+                duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE album_id = $2)
+            WHERE id = $3
+            "#,
+        )
+        .bind(album_id)
+        .bind(album_id)
+        .bind(album_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE albums SET
+                cover_art_hash = (
+                    SELECT s.cover_art_hash FROM songs s
+                    WHERE s.album_id = $1
+                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                    LIMIT 1
+                ),
+                cover_art_width = (
+                    SELECT s.cover_art_width FROM songs s
+                    WHERE s.album_id = $2
+                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                    LIMIT 1
+                ),
+                cover_art_height = (
+                    SELECT s.cover_art_height FROM songs s
+                    WHERE s.album_id = $3
+                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                    LIMIT 1
+                )
+            WHERE id = $4
+            "#,
+        )
+        .bind(album_id)
+        .bind(album_id)
+        .bind(album_id)
+        .bind(album_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE artists SET
+            album_count = (SELECT COUNT(*) FROM albums WHERE artist_id = $1),
+            song_count = (SELECT COUNT(*) FROM songs WHERE artist_id = $2)
+        WHERE id = $3
+        "#,
+    )
+    .bind(&album_artist_id)
+    .bind(&album_artist_id)
+    .bind(&album_artist_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(is_new)
+}
+
+async fn get_or_create_artist_sqlite(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     name: &str,
 ) -> Result<String> {
@@ -2191,8 +2882,35 @@ async fn get_or_create_artist(
     // But we could implement a logic to pick the "best" cover art for the artist later
 }
 
+async fn get_or_create_artist_postgres(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    name: &str,
+) -> Result<String> {
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM artists WHERE LOWER(name) = LOWER($1)")
+            .bind(name)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    if let Some((id,)) = existing {
+        Ok(id)
+    } else {
+        let artist_id = format!("ar-{}", Uuid::new_v4());
+
+        sqlx::query(
+            "INSERT INTO artists (id, name, album_count, song_count) VALUES ($1, $2, 0, 0)",
+        )
+        .bind(&artist_id)
+        .bind(name)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(artist_id)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-async fn get_or_create_album(
+async fn get_or_create_album_sqlite(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     name: &str,
     artist_id: &str,
@@ -2273,6 +2991,83 @@ async fn get_or_create_album(
     Ok(id)
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn get_or_create_album_postgres(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    name: &str,
+    artist_id: &str,
+    _artist_name: &str,
+    year: Option<i32>,
+    genre: Option<&str>,
+    cover_art_hash: Option<&str>,
+    disc_number: Option<u32>,
+    track_number: Option<u32>,
+) -> Result<String> {
+    let existing: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, cover_art_hash FROM albums WHERE LOWER(name) = LOWER($1) AND artist_id = $2",
+    )
+    .bind(name)
+    .bind(artist_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((id, existing_hash)) = existing {
+        let earliest: Option<(i64, i64)> = sqlx::query_as(
+            r#"
+            SELECT COALESCE(disc_number, 1)::BIGINT, COALESCE(track_number, 1)::BIGINT
+            FROM songs
+            WHERE album_id = $1
+            ORDER BY COALESCE(disc_number, 1), COALESCE(track_number, 1)
+            LIMIT 1
+            "#,
+        )
+        .bind(&id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let is_earliest_track = match earliest {
+            Some((earliest_disc, earliest_track)) => {
+                let this_disc = disc_number.unwrap_or(1) as i64;
+                let this_track = track_number.unwrap_or(1) as i64;
+                (this_disc, this_track) <= (earliest_disc, earliest_track)
+            }
+            None => true,
+        };
+
+        let should_update = cover_art_hash.is_some()
+            && (existing_hash.is_none()
+                || (is_earliest_track && existing_hash.as_deref() != cover_art_hash));
+
+        if should_update {
+            sqlx::query("UPDATE albums SET cover_art_hash = $1 WHERE id = $2")
+                .bind(cover_art_hash)
+                .bind(&id)
+                .execute(&mut **tx)
+                .await?;
+        }
+
+        return Ok(id);
+    }
+
+    let id = format!("al-{}", Uuid::new_v4());
+    sqlx::query(
+        r#"
+        INSERT INTO albums (id, name, artist_id, year, genre, created_at, cover_art_hash)
+        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
+        "#,
+    )
+    .bind(&id)
+    .bind(name)
+    .bind(artist_id)
+    .bind(year)
+    .bind(genre)
+    .bind(cover_art_hash)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(id)
+}
+
 /// Detect duplicate files by finding partial hash collisions and computing full hashes.
 ///
 /// Phase 1: Find all songs with duplicate partial_hash values
@@ -2281,7 +3076,7 @@ async fn get_or_create_album(
 ///
 /// Returns the total number of duplicate files found.
 async fn detect_duplicates(
-    pool: &SqlitePool,
+    database: &Database,
     _folder_id: Option<i64>,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<u64> {
@@ -2289,15 +3084,28 @@ async fn detect_duplicates(
     // in upsert_song when a file is modified, so cached hashes for unchanged files are preserved.
 
     // Find partial hash collisions (songs with the same partial_hash)
-    let collision_hashes: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT partial_hash, COUNT(*) as cnt 
-         FROM songs 
-         WHERE partial_hash IS NOT NULL 
-         GROUP BY partial_hash 
-         HAVING COUNT(*) > 1",
-    )
-    .fetch_all(pool)
-    .await?;
+    let collision_hashes: Vec<(String, i64)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT partial_hash, COUNT(*) as cnt 
+             FROM songs 
+             WHERE partial_hash IS NOT NULL 
+             GROUP BY partial_hash 
+             HAVING COUNT(*) > 1",
+        )
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT partial_hash, COUNT(*) as cnt 
+             FROM songs 
+             WHERE partial_hash IS NOT NULL 
+             GROUP BY partial_hash 
+             HAVING COUNT(*) > 1",
+        )
+        .fetch_all(pool)
+        .await?
+    };
 
     if collision_hashes.is_empty() {
         tracing::info!("No potential duplicates found (no partial hash collisions)");
@@ -2317,17 +3125,30 @@ async fn detect_duplicates(
     // For each collision group, compute full hashes
     for (partial_hash, _count) in collision_hashes {
         // Get all songs with this partial hash, including cached full_file_hash if present
-        let songs: Vec<(String, String, i64, i64, Option<String>)> = sqlx::query_as(
-            "SELECT s.id, s.file_path, s.music_folder_id, s.file_size, s.full_file_hash
-             FROM songs s
-             WHERE s.partial_hash = ?",
-        )
-        .bind(&partial_hash)
-        .fetch_all(pool)
-        .await?;
+        let songs: Vec<(String, String, i64, i64, Option<String>)> =
+            if let Ok(pool) = database.sqlite_pool() {
+                sqlx::query_as(
+                    "SELECT s.id, s.file_path, s.music_folder_id, s.file_size, s.full_file_hash
+                     FROM songs s
+                     WHERE s.partial_hash = ?",
+                )
+                .bind(&partial_hash)
+                .fetch_all(pool)
+                .await?
+            } else {
+                let pool = database.postgres_pool()?;
+                sqlx::query_as(
+                    "SELECT s.id, s.file_path, s.music_folder_id, s.file_size, s.full_file_hash
+                     FROM songs s
+                     WHERE s.partial_hash = $1",
+                )
+                .bind(&partial_hash)
+                .fetch_all(pool)
+                .await?
+            };
 
         // Get music folders to resolve full paths
-        let folders = crate::db::queries::get_music_folders(pool).await?;
+        let folders = crate::db::queries::get_music_folders(database).await?;
         let folder_map: std::collections::HashMap<i64, String> =
             folders.into_iter().map(|f| (f.id, f.path)).collect();
 
@@ -2402,11 +3223,20 @@ async fn detect_duplicates(
                     duplicate_paths.push(file_path.clone());
 
                     // Update the full_file_hash in database
-                    sqlx::query("UPDATE songs SET full_file_hash = ? WHERE id = ?")
-                        .bind(&full_hash)
-                        .bind(song_id)
-                        .execute(pool)
-                        .await?;
+                    if let Ok(pool) = database.sqlite_pool() {
+                        sqlx::query("UPDATE songs SET full_file_hash = ? WHERE id = ?")
+                            .bind(&full_hash)
+                            .bind(song_id)
+                            .execute(pool)
+                            .await?;
+                    } else {
+                        let pool = database.postgres_pool()?;
+                        sqlx::query("UPDATE songs SET full_file_hash = $1 WHERE id = $2")
+                            .bind(&full_hash)
+                            .bind(song_id)
+                            .execute(pool)
+                            .await?;
+                    }
                 }
 
                 // Track duplicates in scan state
@@ -2440,17 +3270,30 @@ async fn detect_duplicates(
 }
 
 /// Dry-run version of duplicate detection - just reports what would be found.
-async fn detect_duplicates_dry_run(pool: &SqlitePool, _folder_id: Option<i64>) -> Result<()> {
+async fn detect_duplicates_dry_run(database: &Database, _folder_id: Option<i64>) -> Result<()> {
     // Find partial hash collisions
-    let collision_hashes: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT partial_hash, COUNT(*) as cnt 
-         FROM songs 
-         WHERE partial_hash IS NOT NULL 
-         GROUP BY partial_hash 
-         HAVING COUNT(*) > 1",
-    )
-    .fetch_all(pool)
-    .await?;
+    let collision_hashes: Vec<(String, i64)> = if let Ok(pool) = database.sqlite_pool() {
+        sqlx::query_as(
+            "SELECT partial_hash, COUNT(*) as cnt 
+             FROM songs 
+             WHERE partial_hash IS NOT NULL 
+             GROUP BY partial_hash 
+             HAVING COUNT(*) > 1",
+        )
+        .fetch_all(pool)
+        .await?
+    } else {
+        let pool = database.postgres_pool()?;
+        sqlx::query_as(
+            "SELECT partial_hash, COUNT(*) as cnt 
+             FROM songs 
+             WHERE partial_hash IS NOT NULL 
+             GROUP BY partial_hash 
+             HAVING COUNT(*) > 1",
+        )
+        .fetch_all(pool)
+        .await?
+    };
 
     if collision_hashes.is_empty() {
         tracing::info!("Dry-run: No potential duplicates found");
@@ -2464,11 +3307,18 @@ async fn detect_duplicates_dry_run(pool: &SqlitePool, _folder_id: Option<i64>) -
 
     // Show details for each collision group
     for (partial_hash, count) in &collision_hashes {
-        let songs: Vec<(String, String, i64)> =
+        let songs: Vec<(String, String, i64)> = if let Ok(pool) = database.sqlite_pool() {
             sqlx::query_as("SELECT id, file_path, file_size FROM songs WHERE partial_hash = ?")
                 .bind(partial_hash)
                 .fetch_all(pool)
-                .await?;
+                .await?
+        } else {
+            let pool = database.postgres_pool()?;
+            sqlx::query_as("SELECT id, file_path, file_size FROM songs WHERE partial_hash = $1")
+                .bind(partial_hash)
+                .fetch_all(pool)
+                .await?
+        };
 
         tracing::info!(
             "Dry-run: {} files share partial hash {}:",

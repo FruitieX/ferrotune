@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 static SQLITE_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
+// PostgreSQL migrations intentionally track the server-mode subset as it is ported.
 static POSTGRES_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
 
 /// Transitional runtime database handle.
@@ -88,20 +89,6 @@ impl Database {
     pub fn postgres_pool_cloned(&self) -> crate::error::Result<PgPool> {
         self.postgres_pool().cloned()
     }
-
-    pub async fn legacy_sqlite_pool_for_state(&self) -> crate::error::Result<SqlitePool> {
-        match self {
-            Self::Sqlite(pool) => Ok(pool.clone()),
-            Self::Postgres(_) => SqlitePool::connect("sqlite::memory:")
-                .await
-                .map_err(|error| {
-                    crate::error::Error::Internal(format!(
-                        "Failed to create placeholder SQLite pool for transitional app state: {}",
-                        error
-                    ))
-                }),
-        }
-    }
 }
 
 impl DatabaseHandle for Database {
@@ -127,19 +114,6 @@ impl DatabaseHandle for PgPool {
 
     fn postgres_pool(&self) -> crate::error::Result<&PgPool> {
         Ok(self)
-    }
-}
-
-impl std::ops::Deref for Database {
-    type Target = SqlitePool;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Sqlite(pool) => pool,
-            Self::Postgres(_) => panic!(
-                "attempted to dereference a PostgreSQL-backed Database as SqlitePool; use explicit backend access instead"
-            ),
-        }
     }
 }
 
