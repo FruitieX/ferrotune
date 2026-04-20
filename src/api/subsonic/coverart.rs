@@ -30,9 +30,6 @@ use std::sync::Arc;
 /// Cover art is content-addressable (hash-based), so aggressive caching is safe.
 const COVER_ART_CACHE_HEADER: &str = "public, max-age=2592000";
 
-/// Type alias for smart playlist query result: (rules_json, owner_id, max_songs, sort_field, sort_direction)
-type SmartPlaylistCoverRow = (String, i64, Option<i64>, Option<String>, Option<String>);
-
 #[derive(Deserialize)]
 pub struct CoverArtParams {
     id: String,
@@ -136,23 +133,21 @@ async fn get_album_cover_with_thumbnails(
 ) -> Result<Vec<u8>> {
     // For small/medium, try thumbnail first
     if size != ThumbnailSize::Large {
-        // Get hash from album
-        let hash: Option<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query_as("SELECT cover_art_hash FROM albums WHERE id = ?")
-                .bind(album_id)
-                .fetch_optional(pool)
-                .await?
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query_as("SELECT cover_art_hash FROM albums WHERE id = $1")
-                .bind(album_id)
-                .fetch_optional(pool)
-                .await?
-        };
+        #[derive(sea_orm::FromQueryResult)]
+        struct HashRow {
+            cover_art_hash: String,
+        }
+        let hash = crate::db::raw::query_one::<HashRow>(
+            state.database.conn(),
+            "SELECT cover_art_hash FROM albums WHERE id = ?",
+            "SELECT cover_art_hash FROM albums WHERE id = $1",
+            [sea_orm::Value::from(album_id.to_string())],
+        )
+        .await?;
 
-        if let Some((hash,)) = hash {
+        if let Some(HashRow { cover_art_hash }) = hash {
             if let Ok(Some(thumbnail)) =
-                crate::thumbnails::get_thumbnail(&state.database, &hash, size).await
+                crate::thumbnails::get_thumbnail(&state.database, &cover_art_hash, size).await
             {
                 return Ok(thumbnail);
             }
@@ -169,7 +164,7 @@ async fn get_song_cover_with_thumbnails(
     song_id: &str,
     size: ThumbnailSize,
 ) -> Result<Vec<u8>> {
-    let song = crate::db::queries::get_song_by_id(&state.database, song_id)
+    let song = crate::db::repo::browse::get_song_by_id(&state.database, song_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
@@ -204,7 +199,7 @@ async fn get_artist_cover_with_thumbnails(
     artist_id: &str,
     size: ThumbnailSize,
 ) -> Result<Vec<u8>> {
-    let artist = crate::db::queries::get_artist_by_id(&state.database, artist_id)
+    let artist = crate::db::repo::browse::get_artist_by_id(&state.database, artist_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Artist {} not found", artist_id)))?;
 
@@ -220,14 +215,14 @@ async fn get_artist_cover_with_thumbnails(
     }
 
     // Get first album by this artist
-    let albums = crate::db::queries::get_albums_by_artist(&state.database, artist_id).await?;
+    let albums = crate::db::repo::browse::get_albums_by_artist(&state.database, artist_id).await?;
 
     if let Some(album) = albums.first() {
         return get_album_cover_with_thumbnails(state, &album.id, size).await;
     }
 
     // No albums - try to find a track by this artist
-    let songs = crate::db::queries::get_songs_by_artist(&state.database, artist_id).await?;
+    let songs = crate::db::repo::browse::get_songs_by_artist(&state.database, artist_id).await?;
 
     if let Some(song) = songs.first() {
         if let Some(album_id) = &song.album_id {
@@ -244,40 +239,38 @@ async fn get_artist_cover_with_thumbnails(
 
 /// Get original album cover art from files (for large size or thumbnail fallback)
 async fn get_album_cover_art_original(state: &AppState, album_id: &str) -> Result<Vec<u8>> {
-    let _album = crate::db::queries::get_album_by_id(&state.database, album_id)
+    let _album = crate::db::repo::browse::get_album_by_id(&state.database, album_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Album {} not found", album_id)))?;
 
-    // Get first song with its music folder path
-    let song_with_folder: Option<(String, String)> = if let Ok(pool) = state.database.sqlite_pool()
-    {
-        sqlx::query_as(
-            "SELECT s.file_path, mf.path as folder_path
+    #[derive(sea_orm::FromQueryResult)]
+    struct SongFolderRow {
+        file_path: String,
+        folder_path: String,
+    }
+    let song_with_folder = crate::db::raw::query_one::<SongFolderRow>(
+        state.database.conn(),
+        "SELECT s.file_path AS file_path, mf.path AS folder_path
          FROM songs s
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          WHERE s.album_id = ?
          ORDER BY s.disc_number, s.track_number
          LIMIT 1",
-        )
-        .bind(album_id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT s.file_path, mf.path as folder_path
+        "SELECT s.file_path AS file_path, mf.path AS folder_path
          FROM songs s
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          WHERE s.album_id = $1
          ORDER BY s.disc_number, s.track_number
          LIMIT 1",
-        )
-        .bind(album_id)
-        .fetch_optional(pool)
-        .await?
-    };
+        [sea_orm::Value::from(album_id.to_string())],
+    )
+    .await?;
 
-    if let Some((file_path, folder_path)) = song_with_folder {
+    if let Some(SongFolderRow {
+        file_path,
+        folder_path,
+    }) = song_with_folder
+    {
         let full_path = std::path::PathBuf::from(&folder_path).join(&file_path);
 
         // Try external cover art files first
@@ -296,33 +289,29 @@ async fn get_album_cover_art_original(state: &AppState, album_id: &str) -> Resul
 
 /// Get song's own cover art from file
 async fn get_song_cover_art_original(state: &AppState, song_id: &str) -> Result<Vec<u8>> {
-    // Get the song's file path and music folder path
-    let song_with_folder: Option<(String, String)> = if let Ok(pool) = state.database.sqlite_pool()
-    {
-        sqlx::query_as(
-            "SELECT s.file_path, mf.path as folder_path
+    #[derive(sea_orm::FromQueryResult)]
+    struct SongFolderRow {
+        file_path: String,
+        folder_path: String,
+    }
+    let song_with_folder = crate::db::raw::query_one::<SongFolderRow>(
+        state.database.conn(),
+        "SELECT s.file_path AS file_path, mf.path AS folder_path
          FROM songs s
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          WHERE s.id = ?",
-        )
-        .bind(song_id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT s.file_path, mf.path as folder_path
+        "SELECT s.file_path AS file_path, mf.path AS folder_path
          FROM songs s
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          WHERE s.id = $1",
-        )
-        .bind(song_id)
-        .fetch_optional(pool)
-        .await?
-    };
+        [sea_orm::Value::from(song_id.to_string())],
+    )
+    .await?;
 
-    let (file_path, folder_path) =
-        song_with_folder.ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
+    let SongFolderRow {
+        file_path,
+        folder_path,
+    } = song_with_folder.ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
     let full_path = std::path::PathBuf::from(&folder_path).join(&file_path);
 
@@ -342,32 +331,27 @@ async fn get_playlist_cover_art(
     size: ThumbnailSize,
 ) -> Result<Vec<u8>> {
     // Get up to 4 hashes from playlist songs
-    let hashes: Vec<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT DISTINCT s.cover_art_hash 
+    #[derive(sea_orm::FromQueryResult)]
+    struct HashRow {
+        cover_art_hash: String,
+    }
+    let hashes = crate::db::raw::query_all::<HashRow>(
+        state.database.conn(),
+        "SELECT DISTINCT s.cover_art_hash
          FROM songs s
          INNER JOIN playlist_songs ps ON s.id = ps.song_id
          WHERE ps.playlist_id = ? AND s.cover_art_hash IS NOT NULL
          ORDER BY ps.position
          LIMIT 4",
-        )
-        .bind(playlist_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT DISTINCT s.cover_art_hash 
+        "SELECT DISTINCT s.cover_art_hash
          FROM songs s
          INNER JOIN playlist_songs ps ON s.id = ps.song_id
          WHERE ps.playlist_id = $1 AND s.cover_art_hash IS NOT NULL
          ORDER BY ps.position
          LIMIT 4",
-        )
-        .bind(playlist_id)
-        .fetch_all(pool)
-        .await?
-    };
+        [sea_orm::Value::from(playlist_id.to_string())],
+    )
+    .await?;
 
     if hashes.is_empty() {
         return Err(Error::NotFound(
@@ -383,9 +367,9 @@ async fn get_playlist_cover_art(
     };
 
     let mut covers: Vec<Vec<u8>> = Vec::new();
-    for (hash,) in hashes {
+    for HashRow { cover_art_hash } in hashes {
         if let Ok(Some(cover_data)) =
-            crate::thumbnails::get_thumbnail(&state.database, &hash, album_size).await
+            crate::thumbnails::get_thumbnail(&state.database, &cover_art_hash, album_size).await
         {
             covers.push(cover_data);
         }
@@ -520,21 +504,29 @@ async fn get_smart_playlist_cover_art(
         .unwrap_or(smart_playlist_id);
 
     // Fetch the smart playlist with its sort settings (no user filter - cover art is public)
-    let playlist: Option<SmartPlaylistCoverRow> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT rules_json, owner_id, max_songs, sort_field, sort_direction FROM smart_playlists WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT rules_json, owner_id, max_songs, sort_field, sort_direction FROM smart_playlists WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    struct SmartRow {
+        rules_json: String,
+        owner_id: i64,
+        max_songs: Option<i64>,
+        sort_field: Option<String>,
+        sort_direction: Option<String>,
+    }
+    let playlist = crate::db::raw::query_one::<SmartRow>(
+        state.database.conn(),
+        "SELECT rules_json, owner_id, max_songs, sort_field, sort_direction FROM smart_playlists WHERE id = ?",
+        "SELECT rules_json, owner_id, max_songs, sort_field, sort_direction FROM smart_playlists WHERE id = $1",
+        [sea_orm::Value::from(id.to_string())],
+    )
+    .await?;
 
-    let (rules_json, owner_id, max_songs, sort_field, sort_direction) =
-        playlist.ok_or_else(|| Error::NotFound("Smart playlist not found".to_string()))?;
+    let SmartRow {
+        rules_json,
+        owner_id,
+        max_songs,
+        sort_field,
+        sort_direction,
+    } = playlist.ok_or_else(|| Error::NotFound("Smart playlist not found".to_string()))?;
 
     // Parse rules
     let rules: SmartPlaylistRulesApi = serde_json::from_str(&rules_json)
@@ -635,25 +627,21 @@ async fn get_playlist_folder_cover_art(
     let id = folder_id.strip_prefix("pf-").unwrap_or(folder_id);
 
     // Fetch the cover_art blob from the database
-    let cover_data: Option<(Vec<u8>,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT cover_art FROM playlist_folders WHERE id = ? AND cover_art IS NOT NULL",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT cover_art FROM playlist_folders WHERE id = $1 AND cover_art IS NOT NULL",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    struct BlobRow {
+        cover_art: Vec<u8>,
+    }
+    let cover_data = crate::db::raw::query_one::<BlobRow>(
+        state.database.conn(),
+        "SELECT cover_art FROM playlist_folders WHERE id = ? AND cover_art IS NOT NULL",
+        "SELECT cover_art FROM playlist_folders WHERE id = $1 AND cover_art IS NOT NULL",
+        [sea_orm::Value::from(id.to_string())],
+    )
+    .await?;
 
-    let (data,) = cover_data
-        .ok_or_else(|| Error::NotFound("No cover art found for playlist folder".to_string()))?;
+    let data = cover_data
+        .ok_or_else(|| Error::NotFound("No cover art found for playlist folder".to_string()))?
+        .cover_art;
 
     // If small/medium size requested, resize the image
     if matches!(size, ThumbnailSize::Small | ThumbnailSize::Medium) {

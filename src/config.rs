@@ -6,6 +6,16 @@ use std::path::{Path, PathBuf};
 /// This is particularly useful for container deployments.
 pub const DATA_DIR_ENV: &str = "FERROTUNE_DATA_DIR";
 
+/// Environment variable for the database connection URL.
+///
+/// Supported schemes:
+/// - `sqlite://<path>` or `sqlite:<path>` — SQLite file (relative or absolute path)
+/// - `postgres://<user>:<pw>@<host>:<port>/<db>` or `postgresql://...` — Postgres server
+///
+/// When set, this overrides `[database]` in the TOML config and is the primary
+/// way to configure the database in configless / container deployments.
+pub const DATABASE_URL_ENV: &str = "FERROTUNE_DATABASE_URL";
+
 /// Get the data directory from environment or use platform-specific defaults.
 /// Priority: FERROTUNE_DATA_DIR env var > platform-specific defaults
 pub fn get_data_dir() -> PathBuf {
@@ -169,6 +179,57 @@ impl DatabaseConfig {
         }
     }
 
+    pub fn postgres(url: impl Into<String>) -> Self {
+        Self {
+            backend: DatabaseBackend::Postgres,
+            path: default_db_path(),
+            url: Some(url.into()),
+        }
+    }
+
+    /// Build a [`DatabaseConfig`] from the `FERROTUNE_DATABASE_URL` env var, if set.
+    ///
+    /// See [`Self::from_url`] for the accepted URL formats. Returns `Ok(None)`
+    /// when the env var is unset or empty.
+    pub fn from_env() -> crate::error::Result<Option<Self>> {
+        match std::env::var(DATABASE_URL_ENV) {
+            Ok(v) if !v.trim().is_empty() => Self::from_url(v.trim()).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    /// Parse a database URL string into a [`DatabaseConfig`].
+    ///
+    /// Accepted formats:
+    /// - `sqlite://<path>` / `sqlite:<path>` → SQLite at `<path>` (supports `~/`)
+    /// - `postgres://…` / `postgresql://…` → Postgres with the given URL
+    pub fn from_url(value: &str) -> crate::error::Result<Self> {
+        // Postgres: preserve the whole URL as-is (sqlx expects it).
+        if value.starts_with("postgres://") || value.starts_with("postgresql://") {
+            return Ok(Self::postgres(value));
+        }
+
+        // SQLite: accept `sqlite://path` or `sqlite:path`.
+        let sqlite_path = value
+            .strip_prefix("sqlite://")
+            .or_else(|| value.strip_prefix("sqlite:"));
+        if let Some(path) = sqlite_path {
+            if path.is_empty() {
+                return Err(crate::error::Error::Config(config::ConfigError::Message(
+                    format!("{DATABASE_URL_ENV} sqlite scheme requires a path"),
+                )));
+            }
+            return Ok(Self::sqlite(expand_tilde(Path::new(path))));
+        }
+
+        Err(crate::error::Error::Config(config::ConfigError::Message(
+            format!(
+                "{DATABASE_URL_ENV} must use scheme sqlite://, postgres:// or postgresql:// (got: {})",
+                redact_database_url(value)
+            ),
+        )))
+    }
+
     pub fn validate(&self) -> crate::error::Result<()> {
         match self.backend {
             DatabaseBackend::Sqlite => Ok(()),
@@ -222,6 +283,17 @@ impl Config {
             .build()?;
 
         let mut config: Self = settings.try_deserialize()?;
+        // FERROTUNE_DATABASE_URL overrides the TOML [database] section so that
+        // container / configless deployments can be pointed at Postgres without
+        // editing the file.
+        if let Some(db) = DatabaseConfig::from_env()? {
+            tracing::info!(
+                "Overriding [database] from {}: {}",
+                DATABASE_URL_ENV,
+                db.connection_label()
+            );
+            config.database = db;
+        }
         config.expand_paths();
         config.database.validate()?;
         Ok(config)
@@ -230,6 +302,15 @@ impl Config {
     /// Create a default configuration for configless operation.
     /// Uses environment variables and platform defaults.
     pub fn default_configless() -> Self {
+        // Prefer FERROTUNE_DATABASE_URL when set. Fall back to SQLite at the
+        // platform-default data dir. We deliberately do not try to validate
+        // here — the caller can call `validate()` if needed; the pool builder
+        // will also refuse to start on invalid config.
+        let database = DatabaseConfig::from_env()
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| DatabaseConfig::sqlite(default_db_path()));
+
         let mut config = Self {
             server: ServerConfig {
                 host: default_host(),
@@ -238,7 +319,7 @@ impl Config {
                 admin_user: default_admin_user(),
                 admin_password: default_admin_password(),
             },
-            database: DatabaseConfig::sqlite(default_db_path()),
+            database,
             music: MusicConfig {
                 folders: Vec::new(), // No folders - will be added via admin UI
                 readonly_tags: true,
@@ -430,5 +511,49 @@ max_cover_size = 1024
         );
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn parses_postgres_database_url() {
+        let db =
+            DatabaseConfig::from_url("postgres://u:p@host:5432/db").expect("postgres url parses");
+        assert_eq!(db.backend, DatabaseBackend::Postgres);
+        assert_eq!(db.url.as_deref(), Some("postgres://u:p@host:5432/db"));
+        db.validate().expect("postgres url is valid");
+
+        let db =
+            DatabaseConfig::from_url("postgresql://u:p@host/db").expect("postgresql url parses");
+        assert_eq!(db.backend, DatabaseBackend::Postgres);
+    }
+
+    #[test]
+    fn parses_sqlite_database_url() {
+        let db = DatabaseConfig::from_url("sqlite:///var/lib/ferrotune/db.sqlite")
+            .expect("sqlite url parses");
+        assert_eq!(db.backend, DatabaseBackend::Sqlite);
+        assert_eq!(db.path, PathBuf::from("/var/lib/ferrotune/db.sqlite"));
+
+        let db = DatabaseConfig::from_url("sqlite:relative.db").expect("sqlite short form parses");
+        assert_eq!(db.backend, DatabaseBackend::Sqlite);
+        assert_eq!(db.path, PathBuf::from("relative.db"));
+    }
+
+    #[test]
+    fn rejects_unknown_database_url_scheme() {
+        let err = DatabaseConfig::from_url("mysql://u:p@host/db")
+            .expect_err("unknown scheme should fail");
+        assert!(
+            err.to_string().contains("FERROTUNE_DATABASE_URL"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_sqlite_path() {
+        let err = DatabaseConfig::from_url("sqlite:").expect_err("empty sqlite path should fail");
+        assert!(
+            err.to_string().contains("sqlite scheme requires a path"),
+            "unexpected error: {err}"
+        );
     }
 }

@@ -117,24 +117,19 @@ impl LibraryWatcher {
 
     /// Load music folders that have watch_enabled = true
     async fn load_watch_enabled_folders(&self) -> anyhow::Result<Vec<MusicFolder>> {
-        let folders: Vec<MusicFolder> = if let Ok(pool) = self.pool.sqlite_pool() {
-            sqlx::query_as(
-                "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error 
-                 FROM music_folders 
-                 WHERE enabled = 1 AND watch_enabled = 1",
-            )
-            .fetch_all(pool)
-            .await?
-        } else {
-            let pool = self.pool.postgres_pool()?;
-            sqlx::query_as(
-                "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error 
-                 FROM music_folders 
-                 WHERE enabled AND watch_enabled",
-            )
-            .fetch_all(pool)
-            .await?
-        };
+        use crate::db::raw;
+        use sea_orm::Value;
+        let folders = raw::query_all::<MusicFolder>(
+            self.pool.conn(),
+            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error 
+             FROM music_folders 
+             WHERE enabled = 1 AND watch_enabled = 1",
+            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error 
+             FROM music_folders 
+             WHERE enabled AND watch_enabled",
+            std::iter::empty::<Value>(),
+        )
+        .await?;
 
         Ok(folders)
     }

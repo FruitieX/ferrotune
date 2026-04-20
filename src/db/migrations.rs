@@ -2,29 +2,56 @@
 //!
 //! These migrations require Rust logic that can't be expressed in SQL.
 
-use crate::db::DatabaseHandle;
-use sqlx::SqlitePool;
+use sea_orm::{DatabaseConnection, FromQueryResult, Value};
 use std::collections::HashMap;
 use tracing::info;
 use uuid::Uuid;
 
+#[derive(FromQueryResult)]
+struct OwnedPlaylistRow {
+    id: String,
+    name: String,
+    owner_id: i64,
+}
+
+async fn sqlite_query_all<T: FromQueryResult>(
+    db: &DatabaseConnection,
+    sql: &str,
+    values: impl IntoIterator<Item = Value>,
+) -> crate::error::Result<Vec<T>> {
+    crate::db::raw::query_all(db, sql, sql, values)
+        .await
+        .map_err(Into::into)
+}
+
+async fn sqlite_query_scalar<T>(
+    db: &DatabaseConnection,
+    sql: &str,
+    values: impl IntoIterator<Item = Value>,
+) -> crate::error::Result<Option<T>>
+where
+    T: sea_orm::TryGetable,
+{
+    crate::db::raw::query_scalar(db, sql, sql, values)
+        .await
+        .map_err(Into::into)
+}
+
+async fn sqlite_execute(
+    db: &DatabaseConnection,
+    sql: &str,
+    values: impl IntoIterator<Item = Value>,
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(db, sql, sql, values)
+        .await
+        .map(|_| ())
+        .map_err(Into::into)
+}
+
 /// Run all data migrations.
 /// This should be called after schema migrations complete.
-pub async fn run_data_migrations(
-    database: &(impl DatabaseHandle + ?Sized),
-) -> crate::error::Result<()> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return migrate_virtual_folders(pool).await;
-    }
-
-    if database.postgres_pool().is_ok() {
-        info!("Skipping SQLite-specific data migrations for PostgreSQL");
-        return Ok(());
-    }
-
-    Err(crate::error::Error::Internal(
-        "Unsupported database handle for data migrations".to_string(),
-    ))
+pub async fn run_data_migrations(db: &DatabaseConnection) -> crate::error::Result<()> {
+    migrate_virtual_folders(db).await
 }
 
 /// Migrate virtual folders (path-based playlist names) to proper folder entities.
@@ -34,14 +61,16 @@ pub async fn run_data_migrations(
 /// 2. Creates folder entities for each unique path segment
 /// 3. Updates playlists to reference folder entities via folder_id
 /// 4. Strips folder path prefixes from playlist names
-async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> {
+async fn migrate_virtual_folders(db: &DatabaseConnection) -> crate::error::Result<()> {
     // Check if migration already completed
-    let migration_complete: Option<(String,)> =
-        sqlx::query_as("SELECT value FROM server_config WHERE key = 'folder_migration_complete'")
-            .fetch_optional(pool)
-            .await?;
+    let migration_complete = sqlite_query_scalar::<String>(
+        db,
+        "SELECT value FROM server_config WHERE key = 'folder_migration_complete'",
+        [],
+    )
+    .await?;
 
-    if let Some((value,)) = migration_complete {
+    if let Some(value) = migration_complete {
         if value == "true" {
             info!("Folder migration already completed, skipping");
             return Ok(());
@@ -51,35 +80,38 @@ async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> 
     info!("Starting virtual folder migration...");
 
     // Get all playlists with paths (containing /)
-    let playlists: Vec<(String, String, i64)> = sqlx::query_as(
+    let playlists = sqlite_query_all::<OwnedPlaylistRow>(
+        db,
         r#"
         SELECT id, name, owner_id 
         FROM playlists 
         WHERE name LIKE '%/%' AND folder_id IS NULL
         ORDER BY name COLLATE NOCASE
         "#,
+        [],
     )
-    .fetch_all(pool)
     .await?;
 
     // Get all smart playlists with paths
-    let smart_playlists: Vec<(String, String, i64)> = sqlx::query_as(
+    let smart_playlists = sqlite_query_all::<OwnedPlaylistRow>(
+        db,
         r#"
         SELECT id, name, owner_id 
         FROM smart_playlists 
         WHERE name LIKE '%/%'
         ORDER BY name COLLATE NOCASE
         "#,
+        [],
     )
-    .fetch_all(pool)
     .await?;
 
     if playlists.is_empty() && smart_playlists.is_empty() {
         info!("No playlists with folder paths found, marking migration complete");
-        sqlx::query(
+        sqlite_execute(
+            db,
             "UPDATE server_config SET value = 'true' WHERE key = 'folder_migration_complete'",
+            [],
         )
-        .execute(pool)
         .await?;
         return Ok(());
     }
@@ -94,20 +126,22 @@ async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> 
     let mut folder_map: HashMap<(i64, String), String> = HashMap::new();
 
     // Process playlists
-    for (playlist_id, name, owner_id) in &playlists {
+    for playlist in &playlists {
         // Skip folder placeholder playlists (name ends with /) - these should be deleted
         // Note: root-level placeholders like "nodeplayer/" have empty folder_path after parsing
-        if name.ends_with('/') {
+        if playlist.name.ends_with('/') {
             // Delete the placeholder playlist
-            sqlx::query("DELETE FROM playlists WHERE id = ?")
-                .bind(playlist_id)
-                .execute(pool)
-                .await?;
-            info!("Deleted folder placeholder playlist: {}", name);
+            sqlite_execute(
+                db,
+                "DELETE FROM playlists WHERE id = ?",
+                [Value::from(playlist.id.clone())],
+            )
+            .await?;
+            info!("Deleted folder placeholder playlist: {}", playlist.name);
             continue;
         }
 
-        let (folder_path, display_name) = parse_playlist_path(name);
+        let (folder_path, display_name) = parse_playlist_path(&playlist.name);
 
         if folder_path.is_empty() {
             continue;
@@ -115,25 +149,29 @@ async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> 
 
         // Create folder hierarchy if needed
         let folder_id =
-            ensure_folder_hierarchy(pool, &mut folder_map, *owner_id, &folder_path).await?;
+            ensure_folder_hierarchy(db, &mut folder_map, playlist.owner_id, &folder_path).await?;
 
         // Update playlist: set folder_id and strip path from name
-        sqlx::query("UPDATE playlists SET folder_id = ?, name = ? WHERE id = ?")
-            .bind(&folder_id)
-            .bind(&display_name)
-            .bind(playlist_id)
-            .execute(pool)
-            .await?;
+        sqlite_execute(
+            db,
+            "UPDATE playlists SET folder_id = ?, name = ? WHERE id = ?",
+            [
+                Value::from(folder_id.clone()),
+                Value::from(display_name.clone()),
+                Value::from(playlist.id.clone()),
+            ],
+        )
+        .await?;
 
         info!(
             "Migrated playlist '{}' -> folder '{}', name '{}'",
-            name, folder_path, display_name
+            playlist.name, folder_path, display_name
         );
     }
 
     // Process smart playlists
-    for (playlist_id, name, owner_id) in &smart_playlists {
-        let (folder_path, display_name) = parse_playlist_path(name);
+    for playlist in &smart_playlists {
+        let (folder_path, display_name) = parse_playlist_path(&playlist.name);
 
         if folder_path.is_empty() {
             continue;
@@ -141,26 +179,33 @@ async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> 
 
         // Create folder hierarchy if needed
         let folder_id =
-            ensure_folder_hierarchy(pool, &mut folder_map, *owner_id, &folder_path).await?;
+            ensure_folder_hierarchy(db, &mut folder_map, playlist.owner_id, &folder_path).await?;
 
         // Update smart playlist: set folder_id and strip path from name
-        sqlx::query("UPDATE smart_playlists SET folder_id = ?, name = ? WHERE id = ?")
-            .bind(&folder_id)
-            .bind(&display_name)
-            .bind(playlist_id)
-            .execute(pool)
-            .await?;
+        sqlite_execute(
+            db,
+            "UPDATE smart_playlists SET folder_id = ?, name = ? WHERE id = ?",
+            [
+                Value::from(folder_id.clone()),
+                Value::from(display_name.clone()),
+                Value::from(playlist.id.clone()),
+            ],
+        )
+        .await?;
 
         info!(
             "Migrated smart playlist '{}' -> folder '{}', name '{}'",
-            name, folder_path, display_name
+            playlist.name, folder_path, display_name
         );
     }
 
     // Mark migration complete
-    sqlx::query("UPDATE server_config SET value = 'true' WHERE key = 'folder_migration_complete'")
-        .execute(pool)
-        .await?;
+    sqlite_execute(
+        db,
+        "UPDATE server_config SET value = 'true' WHERE key = 'folder_migration_complete'",
+        [],
+    )
+    .await?;
 
     info!("Virtual folder migration completed successfully");
     Ok(())
@@ -185,7 +230,7 @@ fn parse_playlist_path(name: &str) -> (String, String) {
 /// Ensure all folders in a path exist, creating them if needed.
 /// Returns the ID of the deepest folder.
 async fn ensure_folder_hierarchy(
-    pool: &SqlitePool,
+    db: &DatabaseConnection,
     folder_map: &mut HashMap<(i64, String), String>,
     owner_id: i64,
     folder_path: &str,
@@ -209,39 +254,43 @@ async fn ensure_folder_hierarchy(
         }
 
         // Check if folder already exists in database
-        let existing: Option<(String,)> = sqlx::query_as(
+        let existing = sqlite_query_scalar::<String>(
+            db,
             r#"
             SELECT id FROM playlist_folders 
             WHERE owner_id = ? AND name = ? AND 
                   (parent_id IS NULL AND ? IS NULL OR parent_id = ?)
             "#,
+            [
+                Value::from(owner_id),
+                Value::from(segment.to_string()),
+                Value::from(parent_id.clone()),
+                Value::from(parent_id.clone()),
+            ],
         )
-        .bind(owner_id)
-        .bind(segment)
-        .bind(&parent_id)
-        .bind(&parent_id)
-        .fetch_optional(pool)
         .await?;
 
-        let folder_id = if let Some((id,)) = existing {
+        let folder_id = if let Some(id) = existing {
             id
         } else {
             // Create new folder
             let new_id = format!("pf-{}", Uuid::new_v4());
             let position = i as i32;
 
-            sqlx::query(
+            sqlite_execute(
+                db,
                 r#"
                 INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
                 VALUES (?, ?, ?, ?, ?)
                 "#,
+                [
+                    Value::from(new_id.clone()),
+                    Value::from(segment.to_string()),
+                    Value::from(parent_id.clone()),
+                    Value::from(owner_id),
+                    Value::from(position),
+                ],
             )
-            .bind(&new_id)
-            .bind(segment)
-            .bind(&parent_id)
-            .bind(owner_id)
-            .bind(position)
-            .execute(pool)
             .await?;
 
             info!("Created folder: {} (parent: {:?})", segment, parent_id);

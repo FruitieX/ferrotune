@@ -62,24 +62,16 @@ pub async fn get_shuffle_exclude(
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
 ) -> FerrotuneApiResult<Json<ShuffleExcludeStatusResponse>> {
-    let result: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT id FROM shuffle_excludes WHERE user_id = ? AND song_id = ?")
-            .bind(user.user_id)
-            .bind(&song_id)
-            .fetch_optional(pool)
-            .await?
-    } else if let Ok(pool) = state.database.postgres_pool() {
-        sqlx::query_as("SELECT id FROM shuffle_excludes WHERE user_id = $1 AND song_id = $2")
-            .bind(user.user_id)
-            .bind(&song_id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        return Err(Error::Internal(
-            "Unsupported database backend for shuffle excludes".to_string(),
-        )
-        .into());
-    };
+    let result = crate::db::raw::query_scalar::<i64>(
+        state.database.conn(),
+        "SELECT id FROM shuffle_excludes WHERE user_id = ? AND song_id = ?",
+        "SELECT id FROM shuffle_excludes WHERE user_id = $1 AND song_id = $2",
+        [
+            sea_orm::Value::from(user.user_id),
+            sea_orm::Value::from(song_id.clone()),
+        ],
+    )
+    .await?;
 
     Ok(Json(ShuffleExcludeStatusResponse {
         song_id,
@@ -97,57 +89,35 @@ pub async fn set_shuffle_exclude(
     Json(body): Json<SetShuffleExcludeRequest>,
 ) -> FerrotuneApiResult<Json<ShuffleExcludeStatusResponse>> {
     if body.excluded {
-        // Add to exclusion list
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("INSERT OR IGNORE INTO shuffle_excludes (user_id, song_id) VALUES (?, ?)")
-                .bind(user.user_id)
-                .bind(&song_id)
-                .execute(pool)
-                .await
-                .map_err(|e| Error::Internal(format!("Failed to exclude song: {}", e)))?;
-        } else if let Ok(pool) = state.database.postgres_pool() {
-            sqlx::query(
-                "INSERT INTO shuffle_excludes (user_id, song_id) VALUES ($1, $2)
-                 ON CONFLICT (user_id, song_id) DO NOTHING",
-            )
-            .bind(user.user_id)
-            .bind(&song_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to exclude song: {}", e)))?;
-        } else {
-            return Err(Error::Internal(
-                "Unsupported database backend for shuffle excludes".to_string(),
-            )
-            .into());
-        }
+        crate::db::raw::execute(
+            state.database.conn(),
+            "INSERT OR IGNORE INTO shuffle_excludes (user_id, song_id) VALUES (?, ?)",
+            "INSERT INTO shuffle_excludes (user_id, song_id) VALUES ($1, $2) \
+             ON CONFLICT (user_id, song_id) DO NOTHING",
+            [
+                sea_orm::Value::from(user.user_id),
+                sea_orm::Value::from(song_id.clone()),
+            ],
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to exclude song: {}", e)))?;
 
         Ok(Json(ShuffleExcludeStatusResponse {
             song_id,
             excluded: true,
         }))
     } else {
-        // Remove from exclusion list
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("DELETE FROM shuffle_excludes WHERE user_id = ? AND song_id = ?")
-                .bind(user.user_id)
-                .bind(&song_id)
-                .execute(pool)
-                .await
-                .map_err(|e| Error::Internal(format!("Failed to include song: {}", e)))?;
-        } else if let Ok(pool) = state.database.postgres_pool() {
-            sqlx::query("DELETE FROM shuffle_excludes WHERE user_id = $1 AND song_id = $2")
-                .bind(user.user_id)
-                .bind(&song_id)
-                .execute(pool)
-                .await
-                .map_err(|e| Error::Internal(format!("Failed to include song: {}", e)))?;
-        } else {
-            return Err(Error::Internal(
-                "Unsupported database backend for shuffle excludes".to_string(),
-            )
-            .into());
-        }
+        crate::db::raw::execute(
+            state.database.conn(),
+            "DELETE FROM shuffle_excludes WHERE user_id = ? AND song_id = ?",
+            "DELETE FROM shuffle_excludes WHERE user_id = $1 AND song_id = $2",
+            [
+                sea_orm::Value::from(user.user_id),
+                sea_orm::Value::from(song_id.clone()),
+            ],
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to include song: {}", e)))?;
 
         Ok(Json(ShuffleExcludeStatusResponse {
             song_id,
@@ -163,27 +133,21 @@ pub async fn get_all_shuffle_excludes(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<ShuffleExcludesResponse>> {
-    let rows: Vec<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT song_id FROM shuffle_excludes WHERE user_id = ?")
-            .bind(user.user_id)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to get excludes: {}", e)))?
-    } else if let Ok(pool) = state.database.postgres_pool() {
-        sqlx::query_as("SELECT song_id FROM shuffle_excludes WHERE user_id = $1")
-            .bind(user.user_id)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to get excludes: {}", e)))?
-    } else {
-        return Err(Error::Internal(
-            "Unsupported database backend for shuffle excludes".to_string(),
-        )
-        .into());
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    struct IdRow {
+        song_id: String,
+    }
+    let rows = crate::db::raw::query_all::<IdRow>(
+        state.database.conn(),
+        "SELECT song_id FROM shuffle_excludes WHERE user_id = ?",
+        "SELECT song_id FROM shuffle_excludes WHERE user_id = $1",
+        [sea_orm::Value::from(user.user_id)],
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to get excludes: {}", e)))?;
 
     Ok(Json(ShuffleExcludesResponse {
-        song_ids: rows.into_iter().map(|(id,)| id).collect(),
+        song_ids: rows.into_iter().map(|r| r.song_id).collect(),
     }))
 }
 
@@ -198,57 +162,31 @@ pub async fn bulk_set_shuffle_excludes(
     let count = body.song_ids.len();
 
     if body.excluded {
-        // Add all to exclusion list
-        if let Ok(pool) = state.database.sqlite_pool() {
-            for song_id in &body.song_ids {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO shuffle_excludes (user_id, song_id) VALUES (?, ?)",
-                )
-                .bind(user.user_id)
-                .bind(song_id)
-                .execute(pool)
-                .await?;
-            }
-        } else if let Ok(pool) = state.database.postgres_pool() {
-            for song_id in &body.song_ids {
-                sqlx::query(
-                    "INSERT INTO shuffle_excludes (user_id, song_id) VALUES ($1, $2)
-                     ON CONFLICT (user_id, song_id) DO NOTHING",
-                )
-                .bind(user.user_id)
-                .bind(song_id)
-                .execute(pool)
-                .await?;
-            }
-        } else {
-            return Err(Error::Internal(
-                "Unsupported database backend for shuffle excludes".to_string(),
+        for song_id in &body.song_ids {
+            crate::db::raw::execute(
+                state.database.conn(),
+                "INSERT OR IGNORE INTO shuffle_excludes (user_id, song_id) VALUES (?, ?)",
+                "INSERT INTO shuffle_excludes (user_id, song_id) VALUES ($1, $2) \
+                 ON CONFLICT (user_id, song_id) DO NOTHING",
+                [
+                    sea_orm::Value::from(user.user_id),
+                    sea_orm::Value::from(song_id.clone()),
+                ],
             )
-            .into());
+            .await?;
         }
     } else {
-        // Remove all from exclusion list
-        if let Ok(pool) = state.database.sqlite_pool() {
-            for song_id in &body.song_ids {
-                sqlx::query("DELETE FROM shuffle_excludes WHERE user_id = ? AND song_id = ?")
-                    .bind(user.user_id)
-                    .bind(song_id)
-                    .execute(pool)
-                    .await?;
-            }
-        } else if let Ok(pool) = state.database.postgres_pool() {
-            for song_id in &body.song_ids {
-                sqlx::query("DELETE FROM shuffle_excludes WHERE user_id = $1 AND song_id = $2")
-                    .bind(user.user_id)
-                    .bind(song_id)
-                    .execute(pool)
-                    .await?;
-            }
-        } else {
-            return Err(Error::Internal(
-                "Unsupported database backend for shuffle excludes".to_string(),
+        for song_id in &body.song_ids {
+            crate::db::raw::execute(
+                state.database.conn(),
+                "DELETE FROM shuffle_excludes WHERE user_id = ? AND song_id = ?",
+                "DELETE FROM shuffle_excludes WHERE user_id = $1 AND song_id = $2",
+                [
+                    sea_orm::Value::from(user.user_id),
+                    sea_orm::Value::from(song_id.clone()),
+                ],
             )
-            .into());
+            .await?;
         }
     }
 

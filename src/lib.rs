@@ -183,7 +183,7 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
     let pool = db::create_pool(&config.database).await?;
 
     // Check if we need to create initial admin user
-    let user_count = db::queries::count_users(&pool).await?;
+    let user_count = db::repo::users::count_users(&pool).await?;
 
     if user_count == 0 {
         tracing::info!("No users found. Creating admin user...");
@@ -352,13 +352,13 @@ pub async fn create_admin_user(pool: &db::Database, username: &str, password: &s
     let subsonic_token = password::create_subsonic_token(password);
 
     let user_id =
-        db::queries::create_user(pool, username, &password_hash, &subsonic_token, None, true)
+        db::repo::users::create_user(pool, username, &password_hash, &subsonic_token, None, true)
             .await?;
     tracing::info!("Admin user '{}' created successfully", username);
 
     // Grant access to all existing music folders
-    for folder_id in db::queries::get_music_folder_ids(pool).await? {
-        db::queries::grant_user_library_access(pool, user_id, folder_id).await?;
+    for folder_id in db::repo::users::get_music_folder_ids(pool).await? {
+        db::repo::users::grant_user_library_access(pool, user_id, folder_id).await?;
     }
 
     Ok(())
@@ -369,14 +369,14 @@ pub async fn init_music_folders(pool: &db::Database, config: &config::Config) ->
     for folder in &config.music.folders {
         if !folder.path.exists() {
             tracing::warn!("Music folder does not exist: {}", folder.path.display());
-        } else if db::queries::get_music_folder_id_by_path(
+        } else if db::repo::users::get_music_folder_id_by_path(
             pool,
             folder.path.to_string_lossy().as_ref(),
         )
         .await?
         .is_none()
         {
-            let folder_id = db::queries::create_music_folder(
+            let folder_id = db::repo::users::create_music_folder(
                 pool,
                 &folder.name,
                 &folder.path.to_string_lossy(),
@@ -388,8 +388,8 @@ pub async fn init_music_folders(pool: &db::Database, config: &config::Config) ->
                 folder.path.display()
             );
 
-            for user_id in db::queries::get_user_ids(pool).await? {
-                db::queries::grant_user_library_access(pool, user_id, folder_id).await?;
+            for user_id in db::repo::users::get_user_ids(pool).await? {
+                db::repo::users::grant_user_library_access(pool, user_id, folder_id).await?;
             }
         }
     }

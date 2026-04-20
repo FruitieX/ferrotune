@@ -4,7 +4,6 @@ use crate::api::common::utils::{
     format_datetime_iso, format_datetime_iso_ms, get_content_type_for_format,
 };
 use crate::db::models::{Album, ItemType, Song};
-use crate::db::DatabaseHandle;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
@@ -14,10 +13,10 @@ use std::collections::HashMap;
 
 /// Get all artists grouped by first letter (for getArtists endpoint)
 pub async fn get_artists_logic(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<ArtistsIndex> {
-    let artists = crate::db::queries::get_artists_for_user(database, user_id).await?;
+    let artists = crate::db::repo::browse::get_artists_for_user(database, user_id).await?;
 
     // Get starred status and ratings for all artists
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
@@ -78,7 +77,7 @@ pub async fn get_artists_logic(
 
 /// Get artist details with albums and songs (for getArtist endpoint)
 pub async fn get_artist_logic(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     artist_id: &str,
     filter: Option<&str>,
@@ -87,16 +86,17 @@ pub async fn get_artist_logic(
 ) -> crate::error::Result<ArtistDetail> {
     use crate::api::common::sorting::filter_and_sort_songs;
 
-    let artist = crate::db::queries::get_artist_by_id(database, artist_id)
+    let artist = crate::db::repo::browse::get_artist_by_id(database, artist_id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", artist_id)))?;
 
     let albums =
-        crate::db::queries::get_albums_by_artist_for_user(database, artist_id, user_id).await?;
+        crate::db::repo::browse::get_albums_by_artist_for_user(database, artist_id, user_id)
+            .await?;
 
     // Get all songs by this artist (track artist, includes songs on compilations)
     let songs =
-        crate::db::queries::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
+        crate::db::repo::browse::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
 
     // Apply server-side filtering and sorting
     let songs = filter_and_sort_songs(songs, filter, sort, sort_dir);
@@ -175,7 +175,7 @@ pub async fn get_artist_logic(
 
 /// Get album details with songs (for getAlbum endpoint)
 pub async fn get_album_logic(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     album_id: &str,
     filter: Option<&str>,
@@ -184,12 +184,12 @@ pub async fn get_album_logic(
 ) -> crate::error::Result<AlbumDetail> {
     use crate::api::common::sorting::filter_and_sort_songs;
 
-    let album = crate::db::queries::get_album_by_id(database, album_id)
+    let album = crate::db::repo::browse::get_album_by_id(database, album_id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Album {} not found", album_id)))?;
 
     let songs =
-        crate::db::queries::get_songs_by_album_for_user(database, album_id, user_id).await?;
+        crate::db::repo::browse::get_songs_by_album_for_user(database, album_id, user_id).await?;
 
     // Apply server-side filtering and sorting
     let songs = filter_and_sort_songs(songs, filter, sort, sort_dir);
@@ -246,11 +246,11 @@ pub async fn get_album_logic(
 
 /// Get song details (for getSong endpoint)
 pub async fn get_song_logic(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     song_id: &str,
 ) -> crate::error::Result<SongResponse> {
-    let song_with_folder = crate::db::queries::get_song_by_id_with_folder(database, song_id)
+    let song_with_folder = crate::db::repo::browse::get_song_by_id_with_folder(database, song_id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Song {} not found", song_id)))?;
 
@@ -259,7 +259,7 @@ pub async fn get_song_logic(
 
     // Get album info if available
     let album = if let Some(album_id) = &song.album_id {
-        crate::db::queries::get_album_by_id(database, album_id).await?
+        crate::db::repo::browse::get_album_by_id(database, album_id).await?
     } else {
         None
     };
@@ -287,12 +287,18 @@ pub async fn get_song_logic(
 
 /// Get all genres (for getGenres endpoint)
 pub async fn get_genres_logic(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<GenresList> {
-    let genres: Vec<(String, i64, i64)> = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT 
+    #[derive(sea_orm::FromQueryResult)]
+    struct GenreRow {
+        genre: String,
+        song_count: i64,
+        album_count: i64,
+    }
+    let genres: Vec<GenreRow> = crate::db::raw::query_all::<GenreRow>(
+        database.conn(),
+        "SELECT
                 s.genre,
                 COUNT(DISTINCT s.id) as song_count,
                 COUNT(DISTINCT s.album_id) as album_count
@@ -300,15 +306,9 @@ pub async fn get_genres_logic(
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
              INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
              WHERE s.genre IS NOT NULL AND mf.enabled = 1 AND ula.user_id = ?
-             GROUP BY s.genre 
+             GROUP BY s.genre
              ORDER BY s.genre COLLATE NOCASE",
-        )
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query_as(
-            "SELECT 
+        "SELECT
                 s.genre,
                 COUNT(DISTINCT s.id) as song_count,
                 COUNT(DISTINCT s.album_id) as album_count
@@ -318,22 +318,16 @@ pub async fn get_genres_logic(
              WHERE s.genre IS NOT NULL AND mf.enabled AND ula.user_id = $1
              GROUP BY s.genre
              ORDER BY LOWER(s.genre)",
-        )
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        return Err(crate::error::Error::Internal(
-            "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-        ));
-    };
+        [sea_orm::Value::from(user_id)],
+    )
+    .await?;
 
     let json_genres: Vec<GenreResponse> = genres
         .into_iter()
-        .map(|(name, song_count, album_count)| GenreResponse {
-            name,
-            song_count,
-            album_count,
+        .map(|r| GenreResponse {
+            name: r.genre,
+            song_count: r.song_count,
+            album_count: r.album_count,
         })
         .collect();
 
@@ -344,18 +338,23 @@ pub async fn get_genres_logic(
 /// Returns top-level directories grouped by first letter.
 /// IDs are returned as "dir-<urlencoded_path>" to support filesystem browsing.
 pub async fn get_indexes_logic(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     folder_id: Option<i64>,
 ) -> crate::error::Result<(Vec<DirectoryIndex>, i64)> {
     // Get top-level directory names from songs table
     // We assume the first component of file_path is the directory (e.g. "Artist" in "Artist/Album/Song.mp3")
     // Files in the root (no '/') are ignored as they are not folders.
-    let directory_names: Vec<String> = if let Ok(pool) = database.sqlite_pool() {
-        if let Some(fid) = folder_id {
-            sqlx::query_scalar(
-                r#"
-                SELECT DISTINCT 
+    #[derive(sea_orm::FromQueryResult)]
+    struct NameRow {
+        name: String,
+    }
+    let (sqlite_sql, postgres_sql, values): (&str, &str, Vec<sea_orm::Value>) = if let Some(fid) =
+        folder_id
+    {
+        (
+            r#"
+                SELECT DISTINCT
                     substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
                 FROM songs s
                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
@@ -363,31 +362,7 @@ pub async fn get_indexes_logic(
                 WHERE mf.enabled = 1 AND mf.id = ? AND ula.user_id = ? AND instr(s.file_path, '/') > 0
                 ORDER BY name COLLATE NOCASE
                 "#,
-            )
-            .bind(fid)
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?
-        } else {
-            sqlx::query_scalar(
-                r#"
-                SELECT DISTINCT 
-                    substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
-                FROM songs s
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE mf.enabled = 1 AND ula.user_id = ? AND instr(s.file_path, '/') > 0
-                ORDER BY name COLLATE NOCASE
-                "#,
-            )
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?
-        }
-    } else if let Ok(pool) = database.postgres_pool() {
-        if let Some(fid) = folder_id {
-            sqlx::query_scalar(
-                r#"
+            r#"
                 SELECT name
                 FROM (
                     SELECT DISTINCT split_part(s.file_path, '/', 1) AS name
@@ -398,14 +373,20 @@ pub async fn get_indexes_logic(
                 ) directories
                 ORDER BY LOWER(name)
                 "#,
-            )
-            .bind(fid)
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?
-        } else {
-            sqlx::query_scalar(
-                r#"
+            vec![sea_orm::Value::from(fid), sea_orm::Value::from(user_id)],
+        )
+    } else {
+        (
+            r#"
+                SELECT DISTINCT
+                    substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
+                FROM songs s
+                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                WHERE mf.enabled = 1 AND ula.user_id = ? AND instr(s.file_path, '/') > 0
+                ORDER BY name COLLATE NOCASE
+                "#,
+            r#"
                 SELECT name
                 FROM (
                     SELECT DISTINCT split_part(s.file_path, '/', 1) AS name
@@ -416,16 +397,15 @@ pub async fn get_indexes_logic(
                 ) directories
                 ORDER BY LOWER(name)
                 "#,
-            )
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?
-        }
-    } else {
-        return Err(crate::error::Error::Internal(
-            "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-        ));
+            vec![sea_orm::Value::from(user_id)],
+        )
     };
+    let directory_names: Vec<String> =
+        crate::db::raw::query_all::<NameRow>(database.conn(), sqlite_sql, postgres_sql, values)
+            .await?
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
 
     // Group by first letter
     let mut grouped: HashMap<String, Vec<DirectoryArtist>> = HashMap::new();
@@ -499,43 +479,42 @@ pub async fn get_indexes_logic(
 
 /// Get play statistics for a song from scrobbles table
 pub async fn get_song_play_stats(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     song_id: &str,
 ) -> crate::error::Result<SongPlayStats> {
-    let row: (i64, Option<DateTime<Utc>>) = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as::<_, (i64, Option<DateTime<Utc>>)>(
-            r#"
-            SELECT 
+    #[derive(sea_orm::FromQueryResult)]
+    struct StatsRow {
+        play_count: i64,
+        last_played: Option<DateTime<Utc>>,
+    }
+    let row = crate::db::raw::query_one::<StatsRow>(
+        database.conn(),
+        r#"
+            SELECT
                 COUNT(*) as play_count,
                 MAX(played_at) as last_played
             FROM scrobbles
             WHERE user_id = ? AND song_id = ?
             "#,
-        )
-        .bind(user_id)
-        .bind(song_id)
-        .fetch_one(pool)
-        .await?
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query_as::<_, (i64, Option<DateTime<Utc>>)>(
-            r#"
-            SELECT 
+        r#"
+            SELECT
                 COUNT(*) as play_count,
                 MAX(played_at) as last_played
             FROM scrobbles
             WHERE user_id = $1 AND song_id = $2
             "#,
-        )
-        .bind(user_id)
-        .bind(song_id)
-        .fetch_one(pool)
-        .await?
-    } else {
-        return Err(crate::error::Error::Internal(
-            "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-        ));
-    };
+        [
+            sea_orm::Value::from(user_id),
+            sea_orm::Value::from(song_id.to_string()),
+        ],
+    )
+    .await?
+    .unwrap_or(StatsRow {
+        play_count: 0,
+        last_played: None,
+    });
+    let row = (row.play_count, row.last_played);
 
     // Convert zero play count to None (never played)
     let (play_count, last_played) = if row.0 == 0 {

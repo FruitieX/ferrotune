@@ -93,7 +93,7 @@ fn docker_available() -> bool {
 async fn seed_postgres_library_sample(
     database: &db::Database,
 ) -> (db::models::User, String, String, String, String) {
-    let folder_id = db::queries::create_music_folder(database, "Library", "/music")
+    let folder_id = db::repo::users::create_music_folder(database, "Library", "/music")
         .await
         .expect("postgres bootstrap schema should accept music folders");
     assert!(folder_id > 0, "music folder ids should be positive");
@@ -102,7 +102,7 @@ async fn seed_postgres_library_sample(
         .await
         .expect("admin bootstrap should work on postgres");
 
-    let user = db::queries::get_user_by_username(database, "admin")
+    let user = db::repo::users::get_user_by_username(database, "admin")
         .await
         .expect("postgres user lookup should succeed")
         .expect("admin user should exist after bootstrap");
@@ -301,6 +301,138 @@ fn test_create_pool_supports_postgres_config() {
             .await
             .expect("postgres runtime database should execute queries");
         assert_eq!(value, 1);
+    });
+}
+
+#[test]
+fn test_postgres_seaorm_entities_round_trip() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve")
+        .to_string();
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should be mapped");
+
+    let config = postgres_config(&host, port);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime should build");
+
+    runtime.block_on(async {
+        use chrono::{FixedOffset, Utc};
+        use ferrotune::db::entity;
+        use sea_orm::ActiveValue::Set;
+        use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait};
+
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres config should create a runtime database");
+        let conn = database.conn();
+
+        // Count every table via SeaORM to prove the entity metadata matches
+        // the live Postgres schema.
+        entity::albums::Entity::find().count(conn).await.unwrap();
+        entity::artists::Entity::find().count(conn).await.unwrap();
+        entity::songs::Entity::find().count(conn).await.unwrap();
+        entity::users::Entity::find().count(conn).await.unwrap();
+        entity::playlists::Entity::find().count(conn).await.unwrap();
+        entity::play_queues::Entity::find()
+            .count(conn)
+            .await
+            .unwrap();
+        entity::scrobbles::Entity::find().count(conn).await.unwrap();
+        entity::music_folders::Entity::find()
+            .count(conn)
+            .await
+            .unwrap();
+        entity::listening_sessions::Entity::find()
+            .count(conn)
+            .await
+            .unwrap();
+
+        // Round-trip a song row to exercise BIGINT, BOOLEAN, TIMESTAMPTZ,
+        // DOUBLE and optional columns all together.
+        let folder = entity::music_folders::ActiveModel {
+            name: Set("Test".to_string()),
+            path: Set("/tmp/fake-pg".to_string()),
+            enabled: Set(true),
+            ..Default::default()
+        }
+        .insert(conn)
+        .await
+        .unwrap();
+        assert!(folder.enabled);
+
+        entity::artists::ActiveModel {
+            id: Set("artist-pg".to_string()),
+            name: Set("Test Artist".to_string()),
+            sort_name: Set(None),
+            album_count: Set(0),
+            song_count: Set(0),
+            cover_art_hash: Set(None),
+        }
+        .insert(conn)
+        .await
+        .unwrap();
+
+        let now: chrono::DateTime<FixedOffset> =
+            Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap());
+        entity::songs::ActiveModel {
+            id: Set("song-pg".to_string()),
+            title: Set("Test Song".to_string()),
+            album_id: Set(None),
+            artist_id: Set("artist-pg".to_string()),
+            music_folder_id: Set(Some(folder.id)),
+            track_number: Set(None),
+            disc_number: Set(1),
+            year: Set(None),
+            genre: Set(None),
+            duration: Set(180_000),
+            bitrate: Set(Some(320)),
+            file_path: Set("/tmp/fake-pg/song.mp3".to_string()),
+            file_size: Set(4_321_000),
+            file_format: Set("mp3".to_string()),
+            file_mtime: Set(Some(1_700_000_000)),
+            partial_hash: Set(None),
+            full_file_hash: Set(None),
+            cover_art_hash: Set(None),
+            marked_for_deletion_at: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            cover_art_width: Set(None),
+            cover_art_height: Set(None),
+            original_replaygain_track_gain: Set(Some(-7.5)),
+            original_replaygain_track_peak: Set(Some(0.94)),
+            computed_replaygain_track_gain: Set(None),
+            computed_replaygain_track_peak: Set(None),
+            waveform_data: Set(None),
+            bliss_features: Set(None),
+            bliss_version: Set(None),
+        }
+        .insert(conn)
+        .await
+        .unwrap();
+
+        let refetched = entity::songs::Entity::find_by_id("song-pg".to_string())
+            .one(conn)
+            .await
+            .unwrap()
+            .expect("song should round-trip on postgres");
+        assert_eq!(refetched.duration, 180_000);
+        assert_eq!(refetched.file_size, 4_321_000);
+        assert_eq!(refetched.file_mtime, Some(1_700_000_000));
+        assert_eq!(refetched.original_replaygain_track_gain, Some(-7.5));
     });
 }
 
@@ -2131,7 +2263,7 @@ fn test_postgres_scan_specific_files_works() {
         )
         .expect("scan-specific fixture should be copied into the temp library");
 
-        let folder_id = db::queries::create_music_folder(
+        let folder_id = db::repo::users::create_music_folder(
             &database,
             "Scanner Library",
             &library_dir.to_string_lossy(),
@@ -2219,7 +2351,7 @@ fn test_postgres_scan_library_with_progress_works() {
         )
         .expect("scan-library fixture should be copied into the temp library");
 
-        let folder_id = db::queries::create_music_folder(
+        let folder_id = db::repo::users::create_music_folder(
             &database,
             "Scanner Library",
             &library_dir.to_string_lossy(),
@@ -2319,7 +2451,7 @@ fn test_postgres_users_handlers_work() {
         let (admin_user, _artist_id, _album_id, _song_1, _song_2) =
             seed_postgres_library_sample(&database).await;
 
-        let folder_id = db::queries::get_music_folders(&database)
+        let folder_id = db::repo::users::get_music_folders(&database)
             .await
             .expect("postgres folder lookup should succeed")
             .first()
@@ -2356,7 +2488,7 @@ fn test_postgres_users_handlers_work() {
         .into_response();
         assert_eq!(create_response.status(), axum::http::StatusCode::CREATED);
 
-        let created_user = db::queries::get_user_by_username(&database, "collab")
+        let created_user = db::repo::users::get_user_by_username(&database, "collab")
             .await
             .expect("postgres user lookup should succeed")
             .expect("created user should exist");
@@ -2445,7 +2577,7 @@ fn test_postgres_users_handlers_work() {
         assert_eq!(delete_response.status(), axum::http::StatusCode::NO_CONTENT);
 
         assert!(
-            db::queries::get_user_by_username(&database, "collab-renamed")
+            db::repo::users::get_user_by_username(&database, "collab-renamed")
                 .await
                 .expect("postgres lookup after delete should succeed")
                 .is_none()
@@ -3410,7 +3542,7 @@ fn test_postgres_auth_bootstrap_queries_work() {
             seed_postgres_library_sample(&database).await;
         assert!(user.is_admin, "bootstrap admin should be marked admin");
 
-        let folders = db::queries::get_music_folders_for_user(&database, user.id)
+        let folders = db::repo::users::get_music_folders_for_user(&database, user.id)
             .await
             .expect("postgres library access lookup should succeed");
         assert_eq!(
@@ -3434,13 +3566,13 @@ fn test_postgres_auth_bootstrap_queries_work() {
         .await
         .expect("postgres api_keys insert should succeed");
 
-        let api_key_user = db::queries::get_user_by_api_key(&database, "test-token")
+        let api_key_user = db::repo::users::get_user_by_api_key(&database, "test-token")
             .await
             .expect("postgres api key lookup should succeed")
             .expect("api key lookup should return the linked user");
         assert_eq!(api_key_user.id, user.id);
 
-        let updated = db::queries::update_user_password(
+        let updated = db::repo::users::update_user_password(
             &database,
             "admin",
             "updated-password-hash",
@@ -3450,7 +3582,7 @@ fn test_postgres_auth_bootstrap_queries_work() {
         .expect("postgres password updates should succeed");
         assert!(updated, "existing postgres user should be updated");
 
-        let reloaded_user = db::queries::get_user_by_username(&database, "admin")
+        let reloaded_user = db::repo::users::get_user_by_username(&database, "admin")
             .await
             .expect("postgres user lookup should still succeed")
             .expect("updated postgres user should still exist");
@@ -4385,7 +4517,7 @@ fn test_postgres_directory_queue_materialization_works() {
             .expect("postgres database pool should connect");
         let (user, _artist_id, _album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
-        let library_id = db::queries::get_music_folders_for_user(&database, user.id)
+        let library_id = db::repo::users::get_music_folders_for_user(&database, user.id)
             .await
             .expect("postgres music folder lookup should succeed")
             .into_iter()
@@ -5625,7 +5757,7 @@ fn test_postgres_playlist_queries_work() {
         let (owner, _artist_id, album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
-        let collaborator_id = db::queries::create_user(
+        let collaborator_id = db::repo::users::create_user(
             &database,
             "playlist-viewer",
             "password-hash",
@@ -6158,7 +6290,7 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
         let (owner, _artist_id, _album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
-        let collaborator_id = db::queries::create_user(
+        let collaborator_id = db::repo::users::create_user(
             &database,
             "playlist-viewer",
             "password-hash",
@@ -6717,7 +6849,7 @@ fn test_postgres_ferrotune_playlist_write_admin_handlers_work() {
         let (owner, _artist_id, _album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
-        let collaborator_id = db::queries::create_user(
+        let collaborator_id = db::repo::users::create_user(
             &database,
             "playlist-editor",
             "password-hash",
@@ -7126,9 +7258,9 @@ fn test_postgres_initialize_app_state_works() {
             .await
             .expect("postgres app state initialization should succeed");
 
-        assert!(matches!(state.database, db::Database::Postgres(_)));
+        assert!(matches!(state.database, db::Database::Postgres { .. }));
         assert_eq!(
-            db::queries::count_users(&state.database)
+            db::repo::users::count_users(&state.database)
                 .await
                 .expect("postgres user count should resolve after app state init"),
             1

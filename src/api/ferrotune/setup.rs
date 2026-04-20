@@ -32,20 +32,16 @@ pub struct SetupStatusResponse {
 pub async fn get_setup_status(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SetupStatusResponse>> {
+    use crate::db::raw;
+
     // Check if initial_setup_complete is true in server_config
-    let setup_complete_raw: Option<String> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_scalar::<_, String>(
-            "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
-        )
-        .fetch_optional(pool)
-        .await
-    } else {
-        sqlx::query_scalar::<_, String>(
-            "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
-        )
-        .fetch_optional(state.database.postgres_pool()?)
-        .await
-    }
+    let setup_complete_raw: Option<String> = raw::query_scalar::<String>(
+        state.database.conn(),
+        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
+        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
+        std::iter::empty::<sea_orm::Value>(),
+    )
+    .await
     .map_err(|e| Error::Internal(format!("Database error checking setup status: {}", e)))?;
 
     let setup_complete: bool = setup_complete_raw
@@ -53,28 +49,26 @@ pub async fn get_setup_status(
         .unwrap_or(false);
 
     // Check if there are any users
-    let user_count: i64 = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(pool)
-            .await
-    } else {
-        sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(state.database.postgres_pool()?)
-            .await
-    }
-    .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?;
+    let user_count: i64 = raw::query_scalar::<i64>(
+        state.database.conn(),
+        "SELECT COUNT(*) FROM users",
+        "SELECT COUNT(*) FROM users",
+        std::iter::empty::<sea_orm::Value>(),
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?
+    .unwrap_or(0);
 
     // Check if there are any music folders
-    let folder_count: i64 = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM music_folders")
-            .fetch_one(pool)
-            .await
-    } else {
-        sqlx::query_scalar("SELECT COUNT(*) FROM music_folders")
-            .fetch_one(state.database.postgres_pool()?)
-            .await
-    }
-    .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?;
+    let folder_count: i64 = raw::query_scalar::<i64>(
+        state.database.conn(),
+        "SELECT COUNT(*) FROM music_folders",
+        "SELECT COUNT(*) FROM music_folders",
+        std::iter::empty::<sea_orm::Value>(),
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?
+    .unwrap_or(0);
 
     Ok(Json(SetupStatusResponse {
         setup_complete,
@@ -94,25 +88,17 @@ pub async fn complete_setup(
     }
 
     // Set initial_setup_complete to true
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query(
-            "INSERT INTO server_config (key, value, updated_at) \
-             VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        )
-        .execute(pool)
-        .await
-        .map(|_| ())
-    } else {
-        sqlx::query(
-            "INSERT INTO server_config (key, value, updated_at) \
-             VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
-             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-        )
-        .execute(state.database.postgres_pool()?)
-        .await
-        .map(|_| ())
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "INSERT INTO server_config (key, value, updated_at) \
+         VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        "INSERT INTO server_config (key, value, updated_at) \
+         VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
+         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+        std::iter::empty::<sea_orm::Value>(),
+    )
+    .await
     .map_err(|e| Error::Internal(format!("Failed to update setup status: {}", e)))?;
 
     // Return updated status

@@ -37,7 +37,7 @@ pub async fn stream(
     Query(params): Query<StreamParams>,
 ) -> Result<Response> {
     // Get song from database
-    let song = crate::db::queries::get_song_by_id(&state.database, &params.id)
+    let song = crate::db::repo::browse::get_song_by_id(&state.database, &params.id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", params.id)))?;
 
@@ -50,7 +50,7 @@ pub async fn stream(
     }
 
     // Find the music folder for this song
-    let music_folders = crate::db::queries::get_music_folders(&state.database).await?;
+    let music_folders = crate::db::repo::users::get_music_folders(&state.database).await?;
 
     let mut full_path: Option<PathBuf> = None;
     for folder in &music_folders {

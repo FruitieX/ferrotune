@@ -8,7 +8,7 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::subsonic::query::QsQuery;
 use crate::api::AppState;
 use crate::db::models::ItemType;
-use crate::db::DatabaseHandle;
+use crate::db::{raw, Database};
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
@@ -16,13 +16,14 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use sea_orm::Value;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
 
 /// A playlist folder in the response.
-#[derive(Debug, Serialize, sqlx::FromRow, TS)]
+#[derive(Debug, Serialize, sea_orm::FromQueryResult, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistFolderResponse {
@@ -74,199 +75,131 @@ pub struct PlaylistFoldersResponse {
 }
 
 async fn playlist_folder_exists(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     folder_id: &str,
     user_id: i64,
-) -> sqlx::Result<bool> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?)",
-        )
-        .bind(folder_id)
-        .bind(user_id)
-        .fetch_one(pool)
-        .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = $1 AND owner_id = $2)",
-        )
-        .bind(folder_id)
-        .bind(user_id)
-        .fetch_one(pool)
-        .await
-    }
+) -> Result<bool, sea_orm::DbErr> {
+    Ok(raw::query_scalar::<bool>(
+        database.conn(),
+        "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?)",
+        "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = $1 AND owner_id = $2)",
+        [Value::from(folder_id.to_string()), Value::from(user_id)],
+    )
+    .await?
+    .unwrap_or(false))
 }
 
 async fn next_playlist_folder_position(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     user_id: i64,
     parent_id: Option<&str>,
-) -> sqlx::Result<i64> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_scalar(
-            r#"
+) -> Result<i64, sea_orm::DbErr> {
+    Ok(raw::query_scalar::<i64>(
+        database.conn(),
+        r#"
             SELECT COALESCE(MAX(position), -1) + 1
             FROM playlist_folders
             WHERE owner_id = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
             "#,
-        )
-        .bind(user_id)
-        .bind(parent_id)
-        .bind(parent_id)
-        .fetch_one(pool)
-        .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_scalar(
-            r#"
+        r#"
             SELECT COALESCE(MAX(position), -1) + 1
             FROM playlist_folders
             WHERE owner_id = $1 AND (parent_id = $2 OR (parent_id IS NULL AND $3 IS NULL))
             "#,
-        )
-        .bind(user_id)
-        .bind(parent_id)
-        .bind(parent_id)
-        .fetch_one(pool)
-        .await
-    }
+        [
+            Value::from(user_id),
+            Value::from(parent_id.map(|s| s.to_string())),
+            Value::from(parent_id.map(|s| s.to_string())),
+        ],
+    )
+    .await?
+    .unwrap_or(0))
 }
 
 async fn fetch_playlist_folder_response(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     folder_id: &str,
-) -> sqlx::Result<PlaylistFolderResponse> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+) -> Result<PlaylistFolderResponse, sea_orm::DbErr> {
+    raw::query_one::<PlaylistFolderResponse>(
+        database.conn(),
+        r#"
             SELECT id, name, parent_id, position,
                    strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
                    (cover_art IS NOT NULL) as has_cover_art
             FROM playlist_folders
             WHERE id = ?
             "#,
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_as(
-            r#"
+        r#"
             SELECT id, name, parent_id, position,
                    to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
                    (cover_art IS NOT NULL) as has_cover_art
             FROM playlist_folders
             WHERE id = $1
             "#,
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await
-    }
+        [Value::from(folder_id.to_string())],
+    )
+    .await?
+    .ok_or_else(|| sea_orm::DbErr::RecordNotFound(format!("playlist_folder {}", folder_id)))
 }
 
 async fn playlist_owner_id(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     playlist_id: &str,
-) -> sqlx::Result<Option<i64>> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_scalar("SELECT owner_id FROM playlists WHERE id = ?")
-            .bind(playlist_id)
-            .fetch_optional(pool)
-            .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_scalar("SELECT owner_id FROM playlists WHERE id = $1")
-            .bind(playlist_id)
-            .fetch_optional(pool)
-            .await
-    }
+) -> Result<Option<i64>, sea_orm::DbErr> {
+    raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT owner_id FROM playlists WHERE id = ?",
+        "SELECT owner_id FROM playlists WHERE id = $1",
+        [Value::from(playlist_id.to_string())],
+    )
+    .await
 }
 
-async fn user_exists(
-    database: &(impl DatabaseHandle + ?Sized),
-    user_id: i64,
-) -> sqlx::Result<bool> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await
-    }
+async fn user_exists(database: &Database, user_id: i64) -> Result<bool, sea_orm::DbErr> {
+    Ok(raw::query_scalar::<bool>(
+        database.conn(),
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)",
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)",
+        [Value::from(user_id)],
+    )
+    .await?
+    .unwrap_or(false))
 }
 
-async fn username_for_user(
-    database: &(impl DatabaseHandle + ?Sized),
-    user_id: i64,
-) -> sqlx::Result<String> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await
-    }
+async fn username_for_user(database: &Database, user_id: i64) -> Result<String, sea_orm::DbErr> {
+    raw::query_scalar::<String>(
+        database.conn(),
+        "SELECT username FROM users WHERE id = ?",
+        "SELECT username FROM users WHERE id = $1",
+        [Value::from(user_id)],
+    )
+    .await?
+    .ok_or_else(|| sea_orm::DbErr::RecordNotFound(format!("user {}", user_id)))
 }
 
 async fn fetch_playlist_shares(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     playlist_id: &str,
-) -> sqlx::Result<Vec<PlaylistShareResponse>> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+) -> Result<Vec<PlaylistShareResponse>, sea_orm::DbErr> {
+    raw::query_all::<PlaylistShareResponse>(
+        database.conn(),
+        r#"
             SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
             FROM playlist_shares ps
             JOIN users u ON u.id = ps.shared_with_user_id
             WHERE ps.playlist_id = ?
             ORDER BY LOWER(u.username), u.username
             "#,
-        )
-        .bind(playlist_id)
-        .fetch_all(pool)
-        .await
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        sqlx::query_as(
-            r#"
+        r#"
             SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
             FROM playlist_shares ps
             JOIN users u ON u.id = ps.shared_with_user_id
             WHERE ps.playlist_id = $1
             ORDER BY LOWER(u.username), u.username
             "#,
-        )
-        .bind(playlist_id)
-        .fetch_all(pool)
-        .await
-    }
+        [Value::from(playlist_id.to_string())],
+    )
+    .await
 }
 
 pub async fn get_playlist_folders(
@@ -274,7 +207,7 @@ pub async fn get_playlist_folders(
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<PlaylistFoldersResponse>> {
     // Helper struct for SQL query
-    #[derive(sqlx::FromRow)]
+    #[derive(sea_orm::FromQueryResult)]
     struct PlaylistRow {
         id: String,
         name: String,
@@ -285,7 +218,7 @@ pub async fn get_playlist_folders(
         updated_at: String,
     }
 
-    #[derive(sqlx::FromRow)]
+    #[derive(sea_orm::FromQueryResult)]
     struct NonOwnedPlaylistRow {
         id: String,
         name: String,
@@ -297,14 +230,9 @@ pub async fn get_playlist_folders(
         updated_at: String,
     }
 
-    let (folders, owned_rows, shared_rows, public_rows): (
-        Vec<PlaylistFolderResponse>,
-        Vec<PlaylistRow>,
-        Vec<NonOwnedPlaylistRow>,
-        Vec<NonOwnedPlaylistRow>,
-    ) = if let Ok(pool) = state.database.sqlite_pool() {
-        let folders = sqlx::query_as(
-            r#"
+    let folders = raw::query_all::<PlaylistFolderResponse>(
+        state.database.conn(),
+        r#"
             SELECT id, name, parent_id, position,
                    strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
                    (cover_art IS NOT NULL) as has_cover_art
@@ -312,13 +240,21 @@ pub async fn get_playlist_folders(
             WHERE owner_id = ?
             ORDER BY position, LOWER(name), name
             "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
+        r#"
+            SELECT id, name, parent_id, position,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                   (cover_art IS NOT NULL) as has_cover_art
+            FROM playlist_folders
+            WHERE owner_id = $1
+            ORDER BY position, LOWER(name), name
+            "#,
+        [Value::from(user.user_id)],
+    )
+    .await?;
 
-        let owned_rows = sqlx::query_as(
-            r#"
+    let owned_rows = raw::query_all::<PlaylistRow>(
+        state.database.conn(),
+        r#"
             SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
                    COALESCE((
                        SELECT SUM(s.duration)
@@ -331,13 +267,26 @@ pub async fn get_playlist_folders(
             WHERE p.owner_id = ?
             ORDER BY p.position, LOWER(p.name), p.name
             "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
+        r#"
+            SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps
+                       JOIN songs s ON s.id = ps.song_id
+                       WHERE ps.playlist_id = p.id
+                   ), 0)::BIGINT as duration,
+                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM playlists p
+            WHERE p.owner_id = $1
+            ORDER BY p.position, LOWER(p.name), p.name
+            "#,
+        [Value::from(user.user_id)],
+    )
+    .await?;
 
-        let shared_rows = sqlx::query_as(
-            r#"
+    let shared_rows = raw::query_all::<NonOwnedPlaylistRow>(
+        state.database.conn(),
+        r#"
             SELECT p.id, p.name, p.song_count,
                    COALESCE((
                        SELECT SUM(s.duration)
@@ -357,81 +306,7 @@ pub async fn get_playlist_folders(
             WHERE psh.shared_with_user_id = ?
             ORDER BY LOWER(p.name), p.name
             "#,
-        )
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
-
-        let public_rows = sqlx::query_as(
-            r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps2
-                       JOIN songs s ON s.id = ps2.song_id
-                       WHERE ps2.playlist_id = p.id
-                   ), 0) as duration,
-                   u.username as owner_name,
-                   0 as can_edit,
-                   upo.folder_id,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-            FROM playlists p
-            JOIN users u ON u.id = p.owner_id
-            LEFT JOIN user_playlist_overrides upo
-                ON upo.playlist_id = p.id AND upo.user_id = ?
-            WHERE p.is_public = 1
-              AND p.owner_id != ?
-              AND p.id NOT IN (
-                  SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?
-              )
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        )
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
-
-        (folders, owned_rows, shared_rows, public_rows)
-    } else {
-        let pool = state.database.postgres_pool()?;
-        let folders = sqlx::query_as(
-            r#"
-            SELECT id, name, parent_id, position,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-                   (cover_art IS NOT NULL) as has_cover_art
-            FROM playlist_folders
-            WHERE owner_id = $1
-            ORDER BY position, LOWER(name), name
-            "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
-
-        let owned_rows = sqlx::query_as(
-            r#"
-            SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps
-                       JOIN songs s ON s.id = ps.song_id
-                       WHERE ps.playlist_id = p.id
-                   ), 0)::BIGINT as duration,
-                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-            FROM playlists p
-            WHERE p.owner_id = $1
-            ORDER BY p.position, LOWER(p.name), p.name
-            "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
-
-        let shared_rows = sqlx::query_as(
-            r#"
+        r#"
             SELECT p.id, p.name, p.song_count,
                    COALESCE((
                        SELECT SUM(s.duration)
@@ -451,14 +326,36 @@ pub async fn get_playlist_folders(
             WHERE psh.shared_with_user_id = $2
             ORDER BY LOWER(p.name), p.name
             "#,
-        )
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
+        [Value::from(user.user_id), Value::from(user.user_id)],
+    )
+    .await?;
 
-        let public_rows = sqlx::query_as(
-            r#"
+    let public_rows = raw::query_all::<NonOwnedPlaylistRow>(
+        state.database.conn(),
+        r#"
+            SELECT p.id, p.name, p.song_count,
+                   COALESCE((
+                       SELECT SUM(s.duration)
+                       FROM playlist_songs ps2
+                       JOIN songs s ON s.id = ps2.song_id
+                       WHERE ps2.playlist_id = p.id
+                   ), 0) as duration,
+                   u.username as owner_name,
+                   CAST(0 AS BOOLEAN) as can_edit,
+                   upo.folder_id,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
+            FROM playlists p
+            JOIN users u ON u.id = p.owner_id
+            LEFT JOIN user_playlist_overrides upo
+                ON upo.playlist_id = p.id AND upo.user_id = ?
+            WHERE p.is_public = 1
+              AND p.owner_id != ?
+              AND p.id NOT IN (
+                  SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?
+              )
+            ORDER BY LOWER(p.name), p.name
+            "#,
+        r#"
             SELECT p.id, p.name, p.song_count,
                    COALESCE((
                        SELECT SUM(s.duration)
@@ -481,15 +378,13 @@ pub async fn get_playlist_folders(
               )
             ORDER BY LOWER(p.name), p.name
             "#,
-        )
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?;
-
-        (folders, owned_rows, shared_rows, public_rows)
-    };
+        [
+            Value::from(user.user_id),
+            Value::from(user.user_id),
+            Value::from(user.user_id),
+        ],
+    )
+    .await?;
 
     let mut playlists: Vec<PlaylistInFolder> = owned_rows
         .into_iter()
@@ -564,36 +459,25 @@ pub async fn create_playlist_folder(
         next_playlist_folder_position(&state.database, user.user_id, request.parent_id.as_deref())
             .await?;
 
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query(
-            r#"
+    raw::execute(
+        state.database.conn(),
+        r#"
             INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
             VALUES (?, ?, ?, ?, ?)
             "#,
-        )
-        .bind(&id)
-        .bind(&request.name)
-        .bind(request.parent_id.as_deref())
-        .bind(user.user_id)
-        .bind(next_position)
-        .execute(pool)
-        .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query(
-            r#"
+        r#"
             INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
             VALUES ($1, $2, $3, $4, $5)
             "#,
-        )
-        .bind(&id)
-        .bind(&request.name)
-        .bind(request.parent_id.as_deref())
-        .bind(user.user_id)
-        .bind(next_position)
-        .execute(pool)
-        .await?;
-    }
+        [
+            Value::from(id.clone()),
+            Value::from(request.name.clone()),
+            Value::from(request.parent_id.clone()),
+            Value::from(user.user_id),
+            Value::from(next_position),
+        ],
+    )
+    .await?;
 
     let folder = fetch_playlist_folder_response(&state.database, &id).await?;
 
@@ -622,20 +506,13 @@ pub async fn update_playlist_folder(
 
     // Update name if provided
     if let Some(ref name) = request.name {
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("UPDATE playlist_folders SET name = ? WHERE id = ?")
-                .bind(name)
-                .bind(&folder_id)
-                .execute(pool)
-                .await?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query("UPDATE playlist_folders SET name = $1 WHERE id = $2")
-                .bind(name)
-                .bind(&folder_id)
-                .execute(pool)
-                .await?;
-        }
+        raw::execute(
+            state.database.conn(),
+            "UPDATE playlist_folders SET name = ? WHERE id = ?",
+            "UPDATE playlist_folders SET name = $1 WHERE id = $2",
+            [Value::from(name.clone()), Value::from(folder_id.clone())],
+        )
+        .await?;
     }
 
     // Update parent if provided
@@ -654,20 +531,16 @@ pub async fn update_playlist_folder(
             }
         }
 
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("UPDATE playlist_folders SET parent_id = ? WHERE id = ?")
-                .bind(new_parent.as_deref())
-                .bind(&folder_id)
-                .execute(pool)
-                .await?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query("UPDATE playlist_folders SET parent_id = $1 WHERE id = $2")
-                .bind(new_parent.as_deref())
-                .bind(&folder_id)
-                .execute(pool)
-                .await?;
-        }
+        raw::execute(
+            state.database.conn(),
+            "UPDATE playlist_folders SET parent_id = ? WHERE id = ?",
+            "UPDATE playlist_folders SET parent_id = $1 WHERE id = $2",
+            [
+                Value::from(new_parent.clone()),
+                Value::from(folder_id.clone()),
+            ],
+        )
+        .await?;
     }
 
     let folder = fetch_playlist_folder_response(&state.database, &folder_id).await?;
@@ -682,22 +555,14 @@ pub async fn delete_playlist_folder(
     Path(folder_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
-    let rows_affected = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM playlist_folders WHERE id = ? AND owner_id = ?")
-            .bind(&folder_id)
-            .bind(user.user_id)
-            .execute(pool)
-            .await?
-            .rows_affected()
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM playlist_folders WHERE id = $1 AND owner_id = $2")
-            .bind(&folder_id)
-            .bind(user.user_id)
-            .execute(pool)
-            .await?
-            .rows_affected()
-    };
+    let rows_affected = raw::execute(
+        state.database.conn(),
+        "DELETE FROM playlist_folders WHERE id = ? AND owner_id = ?",
+        "DELETE FROM playlist_folders WHERE id = $1 AND owner_id = $2",
+        [Value::from(folder_id.clone()), Value::from(user.user_id)],
+    )
+    .await?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Err(Error::NotFound("Folder not found".to_string()).into());
@@ -738,20 +603,13 @@ pub async fn upload_playlist_folder_cover(
     }
 
     // Update the cover_art blob
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("UPDATE playlist_folders SET cover_art = ? WHERE id = ?")
-            .bind(body.as_ref())
-            .bind(&folder_id)
-            .execute(pool)
-            .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("UPDATE playlist_folders SET cover_art = $1 WHERE id = $2")
-            .bind(body.as_ref())
-            .bind(&folder_id)
-            .execute(pool)
-            .await?;
-    }
+    raw::execute(
+        state.database.conn(),
+        "UPDATE playlist_folders SET cover_art = ? WHERE id = ?",
+        "UPDATE playlist_folders SET cover_art = $1 WHERE id = $2",
+        [Value::from(body.to_vec()), Value::from(folder_id.clone())],
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -763,22 +621,14 @@ pub async fn delete_playlist_folder_cover(
     Path(folder_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
-    let rows_affected = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("UPDATE playlist_folders SET cover_art = NULL WHERE id = ? AND owner_id = ?")
-            .bind(&folder_id)
-            .bind(user.user_id)
-            .execute(pool)
-            .await?
-            .rows_affected()
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("UPDATE playlist_folders SET cover_art = NULL WHERE id = $1 AND owner_id = $2")
-            .bind(&folder_id)
-            .bind(user.user_id)
-            .execute(pool)
-            .await?
-            .rows_affected()
-    };
+    let rows_affected = raw::execute(
+        state.database.conn(),
+        "UPDATE playlist_folders SET cover_art = NULL WHERE id = ? AND owner_id = ?",
+        "UPDATE playlist_folders SET cover_art = NULL WHERE id = $1 AND owner_id = $2",
+        [Value::from(folder_id.clone()), Value::from(user.user_id)],
+    )
+    .await?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Err(Error::NotFound("Folder not found".to_string()).into());
@@ -833,73 +683,49 @@ pub async fn move_playlist(
 
     if access.is_owner {
         // Owner: update the playlist's folder_id directly
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("UPDATE playlists SET folder_id = ? WHERE id = ?")
-                .bind(request.folder_id.as_deref())
-                .bind(&playlist_id)
-                .execute(pool)
-                .await?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query("UPDATE playlists SET folder_id = $1 WHERE id = $2")
-                .bind(request.folder_id.as_deref())
-                .bind(&playlist_id)
-                .execute(pool)
-                .await?;
-        }
+        raw::execute(
+            state.database.conn(),
+            "UPDATE playlists SET folder_id = ? WHERE id = ?",
+            "UPDATE playlists SET folder_id = $1 WHERE id = $2",
+            [
+                Value::from(request.folder_id.clone()),
+                Value::from(playlist_id.clone()),
+            ],
+        )
+        .await?;
     } else {
         // Non-owner: store a per-user override
         if request.folder_id.is_some() {
-            if let Ok(pool) = state.database.sqlite_pool() {
-                sqlx::query(
-                    r#"
+            raw::execute(
+                state.database.conn(),
+                r#"
                     INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
                     VALUES (?, ?, ?)
                     ON CONFLICT (user_id, playlist_id)
                     DO UPDATE SET folder_id = excluded.folder_id
                     "#,
-                )
-                .bind(user.user_id)
-                .bind(&playlist_id)
-                .bind(request.folder_id.as_deref())
-                .execute(pool)
-                .await?;
-            } else {
-                let pool = state.database.postgres_pool()?;
-                sqlx::query(
-                    r#"
+                r#"
                     INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
                     VALUES ($1, $2, $3)
                     ON CONFLICT (user_id, playlist_id)
                     DO UPDATE SET folder_id = EXCLUDED.folder_id
                     "#,
-                )
-                .bind(user.user_id)
-                .bind(&playlist_id)
-                .bind(request.folder_id.as_deref())
-                .execute(pool)
-                .await?;
-            }
+                [
+                    Value::from(user.user_id),
+                    Value::from(playlist_id.clone()),
+                    Value::from(request.folder_id.clone()),
+                ],
+            )
+            .await?;
         } else {
             // Moving to root: remove the override
-            if let Ok(pool) = state.database.sqlite_pool() {
-                sqlx::query(
-                    "DELETE FROM user_playlist_overrides WHERE user_id = ? AND playlist_id = ?",
-                )
-                .bind(user.user_id)
-                .bind(&playlist_id)
-                .execute(pool)
-                .await?;
-            } else {
-                let pool = state.database.postgres_pool()?;
-                sqlx::query(
-                    "DELETE FROM user_playlist_overrides WHERE user_id = $1 AND playlist_id = $2",
-                )
-                .bind(user.user_id)
-                .bind(&playlist_id)
-                .execute(pool)
-                .await?;
-            }
+            raw::execute(
+                state.database.conn(),
+                "DELETE FROM user_playlist_overrides WHERE user_id = ? AND playlist_id = ?",
+                "DELETE FROM user_playlist_overrides WHERE user_id = $1 AND playlist_id = $2",
+                [Value::from(user.user_id), Value::from(playlist_id.clone())],
+            )
+            .await?;
         }
     }
 
@@ -923,7 +749,7 @@ pub async fn reorder_playlist_songs(
 ) -> FerrotuneApiResult<StatusCode> {
     use crate::api::common::playlist_access::get_playlist_access;
 
-    #[derive(sqlx::FromRow)]
+    #[derive(sea_orm::FromQueryResult)]
     struct ExistingEntryRow {
         song_id: String,
         added_at: DateTime<Utc>,
@@ -948,22 +774,13 @@ pub async fn reorder_playlist_songs(
     }
 
     // Verify all provided song IDs are in the playlist and get their added_at timestamps and entry_ids
-    let existing_entries: Vec<ExistingEntryRow> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL ORDER BY position",
-        )
-        .bind(&playlist_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = $1 AND song_id IS NOT NULL ORDER BY position",
-        )
-        .bind(&playlist_id)
-        .fetch_all(pool)
-        .await?
-    };
+    let existing_entries: Vec<ExistingEntryRow> = raw::query_all::<ExistingEntryRow>(
+        state.database.conn(),
+        "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL ORDER BY position",
+        "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = $1 AND song_id IS NOT NULL ORDER BY position",
+        [Value::from(playlist_id.clone())],
+    )
+    .await?;
 
     // Create a map from song_id to (added_at, entry_id) for preserving timestamps and entry_ids
     let entry_data_map: std::collections::HashMap<String, (DateTime<Utc>, Option<String>)> =
@@ -995,56 +812,36 @@ pub async fn reorder_playlist_songs(
 
     // Update positions in a transaction
     // We need to delete all songs and re-insert them to avoid UNIQUE constraint violations
-    if let Ok(pool) = state.database.sqlite_pool() {
-        let mut tx = pool.begin().await?;
+    use sea_orm::TransactionTrait;
+    let tx = state.database.conn().begin().await?;
 
-        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ?")
-            .bind(&playlist_id)
-            .execute(&mut *tx)
-            .await?;
+    raw::execute(
+        &tx,
+        "DELETE FROM playlist_songs WHERE playlist_id = ?",
+        "DELETE FROM playlist_songs WHERE playlist_id = $1",
+        [Value::from(playlist_id.clone())],
+    )
+    .await?;
 
-        for (position, song_id) in request.song_ids.iter().enumerate() {
-            let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
-            let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-            sqlx::query(
-                "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)",
-            )
-            .bind(&playlist_id)
-            .bind(song_id)
-            .bind(position as i64)
-            .bind(added_at)
-            .bind(&entry_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        let mut tx = pool.begin().await?;
-
-        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = $1")
-            .bind(&playlist_id)
-            .execute(&mut *tx)
-            .await?;
-
-        for (position, song_id) in request.song_ids.iter().enumerate() {
-            let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
-            let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-            sqlx::query(
-                "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES ($1, $2, $3, $4, $5)",
-            )
-            .bind(&playlist_id)
-            .bind(song_id)
-            .bind(position as i64)
-            .bind(added_at)
-            .bind(&entry_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
+    for (position, song_id) in request.song_ids.iter().enumerate() {
+        let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
+        let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        raw::execute(
+            &tx,
+            "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES ($1, $2, $3, $4, $5)",
+            [
+                Value::from(playlist_id.clone()),
+                Value::from(song_id.clone()),
+                Value::from(position as i64),
+                Value::from(added_at),
+                Value::from(entry_id),
+            ],
+        )
+        .await?;
     }
+
+    tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1087,28 +884,27 @@ pub async fn match_missing_entry(
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
-    let entry: Option<(Option<String>, Option<String>)> = if let Ok(pool) =
-        state.database.sqlite_pool()
-    {
-        sqlx::query_as(
-            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-        )
-        .bind(&playlist_id)
-        .bind(&request.entry_id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-        )
-        .bind(&playlist_id)
-        .bind(&request.entry_id)
-        .fetch_optional(pool)
-        .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    struct EntryRow {
+        song_id: Option<String>,
+        missing_entry_data: Option<String>,
+    }
+    let entry = raw::query_one::<EntryRow>(
+        state.database.conn(),
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
+        [
+            Value::from(playlist_id.clone()),
+            Value::from(request.entry_id.clone()),
+        ],
+    )
+    .await?;
 
-    let Some((_song_id, missing_data)) = entry else {
+    let Some(EntryRow {
+        song_id: _song_id,
+        missing_entry_data: missing_data,
+    }) = entry
+    else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
     };
 
@@ -1119,18 +915,13 @@ pub async fn match_missing_entry(
     }
 
     // Verify the song exists
-    let song_exists: Option<(String,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT id FROM songs WHERE id = ?")
-            .bind(&request.song_id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT id FROM songs WHERE id = $1")
-            .bind(&request.song_id)
-            .fetch_optional(pool)
-            .await?
-    };
+    let song_exists = raw::query_scalar::<String>(
+        state.database.conn(),
+        "SELECT id FROM songs WHERE id = ?",
+        "SELECT id FROM songs WHERE id = $1",
+        [Value::from(request.song_id.clone())],
+    )
+    .await?;
 
     if song_exists.is_none() {
         return Err(Error::NotFound("Song not found".to_string()).into());
@@ -1189,28 +980,27 @@ pub async fn unmatch_entry(
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
-    let entry: Option<(Option<String>, Option<String>)> = if let Ok(pool) =
-        state.database.sqlite_pool()
-    {
-        sqlx::query_as(
-            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-        )
-        .bind(&playlist_id)
-        .bind(&request.entry_id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-        )
-        .bind(&playlist_id)
-        .bind(&request.entry_id)
-        .fetch_optional(pool)
-        .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    struct EntryRow {
+        song_id: Option<String>,
+        missing_entry_data: Option<String>,
+    }
+    let entry = raw::query_one::<EntryRow>(
+        state.database.conn(),
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
+        [
+            Value::from(playlist_id.clone()),
+            Value::from(request.entry_id.clone()),
+        ],
+    )
+    .await?;
 
-    let Some((song_id, missing_data)) = entry else {
+    let Some(EntryRow {
+        song_id,
+        missing_entry_data: missing_data,
+    }) = entry
+    else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
     };
 
@@ -1354,24 +1144,18 @@ pub async fn move_playlist_entry(
     }
 
     // Look up the current position of the entry by entry_id
-    let from_pos_result: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT position FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?")
-            .bind(&playlist_id)
-            .bind(&request.entry_id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT position FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-        )
-        .bind(&playlist_id)
-        .bind(&request.entry_id)
-        .fetch_optional(pool)
-        .await?
-    };
+    let from_pos_result = raw::query_scalar::<i64>(
+        state.database.conn(),
+        "SELECT position FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+        "SELECT position FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
+        [
+            Value::from(playlist_id.clone()),
+            Value::from(request.entry_id.clone()),
+        ],
+    )
+    .await?;
 
-    let Some((from_pos,)) = from_pos_result else {
+    let Some(from_pos) = from_pos_result else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
     };
 
@@ -1380,110 +1164,62 @@ pub async fn move_playlist_entry(
     }
 
     // Get count of entries to validate to_position
-    let count: i64 = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?")
-            .bind(&playlist_id)
-            .fetch_one(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = $1")
-            .bind(&playlist_id)
-            .fetch_one(pool)
-            .await?
-    };
+    let count: i64 = raw::query_scalar::<i64>(
+        state.database.conn(),
+        "SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?",
+        "SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = $1",
+        [Value::from(playlist_id.clone())],
+    )
+    .await?
+    .unwrap_or(0);
 
     if to_pos < 0 || to_pos >= count {
         return Err(Error::InvalidRequest("Invalid position".to_string()).into());
     }
 
     // Move the entry in a transaction
-    if let Ok(pool) = state.database.sqlite_pool() {
-        let mut tx = pool.begin().await?;
+    use sea_orm::TransactionTrait;
+    let tx = state.database.conn().begin().await?;
 
-        sqlx::query(
-            "UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?",
-        )
-        .bind(&playlist_id)
-        .bind(from_pos)
-        .execute(&mut *tx)
-        .await?;
+    raw::execute(
+        &tx,
+        "UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?",
+        "UPDATE playlist_songs SET position = -1 WHERE playlist_id = $1 AND position = $2",
+        [Value::from(playlist_id.clone()), Value::from(from_pos)],
+    )
+    .await?;
 
-        if from_pos < to_pos {
-            for pos in (from_pos + 1)..=to_pos {
-                sqlx::query(
-                    "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = ? AND position = ?",
-                )
-                .bind(&playlist_id)
-                .bind(pos)
-                .execute(&mut *tx)
-                .await?;
-            }
-        } else {
-            for pos in (to_pos..from_pos).rev() {
-                sqlx::query(
-                    "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = ? AND position = ?",
-                )
-                .bind(&playlist_id)
-                .bind(pos)
-                .execute(&mut *tx)
-                .await?;
-            }
+    if from_pos < to_pos {
+        for pos in (from_pos + 1)..=to_pos {
+            raw::execute(
+                &tx,
+                "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = ? AND position = ?",
+                "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = $1 AND position = $2",
+                [Value::from(playlist_id.clone()), Value::from(pos)],
+            )
+            .await?;
         }
-
-        sqlx::query(
-            "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1",
-        )
-        .bind(to_pos)
-        .bind(&playlist_id)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
     } else {
-        let pool = state.database.postgres_pool()?;
-        let mut tx = pool.begin().await?;
-
-        sqlx::query(
-            "UPDATE playlist_songs SET position = -1 WHERE playlist_id = $1 AND position = $2",
-        )
-        .bind(&playlist_id)
-        .bind(from_pos)
-        .execute(&mut *tx)
-        .await?;
-
-        if from_pos < to_pos {
-            for pos in (from_pos + 1)..=to_pos {
-                sqlx::query(
-                    "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = $1 AND position = $2",
-                )
-                .bind(&playlist_id)
-                .bind(pos)
-                .execute(&mut *tx)
-                .await?;
-            }
-        } else {
-            for pos in (to_pos..from_pos).rev() {
-                sqlx::query(
-                    "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = $1 AND position = $2",
-                )
-                .bind(&playlist_id)
-                .bind(pos)
-                .execute(&mut *tx)
-                .await?;
-            }
+        for pos in (to_pos..from_pos).rev() {
+            raw::execute(
+                &tx,
+                "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = ? AND position = ?",
+                "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = $1 AND position = $2",
+                [Value::from(playlist_id.clone()), Value::from(pos)],
+            )
+            .await?;
         }
-
-        sqlx::query(
-            "UPDATE playlist_songs SET position = $1 WHERE playlist_id = $2 AND position = -1",
-        )
-        .bind(to_pos)
-        .bind(&playlist_id)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
     }
+
+    raw::execute(
+        &tx,
+        "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1",
+        "UPDATE playlist_songs SET position = $1 WHERE playlist_id = $2 AND position = -1",
+        [Value::from(to_pos), Value::from(playlist_id.clone())],
+    )
+    .await?;
+
+    tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1808,61 +1544,47 @@ pub async fn get_playlist_songs(
     }
 
     // Get all playlist entries (positions, song_ids, missing data, added_at, entry_id)
-    #[allow(clippy::type_complexity)]
-    let entries_raw: Vec<(
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        DateTime<Utc>,
-        Option<String>,
-    )> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
+    #[derive(sea_orm::FromQueryResult)]
+    struct EntryRaw {
+        position: i64,
+        song_id: Option<String>,
+        missing_entry_data: Option<String>,
+        missing_search_text: Option<String>,
+        added_at: DateTime<Utc>,
+        entry_id: Option<String>,
+    }
+    let entries_raw: Vec<EntryRaw> = raw::query_all::<EntryRaw>(
+        state.database.conn(),
+        "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
              FROM playlist_songs
              WHERE playlist_id = ?
              ORDER BY position",
-        )
-        .bind(&playlist_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = state
-            .database
-            .postgres_pool()
-            .map_err(|error| Error::Internal(error.to_string()))?;
-        sqlx::query_as(
-            "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
+        "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
              FROM playlist_songs
              WHERE playlist_id = $1
              ORDER BY position",
-        )
-        .bind(&playlist_id)
-        .fetch_all(pool)
-        .await?
-    };
+        [Value::from(playlist_id.clone())],
+    )
+    .await?;
 
     // Count totals
     let total_entries = entries_raw.len() as i64;
-    let matched_count = entries_raw
-        .iter()
-        .filter(|(_, sid, _, _, _, _)| sid.is_some())
-        .count() as i64;
+    let matched_count = entries_raw.iter().filter(|e| e.song_id.is_some()).count() as i64;
     // Only count as "missing" if there's no song_id (truly unmatched entries)
     let missing_count = entries_raw
         .iter()
-        .filter(|(_, sid, md, _, _, _)| sid.is_none() && md.is_some())
+        .filter(|e| e.song_id.is_none() && e.missing_entry_data.is_some())
         .count() as i64;
 
     // Get all song IDs that are not null
     let song_ids: Vec<String> = entries_raw
         .iter()
-        .filter_map(|(_, sid, _, _, _, _)| sid.clone())
+        .filter_map(|e| e.song_id.clone())
         .collect();
 
     // Fetch all songs at once with their library enabled status
     let songs = if !song_ids.is_empty() {
-        crate::db::queries::get_songs_by_ids_with_library_status(
+        crate::db::repo::browse::get_songs_by_ids_with_library_status(
             &state.database,
             &song_ids,
             user.user_id,
@@ -1921,7 +1643,14 @@ pub async fn get_playlist_songs(
     let mut unified_entries: Vec<EntryData> = entries_raw
         .into_iter()
         .filter_map(
-            |(position, song_id, missing_json, _missing_search_text, added_at, entry_id)| {
+            |EntryRaw {
+                 position,
+                 song_id,
+                 missing_entry_data: missing_json,
+                 missing_search_text: _missing_search_text,
+                 added_at,
+                 entry_id,
+             }| {
                 // Parse missing data if present
                 let missing_data = missing_json
                     .as_ref()
@@ -2366,7 +2095,7 @@ pub struct UpdatePlaylistRequest {
 // ============================================================================
 
 /// A single playlist share entry in the response.
-#[derive(Debug, Serialize, sqlx::FromRow, TS)]
+#[derive(Debug, Serialize, sea_orm::FromQueryResult, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistShareResponse {
@@ -2458,48 +2187,32 @@ pub async fn set_playlist_shares(
         }
     }
 
-    if let Ok(pool) = state.database.sqlite_pool() {
-        let mut tx = pool.begin().await?;
+    use sea_orm::TransactionTrait;
+    let tx = state.database.conn().begin().await?;
 
-        sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = ?")
-            .bind(&playlist_id)
-            .execute(&mut *tx)
-            .await?;
+    raw::execute(
+        &tx,
+        "DELETE FROM playlist_shares WHERE playlist_id = ?",
+        "DELETE FROM playlist_shares WHERE playlist_id = $1",
+        [Value::from(playlist_id.clone())],
+    )
+    .await?;
 
-        for share in &request.shares {
-            sqlx::query(
-                "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)",
-            )
-            .bind(&playlist_id)
-            .bind(share.user_id)
-            .bind(share.can_edit)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        let mut tx = pool.begin().await?;
-
-        sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = $1")
-            .bind(&playlist_id)
-            .execute(&mut *tx)
-            .await?;
-
-        for share in &request.shares {
-            sqlx::query(
-                "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES ($1, $2, $3)",
-            )
-            .bind(&playlist_id)
-            .bind(share.user_id)
-            .bind(share.can_edit)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
+    for share in &request.shares {
+        raw::execute(
+            &tx,
+            "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)",
+            "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES ($1, $2, $3)",
+            [
+                Value::from(playlist_id.clone()),
+                Value::from(share.user_id),
+                Value::from(share.can_edit),
+            ],
+        )
+        .await?;
     }
+
+    tx.commit().await?;
 
     let shares = fetch_playlist_shares(&state.database, &playlist_id).await?;
 
@@ -2625,44 +2338,28 @@ pub async fn transfer_playlist_ownership(
     }
 
     // Transfer ownership
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query(
-            "UPDATE playlists SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        )
-        .bind(request.new_owner_id)
-        .bind(&playlist_id)
-        .execute(pool)
-        .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query(
-            "UPDATE playlists SET owner_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        )
-        .bind(request.new_owner_id)
-        .bind(&playlist_id)
-        .execute(pool)
-        .await?;
-    }
+    raw::execute(
+        state.database.conn(),
+        "UPDATE playlists SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        "UPDATE playlists SET owner_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        [
+            Value::from(request.new_owner_id),
+            Value::from(playlist_id.clone()),
+        ],
+    )
+    .await?;
 
     // Remove any existing share entries for the new owner (since they're now the owner)
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query(
-            "DELETE FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
-        )
-        .bind(&playlist_id)
-        .bind(request.new_owner_id)
-        .execute(pool)
-        .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query(
-            "DELETE FROM playlist_shares WHERE playlist_id = $1 AND shared_with_user_id = $2",
-        )
-        .bind(&playlist_id)
-        .bind(request.new_owner_id)
-        .execute(pool)
-        .await?;
-    }
+    raw::execute(
+        state.database.conn(),
+        "DELETE FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
+        "DELETE FROM playlist_shares WHERE playlist_id = $1 AND shared_with_user_id = $2",
+        [
+            Value::from(playlist_id.clone()),
+            Value::from(request.new_owner_id),
+        ],
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2843,15 +2540,25 @@ pub async fn get_playlists_for_songs(
         }));
     }
 
-    let rows: Vec<(String, String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
-        let placeholders = params
-            .song_ids
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-        let query = format!(
-            r#"
+    #[derive(sea_orm::FromQueryResult)]
+    struct SongPlaylistRow {
+        song_id: String,
+        playlist_id: String,
+        playlist_name: String,
+    }
+
+    let placeholders_sqlite = params
+        .song_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let placeholders_postgres = (2..2 + params.song_ids.len())
+        .map(|index| format!("${}", index))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sqlite_sql = format!(
+        r#"
             SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
             FROM playlist_songs ps
             INNER JOIN playlists p ON ps.playlist_id = p.id
@@ -2860,23 +2567,10 @@ pub async fn get_playlists_for_songs(
               AND ps.song_id IS NOT NULL
             ORDER BY LOWER(p.name), p.name
             "#,
-            placeholders
-        );
-
-        let mut query_builder = sqlx::query_as::<_, (String, String, String)>(&query);
-        for song_id in &params.song_ids {
-            query_builder = query_builder.bind(song_id);
-        }
-        query_builder = query_builder.bind(user.user_id);
-
-        query_builder.fetch_all(pool).await?
-    } else {
-        let placeholders = (2..2 + params.song_ids.len())
-            .map(|index| format!("${}", index))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let query = format!(
-            r#"
+        placeholders_sqlite
+    );
+    let postgres_sql = format!(
+        r#"
             SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
             FROM playlist_songs ps
             INNER JOIN playlists p ON ps.playlist_id = p.id
@@ -2885,25 +2579,49 @@ pub async fn get_playlists_for_songs(
               AND ps.song_id IS NOT NULL
             ORDER BY LOWER(p.name), p.name
             "#,
-            placeholders
-        );
+        placeholders_postgres
+    );
 
-        let pool = state
-            .database
-            .postgres_pool()
-            .map_err(|error| Error::Internal(error.to_string()))?;
-        let mut query_builder =
-            sqlx::query_as::<_, (String, String, String)>(&query).bind(user.user_id);
-        for song_id in &params.song_ids {
-            query_builder = query_builder.bind(song_id);
+    // SQLite binds: song_ids..., user_id
+    // Postgres binds: user_id, song_ids...
+    let mut binds_sqlite: Vec<Value> = params
+        .song_ids
+        .iter()
+        .map(|s| Value::from(s.clone()))
+        .collect();
+    binds_sqlite.push(Value::from(user.user_id));
+    let mut binds_postgres: Vec<Value> = vec![Value::from(user.user_id)];
+    binds_postgres.extend(params.song_ids.iter().map(|s| Value::from(s.clone())));
+
+    let rows: Vec<SongPlaylistRow> = match state.database.sea_backend() {
+        sea_orm::DbBackend::Postgres => {
+            raw::query_all::<SongPlaylistRow>(
+                state.database.conn(),
+                &sqlite_sql,
+                &postgres_sql,
+                binds_postgres,
+            )
+            .await?
         }
-
-        query_builder.fetch_all(pool).await?
+        _ => {
+            raw::query_all::<SongPlaylistRow>(
+                state.database.conn(),
+                &sqlite_sql,
+                &postgres_sql,
+                binds_sqlite,
+            )
+            .await?
+        }
     };
 
     // Group by song_id
     let mut playlists_by_song: HashMap<String, Vec<PlaylistContainingSong>> = HashMap::new();
-    for (song_id, playlist_id, playlist_name) in rows {
+    for SongPlaylistRow {
+        song_id,
+        playlist_id,
+        playlist_name,
+    } in rows
+    {
         playlists_by_song
             .entry(song_id)
             .or_default()
@@ -2946,12 +2664,18 @@ pub async fn get_recently_played_playlists(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<RecentPlaylistsResponse>> {
-    // Fetch recently played regular playlists (owned or shared with user)
-    let regular: Vec<(String, String, i64, i64, String)> = if let Ok(pool) =
-        state.database.sqlite_pool()
-    {
-        sqlx::query_as(
-            r#"
+    #[derive(sea_orm::FromQueryResult)]
+    struct RegularRow {
+        id: String,
+        name: String,
+        song_count: i64,
+        duration: i64,
+        last_played_at: String,
+    }
+
+    let regular: Vec<RegularRow> = raw::query_all::<RegularRow>(
+        state.database.conn(),
+        r#"
             SELECT p.id, p.name, p.song_count,
                    COALESCE((
                        SELECT SUM(s.duration)
@@ -2968,18 +2692,7 @@ pub async fn get_recently_played_playlists(
             ORDER BY p.last_played_at DESC
             LIMIT 50
             "#,
-        )
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = state
-            .database
-            .postgres_pool()
-            .map_err(|error| Error::Internal(error.to_string()))?;
-        sqlx::query_as(
-            r#"
+        r#"
             SELECT p.id, p.name, p.song_count,
                    COALESCE((
                        SELECT SUM(s.duration)::BIGINT
@@ -2996,17 +2709,58 @@ pub async fn get_recently_played_playlists(
             ORDER BY p.last_played_at DESC
             LIMIT 50
             "#,
-        )
-        .bind(user.user_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?
-    };
+        [Value::from(user.user_id), Value::from(user.user_id)],
+    )
+    .await?;
 
     // Fetch recently played smart playlists
-    let smart: Vec<(String, String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+    #[derive(sea_orm::FromQueryResult)]
+    struct SmartRow {
+        id: String,
+        name: String,
+        last_played_at: String,
+    }
+
+    let smart: Vec<SmartRow> = match state.database.sea_backend() {
+        sea_orm::DbBackend::Postgres => {
+            let smart_playlists_available = raw::query_scalar::<bool>(
+                state.database.conn(),
+                "SELECT 1",
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'smart_playlists'
+                )
+                "#,
+                std::iter::empty::<Value>(),
+            )
+            .await?
+            .unwrap_or(false);
+
+            if !smart_playlists_available {
+                Vec::new()
+            } else {
+                raw::query_all::<SmartRow>(
+                    state.database.conn(),
+                    "SELECT 1",
+                    r#"
+                    SELECT sp.id, sp.name,
+                           to_char(sp.last_played_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_played_at
+                    FROM smart_playlists sp
+                    WHERE sp.owner_id = $1 AND sp.last_played_at IS NOT NULL
+                    ORDER BY sp.last_played_at DESC
+                    LIMIT 50
+                    "#,
+                    [Value::from(user.user_id)],
+                )
+                .await?
+            }
+        }
+        _ => {
+            raw::query_all::<SmartRow>(
+                state.database.conn(),
+                r#"
             SELECT sp.id, sp.name,
                    strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
             FROM smart_playlists sp
@@ -3014,49 +2768,23 @@ pub async fn get_recently_played_playlists(
             ORDER BY sp.last_played_at DESC
             LIMIT 50
             "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = state
-            .database
-            .postgres_pool()
-            .map_err(|error| Error::Internal(error.to_string()))?;
-        let smart_playlists_available: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = 'smart_playlists'
+                "SELECT 1",
+                [Value::from(user.user_id)],
             )
-            "#,
-        )
-        .fetch_one(pool)
-        .await?;
-
-        if !smart_playlists_available {
-            Vec::new()
-        } else {
-            sqlx::query_as(
-                r#"
-                SELECT sp.id, sp.name,
-                       to_char(sp.last_played_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_played_at
-                FROM smart_playlists sp
-                WHERE sp.owner_id = $1 AND sp.last_played_at IS NOT NULL
-                ORDER BY sp.last_played_at DESC
-                LIMIT 50
-                "#,
-            )
-            .bind(user.user_id)
-            .fetch_all(pool)
             .await?
         }
     };
 
     let mut entries: Vec<RecentPlaylistEntry> = Vec::new();
 
-    for (id, name, song_count, duration, last_played_at) in regular {
+    for RegularRow {
+        id,
+        name,
+        song_count,
+        duration,
+        last_played_at,
+    } in regular
+    {
         entries.push(RecentPlaylistEntry {
             cover_art: Some(id.clone()),
             id,
@@ -3068,7 +2796,12 @@ pub async fn get_recently_played_playlists(
         });
     }
 
-    for (id, name, last_played_at) in smart {
+    for SmartRow {
+        id,
+        name,
+        last_played_at,
+    } in smart
+    {
         entries.push(RecentPlaylistEntry {
             cover_art: Some(format!("sp-{}", id)),
             playlist_type: "smartPlaylist".to_string(),

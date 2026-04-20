@@ -6,14 +6,13 @@ use crate::api::subsonic::inline_thumbnails::{
     InlineImagesParam,
 };
 use crate::api::AppState;
-use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
     response::Json,
 };
+use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -44,7 +43,7 @@ pub struct LogListeningResponse {
 }
 
 /// Listening statistics for a time period.
-#[derive(Debug, Serialize, FromRow, TS)]
+#[derive(Debug, Serialize, FromQueryResult, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ListeningStats {
@@ -129,11 +128,11 @@ const ALL_TIME_FILTER: ListeningStatsFilter = ListeningStatsFilter {
 };
 
 fn listening_sql_dialect(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
 ) -> FerrotuneApiResult<ListeningSqlDialect> {
-    if database.sqlite_pool().is_ok() {
+    if database.is_sqlite() {
         Ok(ListeningSqlDialect::Sqlite)
-    } else if database.postgres_pool().is_ok() {
+    } else if database.is_postgres() {
         Ok(ListeningSqlDialect::Postgres)
     } else {
         Err(Error::Internal(
@@ -174,23 +173,18 @@ pub async fn log_listening(
     State(state): State<Arc<AppState>>,
     Json(request): Json<LogListeningRequest>,
 ) -> FerrotuneApiResult<Json<LogListeningResponse>> {
-    let dialect = listening_sql_dialect(&state.database)?;
+    let database = &state.database;
 
     // Validate that the song exists
-    let song_exists: bool = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM songs WHERE id = ?)")
-                .bind(&request.song_id)
-                .fetch_one(state.database.sqlite_pool()?)
-                .await?
-        }
-        ListeningSqlDialect::Postgres => {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM songs WHERE id = $1)")
-                .bind(&request.song_id)
-                .fetch_one(state.database.postgres_pool()?)
-                .await?
-        }
-    };
+    let song_exists = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT CASE WHEN EXISTS(SELECT 1 FROM songs WHERE id = ?) THEN 1 ELSE 0 END",
+        "SELECT (CASE WHEN EXISTS(SELECT 1 FROM songs WHERE id = $1) THEN 1 ELSE 0 END)::BIGINT",
+        [Value::from(request.song_id.clone())],
+    )
+    .await?
+    .unwrap_or(0)
+        != 0;
 
     if !song_exists {
         return Err(Error::NotFound("Song not found".to_string()).into());
@@ -198,48 +192,32 @@ pub async fn log_listening(
 
     // If session_id is provided, update the existing session
     if let Some(session_id) = request.session_id {
-        let result = match dialect {
-            ListeningSqlDialect::Sqlite => sqlx::query(
-                r#"
-                    UPDATE listening_sessions
-                    SET duration_seconds = ?, skipped = ?
-                    WHERE id = ? AND user_id = ? AND song_id = ?
-                    "#,
-            )
-            .bind(request.duration_seconds)
-            .bind(request.skipped)
-            .bind(session_id)
-            .bind(user.user_id)
-            .bind(&request.song_id)
-            .execute(state.database.sqlite_pool()?)
-            .await
-            .map(|result| result.rows_affected()),
-            ListeningSqlDialect::Postgres => sqlx::query(
-                r#"
-                    UPDATE listening_sessions
-                    SET duration_seconds = $1, skipped = $2
-                    WHERE id = $3 AND user_id = $4 AND song_id = $5
-                    "#,
-            )
-            .bind(request.duration_seconds)
-            .bind(request.skipped)
-            .bind(session_id)
-            .bind(user.user_id)
-            .bind(&request.song_id)
-            .execute(state.database.postgres_pool()?)
-            .await
-            .map(|result| result.rows_affected()),
-        };
+        let update_res = crate::db::raw::execute(
+            database.conn(),
+            "UPDATE listening_sessions \
+             SET duration_seconds = ?, skipped = ? \
+             WHERE id = ? AND user_id = ? AND song_id = ?",
+            "UPDATE listening_sessions \
+             SET duration_seconds = $1, skipped = $2 \
+             WHERE id = $3 AND user_id = $4 AND song_id = $5",
+            [
+                Value::from(request.duration_seconds),
+                Value::from(request.skipped),
+                Value::from(session_id),
+                Value::from(user.user_id),
+                Value::from(request.song_id.clone()),
+            ],
+        )
+        .await;
 
-        match result {
-            Ok(rows_affected) if rows_affected > 0 => {
+        match update_res {
+            Ok(res) if res.rows_affected() > 0 => {
                 return Ok(Json(LogListeningResponse {
                     success: true,
                     session_id,
                 }));
             }
             Ok(_) => {
-                // Session not found or wrong user/song - create a new one instead
                 tracing::warn!(
                     "Session {} not found for update, creating new one",
                     session_id
@@ -255,46 +233,28 @@ pub async fn log_listening(
     }
 
     // Insert a new listening session
-    let result = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            sqlx::query_scalar::<_, i64>(
-                r#"
-                INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at)
-                VALUES (?, ?, ?, ?, datetime('now'))
-                RETURNING id
-                "#,
-            )
-            .bind(user.user_id)
-            .bind(&request.song_id)
-            .bind(request.duration_seconds)
-            .bind(request.skipped)
-            .fetch_one(state.database.sqlite_pool()?)
-            .await
-        }
-        ListeningSqlDialect::Postgres => {
-            sqlx::query_scalar::<_, i64>(
-                r#"
-                INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at)
-                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-                RETURNING id
-                "#,
-            )
-            .bind(user.user_id)
-            .bind(&request.song_id)
-            .bind(request.duration_seconds)
-            .bind(request.skipped)
-            .fetch_one(state.database.postgres_pool()?)
-            .await
-        }
-    };
+    let new_id = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at) \
+         VALUES (?, ?, ?, ?, datetime('now')) RETURNING id",
+        "INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at) \
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) RETURNING id",
+        [
+            Value::from(user.user_id),
+            Value::from(request.song_id.clone()),
+            Value::from(request.duration_seconds),
+            Value::from(request.skipped),
+        ],
+    )
+    .await?;
 
-    match result {
-        Ok(session_id) => Ok(Json(LogListeningResponse {
+    match new_id {
+        Some(session_id) => Ok(Json(LogListeningResponse {
             success: true,
             session_id,
         })),
-        Err(e) => {
-            tracing::error!("Failed to log listening session: {}", e);
+        None => {
+            tracing::error!("Failed to log listening session: no row returned");
             Err(Error::Internal("Failed to log listening session".to_string()).into())
         }
     }
@@ -309,66 +269,55 @@ pub async fn get_listening_stats(
 ) -> FerrotuneApiResult<Json<ListeningStatsResponse>> {
     // Helper to get stats for a date filter
     async fn get_stats_for_period(
-        database: &(impl DatabaseHandle + ?Sized),
+        database: &crate::db::Database,
         user_id: i64,
         filter: ListeningStatsFilter,
     ) -> FerrotuneApiResult<ListeningStats> {
-        match listening_sql_dialect(database)? {
-            ListeningSqlDialect::Sqlite => {
-                let query = format!(
-                    r#"
-                    SELECT
-                        COALESCE(SUM(ls.duration_seconds), 0) as total_seconds,
-                        COUNT(*) as session_count,
-                        COUNT(DISTINCT ls.song_id) as unique_songs,
-                        COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0) as skip_count,
-                        COALESCE((
-                            SELECT SUM(s.play_count) FROM scrobbles s
-                            WHERE s.user_id = ? {date_filter_scrobbles}
-                        ), 0) as scrobble_count
-                    FROM listening_sessions ls
-                    WHERE ls.user_id = ?
-                    {date_filter_ls}
-                    "#,
-                    date_filter_ls = filter.sqlite_listening,
-                    date_filter_scrobbles = filter.sqlite_scrobbles,
-                );
+        let sqlite_sql = format!(
+            r#"
+                SELECT
+                    COALESCE(SUM(ls.duration_seconds), 0) as total_seconds,
+                    COUNT(*) as session_count,
+                    COUNT(DISTINCT ls.song_id) as unique_songs,
+                    COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0) as skip_count,
+                    COALESCE((
+                        SELECT SUM(s.play_count) FROM scrobbles s
+                        WHERE s.user_id = ? {date_filter_scrobbles}
+                    ), 0) as scrobble_count
+                FROM listening_sessions ls
+                WHERE ls.user_id = ?
+                {date_filter_ls}
+                "#,
+            date_filter_ls = filter.sqlite_listening,
+            date_filter_scrobbles = filter.sqlite_scrobbles,
+        );
+        let postgres_sql = format!(
+            r#"
+                SELECT
+                    COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_seconds,
+                    COUNT(*) as session_count,
+                    COUNT(DISTINCT ls.song_id) as unique_songs,
+                    COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0)::BIGINT as skip_count,
+                    COALESCE((
+                        SELECT COALESCE(SUM(s.play_count), 0)::BIGINT FROM scrobbles s
+                        WHERE s.user_id = $1 {date_filter_scrobbles}
+                    ), 0)::BIGINT as scrobble_count
+                FROM listening_sessions ls
+                WHERE ls.user_id = $2
+                {date_filter_ls}
+                "#,
+            date_filter_ls = filter.postgres_listening,
+            date_filter_scrobbles = filter.postgres_scrobbles,
+        );
 
-                sqlx::query_as::<_, ListeningStats>(&query)
-                    .bind(user_id)
-                    .bind(user_id)
-                    .fetch_one(database.sqlite_pool()?)
-                    .await
-                    .map_err(Into::into)
-            }
-            ListeningSqlDialect::Postgres => {
-                let query = format!(
-                    r#"
-                    SELECT
-                        COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_seconds,
-                        COUNT(*) as session_count,
-                        COUNT(DISTINCT ls.song_id) as unique_songs,
-                        COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0)::BIGINT as skip_count,
-                        COALESCE((
-                            SELECT COALESCE(SUM(s.play_count), 0)::BIGINT FROM scrobbles s
-                            WHERE s.user_id = $1 {date_filter_scrobbles}
-                        ), 0)::BIGINT as scrobble_count
-                    FROM listening_sessions ls
-                    WHERE ls.user_id = $2
-                    {date_filter_ls}
-                    "#,
-                    date_filter_ls = filter.postgres_listening,
-                    date_filter_scrobbles = filter.postgres_scrobbles,
-                );
-
-                sqlx::query_as::<_, ListeningStats>(&query)
-                    .bind(user_id)
-                    .bind(user_id)
-                    .fetch_one(database.postgres_pool()?)
-                    .await
-                    .map_err(Into::into)
-            }
-        }
+        let row = crate::db::raw::query_one::<ListeningStats>(
+            database.conn(),
+            &sqlite_sql,
+            &postgres_sql,
+            [Value::from(user_id), Value::from(user_id)],
+        )
+        .await?;
+        row.ok_or_else(|| Error::Internal("Failed to fetch listening stats".to_string()).into())
     }
 
     // Get stats for each time period
@@ -389,7 +338,7 @@ pub async fn get_listening_stats(
 
 // ============ Period Review Types ============
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct TopArtist {
@@ -401,12 +350,12 @@ pub struct TopArtist {
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
     /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
-    #[sqlx(skip)]
+    #[sea_orm(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art_data: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct TopAlbum {
@@ -420,12 +369,12 @@ pub struct TopAlbum {
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
     /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
-    #[sqlx(skip)]
+    #[sea_orm(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art_data: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct TopTrack {
@@ -441,7 +390,7 @@ pub struct TopTrack {
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
     /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
-    #[sqlx(skip)]
+    #[sea_orm(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art_data: Option<String>,
 }
@@ -512,256 +461,230 @@ pub async fn get_period_review(
     };
 
     // Get overall stats for the period
-    let stats_result = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            let stats_query = format!(
-                r#"
-                SELECT
-                    COALESCE(SUM(ls.duration_seconds), 0) as total_listening_secs,
-                    COUNT(*) as total_play_count,
-                    COUNT(DISTINCT ls.song_id) as unique_tracks,
-                    COUNT(DISTINCT s.album_id) as unique_albums,
-                    COUNT(DISTINCT s.artist_id) as unique_artists
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                WHERE ls.user_id = ? {}
-                "#,
-                date_filter.sqlite
-            );
+    #[derive(FromQueryResult)]
+    struct PeriodStatsRow {
+        total_listening_secs: i64,
+        total_play_count: i64,
+        unique_tracks: i64,
+        unique_albums: i64,
+        unique_artists: i64,
+    }
 
-            sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(&stats_query)
-                .bind(user.user_id)
-                .fetch_optional(state.database.sqlite_pool()?)
-                .await
-        }
-        ListeningSqlDialect::Postgres => {
-            let stats_query = format!(
-                r#"
-                SELECT
-                    COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_listening_secs,
-                    COUNT(*) as total_play_count,
-                    COUNT(DISTINCT ls.song_id) as unique_tracks,
-                    COUNT(DISTINCT s.album_id) as unique_albums,
-                    COUNT(DISTINCT s.artist_id) as unique_artists
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                WHERE ls.user_id = $1 {}
-                "#,
-                date_filter.postgres
-            );
+    let stats_sqlite = format!(
+        r#"
+            SELECT
+                COALESCE(SUM(ls.duration_seconds), 0) as total_listening_secs,
+                COUNT(*) as total_play_count,
+                COUNT(DISTINCT ls.song_id) as unique_tracks,
+                COUNT(DISTINCT s.album_id) as unique_albums,
+                COUNT(DISTINCT s.artist_id) as unique_artists
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            WHERE ls.user_id = ? {}
+            "#,
+        date_filter.sqlite
+    );
+    let stats_postgres = format!(
+        r#"
+            SELECT
+                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_listening_secs,
+                COUNT(*) as total_play_count,
+                COUNT(DISTINCT ls.song_id) as unique_tracks,
+                COUNT(DISTINCT s.album_id) as unique_albums,
+                COUNT(DISTINCT s.artist_id) as unique_artists
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            WHERE ls.user_id = $1 {}
+            "#,
+        date_filter.postgres
+    );
 
-            sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(&stats_query)
-                .bind(user.user_id)
-                .fetch_optional(state.database.postgres_pool()?)
-                .await
-        }
-    };
+    let stats_opt = crate::db::raw::query_all::<PeriodStatsRow>(
+        state.database.conn(),
+        &stats_sqlite,
+        &stats_postgres,
+        [Value::from(user.user_id)],
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to fetch period stats: {}", e);
+        Error::Internal("Failed to fetch period review".to_string())
+    })?;
 
     let (total_listening_secs, total_play_count, unique_tracks, unique_albums, unique_artists) =
-        match stats_result {
-            Ok(Some(row)) => row,
-            Ok(None) => (0, 0, 0, 0, 0),
-            Err(e) => {
-                tracing::error!("Failed to fetch period stats: {}", e);
-                return Err(Error::Internal("Failed to fetch period review".to_string()).into());
-            }
+        match stats_opt.into_iter().next() {
+            Some(row) => (
+                row.total_listening_secs,
+                row.total_play_count,
+                row.unique_tracks,
+                row.unique_albums,
+                row.unique_artists,
+            ),
+            None => (0, 0, 0, 0, 0),
         };
 
     // Get top artists
-    let mut top_artists: Vec<TopArtist> = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            let top_artists_query = format!(
-                r#"
-                SELECT
-                    COALESCE(s.artist_id, 'unknown') as artist_id,
-                    COALESCE(a.name, 'Unknown Artist') as artist_name,
-                    COUNT(*) as play_count,
-                    COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
-                    (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                LEFT JOIN artists a ON s.artist_id = a.id
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
-                GROUP BY s.artist_id
-                ORDER BY play_count DESC
-                LIMIT 100
-                "#,
-                date_filter.sqlite,
-            );
-
-            sqlx::query_as(&top_artists_query)
-                .bind(user.user_id)
-                .bind(user.user_id)
-                .fetch_all(state.database.sqlite_pool()?)
-                .await?
-        }
-        ListeningSqlDialect::Postgres => {
-            let top_artists_query = format!(
-                r#"
-                SELECT
-                    COALESCE(s.artist_id, 'unknown') as artist_id,
-                    COALESCE(a.name, 'Unknown Artist') as artist_name,
-                    COUNT(*) as play_count,
-                    COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
-                    (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                LEFT JOIN artists a ON s.artist_id = a.id
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
-                GROUP BY s.artist_id, a.name
-                ORDER BY play_count DESC
-                LIMIT 100
-                "#,
-                date_filter.postgres,
-            );
-
-            sqlx::query_as(&top_artists_query)
-                .bind(user.user_id)
-                .bind(user.user_id)
-                .fetch_all(state.database.postgres_pool()?)
-                .await?
-        }
-    };
+    let top_artists_sqlite = format!(
+        r#"
+            SELECT
+                COALESCE(s.artist_id, 'unknown') as artist_id,
+                COALESCE(a.name, 'Unknown Artist') as artist_name,
+                COUNT(*) as play_count,
+                COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
+                (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            LEFT JOIN artists a ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
+            GROUP BY s.artist_id
+            ORDER BY play_count DESC
+            LIMIT 100
+            "#,
+        date_filter.sqlite,
+    );
+    let top_artists_postgres = format!(
+        r#"
+            SELECT
+                COALESCE(s.artist_id, 'unknown') as artist_id,
+                COALESCE(a.name, 'Unknown Artist') as artist_name,
+                COUNT(*) as play_count,
+                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
+                (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            LEFT JOIN artists a ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
+            GROUP BY s.artist_id, a.name
+            ORDER BY play_count DESC
+            LIMIT 100
+            "#,
+        date_filter.postgres,
+    );
+    let mut top_artists: Vec<TopArtist> = crate::db::raw::query_all::<TopArtist>(
+        state.database.conn(),
+        &top_artists_sqlite,
+        &top_artists_postgres,
+        [Value::from(user.user_id), Value::from(user.user_id)],
+    )
+    .await?;
 
     // Get top albums
-    let mut top_albums: Vec<TopAlbum> = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            let top_albums_query = format!(
-                r#"
-                SELECT
-                    COALESCE(s.album_id, 'unknown') as album_id,
-                    COALESCE(al.name, 'Unknown Album') as album_name,
-                    s.artist_id as artist_id,
-                    COALESCE(a.name, 'Unknown Artist') as artist_name,
-                    COUNT(*) as play_count,
-                    COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
-                    s.album_id as cover_art
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                LEFT JOIN albums al ON s.album_id = al.id
-                LEFT JOIN artists a ON s.artist_id = a.id
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
-                GROUP BY s.album_id
-                ORDER BY play_count DESC
-                LIMIT 100
-                "#,
-                date_filter.sqlite,
-            );
-
-            sqlx::query_as(&top_albums_query)
-                .bind(user.user_id)
-                .bind(user.user_id)
-                .fetch_all(state.database.sqlite_pool()?)
-                .await?
-        }
-        ListeningSqlDialect::Postgres => {
-            let top_albums_query = format!(
-                r#"
-                SELECT
-                    COALESCE(s.album_id, 'unknown') as album_id,
-                    COALESCE(al.name, 'Unknown Album') as album_name,
-                    s.artist_id as artist_id,
-                    COALESCE(a.name, 'Unknown Artist') as artist_name,
-                    COUNT(*) as play_count,
-                    COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
-                    s.album_id as cover_art
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                LEFT JOIN albums al ON s.album_id = al.id
-                LEFT JOIN artists a ON s.artist_id = a.id
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
-                GROUP BY s.album_id, al.name, s.artist_id, a.name
-                ORDER BY play_count DESC
-                LIMIT 100
-                "#,
-                date_filter.postgres,
-            );
-
-            sqlx::query_as(&top_albums_query)
-                .bind(user.user_id)
-                .bind(user.user_id)
-                .fetch_all(state.database.postgres_pool()?)
-                .await?
-        }
-    };
+    let top_albums_sqlite = format!(
+        r#"
+            SELECT
+                COALESCE(s.album_id, 'unknown') as album_id,
+                COALESCE(al.name, 'Unknown Album') as album_name,
+                s.artist_id as artist_id,
+                COALESCE(a.name, 'Unknown Artist') as artist_name,
+                COUNT(*) as play_count,
+                COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
+                s.album_id as cover_art
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            LEFT JOIN artists a ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
+            GROUP BY s.album_id
+            ORDER BY play_count DESC
+            LIMIT 100
+            "#,
+        date_filter.sqlite,
+    );
+    let top_albums_postgres = format!(
+        r#"
+            SELECT
+                COALESCE(s.album_id, 'unknown') as album_id,
+                COALESCE(al.name, 'Unknown Album') as album_name,
+                s.artist_id as artist_id,
+                COALESCE(a.name, 'Unknown Artist') as artist_name,
+                COUNT(*) as play_count,
+                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
+                s.album_id as cover_art
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            LEFT JOIN artists a ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
+            GROUP BY s.album_id, al.name, s.artist_id, a.name
+            ORDER BY play_count DESC
+            LIMIT 100
+            "#,
+        date_filter.postgres,
+    );
+    let mut top_albums: Vec<TopAlbum> = crate::db::raw::query_all::<TopAlbum>(
+        state.database.conn(),
+        &top_albums_sqlite,
+        &top_albums_postgres,
+        [Value::from(user.user_id), Value::from(user.user_id)],
+    )
+    .await?;
 
     // Get top tracks
-    let mut top_tracks: Vec<TopTrack> = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            let top_tracks_query = format!(
-                r#"
-                SELECT
-                    s.id as track_id,
-                    COALESCE(s.title, 'Unknown Track') as track_title,
-                    s.artist_id as artist_id,
-                    COALESCE(a.name, 'Unknown Artist') as artist_name,
-                    s.album_id as album_id,
-                    COALESCE(al.name, 'Unknown Album') as album_name,
-                    COUNT(*) as play_count,
-                    COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
-                    s.album_id as cover_art
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                LEFT JOIN albums al ON s.album_id = al.id
-                LEFT JOIN artists a ON s.artist_id = a.id
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
-                GROUP BY s.id
-                ORDER BY play_count DESC
-                LIMIT 100
-                "#,
-                date_filter.sqlite,
-            );
-
-            sqlx::query_as(&top_tracks_query)
-                .bind(user.user_id)
-                .bind(user.user_id)
-                .fetch_all(state.database.sqlite_pool()?)
-                .await?
-        }
-        ListeningSqlDialect::Postgres => {
-            let top_tracks_query = format!(
-                r#"
-                SELECT
-                    s.id as track_id,
-                    COALESCE(s.title, 'Unknown Track') as track_title,
-                    s.artist_id as artist_id,
-                    COALESCE(a.name, 'Unknown Artist') as artist_name,
-                    s.album_id as album_id,
-                    COALESCE(al.name, 'Unknown Album') as album_name,
-                    COUNT(*) as play_count,
-                    COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
-                    s.album_id as cover_art
-                FROM listening_sessions ls
-                LEFT JOIN songs s ON ls.song_id = s.id
-                LEFT JOIN albums al ON s.album_id = al.id
-                LEFT JOIN artists a ON s.artist_id = a.id
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
-                GROUP BY s.id, s.title, s.artist_id, a.name, s.album_id, al.name
-                ORDER BY play_count DESC
-                LIMIT 100
-                "#,
-                date_filter.postgres,
-            );
-
-            sqlx::query_as(&top_tracks_query)
-                .bind(user.user_id)
-                .bind(user.user_id)
-                .fetch_all(state.database.postgres_pool()?)
-                .await?
-        }
-    };
+    let top_tracks_sqlite = format!(
+        r#"
+            SELECT
+                s.id as track_id,
+                COALESCE(s.title, 'Unknown Track') as track_title,
+                s.artist_id as artist_id,
+                COALESCE(a.name, 'Unknown Artist') as artist_name,
+                s.album_id as album_id,
+                COALESCE(al.name, 'Unknown Album') as album_name,
+                COUNT(*) as play_count,
+                COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
+                s.album_id as cover_art
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            LEFT JOIN artists a ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
+            GROUP BY s.id
+            ORDER BY play_count DESC
+            LIMIT 100
+            "#,
+        date_filter.sqlite,
+    );
+    let top_tracks_postgres = format!(
+        r#"
+            SELECT
+                s.id as track_id,
+                COALESCE(s.title, 'Unknown Track') as track_title,
+                s.artist_id as artist_id,
+                COALESCE(a.name, 'Unknown Artist') as artist_name,
+                s.album_id as album_id,
+                COALESCE(al.name, 'Unknown Album') as album_name,
+                COUNT(*) as play_count,
+                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
+                s.album_id as cover_art
+            FROM listening_sessions ls
+            LEFT JOIN songs s ON ls.song_id = s.id
+            LEFT JOIN albums al ON s.album_id = al.id
+            LEFT JOIN artists a ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
+            GROUP BY s.id, s.title, s.artist_id, a.name, s.album_id, al.name
+            ORDER BY play_count DESC
+            LIMIT 100
+            "#,
+        date_filter.postgres,
+    );
+    let mut top_tracks: Vec<TopTrack> = crate::db::raw::query_all::<TopTrack>(
+        state.database.conn(),
+        &top_tracks_sqlite,
+        &top_tracks_postgres,
+        [Value::from(user.user_id), Value::from(user.user_id)],
+    )
+    .await?;
 
     // Get inline thumbnails if requested
     let inline_size = query.inline_images.get_size();
@@ -794,38 +717,36 @@ pub async fn get_period_review(
     }
 
     // Get available periods (years and months with data)
-    let period_rows: Vec<(i32, i32)> = match dialect {
-        ListeningSqlDialect::Sqlite => {
-            let available_periods_query = r#"
-                SELECT DISTINCT
-                    CAST(strftime('%Y', listened_at) AS INTEGER) as year,
-                    CAST(strftime('%m', listened_at) AS INTEGER) as month
-                FROM listening_sessions
-                WHERE user_id = ?
-                ORDER BY year DESC, month DESC
-            "#;
-
-            sqlx::query_as(available_periods_query)
-                .bind(user.user_id)
-                .fetch_all(state.database.sqlite_pool()?)
-                .await?
-        }
-        ListeningSqlDialect::Postgres => {
-            let available_periods_query = r#"
-                SELECT DISTINCT
-                    EXTRACT(YEAR FROM listened_at)::INTEGER as year,
-                    EXTRACT(MONTH FROM listened_at)::INTEGER as month
-                FROM listening_sessions
-                WHERE user_id = $1
-                ORDER BY year DESC, month DESC
-            "#;
-
-            sqlx::query_as(available_periods_query)
-                .bind(user.user_id)
-                .fetch_all(state.database.postgres_pool()?)
-                .await?
-        }
-    };
+    #[derive(FromQueryResult)]
+    struct PeriodRow {
+        year: i32,
+        month: i32,
+    }
+    let period_rows_raw = crate::db::raw::query_all::<PeriodRow>(
+        state.database.conn(),
+        r#"
+            SELECT DISTINCT
+                CAST(strftime('%Y', listened_at) AS INTEGER) as year,
+                CAST(strftime('%m', listened_at) AS INTEGER) as month
+            FROM listening_sessions
+            WHERE user_id = ?
+            ORDER BY year DESC, month DESC
+        "#,
+        r#"
+            SELECT DISTINCT
+                EXTRACT(YEAR FROM listened_at)::INTEGER as year,
+                EXTRACT(MONTH FROM listened_at)::INTEGER as month
+            FROM listening_sessions
+            WHERE user_id = $1
+            ORDER BY year DESC, month DESC
+        "#,
+        [Value::from(user.user_id)],
+    )
+    .await?;
+    let period_rows: Vec<(i32, i32)> = period_rows_raw
+        .into_iter()
+        .map(|r| (r.year, r.month))
+        .collect();
 
     // Build available periods list - include both year summaries and monthly breakdowns
     let mut available_periods = Vec::new();

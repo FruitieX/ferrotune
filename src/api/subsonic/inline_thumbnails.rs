@@ -12,12 +12,31 @@
 
 #![allow(dead_code)]
 
-use crate::db::DatabaseHandle;
+use crate::db::raw;
 use crate::thumbnails::ThumbnailSize;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, QueryBuilder, Sqlite};
 use std::collections::HashMap;
+
+#[derive(FromQueryResult)]
+struct IdBlobRow {
+    id: String,
+    thumbnail: Vec<u8>,
+}
+
+fn sqlite_placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn postgres_placeholders(start: usize, count: usize) -> String {
+    (0..count)
+        .map(|i| format!("${}", start + i))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// Query parameter for requesting inline thumbnails
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -55,7 +74,7 @@ fn encode_thumbnail_rows(rows: Vec<(String, Vec<u8>)>) -> HashMap<String, String
 
 /// Fetch thumbnails for multiple albums and return as base64-encoded map
 pub async fn get_album_thumbnails_base64(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     album_ids: &[String],
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
@@ -67,54 +86,27 @@ pub async fn get_album_thumbnails_base64(
         return HashMap::new();
     };
 
-    if let Ok(pool) = database.sqlite_pool() {
-        let mut query_builder = QueryBuilder::<Sqlite>::new(format!(
-            "SELECT a.id, t.{column} FROM albums a \
-             INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash \
-             WHERE a.id IN ("
-        ));
-        {
-            let mut separated = query_builder.separated(", ");
-            for id in album_ids {
-                separated.push_bind(id);
-            }
-        }
-        query_builder.push(")");
-
-        let results: Vec<(String, Vec<u8>)> =
-            match query_builder.build_query_as().fetch_all(pool).await {
-                Ok(rows) => rows,
-                Err(e) => {
-                    tracing::warn!("Failed to fetch album thumbnails: {}", e);
-                    return HashMap::new();
-                }
-            };
-
-        return encode_thumbnail_rows(results);
-    }
-
-    let pool = match database.postgres_pool() {
-        Ok(pool) => pool,
-        Err(e) => {
-            tracing::warn!("Failed to access album thumbnails database: {}", e);
-            return HashMap::new();
-        }
-    };
-
-    let mut query_builder = QueryBuilder::<Postgres>::new(format!(
-        "SELECT a.id, t.{column} FROM albums a \
+    let n = album_ids.len();
+    let sqlite_sql = format!(
+        "SELECT a.id AS id, t.{column} AS thumbnail FROM albums a \
          INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash \
-         WHERE a.id IN ("
-    ));
-    {
-        let mut separated = query_builder.separated(", ");
-        for id in album_ids {
-            separated.push_bind(id);
-        }
-    }
-    query_builder.push(")");
-
-    let results: Vec<(String, Vec<u8>)> = match query_builder.build_query_as().fetch_all(pool).await
+         WHERE a.id IN ({})",
+        sqlite_placeholders(n)
+    );
+    let postgres_sql = format!(
+        "SELECT a.id AS id, t.{column} AS thumbnail FROM albums a \
+         INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash \
+         WHERE a.id IN ({})",
+        postgres_placeholders(1, n)
+    );
+    let params: Vec<Value> = album_ids.iter().map(|s| Value::from(s.clone())).collect();
+    let rows = match raw::query_all::<IdBlobRow>(
+        database.conn(),
+        &sqlite_sql,
+        &postgres_sql,
+        params,
+    )
+    .await
     {
         Ok(rows) => rows,
         Err(e) => {
@@ -122,13 +114,12 @@ pub async fn get_album_thumbnails_base64(
             return HashMap::new();
         }
     };
-
-    encode_thumbnail_rows(results)
+    encode_thumbnail_rows(rows.into_iter().map(|r| (r.id, r.thumbnail)).collect())
 }
 
 /// Get a single album thumbnail as base64
 pub async fn get_album_thumbnail_base64(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     album_id: &str,
     size: ThumbnailSize,
 ) -> Option<String> {
@@ -138,7 +129,7 @@ pub async fn get_album_thumbnail_base64(
 
 /// Get thumbnails for multiple artists (uses their first album's thumbnail)
 pub async fn get_artist_thumbnails_base64(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     artist_ids: &[String],
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
@@ -150,73 +141,38 @@ pub async fn get_artist_thumbnails_base64(
         return HashMap::new();
     };
 
-    if let Ok(pool) = database.sqlite_pool() {
-        let mut query_builder = QueryBuilder::<Sqlite>::new(format!(
-            r#"
-            SELECT ar.id, t.{column}
-            FROM artists ar
-            LEFT JOIN albums a ON a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
-            LEFT JOIN cover_art_thumbnails t ON (ar.cover_art_hash = t.hash OR a.cover_art_hash = t.hash)
-            WHERE ar.id IN (
-            "#,
-        ));
-        {
-            let mut separated = query_builder.separated(", ");
-            for id in artist_ids {
-                separated.push_bind(id);
-            }
-        }
-        query_builder.push(") GROUP BY ar.id HAVING t.");
-        query_builder.push(column);
-        query_builder.push(" IS NOT NULL");
-
-        let results: Vec<(String, Vec<u8>)> =
-            match query_builder.build_query_as().fetch_all(pool).await {
-                Ok(rows) => rows,
-                Err(e) => {
-                    tracing::warn!("Failed to fetch artist thumbnails: {}", e);
-                    return HashMap::new();
-                }
-            };
-
-        return encode_thumbnail_rows(results);
-    }
-
-    let pool = match database.postgres_pool() {
-        Ok(pool) => pool,
-        Err(e) => {
-            tracing::warn!("Failed to access artist thumbnails database: {}", e);
-            return HashMap::new();
-        }
-    };
-
-    let mut query_builder = QueryBuilder::<Postgres>::new(format!(
-        r#"
-        SELECT ar.id, COALESCE(artist_t.{column}, album_t.thumbnail) AS thumbnail
-        FROM artists ar
-        LEFT JOIN cover_art_thumbnails artist_t ON ar.cover_art_hash = artist_t.hash
-        LEFT JOIN LATERAL (
-            SELECT t.{column} AS thumbnail
-            FROM albums a
-            INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash
-            WHERE a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
-            ORDER BY a.created_at, a.id
-            LIMIT 1
-        ) album_t ON TRUE
-        WHERE ar.id IN (
-        "#,
-    ));
-    {
-        let mut separated = query_builder.separated(", ");
-        for id in artist_ids {
-            separated.push_bind(id);
-        }
-    }
-    query_builder.push(") AND COALESCE(artist_t.");
-    query_builder.push(column);
-    query_builder.push(", album_t.thumbnail) IS NOT NULL");
-
-    let results: Vec<(String, Vec<u8>)> = match query_builder.build_query_as().fetch_all(pool).await
+    let n = artist_ids.len();
+    let sqlite_sql = format!(
+        r#"SELECT ar.id AS id, t.{column} AS thumbnail
+           FROM artists ar
+           LEFT JOIN albums a ON a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
+           LEFT JOIN cover_art_thumbnails t ON (ar.cover_art_hash = t.hash OR a.cover_art_hash = t.hash)
+           WHERE ar.id IN ({}) GROUP BY ar.id HAVING t.{column} IS NOT NULL"#,
+        sqlite_placeholders(n)
+    );
+    let postgres_sql = format!(
+        r#"SELECT ar.id AS id, COALESCE(artist_t.{column}, album_t.thumbnail) AS thumbnail
+           FROM artists ar
+           LEFT JOIN cover_art_thumbnails artist_t ON ar.cover_art_hash = artist_t.hash
+           LEFT JOIN LATERAL (
+               SELECT t.{column} AS thumbnail
+               FROM albums a
+               INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash
+               WHERE a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
+               ORDER BY a.created_at, a.id
+               LIMIT 1
+           ) album_t ON TRUE
+           WHERE ar.id IN ({}) AND COALESCE(artist_t.{column}, album_t.thumbnail) IS NOT NULL"#,
+        postgres_placeholders(1, n)
+    );
+    let params: Vec<Value> = artist_ids.iter().map(|s| Value::from(s.clone())).collect();
+    let rows = match raw::query_all::<IdBlobRow>(
+        database.conn(),
+        &sqlite_sql,
+        &postgres_sql,
+        params,
+    )
+    .await
     {
         Ok(rows) => rows,
         Err(e) => {
@@ -224,13 +180,12 @@ pub async fn get_artist_thumbnails_base64(
             return HashMap::new();
         }
     };
-
-    encode_thumbnail_rows(results)
+    encode_thumbnail_rows(rows.into_iter().map(|r| (r.id, r.thumbnail)).collect())
 }
 
 /// Get thumbnails for songs (uses song's own cover art, falls back to album's cover art)
 pub async fn get_song_thumbnails_base64(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     songs: &[(String, Option<String>)], // (song_id, album_id)
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
@@ -244,59 +199,36 @@ pub async fn get_song_thumbnails_base64(
 
     // First, try to get thumbnails from song's own cover_art_hash
     let song_ids: Vec<String> = songs.iter().map(|(id, _)| id.clone()).collect();
-    let song_results: Vec<(String, Vec<u8>)> = if let Ok(pool) = database.sqlite_pool() {
-        let mut query_builder = QueryBuilder::<Sqlite>::new(format!(
-            "SELECT s.id, t.{column} FROM songs s \
-             INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash \
-             WHERE s.id IN ("
-        ));
-        {
-            let mut separated = query_builder.separated(", ");
-            for id in &song_ids {
-                separated.push_bind(id);
-            }
-        }
-        query_builder.push(")");
-
-        match query_builder.build_query_as().fetch_all(pool).await {
-            Ok(rows) => rows,
-            Err(e) => {
-                tracing::warn!("Failed to fetch song thumbnails: {}", e);
-                Vec::new()
-            }
-        }
-    } else {
-        let pool = match database.postgres_pool() {
-            Ok(pool) => pool,
-            Err(e) => {
-                tracing::warn!("Failed to access song thumbnails database: {}", e);
-                return HashMap::new();
-            }
-        };
-
-        let mut query_builder = QueryBuilder::<Postgres>::new(format!(
-            "SELECT s.id, t.{column} FROM songs s \
-             INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash \
-             WHERE s.id IN ("
-        ));
-        {
-            let mut separated = query_builder.separated(", ");
-            for id in &song_ids {
-                separated.push_bind(id);
-            }
-        }
-        query_builder.push(")");
-
-        match query_builder.build_query_as().fetch_all(pool).await {
-            Ok(rows) => rows,
-            Err(e) => {
-                tracing::warn!("Failed to fetch song thumbnails: {}", e);
-                Vec::new()
-            }
+    let n = song_ids.len();
+    let sqlite_sql = format!(
+        "SELECT s.id AS id, t.{column} AS thumbnail FROM songs s \
+         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash \
+         WHERE s.id IN ({})",
+        sqlite_placeholders(n)
+    );
+    let postgres_sql = format!(
+        "SELECT s.id AS id, t.{column} AS thumbnail FROM songs s \
+         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash \
+         WHERE s.id IN ({})",
+        postgres_placeholders(1, n)
+    );
+    let params: Vec<Value> = song_ids.iter().map(|s| Value::from(s.clone())).collect();
+    let song_rows = match raw::query_all::<IdBlobRow>(
+        database.conn(),
+        &sqlite_sql,
+        &postgres_sql,
+        params,
+    )
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("Failed to fetch song thumbnails: {}", e);
+            Vec::new()
         }
     };
-
-    let mut result = encode_thumbnail_rows(song_results);
+    let mut result =
+        encode_thumbnail_rows(song_rows.into_iter().map(|r| (r.id, r.thumbnail)).collect());
 
     // For songs that don't have their own cover art, fall back to album thumbnails
     let songs_needing_album_fallback: Vec<&(String, Option<String>)> = songs
@@ -332,7 +264,7 @@ pub async fn get_song_thumbnails_base64(
 /// Generate a tiled playlist thumbnail from album thumbnails and return as base64
 #[allow(unused_imports)]
 pub async fn get_playlist_thumbnail_base64(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     playlist_id: &str,
     size: ThumbnailSize,
 ) -> Option<String> {
@@ -343,48 +275,38 @@ pub async fn get_playlist_thumbnail_base64(
     let tile_size_enum = ThumbnailSize::Medium;
     let column = "medium";
 
-    let results: Vec<(String, Vec<u8>)> = if let Ok(pool) = database.sqlite_pool() {
-        let query = format!(
-            "SELECT t.hash, t.{} 
-             FROM songs s
-             INNER JOIN playlist_songs ps ON s.id = ps.song_id
-             INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash
-             WHERE ps.playlist_id = ? AND s.cover_art_hash IS NOT NULL
-             ORDER BY ps.position
-             LIMIT 4",
-            column
-        );
-
-        sqlx::query_as(&query)
-            .bind(playlist_id)
-            .fetch_all(pool)
-            .await
-            .ok()?
-    } else {
-        let pool = match database.postgres_pool() {
-            Ok(pool) => pool,
-            Err(e) => {
-                tracing::warn!("Failed to access playlist thumbnails database: {}", e);
-                return None;
-            }
-        };
-        let query = format!(
-            "SELECT t.hash, t.{} 
-             FROM songs s
-             INNER JOIN playlist_songs ps ON s.id = ps.song_id
-             INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash
-             WHERE ps.playlist_id = $1 AND s.cover_art_hash IS NOT NULL
-             ORDER BY ps.position
-             LIMIT 4",
-            column
-        );
-
-        sqlx::query_as(&query)
-            .bind(playlist_id)
-            .fetch_all(pool)
-            .await
-            .ok()?
-    };
+    #[derive(FromQueryResult)]
+    struct HashBlobRow {
+        hash: String,
+        thumbnail: Vec<u8>,
+    }
+    let sqlite_sql = format!(
+        "SELECT t.hash AS hash, t.{column} AS thumbnail
+         FROM songs s
+         INNER JOIN playlist_songs ps ON s.id = ps.song_id
+         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash
+         WHERE ps.playlist_id = ? AND s.cover_art_hash IS NOT NULL
+         ORDER BY ps.position
+         LIMIT 4"
+    );
+    let postgres_sql = format!(
+        "SELECT t.hash AS hash, t.{column} AS thumbnail
+         FROM songs s
+         INNER JOIN playlist_songs ps ON s.id = ps.song_id
+         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash
+         WHERE ps.playlist_id = $1 AND s.cover_art_hash IS NOT NULL
+         ORDER BY ps.position
+         LIMIT 4"
+    );
+    let rows = raw::query_all::<HashBlobRow>(
+        database.conn(),
+        &sqlite_sql,
+        &postgres_sql,
+        [Value::from(playlist_id.to_string())],
+    )
+    .await
+    .ok()?;
+    let results: Vec<(String, Vec<u8>)> = rows.into_iter().map(|r| (r.hash, r.thumbnail)).collect();
 
     if results.is_empty() {
         return None;
@@ -429,51 +351,17 @@ pub async fn get_playlist_thumbnail_base64(
 
 /// Get thumbnails for multiple playlists
 pub async fn get_playlist_thumbnails_base64(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     playlist_ids: &[String],
     size: ThumbnailSize,
 ) -> HashMap<String, String> {
     let mut result = HashMap::new();
 
-    if let Ok(pool) = database.sqlite_pool_cloned() {
-        let futures: Vec<_> = playlist_ids
-            .iter()
-            .map(|id| {
-                let pool = pool.clone();
-                let id = id.clone();
-                async move {
-                    let thumb = get_playlist_thumbnail_base64(&pool, &id, size).await;
-                    (id, thumb)
-                }
-            })
-            .collect();
-
-        for (id, thumb) in futures::future::join_all(futures).await {
-            if let Some(t) = thumb {
-                result.insert(id, t);
-            }
-        }
-
-        return result;
-    }
-
-    let pool = match database.postgres_pool_cloned() {
-        Ok(pool) => pool,
-        Err(e) => {
-            tracing::warn!("Failed to access playlist thumbnails database: {}", e);
-            return result;
-        }
-    };
-
     let futures: Vec<_> = playlist_ids
         .iter()
-        .map(|id| {
-            let pool = pool.clone();
-            let id = id.clone();
-            async move {
-                let thumb = get_playlist_thumbnail_base64(&pool, &id, size).await;
-                (id, thumb)
-            }
+        .map(|id| async move {
+            let thumb = get_playlist_thumbnail_base64(database, id, size).await;
+            (id.clone(), thumb)
         })
         .collect();
 

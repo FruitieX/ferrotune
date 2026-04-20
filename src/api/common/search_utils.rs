@@ -15,14 +15,13 @@ use crate::api::subsonic::inline_thumbnails::{
     get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
 };
 use crate::db::models::ItemType;
-use crate::db::DatabaseHandle;
 use crate::error::Result;
 use crate::thumbnails::ThumbnailSize;
 use std::collections::HashMap;
 
 /// Post-process artist search results with starred/rating maps and thumbnails
 pub async fn post_process_artists(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     artist_result: ArtistSearchResult,
     inline_size: Option<ThumbnailSize>,
@@ -31,8 +30,8 @@ pub async fn post_process_artists(
     let artist_starred = get_starred_map(database, user_id, ItemType::Artist, &artist_ids).await?;
     let artist_ratings = get_ratings_map(database, user_id, ItemType::Artist, &artist_ids).await?;
 
-    let artist_thumbnails = if let (Some(size), Ok(pool)) = (inline_size, database.sqlite_pool()) {
-        get_artist_thumbnails_base64(pool, &artist_ids, size).await
+    let artist_thumbnails = if let Some(size) = inline_size {
+        get_artist_thumbnails_base64(database, &artist_ids, size).await
     } else {
         HashMap::new()
     };
@@ -57,7 +56,7 @@ pub async fn post_process_artists(
 
 /// Post-process album search results with starred/rating maps and thumbnails
 pub async fn post_process_albums(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     album_result: AlbumSearchResult,
     inline_size: Option<ThumbnailSize>,
@@ -66,8 +65,8 @@ pub async fn post_process_albums(
     let album_starred = get_starred_map(database, user_id, ItemType::Album, &album_ids).await?;
     let album_ratings = get_ratings_map(database, user_id, ItemType::Album, &album_ids).await?;
 
-    let album_thumbnails = if let (Some(size), Ok(pool)) = (inline_size, database.sqlite_pool()) {
-        get_album_thumbnails_base64(pool, &album_ids, size).await
+    let album_thumbnails = if let Some(size) = inline_size {
+        get_album_thumbnails_base64(database, &album_ids, size).await
     } else {
         HashMap::new()
     };
@@ -101,7 +100,7 @@ pub async fn post_process_albums(
 
 /// Post-process song search results with starred/rating maps and thumbnails
 pub async fn post_process_songs(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     song_result: SongSearchResult,
     inline_size: Option<ThumbnailSize>,
@@ -116,8 +115,8 @@ pub async fn post_process_songs(
         .iter()
         .map(|s| (s.id.clone(), s.album_id.clone()))
         .collect();
-    let song_thumbnails = if let (Some(size), Ok(pool)) = (inline_size, database.sqlite_pool()) {
-        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+    let song_thumbnails = if let Some(size) = inline_size {
+        get_song_thumbnails_base64(database, &song_thumbnail_data, size).await
     } else {
         HashMap::new()
     };
@@ -159,7 +158,7 @@ pub struct SearchResults {
 /// Execute full search with post-processing
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_search(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     query: &str,
     params: &SearchParams,

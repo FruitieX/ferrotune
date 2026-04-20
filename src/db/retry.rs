@@ -3,6 +3,7 @@
 //! SQLite can return "database is locked" errors when there are concurrent writes.
 //! This module provides utilities to retry operations with exponential backoff.
 
+use sea_orm::DbErr;
 use std::future::Future;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -16,20 +17,23 @@ pub const DEFAULT_INITIAL_BACKOFF_MS: u64 = 50;
 /// Maximum backoff duration (5 seconds)
 pub const MAX_BACKOFF_MS: u64 = 5000;
 
-/// Check if a sqlx error is a retryable SQLite error (database locked/busy).
-pub fn is_retryable_error(error: &sqlx::Error) -> bool {
+fn message_indicates_busy(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("database is locked") || lower.contains("database is busy")
+}
+
+/// Check if a SeaORM error is a retryable SQLite "database locked/busy" error.
+pub fn is_retryable_error(error: &DbErr) -> bool {
+    // SeaORM wraps the underlying sqlx error message in its variants.
     match error {
-        sqlx::Error::Database(db_err) => {
-            // SQLite SQLITE_BUSY error code is 5
-            // The error message typically contains "database is locked"
-            db_err.code().is_some_and(|code| code == "5")
-                || db_err
-                    .message()
-                    .to_lowercase()
-                    .contains("database is locked")
-                || db_err.message().to_lowercase().contains("database is busy")
+        DbErr::Exec(e) | DbErr::Query(e) | DbErr::Conn(e) => {
+            let msg = e.to_string();
+            message_indicates_busy(&msg)
         }
-        _ => false,
+        _ => {
+            let msg = error.to_string();
+            message_indicates_busy(&msg)
+        }
     }
 }
 
@@ -37,24 +41,10 @@ pub fn is_retryable_error(error: &sqlx::Error) -> bool {
 ///
 /// This function will retry the operation with exponential backoff when
 /// encountering "database is locked" or similar transient errors.
-///
-/// # Arguments
-/// * `operation` - An async closure that returns a Result<T, sqlx::Error>
-/// * `max_retries` - Maximum number of retry attempts (None uses default)
-///
-/// # Example
-/// ```ignore
-/// let result = with_retry(|| async {
-///     sqlx::query("INSERT INTO ...")
-///         .bind(...)
-///         .execute(&pool)
-///         .await
-/// }, None).await?;
-/// ```
-pub async fn with_retry<F, Fut, T>(operation: F, max_retries: Option<u32>) -> Result<T, sqlx::Error>
+pub async fn with_retry<F, Fut, T>(operation: F, max_retries: Option<u32>) -> Result<T, DbErr>
 where
     F: Fn() -> Fut,
-    Fut: Future<Output = Result<T, sqlx::Error>>,
+    Fut: Future<Output = Result<T, DbErr>>,
 {
     let max_attempts = max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
     let mut attempt = 0;
@@ -114,8 +104,13 @@ mod tests {
 
     #[test]
     fn test_is_retryable_error() {
-        // Test with a non-database error
-        let io_error = sqlx::Error::Io(std::io::Error::other("test error"));
-        assert!(!is_retryable_error(&io_error));
+        // Non-busy errors should not be retryable
+        let custom = DbErr::Custom("some random failure".to_string());
+        assert!(!is_retryable_error(&custom));
+
+        let busy = DbErr::Exec(sea_orm::RuntimeErr::Internal(
+            "database is locked".to_string(),
+        ));
+        assert!(is_retryable_error(&busy));
     }
 }

@@ -7,7 +7,6 @@ use crate::api::ferrotune::users::require_admin;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser as AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MusicFolder;
-use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
@@ -16,6 +15,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use sea_orm::Value;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -139,18 +139,18 @@ pub async fn create_music_folder(
     }
 
     // Check if path is already registered
-    let existing: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
-            .bind(&request.path)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT id FROM music_folders WHERE path = $1")
-            .bind(&request.path)
-            .fetch_optional(pool)
-            .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    #[allow(dead_code)]
+    struct IdRow {
+        id: i64,
+    }
+    let existing = crate::db::raw::query_one::<IdRow>(
+        state.database.conn(),
+        "SELECT id FROM music_folders WHERE path = ?",
+        "SELECT id FROM music_folders WHERE path = $1",
+        [Value::from(request.path.clone())],
+    )
+    .await?;
 
     if existing.is_some() {
         return Err(Error::InvalidRequest(format!(
@@ -161,47 +161,42 @@ pub async fn create_music_folder(
     }
 
     // Create the folder
-    let id = if let Ok(pool) = state.database.sqlite_pool() {
-        let result = sqlx::query(
+    let id = if state.database.is_sqlite() {
+        crate::db::raw::execute(
+            state.database.conn(),
             "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES (?, ?, 1, ?)",
+            "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES ($1, $2, TRUE, $3)",
+            [
+                Value::from(request.name.clone()),
+                Value::from(request.path.clone()),
+                Value::from(request.watch_enabled),
+            ],
         )
-        .bind(&request.name)
-        .bind(&request.path)
-        .bind(request.watch_enabled)
-        .execute(pool)
-        .await?;
-        result.last_insert_rowid()
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_scalar(
-            "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES ($1, $2, TRUE, $3) RETURNING id",
-        )
-        .bind(&request.name)
-        .bind(&request.path)
-        .bind(request.watch_enabled)
-        .fetch_one(pool)
         .await?
+        .last_insert_id() as i64
+    } else {
+        crate::db::raw::query_scalar::<i64>(
+            state.database.conn(),
+            "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES (?, ?, 1, ?) RETURNING id",
+            "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES ($1, $2, TRUE, $3) RETURNING id",
+            [
+                Value::from(request.name.clone()),
+                Value::from(request.path.clone()),
+                Value::from(request.watch_enabled),
+            ],
+        )
+        .await?
+        .ok_or_else(|| Error::Internal("Failed to create music folder".to_string()))?
     };
 
     // Grant access to the current user for the new music folder
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query(
-            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-        )
-        .bind(user.user_id)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query(
-            "INSERT INTO user_library_access (user_id, music_folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(user.user_id)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
+        "INSERT INTO user_library_access (user_id, music_folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [Value::from(user.user_id), Value::from(id)],
+    )
+    .await?;
 
     Ok((
         StatusCode::CREATED,
@@ -223,70 +218,44 @@ pub async fn update_music_folder(
     require_admin(&user)?;
 
     // Check if folder exists
-    let existing: Option<MusicFolder> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    };
+    let existing = crate::db::raw::query_one::<MusicFolder>(
+        state.database.conn(),
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?",
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = $1",
+        [Value::from(id)],
+    )
+    .await?;
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
     if let Some(name) = &request.name {
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("UPDATE music_folders SET name = ? WHERE id = ?")
-                .bind(name)
-                .bind(id)
-                .execute(pool)
-                .await?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query("UPDATE music_folders SET name = $1 WHERE id = $2")
-                .bind(name)
-                .bind(id)
-                .execute(pool)
-                .await?;
-        }
+        crate::db::raw::execute(
+            state.database.conn(),
+            "UPDATE music_folders SET name = ? WHERE id = ?",
+            "UPDATE music_folders SET name = $1 WHERE id = $2",
+            [Value::from(name.clone()), Value::from(id)],
+        )
+        .await?;
     }
     if let Some(enabled) = request.enabled {
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("UPDATE music_folders SET enabled = ? WHERE id = ?")
-                .bind(enabled)
-                .bind(id)
-                .execute(pool)
-                .await?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query("UPDATE music_folders SET enabled = $1 WHERE id = $2")
-                .bind(enabled)
-                .bind(id)
-                .execute(pool)
-                .await?;
-        }
+        crate::db::raw::execute(
+            state.database.conn(),
+            "UPDATE music_folders SET enabled = ? WHERE id = ?",
+            "UPDATE music_folders SET enabled = $1 WHERE id = $2",
+            [Value::from(enabled), Value::from(id)],
+        )
+        .await?;
     }
     if let Some(watch_enabled) = request.watch_enabled {
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("UPDATE music_folders SET watch_enabled = ? WHERE id = ?")
-                .bind(watch_enabled)
-                .bind(id)
-                .execute(pool)
-                .await?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query("UPDATE music_folders SET watch_enabled = $1 WHERE id = $2")
-                .bind(watch_enabled)
-                .bind(id)
-                .execute(pool)
-                .await?;
-        }
+        crate::db::raw::execute(
+            state.database.conn(),
+            "UPDATE music_folders SET watch_enabled = ? WHERE id = ?",
+            "UPDATE music_folders SET watch_enabled = $1 WHERE id = $2",
+            [Value::from(watch_enabled), Value::from(id)],
+        )
+        .await?;
     }
 
     Ok(StatusCode::OK.into_response())
@@ -304,71 +273,58 @@ fn build_in_placeholders(count: usize, postgres: bool) -> String {
 }
 
 async fn execute_bound_string_query(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     sqlite_sql: String,
     postgres_sql: String,
     values: &[String],
 ) -> FerrotuneApiResult<()> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let mut query = sqlx::query(&sqlite_sql);
-        for value in values {
-            query = query.bind(value);
-        }
-        query.execute(pool).await?;
-        return Ok(());
-    }
-
-    let pool = database.postgres_pool()?;
-    let mut query = sqlx::query(&postgres_sql);
-    for value in values {
-        query = query.bind(value);
-    }
-    query.execute(pool).await?;
+    let params: Vec<Value> = values.iter().map(|v| Value::from(v.clone())).collect();
+    crate::db::raw::execute(database.conn(), &sqlite_sql, &postgres_sql, params).await?;
     Ok(())
 }
 
 async fn list_string_rows_for_folder(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     sqlite_sql: &str,
     postgres_sql: &str,
     folder_id: i64,
 ) -> FerrotuneApiResult<Vec<String>> {
-    let rows: Vec<(String,)> = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(sqlite_sql)
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?
-    } else {
-        let pool = database.postgres_pool()?;
-        sqlx::query_as(postgres_sql)
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?
-    };
-
-    Ok(rows.into_iter().map(|(value,)| value).collect())
+    let rows = crate::db::raw::query_rows(
+        database.conn(),
+        sqlite_sql,
+        postgres_sql,
+        [Value::from(folder_id)],
+    )
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let v: String = row.try_get_by_index(0)?;
+        out.push(v);
+    }
+    Ok(out)
 }
 
 async fn list_optional_string_rows_for_folder(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     sqlite_sql: &str,
     postgres_sql: &str,
     folder_id: i64,
 ) -> FerrotuneApiResult<Vec<String>> {
-    let rows: Vec<(Option<String>,)> = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(sqlite_sql)
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?
-    } else {
-        let pool = database.postgres_pool()?;
-        sqlx::query_as(postgres_sql)
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?
-    };
-
-    Ok(rows.into_iter().filter_map(|(value,)| value).collect())
+    let rows = crate::db::raw::query_rows(
+        database.conn(),
+        sqlite_sql,
+        postgres_sql,
+        [Value::from(folder_id)],
+    )
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let v: Option<String> = row.try_get_by_index(0)?;
+        if let Some(v) = v {
+            out.push(v);
+        }
+    }
+    Ok(out)
 }
 
 /// DELETE /ferrotune/music-folders/{id} - Delete a music folder
@@ -380,18 +336,18 @@ pub async fn delete_music_folder(
     require_admin(&user)?;
 
     // Check if folder exists
-    let existing: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT id FROM music_folders WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    #[allow(dead_code)]
+    struct IdRow {
+        id: i64,
+    }
+    let existing = crate::db::raw::query_one::<IdRow>(
+        state.database.conn(),
+        "SELECT id FROM music_folders WHERE id = ?",
+        "SELECT id FROM music_folders WHERE id = $1",
+        [Value::from(id)],
+    )
+    .await?;
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
@@ -578,32 +534,22 @@ pub async fn delete_music_folder(
     }
 
     // Delete user library access for this folder
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM user_library_access WHERE music_folder_id = ?")
-            .bind(id)
-            .execute(pool)
-            .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM user_library_access WHERE music_folder_id = $1")
-            .bind(id)
-            .execute(pool)
-            .await?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM user_library_access WHERE music_folder_id = ?",
+        "DELETE FROM user_library_access WHERE music_folder_id = $1",
+        [Value::from(id)],
+    )
+    .await?;
 
     // Delete the folder
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM music_folders WHERE id = ?")
-            .bind(id)
-            .execute(pool)
-            .await?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM music_folders WHERE id = $1")
-            .bind(id)
-            .execute(pool)
-            .await?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM music_folders WHERE id = ?",
+        "DELETE FROM music_folders WHERE id = $1",
+        [Value::from(id)],
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -615,18 +561,18 @@ pub async fn get_music_folder_stats(
     Path(id): Path<i64>,
 ) -> FerrotuneApiResult<Json<MusicFolderStats>> {
     // Check if folder exists
-    let existing: Option<(i64,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT id FROM music_folders WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    #[allow(dead_code)]
+    struct IdRow {
+        id: i64,
+    }
+    let existing = crate::db::raw::query_one::<IdRow>(
+        state.database.conn(),
+        "SELECT id FROM music_folders WHERE id = ?",
+        "SELECT id FROM music_folders WHERE id = $1",
+        [Value::from(id)],
+    )
+    .await?;
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
@@ -640,20 +586,13 @@ pub async fn get_music_folder_stats(
 async fn get_all_music_folders_with_stats(
     state: &AppState,
 ) -> FerrotuneApiResult<Vec<MusicFolderInfo>> {
-    let folders: Vec<MusicFolder> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
-        )
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
-        )
-        .fetch_all(pool)
-        .await?
-    };
+    let folders = crate::db::raw::query_all::<MusicFolder>(
+        state.database.conn(),
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id",
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id",
+        std::iter::empty::<Value>(),
+    )
+    .await?;
 
     let mut result = Vec::with_capacity(folders.len());
     for folder in folders {
@@ -678,22 +617,13 @@ async fn get_music_folder_with_stats(
     state: &AppState,
     id: i64,
 ) -> FerrotuneApiResult<Option<MusicFolderInfo>> {
-    let folder: Option<MusicFolder> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-    };
+    let folder = crate::db::raw::query_one::<MusicFolder>(
+        state.database.conn(),
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?",
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = $1",
+        [Value::from(id)],
+    )
+    .await?;
 
     match folder {
         Some(folder) => {
@@ -715,118 +645,86 @@ async fn get_music_folder_with_stats(
 
 /// Helper: Get statistics for a specific folder
 async fn get_folder_stats(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     folder_id: i64,
 ) -> FerrotuneApiResult<MusicFolderStats> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let (song_count,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = ?")
-                .bind(folder_id)
-                .fetch_one(pool)
-                .await?;
-        let (album_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = ? AND album_id IS NOT NULL"
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await?;
-        let (artist_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = ? AND artist_id IS NOT NULL"
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await?;
-        let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
-            "SELECT SUM(duration), SUM(file_size) FROM songs WHERE music_folder_id = ?",
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await?;
-        Ok(MusicFolderStats {
-            song_count,
-            album_count,
-            artist_count,
-            total_duration_seconds: total_duration.unwrap_or(0),
-            total_size_bytes: total_size.unwrap_or(0),
-        })
-    } else {
-        let pool = database.postgres_pool()?;
-        let (song_count,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = $1")
-                .bind(folder_id)
-                .fetch_one(pool)
-                .await?;
-        let (album_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = $1 AND album_id IS NOT NULL"
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await?;
-        let (artist_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = $1 AND artist_id IS NOT NULL"
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await?;
-        let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
-            "SELECT SUM(duration)::BIGINT, SUM(file_size)::BIGINT FROM songs WHERE music_folder_id = $1",
-        )
-        .bind(folder_id)
-        .fetch_one(pool)
-        .await?;
-        Ok(MusicFolderStats {
-            song_count,
-            album_count,
-            artist_count,
-            total_duration_seconds: total_duration.unwrap_or(0),
-            total_size_bytes: total_size.unwrap_or(0),
-        })
+    let song_count = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT COUNT(*) FROM songs WHERE music_folder_id = ?",
+        "SELECT COUNT(*) FROM songs WHERE music_folder_id = $1",
+        [Value::from(folder_id)],
+    )
+    .await?
+    .unwrap_or(0);
+    let album_count = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = ? AND album_id IS NOT NULL",
+        "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = $1 AND album_id IS NOT NULL",
+        [Value::from(folder_id)],
+    )
+    .await?
+    .unwrap_or(0);
+    let artist_count = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = ? AND artist_id IS NOT NULL",
+        "SELECT COUNT(DISTINCT artist_id) FROM songs WHERE music_folder_id = $1 AND artist_id IS NOT NULL",
+        [Value::from(folder_id)],
+    )
+    .await?
+    .unwrap_or(0);
+
+    #[derive(sea_orm::FromQueryResult)]
+    struct SumRow {
+        total_duration: Option<i64>,
+        total_size: Option<i64>,
     }
+    let sums = crate::db::raw::query_one::<SumRow>(
+        database.conn(),
+        "SELECT SUM(duration) as total_duration, SUM(file_size) as total_size FROM songs WHERE music_folder_id = ?",
+        "SELECT SUM(duration)::BIGINT as total_duration, SUM(file_size)::BIGINT as total_size FROM songs WHERE music_folder_id = $1",
+        [Value::from(folder_id)],
+    )
+    .await?;
+    let (total_duration, total_size) = match sums {
+        Some(r) => (r.total_duration, r.total_size),
+        None => (None, None),
+    };
+    Ok(MusicFolderStats {
+        song_count,
+        album_count,
+        artist_count,
+        total_duration_seconds: total_duration.unwrap_or(0),
+        total_size_bytes: total_size.unwrap_or(0),
+    })
 }
 
 /// Update the last_scanned_at timestamp for a folder after a successful scan.
 pub async fn update_folder_scan_timestamp(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     folder_id: i64,
 ) -> FerrotuneApiResult<()> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query("UPDATE music_folders SET last_scanned_at = ?, scan_error = NULL WHERE id = ?")
-            .bind(Utc::now())
-            .bind(folder_id)
-            .execute(pool)
-            .await?;
-    } else {
-        let pool = database.postgres_pool()?;
-        sqlx::query(
-            "UPDATE music_folders SET last_scanned_at = $1, scan_error = NULL WHERE id = $2",
-        )
-        .bind(Utc::now())
-        .bind(folder_id)
-        .execute(pool)
-        .await?;
-    }
+    crate::db::raw::execute(
+        database.conn(),
+        "UPDATE music_folders SET last_scanned_at = ?, scan_error = NULL WHERE id = ?",
+        "UPDATE music_folders SET last_scanned_at = $1, scan_error = NULL WHERE id = $2",
+        [Value::from(Utc::now()), Value::from(folder_id)],
+    )
+    .await?;
     Ok(())
 }
 
 /// Update the scan_error for a folder after a failed scan.
 pub async fn update_folder_scan_error(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     folder_id: i64,
     error: &str,
 ) -> FerrotuneApiResult<()> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query("UPDATE music_folders SET scan_error = ? WHERE id = ?")
-            .bind(error)
-            .bind(folder_id)
-            .execute(pool)
-            .await?;
-    } else {
-        let pool = database.postgres_pool()?;
-        sqlx::query("UPDATE music_folders SET scan_error = $1 WHERE id = $2")
-            .bind(error)
-            .bind(folder_id)
-            .execute(pool)
-            .await?;
-    }
+    crate::db::raw::execute(
+        database.conn(),
+        "UPDATE music_folders SET scan_error = ? WHERE id = ?",
+        "UPDATE music_folders SET scan_error = $1 WHERE id = $2",
+        [Value::from(error.to_string()), Value::from(folder_id)],
+    )
+    .await?;
     Ok(())
 }

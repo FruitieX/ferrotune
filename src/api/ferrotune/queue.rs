@@ -22,13 +22,15 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::{AppState, SessionEvent};
 use crate::db::models::{ItemType, PlayQueue, QueueSourceType, RepeatMode};
 use crate::db::queries;
-use crate::db::DatabaseHandle;
+use crate::db::raw;
+use crate::db::repo;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use sea_orm::Value;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -483,7 +485,7 @@ pub async fn start_queue(
                 "No songs provided".to_string(),
             )));
         }
-        queries::get_songs_by_ids_for_user(&state.database, song_ids, user.user_id).await?
+        repo::browse::get_songs_by_ids_for_user(&state.database, song_ids, user.user_id).await?
     } else if source_type == QueueSourceType::Playlist {
         // For playlists, use the position-aware function to handle missing entries
         let playlist_id = request
@@ -840,40 +842,22 @@ pub async fn start_queue(
     if let Some(ref source_id) = request.source_id {
         match source_type {
             QueueSourceType::Playlist => {
-                if let Ok(pool) = state.database.sqlite_pool() {
-                    sqlx::query(
-                        "UPDATE playlists SET last_played_at = datetime('now') WHERE id = ?",
-                    )
-                    .bind(source_id)
-                    .execute(pool)
-                    .await?;
-                } else {
-                    let pool = state.database.postgres_pool()?;
-                    sqlx::query(
-                        "UPDATE playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
-                    )
-                    .bind(source_id)
-                    .execute(pool)
-                    .await?;
-                }
+                raw::execute(
+                    state.database.conn(),
+                    "UPDATE playlists SET last_played_at = datetime('now') WHERE id = ?",
+                    "UPDATE playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
+                    [Value::from(source_id.clone())],
+                )
+                .await?;
             }
             QueueSourceType::SmartPlaylist => {
-                if let Ok(pool) = state.database.sqlite_pool() {
-                    sqlx::query(
-                        "UPDATE smart_playlists SET last_played_at = datetime('now') WHERE id = ?",
-                    )
-                    .bind(source_id)
-                    .execute(pool)
-                    .await?;
-                } else {
-                    let pool = state.database.postgres_pool()?;
-                    sqlx::query(
-                        "UPDATE smart_playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
-                    )
-                    .bind(source_id)
-                    .execute(pool)
-                    .await?;
-                }
+                raw::execute(
+                    state.database.conn(),
+                    "UPDATE smart_playlists SET last_played_at = datetime('now') WHERE id = ?",
+                    "UPDATE smart_playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
+                    [Value::from(source_id.clone())],
+                )
+                .await?;
             }
             _ => {}
         }
@@ -1773,7 +1757,7 @@ pub async fn clear_queue(
 
 /// Get all disabled song IDs for a user
 async fn get_disabled_song_ids(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
 ) -> FerrotuneApiResult<std::collections::HashSet<String>> {
     Ok(queries::get_disabled_song_ids_for_user(database, user_id)
@@ -1783,7 +1767,7 @@ async fn get_disabled_song_ids(
 }
 
 async fn materialize_song_radio_songs(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     song_id: &str,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
@@ -1793,7 +1777,7 @@ async fn materialize_song_radio_songs(
         let mut song_ids: Vec<String> = Vec::with_capacity(similar.len() + 1);
         song_ids.push(song_id.to_string());
         song_ids.extend(similar.into_iter().map(|(id, _)| id));
-        Ok(queries::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+        Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
     }
     #[cfg(not(feature = "bliss"))]
     {
@@ -1803,7 +1787,7 @@ async fn materialize_song_radio_songs(
 
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     source_type: QueueSourceType,
     source_id: Option<&str>,
@@ -1822,7 +1806,8 @@ async fn materialize_queue_songs(
         QueueSourceType::Album => {
             let album_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Album ID required".to_string()))?;
-            let songs = queries::get_songs_by_album_for_user(database, album_id, user_id).await?;
+            let songs =
+                repo::browse::get_songs_by_album_for_user(database, album_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1834,7 +1819,8 @@ async fn materialize_queue_songs(
         QueueSourceType::Artist => {
             let artist_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Artist ID required".to_string()))?;
-            let songs = queries::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
+            let songs =
+                repo::browse::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1934,77 +1920,66 @@ async fn materialize_queue_songs(
         }
         QueueSourceType::History => {
             // Fetch play history songs (deduplicated, most recent play per song)
-            let songs: Vec<crate::db::models::Song> = if let Ok(pool) = database.sqlite_pool() {
-                                sqlx::query_as(
-                                        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                                                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                                                            s.bitrate, s.file_path, s.file_size, s.file_format,
-                                                            s.created_at, s.updated_at, s.cover_art_hash,
-                                                            s.cover_art_width, s.cover_art_height,
-                                                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                                                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                                                            pc.play_count,
-                                                            sc.played_at as last_played,
-                                                            NULL as starred_at
-                                             FROM scrobbles sc
-                                             INNER JOIN songs s ON sc.song_id = s.id
-                                             INNER JOIN artists ar ON s.artist_id = ar.id
-                                             LEFT JOIN albums al ON s.album_id = al.id
-                                             LEFT JOIN (
-                                                     SELECT song_id, COUNT(*) as play_count
-                                                     FROM scrobbles WHERE submission = 1 AND user_id = ?
-                                                     GROUP BY song_id
-                                             ) pc ON s.id = pc.song_id
-                                             WHERE sc.user_id = ? AND sc.submission = 1
-                                                 AND sc.played_at = (
-                                                     SELECT MAX(sc2.played_at)
-                                                     FROM scrobbles sc2
-                                                     WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
-                                                 )
-                                             ORDER BY sc.played_at DESC
-                                             LIMIT 500"#,
-                                )
-                                .bind(user_id)
-                                .bind(user_id)
-                                .fetch_all(pool)
-                                .await
-                        } else {
-                                let pool = database.postgres_pool()?;
-                                sqlx::query_as(
-                                        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                                                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                                                            s.bitrate, s.file_path, s.file_size, s.file_format,
-                                                            s.created_at, s.updated_at, s.cover_art_hash,
-                                                            s.cover_art_width, s.cover_art_height,
-                                                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                                                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                                                            pc.play_count,
-                                                            sc.played_at as last_played,
-                                                            NULL::timestamptz as starred_at
-                                             FROM scrobbles sc
-                                             INNER JOIN songs s ON sc.song_id = s.id
-                                             INNER JOIN artists ar ON s.artist_id = ar.id
-                                             LEFT JOIN albums al ON s.album_id = al.id
-                                             LEFT JOIN (
-                                                     SELECT song_id, COUNT(*)::BIGINT as play_count
-                                                     FROM scrobbles WHERE submission = TRUE AND user_id = $1
-                                                     GROUP BY song_id
-                                             ) pc ON s.id = pc.song_id
-                                             WHERE sc.user_id = $2 AND sc.submission = TRUE
-                                                 AND sc.played_at = (
-                                                     SELECT MAX(sc2.played_at)
-                                                     FROM scrobbles sc2
-                                                     WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = TRUE
-                                                 )
-                                             ORDER BY sc.played_at DESC
-                                             LIMIT 500"#,
-                                )
-                                .bind(user_id)
-                                .bind(user_id)
-                                .fetch_all(pool)
-                                .await
-                        }
-                        .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
+            let songs: Vec<crate::db::models::Song> = raw::query_all::<crate::db::models::Song>(
+                database.conn(),
+                r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
+                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
+                            s.bitrate, s.file_path, s.file_size, s.file_format,
+                            s.created_at, s.updated_at, s.cover_art_hash,
+                            s.cover_art_width, s.cover_art_height,
+                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
+                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
+                            pc.play_count,
+                            sc.played_at as last_played,
+                            NULL as starred_at
+                 FROM scrobbles sc
+                 INNER JOIN songs s ON sc.song_id = s.id
+                 INNER JOIN artists ar ON s.artist_id = ar.id
+                 LEFT JOIN albums al ON s.album_id = al.id
+                 LEFT JOIN (
+                     SELECT song_id, COUNT(*) as play_count
+                     FROM scrobbles WHERE submission = 1 AND user_id = ?
+                     GROUP BY song_id
+                 ) pc ON s.id = pc.song_id
+                 WHERE sc.user_id = ? AND sc.submission = 1
+                     AND sc.played_at = (
+                         SELECT MAX(sc2.played_at)
+                         FROM scrobbles sc2
+                         WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
+                     )
+                 ORDER BY sc.played_at DESC
+                 LIMIT 500"#,
+                r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
+                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
+                            s.bitrate, s.file_path, s.file_size, s.file_format,
+                            s.created_at, s.updated_at, s.cover_art_hash,
+                            s.cover_art_width, s.cover_art_height,
+                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
+                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
+                            pc.play_count,
+                            sc.played_at as last_played,
+                            NULL::timestamptz as starred_at
+                 FROM scrobbles sc
+                 INNER JOIN songs s ON sc.song_id = s.id
+                 INNER JOIN artists ar ON s.artist_id = ar.id
+                 LEFT JOIN albums al ON s.album_id = al.id
+                 LEFT JOIN (
+                     SELECT song_id, COUNT(*)::BIGINT as play_count
+                     FROM scrobbles WHERE submission = TRUE AND user_id = $1
+                     GROUP BY song_id
+                 ) pc ON s.id = pc.song_id
+                 WHERE sc.user_id = $2 AND sc.submission = TRUE
+                     AND sc.played_at = (
+                         SELECT MAX(sc2.played_at)
+                         FROM scrobbles sc2
+                         WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = TRUE
+                     )
+                 ORDER BY sc.played_at DESC
+                 LIMIT 500"#,
+                [Value::from(user_id), Value::from(user_id)],
+            )
+            .await
+            .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
 
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -2061,7 +2036,7 @@ async fn materialize_queue_songs(
                     break;
                 }
                 let album_songs =
-                    queries::get_songs_by_album_for_user(database, album_id, user_id).await?;
+                    repo::browse::get_songs_by_album_for_user(database, album_id, user_id).await?;
                 songs.extend(album_songs);
             }
             songs.truncate(1000);
@@ -2082,7 +2057,7 @@ async fn materialize_queue_songs(
 
                 match item.source_type.as_str() {
                     "album" => {
-                        let album_songs = queries::get_songs_by_album_for_user(
+                        let album_songs = repo::browse::get_songs_by_album_for_user(
                             database,
                             &item.source_id,
                             user_id,
@@ -2143,7 +2118,7 @@ async fn materialize_queue_songs(
 
             // Re-fetch as Song models in the same shuffled order
             let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
-            Ok(queries::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+            Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
         }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
@@ -2295,7 +2270,7 @@ fn build_search_params_from_json(
 /// Materialize a page of songs from a lazy queue
 /// This re-runs the materialization query with pagination
 pub async fn materialize_lazy_queue_page(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
     offset: usize,
@@ -2331,7 +2306,9 @@ pub async fn materialize_lazy_queue_page(
 
         // Fetch songs by IDs - need to convert to owned strings for the query
         let page_ids_owned: Vec<String> = page_ids.iter().map(|s| s.to_string()).collect();
-        return Ok(queries::get_songs_by_ids_for_user(database, &page_ids_owned, user_id).await?);
+        return Ok(
+            repo::browse::get_songs_by_ids_for_user(database, &page_ids_owned, user_id).await?,
+        );
     }
 
     // Parse the source parameters
@@ -2394,7 +2371,7 @@ pub async fn materialize_lazy_queue_page(
 /// For lazy queues: uses cached total_count or re-materializes to count
 /// For non-lazy queues: counts entries in the database
 pub async fn get_queue_total_count(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
     session_id: &str,
@@ -2409,7 +2386,7 @@ pub async fn get_queue_total_count(
 /// Get the total count for a lazy queue
 /// This re-runs the count query based on source parameters
 pub async fn get_lazy_queue_count(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
 ) -> FerrotuneApiResult<usize> {
@@ -2526,7 +2503,7 @@ async fn invalidate_shuffle_cache(state: &AppState, user_id: i64) {
 /// For shuffled queues, maps display positions to original positions and fetches only those.
 #[allow(clippy::too_many_arguments)]
 async fn build_queue_window_efficient(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     state: &AppState,
     user_id: i64,
     session_id: &str,
@@ -2611,7 +2588,7 @@ async fn build_queue_window_efficient(
 
 /// Build a QueueWindow from a list of (entry, display_position) pairs.
 async fn build_window_from_entries(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     window_entries: &[(&crate::db::models::QueueEntryWithSong, usize)],
     offset: usize,
@@ -2697,7 +2674,7 @@ async fn build_window_from_entries(
 
 /// Build a window of songs from a slice (for lazy queues)
 async fn build_lazy_queue_window(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     songs: &[crate::db::models::Song],
     offset: usize,

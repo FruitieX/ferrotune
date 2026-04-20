@@ -6,6 +6,7 @@ use crate::api::subsonic::auth::{AuthenticatedUser, FerrotuneAuthenticatedUser};
 use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::AppState;
 use crate::db::queries;
+use crate::db::repo;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
@@ -45,7 +46,7 @@ pub async fn delete_song(
     require_admin(&user)?;
 
     // First verify the song exists
-    let song = queries::get_song_by_id(&state.database, &id)
+    let song = repo::browse::get_song_by_id(&state.database, &id)
         .await
         .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
         .ok_or_else(|| Error::NotFound(format!("Song not found: {}", id)))?;
@@ -120,50 +121,37 @@ pub async fn delete_song_files(
 
     for song_id in &request.song_ids {
         // Get the song and its folder path to construct the full file path
-        let song_with_folder: Option<(String, String)> = {
-            let result = if let Ok(pool) = state.database.sqlite_pool() {
-                sqlx::query_as(
-                    "SELECT s.file_path, mf.path as folder_path \
-                 FROM songs s \
-                 JOIN music_folders mf ON s.music_folder_id = mf.id \
-                 WHERE s.id = ?",
-                )
-                .bind(song_id)
-                .fetch_optional(pool)
-                .await
-            } else {
-                match state.database.postgres_pool() {
-                    Ok(pool) => {
-                        sqlx::query_as(
-                            "SELECT s.file_path, mf.path as folder_path \
-                     FROM songs s \
-                     JOIN music_folders mf ON s.music_folder_id = mf.id \
-                     WHERE s.id = $1",
-                        )
-                        .bind(song_id)
-                        .fetch_optional(pool)
-                        .await
-                    }
-                    Err(e) => {
-                        errors.push(format!(
-                            "Database not available for song {}: {}",
-                            song_id, e
-                        ));
-                        continue;
-                    }
-                }
-            };
-            match result {
-                Ok(r) => r,
-                Err(e) => {
-                    errors.push(format!("Error finding song {}: {}", song_id, e));
-                    continue;
-                }
+        #[derive(sea_orm::FromQueryResult)]
+        struct SongPathRow {
+            file_path: String,
+            folder_path: String,
+        }
+        let result = crate::db::raw::query_one::<SongPathRow>(
+            state.database.conn(),
+            "SELECT s.file_path, mf.path as folder_path \
+             FROM songs s \
+             JOIN music_folders mf ON s.music_folder_id = mf.id \
+             WHERE s.id = ?",
+            "SELECT s.file_path, mf.path as folder_path \
+             FROM songs s \
+             JOIN music_folders mf ON s.music_folder_id = mf.id \
+             WHERE s.id = $1",
+            [sea_orm::Value::from(song_id.clone())],
+        )
+        .await;
+        let song_with_folder = match result {
+            Ok(r) => r,
+            Err(e) => {
+                errors.push(format!("Error finding song {}: {}", song_id, e));
+                continue;
             }
         };
 
         let (file_path, folder_path) = match song_with_folder {
-            Some(paths) => paths,
+            Some(SongPathRow {
+                file_path,
+                folder_path,
+            }) => (file_path, folder_path),
             None => {
                 errors.push(format!("Song not found: {}", song_id));
                 continue;

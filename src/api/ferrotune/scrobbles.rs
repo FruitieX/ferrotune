@@ -5,7 +5,7 @@
 use crate::api::common::scrobbling::insert_submission_scrobble_if_not_recent_duplicate;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::{retry::with_retry, DatabaseHandle};
+use crate::db::{raw, Database};
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
@@ -13,15 +13,10 @@ use axum::{
     response::Json,
 };
 use chrono::Utc;
+use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
-
-fn unsupported_database_handle_error() -> sqlx::Error {
-    sqlx::Error::Protocol(
-        "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-    )
-}
 
 fn postgres_placeholders(start_index: usize, count: usize) -> String {
     (start_index..start_index + count)
@@ -31,310 +26,204 @@ fn postgres_placeholders(start_index: usize, count: usize) -> String {
 }
 
 async fn fetch_existing_song_ids(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     song_ids: &[&str],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> crate::error::Result<Vec<String>> {
     if song_ids.is_empty() {
         return Ok(Vec::new());
     }
 
-    if let Ok(pool) = database.sqlite_pool() {
-        let placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
-        let validation_query = format!(
-            "SELECT id FROM songs WHERE id IN ({})",
-            placeholders.join(", ")
-        );
-        let mut query = sqlx::query_scalar::<_, String>(&validation_query);
-        for song_id in song_ids {
-            query = query.bind(*song_id);
-        }
-        query.fetch_all(pool).await
-    } else if let Ok(pool) = database.postgres_pool() {
-        let validation_query = format!(
-            "SELECT id FROM songs WHERE id IN ({})",
-            postgres_placeholders(1, song_ids.len())
-        );
-        let mut query = sqlx::query_scalar::<_, String>(&validation_query);
-        for song_id in song_ids {
-            query = query.bind(*song_id);
-        }
-        query.fetch_all(pool).await
-    } else {
-        Err(unsupported_database_handle_error())
+    #[derive(FromQueryResult)]
+    struct IdRow {
+        id: String,
     }
+
+    let sqlite_placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
+    let sqlite_sql = format!(
+        "SELECT id FROM songs WHERE id IN ({})",
+        sqlite_placeholders.join(", ")
+    );
+    let postgres_sql = format!(
+        "SELECT id FROM songs WHERE id IN ({})",
+        postgres_placeholders(1, song_ids.len())
+    );
+
+    let binds: Vec<Value> = song_ids
+        .iter()
+        .map(|s| Value::from(s.to_string()))
+        .collect();
+
+    let rows = raw::query_all::<IdRow>(database.conn(), &sqlite_sql, &postgres_sql, binds).await?;
+    Ok(rows.into_iter().map(|r| r.id).collect())
 }
 
 async fn delete_user_rows_for_song_ids(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     table: &str,
     user_id: i64,
     song_ids: &[String],
-) -> Result<u64, sqlx::Error> {
+) -> crate::error::Result<u64> {
     if song_ids.is_empty() {
         return Ok(0);
     }
 
-    if let Ok(pool) = database.sqlite_pool_cloned() {
-        let delete_query = format!(
-            "DELETE FROM {table} WHERE user_id = ? AND song_id IN ({})",
-            vec!["?"; song_ids.len()].join(", ")
-        );
-        let song_ids_owned = song_ids.to_vec();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let delete_query = delete_query.clone();
-                let song_ids = song_ids_owned.clone();
-                async move {
-                    let mut delete_stmt = sqlx::query(&delete_query).bind(user_id);
-                    for song_id in &song_ids {
-                        delete_stmt = delete_stmt.bind(song_id.as_str());
-                    }
-                    delete_stmt
-                        .execute(&pool)
-                        .await
-                        .map(|result| result.rows_affected())
-                }
-            },
-            None,
-        )
-        .await
-    } else if let Ok(pool) = database.postgres_pool_cloned() {
-        let delete_query = format!(
-            "DELETE FROM {table} WHERE user_id = $1 AND song_id IN ({})",
-            postgres_placeholders(2, song_ids.len())
-        );
-        let song_ids_owned = song_ids.to_vec();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let delete_query = delete_query.clone();
-                let song_ids = song_ids_owned.clone();
-                async move {
-                    let mut delete_stmt = sqlx::query(&delete_query).bind(user_id);
-                    for song_id in &song_ids {
-                        delete_stmt = delete_stmt.bind(song_id.as_str());
-                    }
-                    delete_stmt
-                        .execute(&pool)
-                        .await
-                        .map(|result| result.rows_affected())
-                }
-            },
-            None,
-        )
-        .await
-    } else {
-        Err(unsupported_database_handle_error())
+    let sqlite_sql = format!(
+        "DELETE FROM {table} WHERE user_id = ? AND song_id IN ({})",
+        vec!["?"; song_ids.len()].join(", ")
+    );
+    let postgres_sql = format!(
+        "DELETE FROM {table} WHERE user_id = $1 AND song_id IN ({})",
+        postgres_placeholders(2, song_ids.len())
+    );
+
+    let mut binds: Vec<Value> = Vec::with_capacity(song_ids.len() + 1);
+    binds.push(Value::from(user_id));
+    for song_id in song_ids {
+        binds.push(Value::from(song_id.clone()));
     }
+
+    let result = raw::execute(database.conn(), &sqlite_sql, &postgres_sql, binds).await?;
+    Ok(result.rows_affected())
 }
 
 async fn fetch_duplicate_import_stats(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     user_id: i64,
     description: &str,
-) -> Result<Option<(i64, i64)>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+) -> crate::error::Result<Option<(i64, i64)>> {
+    #[derive(FromQueryResult)]
+    struct StatsRow {
+        song_count: i64,
+        total_plays: i64,
+    }
+
+    let row = raw::query_one::<StatsRow>(
+        database.conn(),
+        r#"
             SELECT COUNT(DISTINCT song_id) as song_count, COALESCE(SUM(play_count), 0) as total_plays
             FROM scrobbles
             WHERE user_id = ? AND description = ?
-            "#,
-        )
-        .bind(user_id)
-        .bind(description)
-        .fetch_optional(pool)
-        .await
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query_as(
-            r#"
+        "#,
+        r#"
             SELECT COUNT(DISTINCT song_id)::BIGINT as song_count,
                    COALESCE(SUM(play_count), 0)::BIGINT as total_plays
             FROM scrobbles
             WHERE user_id = $1 AND description = $2
-            "#,
-        )
-        .bind(user_id)
-        .bind(description)
-        .fetch_optional(pool)
-        .await
-    } else {
-        Err(unsupported_database_handle_error())
-    }
+        "#,
+        [
+            Value::from(user_id),
+            Value::from(description.to_string()),
+        ],
+    )
+    .await?;
+
+    Ok(row.map(|r| (r.song_count, r.total_plays)))
 }
 
 async fn fetch_song_play_count_rows(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     user_id: i64,
     song_ids: &[String],
-) -> Result<Vec<(String, i64)>, sqlx::Error> {
+) -> crate::error::Result<Vec<(String, i64)>> {
     if song_ids.is_empty() {
         return Ok(Vec::new());
     }
 
-    if let Ok(pool) = database.sqlite_pool() {
-        let query = format!(
-            r#"
-            SELECT song_id, COALESCE(SUM(play_count), 0) as play_count
-            FROM scrobbles
-            WHERE user_id = ? AND submission = 1 AND song_id IN ({})
-            GROUP BY song_id
-            "#,
-            vec!["?"; song_ids.len()].join(", ")
-        );
-        let mut stmt = sqlx::query_as::<_, (String, i64)>(&query).bind(user_id);
-        for song_id in song_ids {
-            stmt = stmt.bind(song_id);
-        }
-        stmt.fetch_all(pool).await
-    } else if let Ok(pool) = database.postgres_pool() {
-        let query = format!(
-            r#"
-            SELECT song_id, COALESCE(SUM(play_count), 0)::BIGINT as play_count
-            FROM scrobbles
-            WHERE user_id = $1 AND submission AND song_id IN ({})
-            GROUP BY song_id
-            "#,
-            postgres_placeholders(2, song_ids.len())
-        );
-        let mut stmt = sqlx::query_as::<_, (String, i64)>(&query).bind(user_id);
-        for song_id in song_ids {
-            stmt = stmt.bind(song_id);
-        }
-        stmt.fetch_all(pool).await
-    } else {
-        Err(unsupported_database_handle_error())
+    #[derive(FromQueryResult)]
+    struct PlayCountRow {
+        song_id: String,
+        play_count: i64,
     }
+
+    let sqlite_sql = format!(
+        r#"
+        SELECT song_id, COALESCE(SUM(play_count), 0) as play_count
+        FROM scrobbles
+        WHERE user_id = ? AND submission = 1 AND song_id IN ({})
+        GROUP BY song_id
+        "#,
+        vec!["?"; song_ids.len()].join(", ")
+    );
+    let postgres_sql = format!(
+        r#"
+        SELECT song_id, COALESCE(SUM(play_count), 0)::BIGINT as play_count
+        FROM scrobbles
+        WHERE user_id = $1 AND submission AND song_id IN ({})
+        GROUP BY song_id
+        "#,
+        postgres_placeholders(2, song_ids.len())
+    );
+
+    let mut binds: Vec<Value> = Vec::with_capacity(song_ids.len() + 1);
+    binds.push(Value::from(user_id));
+    for song_id in song_ids {
+        binds.push(Value::from(song_id.clone()));
+    }
+
+    let rows =
+        raw::query_all::<PlayCountRow>(database.conn(), &sqlite_sql, &postgres_sql, binds).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.song_id, r.play_count))
+        .collect())
 }
 
 async fn insert_import_scrobble_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     user_id: i64,
     song_id: &str,
     played_at: Option<chrono::DateTime<Utc>>,
     play_count: i32,
     description: Option<String>,
-) -> Result<u64, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool_cloned() {
-        let song_id = song_id.to_string();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let song_id = song_id.clone();
-                let description = description.clone();
-                async move {
-                    sqlx::query(
-                        r#"
-                        INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-                        VALUES (?, ?, ?, 1, ?, ?)
-                        "#,
-                    )
-                    .bind(user_id)
-                    .bind(&song_id)
-                    .bind(played_at)
-                    .bind(play_count)
-                    .bind(&description)
-                    .execute(&pool)
-                    .await
-                    .map(|result| result.rows_affected())
-                }
-            },
-            None,
-        )
-        .await
-    } else if let Ok(pool) = database.postgres_pool_cloned() {
-        let song_id = song_id.to_string();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let song_id = song_id.clone();
-                let description = description.clone();
-                async move {
-                    sqlx::query(
-                        r#"
-                        INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-                        VALUES ($1, $2, $3, TRUE, $4, $5)
-                        "#,
-                    )
-                    .bind(user_id)
-                    .bind(&song_id)
-                    .bind(played_at)
-                    .bind(play_count)
-                    .bind(&description)
-                    .execute(&pool)
-                    .await
-                    .map(|result| result.rows_affected())
-                }
-            },
-            None,
-        )
-        .await
-    } else {
-        Err(unsupported_database_handle_error())
-    }
+) -> crate::error::Result<u64> {
+    let result = raw::execute(
+        database.conn(),
+        r#"
+            INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+            VALUES (?, ?, ?, 1, ?, ?)
+        "#,
+        r#"
+            INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+            VALUES ($1, $2, $3, TRUE, $4, $5)
+        "#,
+        [
+            Value::from(user_id),
+            Value::from(song_id.to_string()),
+            Value::from(played_at),
+            Value::from(play_count),
+            Value::from(description),
+        ],
+    )
+    .await?;
+    Ok(result.rows_affected())
 }
 
 async fn insert_listening_session_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     user_id: i64,
     song_id: &str,
     duration_seconds: i32,
     listened_at: chrono::DateTime<Utc>,
-) -> Result<u64, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool_cloned() {
-        let song_id = song_id.to_string();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let song_id = song_id.clone();
-                async move {
-                    sqlx::query(
-                        r#"
-                        INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-                        VALUES (?, ?, ?, ?)
-                        "#,
-                    )
-                    .bind(user_id)
-                    .bind(&song_id)
-                    .bind(duration_seconds)
-                    .bind(listened_at)
-                    .execute(&pool)
-                    .await
-                    .map(|result| result.rows_affected())
-                }
-            },
-            None,
-        )
-        .await
-    } else if let Ok(pool) = database.postgres_pool_cloned() {
-        let song_id = song_id.to_string();
-        with_retry(
-            || {
-                let pool = pool.clone();
-                let song_id = song_id.clone();
-                async move {
-                    sqlx::query(
-                        r#"
-                        INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-                        VALUES ($1, $2, $3, $4)
-                        "#,
-                    )
-                    .bind(user_id)
-                    .bind(&song_id)
-                    .bind(duration_seconds)
-                    .bind(listened_at)
-                    .execute(&pool)
-                    .await
-                    .map(|result| result.rows_affected())
-                }
-            },
-            None,
-        )
-        .await
-    } else {
-        Err(unsupported_database_handle_error())
-    }
+) -> crate::error::Result<u64> {
+    let result = raw::execute(
+        database.conn(),
+        r#"
+            INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
+            VALUES (?, ?, ?, ?)
+        "#,
+        r#"
+            INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
+            VALUES ($1, $2, $3, $4)
+        "#,
+        [
+            Value::from(user_id),
+            Value::from(song_id.to_string()),
+            Value::from(duration_seconds),
+            Value::from(listened_at),
+        ],
+    )
+    .await?;
+    Ok(result.rows_affected())
 }
 
 // ============================================================================

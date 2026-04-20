@@ -5,8 +5,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::queries;
-use crate::db::DatabaseHandle;
+use crate::db::repo;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -283,11 +282,11 @@ pub fn extract_tags_from_tag(tag: &Tag) -> Vec<TagEntry> {
 
 /// Get the full file path for a song
 async fn get_song_file_path(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     song_id: &str,
 ) -> Result<(crate::db::models::Song, PathBuf), (StatusCode, Json<ErrorResponse>)> {
     // Get song from database
-    let song = match queries::get_song_by_id(database, song_id).await {
+    let song = match repo::browse::get_song_by_id(database, song_id).await {
         Ok(Some(song)) => song,
         Ok(None) => {
             return Err((
@@ -304,12 +303,14 @@ async fn get_song_file_path(
     };
 
     // Get all music folders and find where the file exists
-    let music_folders = queries::get_music_folders(database).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details("Database error", e.to_string())),
-        )
-    })?;
+    let music_folders = repo::users::get_music_folders(database)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details("Database error", e.to_string())),
+            )
+        })?;
 
     let mut full_path: Option<PathBuf> = None;
     for folder in music_folders {

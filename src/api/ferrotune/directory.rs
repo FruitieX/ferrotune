@@ -9,7 +9,6 @@ use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use crate::db::models::ItemType;
-use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::{Query, State};
 use axum::response::Json;
@@ -50,41 +49,41 @@ pub async fn get_libraries(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<LibrariesResponse>> {
     let folders =
-        crate::db::queries::get_music_folders_for_user(&state.database, user.user_id).await?;
+        crate::db::repo::users::get_music_folders_for_user(&state.database, user.user_id).await?;
 
     let mut libraries = Vec::new();
     for folder in folders {
         // Get stats for this folder
-        let stats: (i64, i64) = if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query_as(
-                r#"
+        #[derive(sea_orm::FromQueryResult)]
+        struct StatsRow {
+            file_count: i64,
+            total_size: i64,
+        }
+        let stats = crate::db::raw::query_one::<StatsRow>(
+            state.database.conn(),
+            r#"
             SELECT COUNT(*) as file_count, COALESCE(SUM(file_size), 0) as total_size
             FROM songs
             WHERE music_folder_id = ?
             "#,
-            )
-            .bind(folder.id)
-            .fetch_one(pool)
-            .await?
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query_as(
-                r#"
+            r#"
             SELECT COUNT(*)::BIGINT as file_count, COALESCE(SUM(file_size), 0)::BIGINT as total_size
             FROM songs
             WHERE music_folder_id = $1
             "#,
-            )
-            .bind(folder.id)
-            .fetch_one(pool)
-            .await?
-        };
+            [sea_orm::Value::from(folder.id)],
+        )
+        .await?
+        .unwrap_or(StatsRow {
+            file_count: 0,
+            total_size: 0,
+        });
 
         libraries.push(LibraryInfo {
             id: folder.id,
             name: folder.name,
-            song_count: stats.0,
-            total_size: stats.1,
+            song_count: stats.file_count,
+            total_size: stats.total_size,
         });
     }
 
@@ -250,18 +249,13 @@ pub async fn get_directory_paged(
     }
 
     // Get the music folder
-    let folder: crate::db::models::MusicFolder = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT * FROM music_folders WHERE id = ? AND enabled = 1")
-            .bind(library_id)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as("SELECT * FROM music_folders WHERE id = $1 AND enabled")
-            .bind(library_id)
-            .fetch_optional(pool)
-            .await?
-    }
+    let folder = crate::db::raw::query_one::<crate::db::models::MusicFolder>(
+        state.database.conn(),
+        "SELECT * FROM music_folders WHERE id = ? AND enabled = 1",
+        "SELECT * FROM music_folders WHERE id = $1 AND enabled",
+        [sea_orm::Value::from(library_id)],
+    )
+    .await?
     .ok_or_else(|| Error::NotFound("Library not found".to_string()))?;
 
     // Get the relative path (empty string means library root)
@@ -376,7 +370,7 @@ fn build_breadcrumbs_for_library(relative_path: &str) -> Vec<BreadcrumbItem> {
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 async fn get_directory_contents_for_library(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     library_id: i64,
     _library_root: &str,
@@ -420,10 +414,28 @@ async fn get_directory_contents_for_library(
     };
 
     // Get all songs that start with this path prefix and belong to this library
-    let all_songs: Vec<DirectorySongRow> = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
-            SELECT 
+    #[derive(sea_orm::FromQueryResult)]
+    struct DirSongRow {
+        id: String,
+        file_path: String,
+        title: String,
+        album_id: Option<String>,
+        album_name: Option<String>,
+        year: Option<i32>,
+        genre: Option<String>,
+        track_number: Option<i32>,
+        file_size: i64,
+        file_format: String,
+        duration: i64,
+        bitrate: Option<i32>,
+        artist_id: String,
+        artist_name: String,
+        created_at: chrono::DateTime<chrono::Utc>,
+    }
+    let song_rows = crate::db::raw::query_all::<DirSongRow>(
+        database.conn(),
+        r#"
+            SELECT
                 s.id,
                 s.file_path,
                 s.title,
@@ -445,16 +457,8 @@ async fn get_directory_contents_for_library(
             WHERE s.music_folder_id = ? AND s.file_path LIKE ? || '%'
             ORDER BY s.file_path
             "#,
-        )
-        .bind(library_id)
-        .bind(&path_prefix)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = database.postgres_pool()?;
-        sqlx::query_as(
-            r#"
-            SELECT 
+        r#"
+            SELECT
                 s.id,
                 s.file_path,
                 s.title,
@@ -476,12 +480,34 @@ async fn get_directory_contents_for_library(
             WHERE s.music_folder_id = $1 AND s.file_path LIKE $2 || '%'
             ORDER BY s.file_path
             "#,
-        )
-        .bind(library_id)
-        .bind(&path_prefix)
-        .fetch_all(pool)
-        .await?
-    };
+        [
+            sea_orm::Value::from(library_id),
+            sea_orm::Value::from(path_prefix.clone()),
+        ],
+    )
+    .await?;
+    let all_songs: Vec<DirectorySongRow> = song_rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.id,
+                r.file_path,
+                r.title,
+                r.album_id,
+                r.album_name,
+                r.year,
+                r.genre,
+                r.track_number,
+                r.file_size,
+                r.file_format,
+                r.duration,
+                r.bitrate,
+                r.artist_id,
+                r.artist_name,
+                r.created_at,
+            )
+        })
+        .collect();
 
     // Separate into direct children and subdirectories
     let mut direct_songs: Vec<DirectorySongRow> = Vec::new();

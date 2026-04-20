@@ -1,9 +1,15 @@
+pub mod dto;
+pub mod entity;
 pub mod migrations;
 pub mod models;
+pub mod ordering;
 pub mod queries;
+pub mod raw;
+pub mod repo;
 pub mod retry;
 
 use crate::config::{DatabaseBackend, DatabaseConfig};
+use sea_orm::{DatabaseConnection, SqlxPostgresConnector, SqlxSqliteConnector};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode, SqlitePool, SqlitePoolOptions,
@@ -19,33 +25,26 @@ static POSTGRES_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations
 
 /// Transitional runtime database handle.
 ///
-/// The broader codebase still executes SQLite queries directly, so this wrapper lets
-/// startup and shared state become backend-aware before the query layer is fully split.
+/// Wraps both the legacy `sqlx` pool (still used by unported code in
+/// `src/db/queries.rs` and across `src/api/**`) and a `sea_orm::DatabaseConnection`
+/// built on top of the same underlying pool. New code should prefer
+/// [`Database::conn`] and the [`repo`] module; old code continues to call
+/// [`Database::sqlite_pool`] / [`Database::postgres_pool`] until it is
+/// ported in Phase 4 of the SeaORM migration.
 #[derive(Clone)]
 pub enum Database {
-    Sqlite(SqlitePool),
-    Postgres(PgPool),
+    Sqlite {
+        pool: SqlitePool,
+        conn: DatabaseConnection,
+    },
+    Postgres {
+        pool: PgPool,
+        conn: DatabaseConnection,
+    },
 }
 
-/// Transitional database boundary for runtime services.
-///
-/// The query layer still speaks SQLite directly, but higher-level modules can depend on this
-/// interface instead of owning a `SqlitePool` in their public surface area.
-pub trait DatabaseHandle {
-    fn sqlite_pool(&self) -> crate::error::Result<&SqlitePool>;
-
-    fn postgres_pool(&self) -> crate::error::Result<&PgPool> {
-        Err(postgres_only_runtime_error())
-    }
-
-    fn sqlite_pool_cloned(&self) -> crate::error::Result<SqlitePool> {
-        self.sqlite_pool().cloned()
-    }
-
-    fn postgres_pool_cloned(&self) -> crate::error::Result<PgPool> {
-        self.postgres_pool().cloned()
-    }
-}
+// Thin helpers on `Database` for accessing the underlying sqlx pool. New code should
+// prefer the SeaORM connection via `Database::conn`.
 
 fn sqlite_only_runtime_error() -> crate::error::Error {
     crate::error::Error::Internal(
@@ -60,18 +59,47 @@ fn postgres_only_runtime_error() -> crate::error::Error {
     )
 }
 
+fn sqlx_database_error(error: sqlx::Error) -> crate::error::Error {
+    crate::error::Error::Database(error.to_string())
+}
+
 impl Database {
     pub fn backend(&self) -> DatabaseBackend {
         match self {
-            Self::Sqlite(_) => DatabaseBackend::Sqlite,
-            Self::Postgres(_) => DatabaseBackend::Postgres,
+            Self::Sqlite { .. } => DatabaseBackend::Sqlite,
+            Self::Postgres { .. } => DatabaseBackend::Postgres,
+        }
+    }
+
+    pub fn is_sqlite(&self) -> bool {
+        matches!(self, Self::Sqlite { .. })
+    }
+
+    pub fn is_postgres(&self) -> bool {
+        matches!(self, Self::Postgres { .. })
+    }
+
+    /// SeaORM connection handle. Prefer this over [`Self::sqlite_pool`] /
+    /// [`Self::postgres_pool`] for any new code.
+    pub fn conn(&self) -> &DatabaseConnection {
+        match self {
+            Self::Sqlite { conn, .. } => conn,
+            Self::Postgres { conn, .. } => conn,
+        }
+    }
+
+    /// SeaORM backend discriminator, useful for dialect-aware SQL helpers.
+    pub fn sea_backend(&self) -> sea_orm::DbBackend {
+        match self {
+            Self::Sqlite { .. } => sea_orm::DbBackend::Sqlite,
+            Self::Postgres { .. } => sea_orm::DbBackend::Postgres,
         }
     }
 
     pub fn sqlite_pool(&self) -> crate::error::Result<&SqlitePool> {
         match self {
-            Self::Sqlite(pool) => Ok(pool),
-            Self::Postgres(_) => Err(sqlite_only_runtime_error()),
+            Self::Sqlite { pool, .. } => Ok(pool),
+            Self::Postgres { .. } => Err(sqlite_only_runtime_error()),
         }
     }
 
@@ -81,39 +109,13 @@ impl Database {
 
     pub fn postgres_pool(&self) -> crate::error::Result<&PgPool> {
         match self {
-            Self::Sqlite(_) => Err(postgres_only_runtime_error()),
-            Self::Postgres(pool) => Ok(pool),
+            Self::Sqlite { .. } => Err(postgres_only_runtime_error()),
+            Self::Postgres { pool, .. } => Ok(pool),
         }
     }
 
     pub fn postgres_pool_cloned(&self) -> crate::error::Result<PgPool> {
         self.postgres_pool().cloned()
-    }
-}
-
-impl DatabaseHandle for Database {
-    fn sqlite_pool(&self) -> crate::error::Result<&SqlitePool> {
-        Database::sqlite_pool(self)
-    }
-
-    fn postgres_pool(&self) -> crate::error::Result<&PgPool> {
-        Database::postgres_pool(self)
-    }
-}
-
-impl DatabaseHandle for SqlitePool {
-    fn sqlite_pool(&self) -> crate::error::Result<&SqlitePool> {
-        Ok(self)
-    }
-}
-
-impl DatabaseHandle for PgPool {
-    fn sqlite_pool(&self) -> crate::error::Result<&SqlitePool> {
-        Err(sqlite_only_runtime_error())
-    }
-
-    fn postgres_pool(&self) -> crate::error::Result<&PgPool> {
-        Ok(self)
     }
 }
 
@@ -192,17 +194,22 @@ pub async fn create_pool(database: &DatabaseConfig) -> crate::error::Result<Data
     database.validate()?;
 
     match database.backend {
-        DatabaseBackend::Sqlite => create_sqlite_pool(&database.path)
-            .await
-            .map(Database::Sqlite),
-        DatabaseBackend::Postgres => create_postgres_pool(
-            database
-                .url
-                .as_deref()
-                .expect("validated postgres config should always have a URL"),
-        )
-        .await
-        .map(Database::Postgres),
+        DatabaseBackend::Sqlite => {
+            let pool = create_sqlite_pool(&database.path).await?;
+            let conn = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
+            Ok(Database::Sqlite { pool, conn })
+        }
+        DatabaseBackend::Postgres => {
+            let pool = create_postgres_pool(
+                database
+                    .url
+                    .as_deref()
+                    .expect("validated postgres config should always have a URL"),
+            )
+            .await?;
+            let conn = SqlxPostgresConnector::from_sqlx_postgres_pool(pool.clone());
+            Ok(Database::Postgres { pool, conn })
+        }
     }
 }
 
@@ -216,14 +223,15 @@ async fn create_postgres_pool(database_url: &str) -> crate::error::Result<PgPool
         pool_options = pool_options.max_connections(max);
     }
 
-    let pool = pool_options.connect(database_url).await?;
+    let pool = pool_options
+        .connect(database_url)
+        .await
+        .map_err(sqlx_database_error)?;
 
     POSTGRES_MIGRATOR
         .run(&pool)
         .await
         .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
-
-    migrations::run_data_migrations(&pool).await?;
 
     Ok(pool)
 }
@@ -246,7 +254,8 @@ async fn create_sqlite_pool(database_path: &Path) -> crate::error::Result<Sqlite
     );
 
     let mut options =
-        SqliteConnectOptions::from_str(&format!("sqlite:{}", database_path.display()))?
+        SqliteConnectOptions::from_str(&format!("sqlite:{}", database_path.display()))
+            .map_err(sqlx_database_error)?
             .create_if_missing(true)
             .foreign_keys(true)
             // Performance PRAGMAs applied per-connection during setup
@@ -272,14 +281,18 @@ async fn create_sqlite_pool(database_path: &Path) -> crate::error::Result<Sqlite
         pool_options = pool_options.max_connections(max);
     }
 
-    let pool = pool_options.connect_with(options).await?;
+    let pool = pool_options
+        .connect_with(options)
+        .await
+        .map_err(sqlx_database_error)?;
 
     SQLITE_MIGRATOR
         .run(&pool)
         .await
         .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
 
-    migrations::run_data_migrations(&pool).await?;
+    let migration_conn = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
+    migrations::run_data_migrations(&migration_conn).await?;
 
     // Let SQLite update query planner statistics if stale (best-effort)
     if let Err(e) = sqlx::query("PRAGMA optimize").execute(&pool).await {
@@ -291,30 +304,29 @@ async fn create_sqlite_pool(database_path: &Path) -> crate::error::Result<Sqlite
 
 #[cfg(test)]
 mod tests {
-    use super::{Database, DatabaseHandle};
+    use super::Database;
     use sqlx::sqlite::SqlitePool;
 
     #[tokio::test]
-    async fn database_handle_supports_raw_and_wrapped_sqlite_pools() {
+    async fn database_sqlite_pool_accessors_work() {
         let pool = SqlitePool::connect("sqlite::memory:")
             .await
             .expect("in-memory sqlite pool should connect");
-        let wrapped = Database::Sqlite(pool.clone());
-
-        let raw_value: i64 = sqlx::query_scalar("SELECT 1")
-            .fetch_one(DatabaseHandle::sqlite_pool(&pool).expect("raw pool should resolve"))
-            .await
-            .expect("raw pool query should succeed");
-        assert_eq!(raw_value, 1);
+        let conn = sea_orm::SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
+        let wrapped = Database::Sqlite {
+            pool: pool.clone(),
+            conn,
+        };
 
         let wrapped_value: i64 = sqlx::query_scalar("SELECT 1")
-            .fetch_one(DatabaseHandle::sqlite_pool(&wrapped).expect("wrapped pool should resolve"))
+            .fetch_one(wrapped.sqlite_pool().expect("wrapped pool should resolve"))
             .await
             .expect("wrapped pool query should succeed");
         assert_eq!(wrapped_value, 1);
 
-        let cloned_pool =
-            DatabaseHandle::sqlite_pool_cloned(&wrapped).expect("wrapped pool should clone");
+        let cloned_pool = wrapped
+            .sqlite_pool_cloned()
+            .expect("wrapped pool should clone");
         let cloned_value: i64 = sqlx::query_scalar("SELECT 1")
             .fetch_one(&cloned_pool)
             .await
