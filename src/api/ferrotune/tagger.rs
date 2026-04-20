@@ -8,6 +8,7 @@ use crate::api::common::utils::get_content_type_for_format;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
+use crate::db::repo;
 use crate::error::{Error, FerrotuneApiResult};
 use async_walkdir::WalkDir;
 use axum::{
@@ -715,37 +716,23 @@ pub async fn delete_staged_file(
             .await
     {
         // Get the cover art filename from pending edits
-        let cover_art_filename: Option<(Option<String>,)> = if let Ok(pool) =
-            state.database.sqlite_pool()
-        {
-            sqlx::query_as(
-                "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-            )
-            .bind(session_id)
-            .bind(&id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-        } else {
-            match state.database.postgres_pool() {
-                Ok(pool) => {
-                    sqlx::query_as(
-                        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
-                    )
-                    .bind(session_id)
-                    .bind(&id)
-                    .fetch_optional(pool)
-                    .await
-                    .ok()
-                    .flatten()
-                }
-                Err(_) => None,
-            }
-        };
+        #[derive(sea_orm::FromQueryResult)]
+        struct CoverRow {
+            cover_art_filename: Option<String>,
+        }
+        let cover_art_filename: Option<String> = crate::db::raw::query_one::<CoverRow>(
+            state.database.conn(),
+            "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+            "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
+            [sea_orm::Value::from(session_id), sea_orm::Value::from(id.clone())],
+        )
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.cover_art_filename);
 
         // Delete cover art file if it exists
-        if let Some((Some(filename),)) = cover_art_filename {
+        if let Some(filename) = cover_art_filename {
             let cover_art_dir = crate::config::get_data_dir()
                 .join("staging")
                 .join(&user.username)
@@ -757,42 +744,28 @@ pub async fn delete_staged_file(
         }
 
         // Delete the pending edit record
-        let _ = if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(&id)
-                .execute(pool)
-                .await
-                .map(|result| result.rows_affected())
-        } else if let Ok(pool) = state.database.postgres_pool() {
-            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2")
-                .bind(session_id)
-                .bind(&id)
-                .execute(pool)
-                .await
-                .map(|result| result.rows_affected())
-        } else {
-            Ok(0)
-        };
+        let _ = crate::db::raw::execute(
+            state.database.conn(),
+            "DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+            "DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
+            [
+                sea_orm::Value::from(session_id),
+                sea_orm::Value::from(id.clone()),
+            ],
+        )
+        .await;
 
         // Also remove from session tracks
-        let _ = if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
-                .bind(session_id)
-                .bind(&id)
-                .execute(pool)
-                .await
-                .map(|result| result.rows_affected())
-        } else if let Ok(pool) = state.database.postgres_pool() {
-            sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2")
-                .bind(session_id)
-                .bind(&id)
-                .execute(pool)
-                .await
-                .map(|result| result.rows_affected())
-        } else {
-            Ok(0)
-        };
+        let _ = crate::db::raw::execute(
+            state.database.conn(),
+            "DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
+            "DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
+            [
+                sea_orm::Value::from(session_id),
+                sea_orm::Value::from(id.clone()),
+            ],
+        )
+        .await;
     }
 
     // Success (No Content)
@@ -981,14 +954,14 @@ pub async fn stage_library_tracks(
     let mut tracks = Vec::new();
 
     // Get music folders once
-    let music_folders = match queries::get_music_folders(&state.database).await {
+    let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
-        Err(e) => return Err(Error::Database(e).into()),
+        Err(e) => return Err(e.into()),
     };
 
     for song_id in &request.song_ids {
         // Get song from database
-        let song = match queries::get_song_by_id(&state.database, song_id).await {
+        let song = match repo::browse::get_song_by_id(&state.database, song_id).await {
             Ok(Some(song)) => song,
             Ok(None) => continue,
             Err(_) => continue,
@@ -1046,7 +1019,7 @@ pub async fn batch_get_tags(
 
     for song_id in &request.song_ids {
         // Get song and file path
-        let song = match queries::get_song_by_id(&state.database, song_id).await {
+        let song = match repo::browse::get_song_by_id(&state.database, song_id).await {
             Ok(Some(song)) => song,
             Ok(None) => {
                 results.push(BatchTagResult {
@@ -1067,7 +1040,7 @@ pub async fn batch_get_tags(
         };
 
         // Get file path
-        let music_folders = match queries::get_music_folders(&state.database).await {
+        let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
             Ok(folders) => folders,
             Err(e) => {
                 results.push(BatchTagResult {
@@ -1177,7 +1150,7 @@ pub async fn batch_update_tags(
         }
 
         // Get song and file path
-        let song = match queries::get_song_by_id(&state.database, &update.song_id).await {
+        let song = match repo::browse::get_song_by_id(&state.database, &update.song_id).await {
             Ok(Some(song)) => song,
             Ok(None) => {
                 errors.push(BatchUpdateError {
@@ -1196,7 +1169,7 @@ pub async fn batch_update_tags(
         };
 
         // Get file path
-        let music_folders = match queries::get_music_folders(&state.database).await {
+        let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
             Ok(folders) => folders,
             Err(e) => {
                 errors.push(BatchUpdateError {
@@ -1310,7 +1283,7 @@ pub async fn save_staged_files(
         }
 
         // Get target music folder
-        let music_folders = match queries::get_music_folders(&state.database).await {
+        let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
             Ok(folders) => folders,
             Err(e) => {
                 errors.push(SaveError {
@@ -1395,7 +1368,7 @@ pub async fn rescan_files(
         std::collections::HashMap::new();
 
     // Get music folders once
-    let music_folders = match queries::get_music_folders(&state.database).await {
+    let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
             return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
@@ -1404,7 +1377,7 @@ pub async fn rescan_files(
 
     // Get file paths for each song and group by folder
     for song_id in &request.song_ids {
-        let song = match queries::get_song_by_id(&state.database, song_id).await {
+        let song = match repo::browse::get_song_by_id(&state.database, song_id).await {
             Ok(Some(song)) => song,
             _ => continue,
         };
@@ -1471,7 +1444,7 @@ pub async fn rename_files(
     let mut renamed_count = 0;
 
     // Get music folders for path resolution
-    let music_folders = match queries::get_music_folders(&state.database).await {
+    let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
             return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
@@ -1480,7 +1453,7 @@ pub async fn rename_files(
 
     for entry in &request.renames {
         // Get the song from database
-        let song = match queries::get_song_by_id(&state.database, &entry.song_id).await {
+        let song = match repo::browse::get_song_by_id(&state.database, &entry.song_id).await {
             Ok(Some(s)) => s,
             Ok(None) => {
                 errors.push(RenameError {
@@ -1599,7 +1572,7 @@ pub async fn check_path_conflicts(
     let mut conflicts: Vec<PathConflict> = Vec::new();
 
     // Get music folders for path resolution
-    let music_folders = match queries::get_music_folders(&state.database).await {
+    let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
             return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
@@ -1616,7 +1589,8 @@ pub async fn check_path_conflicts(
         let folder: PathBuf;
 
         // First try to get the song from database (for library tracks)
-        if let Ok(Some(song)) = queries::get_song_by_id(&state.database, &entry.song_id).await {
+        if let Ok(Some(song)) = repo::browse::get_song_by_id(&state.database, &entry.song_id).await
+        {
             // Library track - find its music folder
             let mut found_folder: Option<PathBuf> = None;
             for mf in &music_folders {
@@ -1738,7 +1712,7 @@ pub struct SongPathsResponse {
     pub songs: Vec<SongPathMetadata>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(sea_orm::FromQueryResult)]
 struct SongPathRow {
     id: String,
     file_path: String,
@@ -1762,9 +1736,9 @@ pub async fn get_song_paths(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SongPathsResponse>> {
     // Query all songs with artist and album info in a single query
-    let rows = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as::<_, SongPathRow>(
-            r#"
+    let rows = crate::db::raw::query_all::<SongPathRow>(
+        state.database.conn(),
+        r#"
         SELECT s.id, s.file_path, s.title, ar.name as artist_name, s.file_format,
                al.name as album_name, s.track_number, s.disc_number, s.year, s.genre,
                aa.name as album_artist_name
@@ -1777,13 +1751,7 @@ pub async fn get_song_paths(
         )
         ORDER BY s.file_path
         "#,
-        )
-        .fetch_all(pool)
-        .await
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as::<_, SongPathRow>(
-            r#"
+        r#"
         SELECT s.id, s.file_path, s.title, ar.name as artist_name, s.file_format,
                al.name as album_name, s.track_number, s.disc_number, s.year, s.genre,
                aa.name as album_artist_name
@@ -1796,10 +1764,9 @@ pub async fn get_song_paths(
         )
         ORDER BY s.file_path
         "#,
-        )
-        .fetch_all(pool)
-        .await
-    }
+        std::iter::empty::<sea_orm::Value>(),
+    )
+    .await
     .map_err(|e| Error::Internal(format!("Failed to fetch songs: {}", e)))?;
 
     let songs: Vec<SongPathMetadata> = rows

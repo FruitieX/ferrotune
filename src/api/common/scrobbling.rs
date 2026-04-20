@@ -1,22 +1,23 @@
 use chrono::{DateTime, Duration, Utc};
+use sea_orm::Value;
 
-use crate::db::DatabaseHandle;
+use crate::db::{raw, Database};
 
 pub const RECENT_SCROBBLE_DEDUP_WINDOW_SECS: i64 = 30;
 
 pub async fn insert_submission_scrobble_if_not_recent_duplicate(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     user_id: i64,
     song_id: &str,
     played_at: DateTime<Utc>,
     queue_source_type: Option<&str>,
     queue_source_id: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> crate::error::Result<bool> {
     let duplicate_cutoff = played_at - Duration::seconds(RECENT_SCROBBLE_DEDUP_WINDOW_SECS);
 
-    let rows_affected = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query(
-            r#"
+    let result = raw::execute(
+        database.conn(),
+        r#"
             INSERT INTO scrobbles (
                 user_id,
                 song_id,
@@ -35,24 +36,7 @@ pub async fn insert_submission_scrobble_if_not_recent_duplicate(
                   AND played_at > ?
             )
             "#,
-        )
-        .bind(user_id)
-        .bind(song_id)
-        .bind(played_at)
-        .bind(queue_source_type)
-        .bind(queue_source_id)
-        .bind(user_id)
-        .bind(song_id)
-        .bind(duplicate_cutoff)
-        .execute(pool)
-        .await?
-        .rows_affected()
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        sqlx::query(
-            r#"
+        r#"
             INSERT INTO scrobbles (
                 user_id,
                 song_id,
@@ -71,29 +55,29 @@ pub async fn insert_submission_scrobble_if_not_recent_duplicate(
                   AND played_at > $8
             )
             "#,
-        )
-        .bind(user_id)
-        .bind(song_id)
-        .bind(played_at)
-        .bind(queue_source_type)
-        .bind(queue_source_id)
-        .bind(user_id)
-        .bind(song_id)
-        .bind(duplicate_cutoff)
-        .execute(pool)
-        .await?
-        .rows_affected()
-    };
+        [
+            Value::from(user_id),
+            Value::from(song_id.to_string()),
+            Value::from(played_at),
+            Value::from(queue_source_type.map(String::from)),
+            Value::from(queue_source_id.map(String::from)),
+            Value::from(user_id),
+            Value::from(song_id.to_string()),
+            Value::from(duplicate_cutoff),
+        ],
+    )
+    .await?;
 
-    Ok(rows_affected > 0)
+    Ok(result.rows_affected() > 0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::insert_submission_scrobble_if_not_recent_duplicate;
+    use crate::db::Database;
     use chrono::{TimeZone, Utc};
 
-    async fn setup_pool() -> sqlx::SqlitePool {
+    async fn setup_database() -> Database {
         let pool = sqlx::SqlitePool::connect(":memory:")
             .await
             .expect("create sqlite memory db");
@@ -117,16 +101,17 @@ mod tests {
         .await
         .expect("create scrobbles table");
 
-        pool
+        let conn = sea_orm::SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
+        Database::Sqlite { pool, conn }
     }
 
     #[tokio::test]
     async fn rejects_same_song_within_dedupe_window() {
-        let pool = setup_pool().await;
+        let database = setup_database().await;
         let first_play = Utc.with_ymd_and_hms(2026, 3, 25, 14, 53, 42).unwrap();
 
         let inserted = insert_submission_scrobble_if_not_recent_duplicate(
-            &pool,
+            &database,
             1,
             "song-1",
             first_play,
@@ -138,7 +123,7 @@ mod tests {
         assert!(inserted);
 
         let duplicate = insert_submission_scrobble_if_not_recent_duplicate(
-            &pool,
+            &database,
             1,
             "song-1",
             first_play + chrono::Duration::seconds(3),
@@ -149,26 +134,31 @@ mod tests {
         .expect("check duplicate scrobble");
         assert!(!duplicate);
 
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scrobbles")
-            .fetch_one(&pool)
-            .await
-            .expect("count scrobbles");
+        let count: i64 = crate::db::raw::query_scalar::<i64>(
+            database.conn(),
+            "SELECT COUNT(*) FROM scrobbles",
+            "SELECT COUNT(*) FROM scrobbles",
+            std::iter::empty::<sea_orm::Value>(),
+        )
+        .await
+        .expect("count scrobbles")
+        .unwrap_or(0);
         assert_eq!(count, 1);
     }
 
     #[tokio::test]
     async fn allows_new_scrobble_after_dedupe_window() {
-        let pool = setup_pool().await;
+        let database = setup_database().await;
         let first_play = Utc.with_ymd_and_hms(2026, 3, 25, 14, 53, 42).unwrap();
 
         insert_submission_scrobble_if_not_recent_duplicate(
-            &pool, 1, "song-1", first_play, None, None,
+            &database, 1, "song-1", first_play, None, None,
         )
         .await
         .expect("insert first scrobble");
 
         let inserted = insert_submission_scrobble_if_not_recent_duplicate(
-            &pool,
+            &database,
             1,
             "song-1",
             first_play + chrono::Duration::seconds(31),
@@ -180,10 +170,15 @@ mod tests {
 
         assert!(inserted);
 
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scrobbles")
-            .fetch_one(&pool)
-            .await
-            .expect("count scrobbles");
+        let count: i64 = crate::db::raw::query_scalar::<i64>(
+            database.conn(),
+            "SELECT COUNT(*) FROM scrobbles",
+            "SELECT COUNT(*) FROM scrobbles",
+            std::iter::empty::<sea_orm::Value>(),
+        )
+        .await
+        .expect("count scrobbles")
+        .unwrap_or(0);
         assert_eq!(count, 2);
     }
 }

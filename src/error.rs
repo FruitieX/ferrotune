@@ -41,9 +41,9 @@ impl From<Error> for FerrotuneApiError {
     }
 }
 
-impl From<sqlx::Error> for FerrotuneApiError {
-    fn from(e: sqlx::Error) -> Self {
-        FerrotuneApiError(Error::Database(e))
+impl From<sea_orm::DbErr> for FerrotuneApiError {
+    fn from(e: sea_orm::DbErr) -> Self {
+        FerrotuneApiError(Error::Orm(e))
     }
 }
 
@@ -92,7 +92,10 @@ impl FormatError {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(String),
+
+    #[error("Database error: {0}")]
+    Orm(#[from] sea_orm::DbErr),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -196,6 +199,10 @@ impl Error {
                 tracing::error!(error = %e, "Database error");
                 (0, "Internal server error".to_string())
             }
+            Error::Orm(ref e) => {
+                tracing::error!(error = %e, "Database error (SeaORM)");
+                (0, "Internal server error".to_string())
+            }
             Error::Io(ref e) => {
                 tracing::error!(error = %e, "IO error");
                 (0, "Internal server error".to_string())
@@ -235,6 +242,7 @@ impl Error {
             Error::Conflict(_) => StatusCode::CONFLICT,
             Error::Forbidden(_) => StatusCode::FORBIDDEN,
             Error::Database(_)
+            | Error::Orm(_)
             | Error::Io(_)
             | Error::Image(_)
             | Error::Lofty(_)

@@ -1,7 +1,7 @@
 use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::CommonParams;
-use crate::db::queries;
-use crate::db::DatabaseHandle;
+use crate::db::repo;
+use crate::db::Database;
 use crate::error::{Error, FerrotuneApiError, Result};
 use crate::password;
 use axum::{
@@ -129,10 +129,7 @@ impl FromRequestParts<Arc<crate::api::AppState>> for FerrotuneAuthenticatedUser 
     }
 }
 
-async fn try_basic_auth(
-    parts: &Parts,
-    database: &(impl DatabaseHandle + ?Sized),
-) -> Result<Option<AuthenticatedUser>> {
+async fn try_basic_auth(parts: &Parts, database: &Database) -> Result<Option<AuthenticatedUser>> {
     let auth_header = match parts.headers.get(AUTHORIZATION) {
         Some(h) => h,
         None => return Ok(None),
@@ -184,7 +181,7 @@ async fn try_basic_auth(
 
 async fn try_api_key_header(
     parts: &Parts,
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
 ) -> Result<Option<AuthenticatedUser>> {
     let header_value = match parts.headers.get("X-Api-Key") {
         Some(h) => h,
@@ -218,7 +215,7 @@ async fn try_api_key_header(
 }
 
 pub async fn authenticate_request(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     params: &CommonParams,
     format: ResponseFormat,
 ) -> Result<AuthenticatedUser> {
@@ -268,12 +265,12 @@ pub async fn authenticate_request(
 }
 
 async fn authenticate_with_api_key(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     token: &str,
     format: ResponseFormat,
     client: String,
 ) -> Result<AuthenticatedUser> {
-    let user = queries::get_user_by_api_key(database, token)
+    let user = repo::users::get_user_by_api_key(database, token)
         .await?
         .ok_or_else(|| {
             tracing::warn!("Invalid API key attempted");
@@ -291,14 +288,14 @@ async fn authenticate_with_api_key(
 }
 
 async fn authenticate_with_token(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     username: &str,
     token: &str,
     salt: &str,
     format: ResponseFormat,
     client: String,
 ) -> Result<AuthenticatedUser> {
-    let user = queries::get_user_by_username(database, username)
+    let user = repo::users::get_user_by_username(database, username)
         .await?
         .ok_or_else(|| {
             tracing::warn!(username = %username, "Token auth failed: user not found");
@@ -326,7 +323,7 @@ async fn authenticate_with_token(
 }
 
 async fn authenticate_with_password(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &Database,
     username: &str,
     password: &str,
     format: ResponseFormat,
@@ -343,7 +340,7 @@ async fn authenticate_with_password(
         password.to_string()
     };
 
-    let user = queries::get_user_by_username(database, username)
+    let user = repo::users::get_user_by_username(database, username)
         .await?
         .ok_or_else(|| {
             tracing::warn!(username = %username, "Password auth failed: user not found");

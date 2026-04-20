@@ -127,15 +127,16 @@ async fn main() -> Result<()> {
         match config::Config::load()? {
             Some(config) => config,
             None => {
+                let configless = config::Config::default_configless();
                 tracing::info!("No config file found, running in configless mode");
                 tracing::info!("  Data directory: {}", config::get_data_dir().display());
                 tracing::info!(
-                    "  Database: {}",
-                    config::get_data_dir().join("ferrotune.db").display()
+                    "  Database:       {}",
+                    configless.database.connection_label()
                 );
-                tracing::info!("  Cache: {}", config::get_cache_dir().display());
+                tracing::info!("  Cache:          {}", config::get_cache_dir().display());
                 tracing::info!("Use the web UI at /setup to configure your server");
-                config::Config::default_configless()
+                configless
             }
         }
     };
@@ -182,7 +183,7 @@ async fn main() -> Result<()> {
             // Create subsonic token for legacy token+salt authentication
             let subsonic_token = password::create_subsonic_token(&password);
 
-            db::queries::create_user(
+            db::repo::users::create_user(
                 &pool,
                 &username,
                 &password_hash,
@@ -201,7 +202,7 @@ async fn main() -> Result<()> {
             // Create subsonic token for token+salt authentication
             let subsonic_token = password::create_subsonic_token(&password);
 
-            let updated = db::queries::update_user_password(
+            let updated = db::repo::users::update_user_password(
                 &pool,
                 &username,
                 &password_hash,
@@ -247,7 +248,7 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     );
 
     // Check if we need to create initial admin user
-    let user_count = db::queries::count_users(&pool).await?;
+    let user_count = db::repo::users::count_users(&pool).await?;
 
     if user_count == 0 {
         tracing::info!("No users found. Creating admin user...");

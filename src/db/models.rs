@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct User {
     pub id: i64,
     pub username: String,
@@ -19,7 +19,7 @@ pub struct User {
     pub subsonic_token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct ApiKey {
     pub token: String,
     pub user_id: i64,
@@ -28,7 +28,7 @@ pub struct ApiKey {
     pub last_used: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct Artist {
     pub id: String,
     pub name: String,
@@ -38,7 +38,7 @@ pub struct Artist {
     pub cover_art_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct Album {
     pub id: String,
     pub name: String,
@@ -52,7 +52,7 @@ pub struct Album {
     pub cover_art_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct Song {
     pub id: String,
     pub title: String,
@@ -82,19 +82,16 @@ pub struct Song {
     pub computed_replaygain_track_peak: Option<f64>,
     // Optional fields populated via JOINs when needed
     /// Play count from scrobbles table (populated via JOIN)
-    #[sqlx(default)]
     pub play_count: Option<i64>,
     /// Last played timestamp from scrobbles table (populated via JOIN)
-    #[sqlx(default)]
     pub last_played: Option<DateTime<Utc>>,
     /// Starred timestamp from starred table (populated via JOIN)
-    #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
 }
 
 /// Song with its music library enabled status
 /// Used for playlist display where we want to show metadata even for songs from disabled libraries
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct SongWithLibraryStatus {
     pub id: String,
     pub title: String,
@@ -124,11 +121,8 @@ pub struct SongWithLibraryStatus {
     pub computed_replaygain_track_peak: Option<f64>,
     /// Whether the music library this song belongs to is enabled
     pub library_enabled: bool,
-    #[sqlx(default)]
     pub play_count: Option<i64>,
-    #[sqlx(default)]
     pub last_played: Option<DateTime<Utc>>,
-    #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
 }
 
@@ -168,7 +162,7 @@ impl SongWithLibraryStatus {
 }
 
 /// Song with its music folder path for full filesystem path construction
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct SongWithFolder {
     pub id: String,
     pub title: String,
@@ -199,11 +193,8 @@ pub struct SongWithFolder {
     /// The base path of the music folder this song belongs to
     pub folder_path: Option<String>,
     // Optional fields populated via JOINs when needed
-    #[sqlx(default)]
     pub play_count: Option<i64>,
-    #[sqlx(default)]
     pub last_played: Option<DateTime<Utc>>,
-    #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
 }
 
@@ -249,7 +240,7 @@ impl SongWithFolder {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct MusicFolder {
     pub id: i64,
     pub name: String,
@@ -260,7 +251,7 @@ pub struct MusicFolder {
     pub scan_error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct Starred {
     pub user_id: i64,
     pub item_type: String,
@@ -300,7 +291,7 @@ impl std::str::FromStr for ItemType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct Playlist {
     pub id: String,
     pub name: String,
@@ -315,7 +306,7 @@ pub struct Playlist {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlaylistFolder {
     pub id: String,
     pub name: String,
@@ -325,7 +316,7 @@ pub struct PlaylistFolder {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlaylistSong {
     pub playlist_id: String,
     pub song_id: Option<String>,
@@ -355,7 +346,7 @@ pub struct MissingEntryData {
 // ============================================================================
 
 /// Smart playlist - a dynamic playlist based on filter rules
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct SmartPlaylist {
     pub id: String,
     pub name: String,
@@ -403,7 +394,7 @@ pub struct SmartPlaylistCondition {
     pub value: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct Scrobble {
     pub id: i64,
     pub user_id: i64,
@@ -412,7 +403,7 @@ pub struct Scrobble {
     pub submission: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct UserPreferences {
     pub user_id: i64,
     pub accent_color: String,
@@ -535,7 +526,7 @@ impl std::str::FromStr for RepeatMode {
 
 /// A playback session — one per user, acts as a persistent queue container.
 /// Multiple clients connect to the same session; ownership tracked via owner_client_id.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlaybackSession {
     pub id: String,
     pub user_id: i64,
@@ -560,7 +551,7 @@ pub struct PlaybackSession {
 /// display metadata (song title/artist) and heartbeat timestamps, but position
 /// data there is derived/ephemeral. SSE events broadcast position changes but
 /// are not authoritative. Clients should always reconcile against the queue.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlayQueue {
     pub user_id: i64,
     pub source_type: String,
@@ -622,7 +613,7 @@ impl PlayQueue {
 }
 
 /// Queue entry - a song in the queue at a specific position
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlayQueueEntry {
     pub user_id: i64,
     pub song_id: String,
@@ -634,7 +625,7 @@ pub struct PlayQueueEntry {
 }
 
 /// Queue entry with full song data - for API responses
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct QueueEntryWithSong {
     /// Unique identifier for this queue entry
     pub entry_id: String,
@@ -660,11 +651,8 @@ pub struct QueueEntryWithSong {
     pub file_format: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(default)]
     pub play_count: Option<i64>,
-    #[sqlx(default)]
     pub last_played: Option<DateTime<Utc>>,
-    #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
     pub cover_art_hash: Option<String>,
     pub cover_art_width: Option<i32>,
@@ -682,7 +670,7 @@ pub struct QueueEntryWithSong {
 // ============================================================================
 
 /// User with library access information
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct UserLibraryAccess {
     pub user_id: i64,
     pub music_folder_id: i64,
@@ -690,7 +678,7 @@ pub struct UserLibraryAccess {
 }
 
 /// Playlist share record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlaylistShare {
     pub playlist_id: String,
     pub shared_with_user_id: i64,
@@ -703,7 +691,7 @@ pub struct PlaylistShare {
 // ============================================================================
 
 /// Tagger session - stores per-user tagger state
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct TaggerSession {
     pub id: i64,
     pub user_id: i64,
@@ -727,7 +715,7 @@ pub struct TaggerSession {
 }
 
 /// Track in a tagger session
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct TaggerSessionTrack {
     pub id: i64,
     pub session_id: i64,
@@ -738,7 +726,7 @@ pub struct TaggerSessionTrack {
 }
 
 /// Pending edit for a track in a tagger session
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct TaggerPendingEdit {
     pub id: i64,
     pub session_id: i64,
@@ -759,13 +747,12 @@ pub struct TaggerPendingEdit {
 }
 
 /// User script for tagger
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct TaggerScript {
     pub id: String,
     pub user_id: i64,
     pub name: String,
     /// 'rename' or 'tags'
-    #[sqlx(rename = "type")]
     pub script_type: String,
     pub script: String,
     pub position: i64,

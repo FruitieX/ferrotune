@@ -1,6 +1,6 @@
 use ferrotune::{
     config::{DatabaseBackend, DatabaseConfig},
-    db::{self, queries},
+    db::{self, repo},
 };
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -30,7 +30,7 @@ fn unique_sqlite_db_path() -> PathBuf {
 
 async fn assert_repository_smoke(database: &db::Database) {
     assert_eq!(
-        queries::count_users(database)
+        repo::users::count_users(database)
             .await
             .expect("user count query should succeed"),
         0,
@@ -38,14 +38,14 @@ async fn assert_repository_smoke(database: &db::Database) {
     );
 
     assert!(
-        queries::get_music_folders(database)
+        repo::users::get_music_folders(database)
             .await
             .expect("music folder query should succeed")
             .is_empty(),
         "smoke database should start without music folders"
     );
 
-    let user_id = queries::create_user(
+    let user_id = repo::users::create_user(
         database,
         "smoke-user",
         "hash",
@@ -56,29 +56,29 @@ async fn assert_repository_smoke(database: &db::Database) {
     .await
     .expect("user create query should succeed");
 
-    let folder_id = queries::create_music_folder(database, "Smoke", "/music/smoke")
+    let folder_id = repo::users::create_music_folder(database, "Smoke", "/music/smoke")
         .await
         .expect("music folder create query should succeed");
 
-    queries::grant_user_library_access(database, user_id, folder_id)
+    repo::users::grant_user_library_access(database, user_id, folder_id)
         .await
         .expect("library access grant should succeed");
 
-    let user = queries::get_user_by_username(database, "smoke-user")
+    let user = repo::users::get_user_by_username(database, "smoke-user")
         .await
         .expect("user lookup should succeed")
         .expect("created user should exist");
     assert_eq!(user.id, user_id);
     assert!(user.is_admin, "smoke user should preserve admin flag");
 
-    let user_folders = queries::get_music_folders_for_user(database, user_id)
+    let user_folders = repo::users::get_music_folders_for_user(database, user_id)
         .await
         .expect("user music folder query should succeed");
     assert_eq!(user_folders.len(), 1);
     assert_eq!(user_folders[0].id, folder_id);
     assert_eq!(user_folders[0].path, "/music/smoke");
 
-    let folder_lookup = queries::get_music_folder_id_by_path(database, "/music/smoke")
+    let folder_lookup = repo::users::get_music_folder_id_by_path(database, "/music/smoke")
         .await
         .expect("music folder lookup by path should succeed");
     assert_eq!(folder_lookup, Some(folder_id));

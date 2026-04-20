@@ -38,25 +38,22 @@ pub async fn get_waveform(
     }
 
     // Get waveform data from database
-    let row: Option<(Vec<u8>,)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as("SELECT waveform_data FROM songs WHERE id = ? AND waveform_data IS NOT NULL")
-            .bind(&song_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query_as(
-            "SELECT waveform_data FROM songs WHERE id = $1 AND waveform_data IS NOT NULL",
-        )
-        .bind(&song_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?
-    };
+    #[derive(sea_orm::FromQueryResult)]
+    struct WaveformRow {
+        waveform_data: Vec<u8>,
+    }
+    let row = crate::db::raw::query_one::<WaveformRow>(
+        state.database.conn(),
+        "SELECT waveform_data FROM songs WHERE id = ? AND waveform_data IS NOT NULL",
+        "SELECT waveform_data FROM songs WHERE id = $1 AND waveform_data IS NOT NULL",
+        [sea_orm::Value::from(song_id.clone())],
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?;
 
-    let (blob,) =
-        row.ok_or_else(|| Error::NotFound(format!("No waveform data for song {}", song_id)))?;
+    let blob = row
+        .ok_or_else(|| Error::NotFound(format!("No waveform data for song {}", song_id)))?
+        .waveform_data;
 
     let heights = crate::analysis::blob_to_waveform(&blob)?;
 

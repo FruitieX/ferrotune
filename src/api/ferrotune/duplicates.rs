@@ -116,25 +116,40 @@ pub async fn get_duplicates(
              WHERE s.full_file_hash IS NOT NULL
              ORDER BY s.full_file_hash, s.file_path";
 
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        i64,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-    )> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?
-    } else {
-        sqlx::query_as(query)
-            .fetch_all(state.database.postgres_pool()?)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?
+    let rows = {
+        #[derive(sea_orm::FromQueryResult)]
+        struct DupRow {
+            full_file_hash: String,
+            id: String,
+            file_path: String,
+            file_size: i64,
+            title: String,
+            artist_name: Option<String>,
+            album_name: Option<String>,
+            folder_name: String,
+        }
+        crate::db::raw::query_all::<DupRow>(
+            state.database.conn(),
+            query,
+            query,
+            std::iter::empty::<sea_orm::Value>(),
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?
+        .into_iter()
+        .map(|r| {
+            (
+                r.full_file_hash,
+                r.id,
+                r.file_path,
+                r.file_size,
+                r.title,
+                r.artist_name,
+                r.album_name,
+                r.folder_name,
+            )
+        })
+        .collect::<Vec<_>>()
     };
 
     // Group by hash

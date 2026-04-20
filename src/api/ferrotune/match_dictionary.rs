@@ -7,7 +7,6 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MissingEntryData;
-use crate::db::retry::with_retry;
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -85,9 +84,17 @@ pub async fn get_match_dictionary(
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<MatchDictionaryResponse>> {
     // Query entries from the dedicated match_dictionary table
-    let dict_rows: Vec<DictRow> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+    #[derive(sea_orm::FromQueryResult)]
+    struct DictDbRow {
+        original_title: Option<String>,
+        original_artist: Option<String>,
+        original_album: Option<String>,
+        original_duration_ms: Option<i32>,
+        song_id: String,
+    }
+    let dict_rows: Vec<DictRow> = crate::db::raw::query_all::<DictDbRow>(
+        state.database.conn(),
+        r#"
             SELECT
                 original_title,
                 original_artist,
@@ -97,13 +104,7 @@ pub async fn get_match_dictionary(
             FROM match_dictionary
             WHERE user_id = ?
             "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as(
-            r#"
+        r#"
             SELECT
                 original_title,
                 original_artist,
@@ -113,17 +114,30 @@ pub async fn get_match_dictionary(
             FROM match_dictionary
             WHERE user_id = $1
             "#,
+        [sea_orm::Value::from(user.user_id)],
+    )
+    .await?
+    .into_iter()
+    .map(|r| {
+        (
+            r.original_title,
+            r.original_artist,
+            r.original_album,
+            r.original_duration_ms,
+            r.song_id,
         )
-        .bind(user.user_id)
-        .fetch_all(state.database.postgres_pool()?)
-        .await?
-    };
+    })
+    .collect();
 
     // Query legacy entries from playlists owned by the user
-    // An entry is "matched" if it has both missing_entry_data (from import) and song_id (matched)
-    let legacy_rows: Vec<(String, String)> = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+    #[derive(sea_orm::FromQueryResult)]
+    struct LegacyDbRow {
+        missing_entry_data: String,
+        song_id: String,
+    }
+    let legacy_rows: Vec<(String, String)> = crate::db::raw::query_all::<LegacyDbRow>(
+        state.database.conn(),
+        r#"
         SELECT DISTINCT
             ps.missing_entry_data,
             ps.song_id
@@ -133,13 +147,7 @@ pub async fn get_match_dictionary(
           AND ps.missing_entry_data IS NOT NULL
           AND ps.song_id IS NOT NULL
         "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as(
-            r#"
+        r#"
         SELECT DISTINCT
             ps.missing_entry_data,
             ps.song_id
@@ -149,11 +157,12 @@ pub async fn get_match_dictionary(
           AND ps.missing_entry_data IS NOT NULL
           AND ps.song_id IS NOT NULL
         "#,
-        )
-        .bind(user.user_id)
-        .fetch_all(state.database.postgres_pool()?)
-        .await?
-    };
+        [sea_orm::Value::from(user.user_id)],
+    )
+    .await?
+    .into_iter()
+    .map(|r| (r.missing_entry_data, r.song_id))
+    .collect();
 
     // Build entries from the dedicated table
     let mut entries: Vec<MatchDictionaryEntry> = dict_rows
@@ -236,10 +245,9 @@ pub async fn save_match_dictionary(
         };
 
         // Use UPSERT to insert or update
-        let result = with_retry(|| async {
-            if let Ok(pool) = state.database.sqlite_pool() {
-                sqlx::query(
-                    r#"
+        let result = crate::db::raw::execute(
+            state.database.conn(),
+            r#"
                 INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (user_id, lookup_key) DO UPDATE SET
@@ -250,20 +258,7 @@ pub async fn save_match_dictionary(
                     song_id = excluded.song_id,
                     updated_at = CURRENT_TIMESTAMP
                 "#,
-                )
-                .bind(user.user_id)
-                .bind(&lookup_key)
-                .bind(&entry.title)
-                .bind(&entry.artist)
-                .bind(&entry.album)
-                .bind(entry.duration)
-                .bind(&entry.song_id)
-                .execute(pool)
-                .await
-                .map(|r| r.rows_affected())
-            } else {
-                sqlx::query(
-                    r#"
+            r#"
                 INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (user_id, lookup_key) DO UPDATE SET
@@ -274,20 +269,18 @@ pub async fn save_match_dictionary(
                     song_id = EXCLUDED.song_id,
                     updated_at = CURRENT_TIMESTAMP
                 "#,
-                )
-                .bind(user.user_id)
-                .bind(&lookup_key)
-                .bind(&entry.title)
-                .bind(&entry.artist)
-                .bind(&entry.album)
-                .bind(entry.duration)
-                .bind(&entry.song_id)
-                .execute(state.database.postgres_pool().map_err(|e| sqlx::Error::Configuration(e.to_string().into()))?)
-                .await
-                .map(|r| r.rows_affected())
-            }
-        }, None)
-        .await?;
+            [
+                sea_orm::Value::from(user.user_id),
+                sea_orm::Value::from(lookup_key),
+                sea_orm::Value::from(entry.title.clone()),
+                sea_orm::Value::from(entry.artist.clone()),
+                sea_orm::Value::from(entry.album.clone()),
+                sea_orm::Value::from(entry.duration),
+                sea_orm::Value::from(entry.song_id.clone()),
+            ],
+        )
+        .await?
+        .rows_affected();
 
         if result > 0 {
             saved += 1;

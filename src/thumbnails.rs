@@ -15,7 +15,6 @@
 //! - Identical duplicate tracks to share cover art
 //! - Efficient caching based on content hash
 
-use crate::db::DatabaseHandle;
 use crate::error::{Error, Result};
 use image::{imageops::FilterType, DynamicImage, ImageFormat};
 use lofty::config::ParseOptions;
@@ -78,114 +77,73 @@ pub struct CoverArtResult {
 /// If the hash already exists in `cover_art_thumbnails`, dimensions are still computed.
 /// Otherwise, thumbnails are generated and inserted.
 pub async fn ensure_cover_art_with_dimensions(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     image_data: &[u8],
 ) -> Result<CoverArtResult> {
+    use crate::db::raw;
+    use sea_orm::Value;
+
     // 1. Compute hash
     let hash = blake3::hash(image_data).to_hex().to_string();
 
-    if let Ok(pool) = database.sqlite_pool() {
-        // 2. Check if exists
-        let exists =
-            sqlx::query_scalar::<_, i64>("SELECT 1 FROM cover_art_thumbnails WHERE hash = ?")
-                .bind(&hash)
-                .fetch_optional(pool)
-                .await?
-                .is_some();
+    // 2. Check if exists
+    let exists = raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT 1 FROM cover_art_thumbnails WHERE hash = ?",
+        "SELECT 1 FROM cover_art_thumbnails WHERE hash = $1",
+        [Value::from(hash.clone())],
+    )
+    .await?
+    .is_some();
 
-        // Clone data for the blocking task
-        let data = image_data.to_vec();
+    // Clone data for the blocking task
+    let data = image_data.to_vec();
 
-        if exists {
-            // Still need to get dimensions even if thumbnails exist
-            let (width, height) = tokio::task::spawn_blocking(move || get_image_dimensions(&data))
-                .await
-                .map_err(|e| Error::Internal(e.to_string()))??;
+    if exists {
+        // Still need to get dimensions even if thumbnails exist
+        let (width, height) = tokio::task::spawn_blocking(move || get_image_dimensions(&data))
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))??;
 
-            return Ok(CoverArtResult {
-                hash,
-                width,
-                height,
-            });
-        }
+        return Ok(CoverArtResult {
+            hash,
+            width,
+            height,
+        });
+    }
 
-        // 3. Generate thumbnails and get dimensions
-        let (small, medium, width, height) =
-            tokio::task::spawn_blocking(move || generate_thumbnail_pair_with_dimensions(&data))
-                .await
-                .map_err(|e| Error::Internal(e.to_string()))??;
+    // 3. Generate thumbnails and get dimensions
+    let (small, medium, width, height) =
+        tokio::task::spawn_blocking(move || generate_thumbnail_pair_with_dimensions(&data))
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))??;
 
-        // 4. Insert
-        sqlx::query(
-            r#"
+    // 4. Insert
+    raw::execute(
+        database.conn(),
+        r#"
             INSERT INTO cover_art_thumbnails (hash, small, medium, updated_at)
             VALUES (?, ?, ?, datetime('now'))
             ON CONFLICT(hash) DO NOTHING
             "#,
-        )
-        .bind(&hash)
-        .bind(small)
-        .bind(medium)
-        .execute(pool)
-        .await?;
-
-        return Ok(CoverArtResult {
-            hash,
-            width,
-            height,
-        });
-    }
-
-    if let Ok(pool) = database.postgres_pool() {
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM cover_art_thumbnails WHERE hash = $1)",
-        )
-        .bind(&hash)
-        .fetch_one(pool)
-        .await?;
-
-        let data = image_data.to_vec();
-
-        if exists {
-            let (width, height) = tokio::task::spawn_blocking(move || get_image_dimensions(&data))
-                .await
-                .map_err(|e| Error::Internal(e.to_string()))??;
-
-            return Ok(CoverArtResult {
-                hash,
-                width,
-                height,
-            });
-        }
-
-        let (small, medium, width, height) =
-            tokio::task::spawn_blocking(move || generate_thumbnail_pair_with_dimensions(&data))
-                .await
-                .map_err(|e| Error::Internal(e.to_string()))??;
-
-        sqlx::query(
-            r#"
+        r#"
             INSERT INTO cover_art_thumbnails (hash, small, medium, updated_at)
             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
             ON CONFLICT(hash) DO NOTHING
             "#,
-        )
-        .bind(&hash)
-        .bind(small)
-        .bind(medium)
-        .execute(pool)
-        .await?;
+        [
+            Value::from(hash.clone()),
+            Value::from(small),
+            Value::from(medium),
+        ],
+    )
+    .await?;
 
-        return Ok(CoverArtResult {
-            hash,
-            width,
-            height,
-        });
-    }
-
-    Err(Error::Internal(
-        "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-    ))
+    Ok(CoverArtResult {
+        hash,
+        width,
+        height,
+    })
 }
 
 /// Generate both thumbnail sizes from cover art data and return dimensions
@@ -209,42 +167,36 @@ fn get_image_dimensions(data: &[u8]) -> Result<(u32, u32)> {
 
 /// Get a thumbnail by hash and size
 pub async fn get_thumbnail(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     hash: &str,
     size: ThumbnailSize,
 ) -> Result<Option<Vec<u8>>> {
+    use crate::db::raw;
+    use sea_orm::{FromQueryResult, Value};
+
     let column = match size {
         ThumbnailSize::Small => "small",
         ThumbnailSize::Medium => "medium",
         ThumbnailSize::Large => return Ok(None),
     };
 
-    if let Ok(pool) = database.sqlite_pool() {
-        let query = format!("SELECT {} FROM cover_art_thumbnails WHERE hash = ?", column);
-        let result: Option<(Vec<u8>,)> = sqlx::query_as(&query)
-            .bind(hash)
-            .fetch_optional(pool)
-            .await?;
-
-        return Ok(result.map(|(data,)| data));
+    #[derive(FromQueryResult)]
+    struct BlobRow {
+        thumbnail: Vec<u8>,
     }
+    let sqlite_sql =
+        format!("SELECT {column} AS thumbnail FROM cover_art_thumbnails WHERE hash = ?");
+    let postgres_sql =
+        format!("SELECT {column} AS thumbnail FROM cover_art_thumbnails WHERE hash = $1");
+    let result = raw::query_one::<BlobRow>(
+        database.conn(),
+        &sqlite_sql,
+        &postgres_sql,
+        [Value::from(hash.to_string())],
+    )
+    .await?;
 
-    if let Ok(pool) = database.postgres_pool() {
-        let query = format!(
-            "SELECT {} FROM cover_art_thumbnails WHERE hash = $1",
-            column
-        );
-        let result: Option<(Vec<u8>,)> = sqlx::query_as(&query)
-            .bind(hash)
-            .fetch_optional(pool)
-            .await?;
-
-        return Ok(result.map(|(data,)| data));
-    }
-
-    Err(Error::Internal(
-        "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-    ))
+    Ok(result.map(|r| r.thumbnail))
 }
 
 /// Resize image to target size (square crop) and encode as JPEG

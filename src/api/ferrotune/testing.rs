@@ -6,7 +6,6 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::DatabaseHandle;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -90,71 +89,94 @@ pub async fn reset_state(
 
 /// Reset all state for a specific user.
 async fn reset_user_state(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let mut tx = pool.begin().await?;
+) -> crate::error::Result<()> {
+    use sea_orm::TransactionTrait;
+    let tx = database.conn().begin().await?;
 
-        for stmt in [
+    let pairs: [(&str, &str); 17] = [
+        (
             "DELETE FROM play_queue_entries WHERE user_id = ?",
-            "DELETE FROM play_queues WHERE user_id = ?",
-            "DELETE FROM user_preferences WHERE user_id = ?",
-            "DELETE FROM starred WHERE user_id = ?",
-            "DELETE FROM ratings WHERE user_id = ?",
-            "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
-            "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
-            "DELETE FROM playlists WHERE owner_id = ?",
-            "DELETE FROM playlist_folders WHERE owner_id = ?",
-            "DELETE FROM smart_playlists WHERE owner_id = ?",
-            "DELETE FROM scrobbles WHERE user_id = ?",
-            "DELETE FROM listening_sessions WHERE user_id = ?",
-            "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
-            "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
-            "DELETE FROM tagger_sessions WHERE user_id = ?",
-            "DELETE FROM shuffle_excludes WHERE user_id = ?",
-            "DELETE FROM playback_sessions WHERE user_id = ?",
-        ] {
-            sqlx::query(stmt)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
-        }
-
-        tx.commit().await?;
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let mut tx = pool.begin().await?;
-
-        for stmt in [
             "DELETE FROM play_queue_entries WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM play_queues WHERE user_id = ?",
             "DELETE FROM play_queues WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM user_preferences WHERE user_id = ?",
             "DELETE FROM user_preferences WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM starred WHERE user_id = ?",
             "DELETE FROM starred WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM ratings WHERE user_id = ?",
             "DELETE FROM ratings WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
             "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = $1)",
+        ),
+        (
+            "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
             "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = $1)",
+        ),
+        (
+            "DELETE FROM playlists WHERE owner_id = ?",
             "DELETE FROM playlists WHERE owner_id = $1",
+        ),
+        (
+            "DELETE FROM playlist_folders WHERE owner_id = ?",
             "DELETE FROM playlist_folders WHERE owner_id = $1",
+        ),
+        (
+            "DELETE FROM smart_playlists WHERE owner_id = ?",
             "DELETE FROM smart_playlists WHERE owner_id = $1",
+        ),
+        (
+            "DELETE FROM scrobbles WHERE user_id = ?",
             "DELETE FROM scrobbles WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM listening_sessions WHERE user_id = ?",
             "DELETE FROM listening_sessions WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
             "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = $1)",
+        ),
+        (
+            "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
             "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = $1)",
+        ),
+        (
+            "DELETE FROM tagger_sessions WHERE user_id = ?",
             "DELETE FROM tagger_sessions WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM shuffle_excludes WHERE user_id = ?",
             "DELETE FROM shuffle_excludes WHERE user_id = $1",
+        ),
+        (
+            "DELETE FROM playback_sessions WHERE user_id = ?",
             "DELETE FROM playback_sessions WHERE user_id = $1",
-        ] {
-            sqlx::query(stmt)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        ),
+    ];
 
-        tx.commit().await?;
+    for (sqlite_sql, postgres_sql) in pairs {
+        crate::db::raw::execute(
+            &tx,
+            sqlite_sql,
+            postgres_sql,
+            [sea_orm::Value::from(user_id)],
+        )
+        .await?;
     }
+
+    tx.commit().await?;
 
     tracing::info!(user_id = user_id, "Reset user state for testing");
 

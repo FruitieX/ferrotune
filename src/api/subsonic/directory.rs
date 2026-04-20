@@ -12,7 +12,6 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::db::models::ItemType;
-use crate::db::DatabaseHandle;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -169,10 +168,13 @@ pub async fn get_music_directory(
     }
 
     // First, try to find as an artist
-    if let Some(artist) = crate::db::queries::get_artist_by_id(&state.database, id).await? {
-        let albums =
-            crate::db::queries::get_albums_by_artist_for_user(&state.database, id, user.user_id)
-                .await?;
+    if let Some(artist) = crate::db::repo::browse::get_artist_by_id(&state.database, id).await? {
+        let albums = crate::db::repo::browse::get_albums_by_artist_for_user(
+            &state.database,
+            id,
+            user.user_id,
+        )
+        .await?;
 
         // Get starred and ratings for albums
         let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
@@ -237,9 +239,9 @@ pub async fn get_music_directory(
     }
 
     // Try to find as an album
-    if let Some(album) = crate::db::queries::get_album_by_id(&state.database, id).await? {
+    if let Some(album) = crate::db::repo::browse::get_album_by_id(&state.database, id).await? {
         let songs =
-            crate::db::queries::get_songs_by_album_for_user(&state.database, id, user.user_id)
+            crate::db::repo::browse::get_songs_by_album_for_user(&state.database, id, user.user_id)
                 .await?;
 
         // Get starred and ratings for songs
@@ -431,7 +433,7 @@ struct SubDirectory {
 
 /// Get subdirectories and songs within a specific directory path
 async fn get_directory_contents(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     path: &str,
 ) -> crate::error::Result<(Vec<SubDirectory>, Vec<crate::db::models::Song>)> {
@@ -444,30 +446,22 @@ async fn get_directory_contents(
     };
 
     // Get all songs that start with this path prefix from enabled music folders
-    let songs: Vec<crate::db::models::Song> = if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            r#"
+    let songs = crate::db::raw::query_all::<crate::db::models::Song>(
+        database.conn(),
+        r#"
         SELECT s.*, a.name as artist_name, al.name as album_name
         FROM songs s
         LEFT JOIN artists a ON s.artist_id = a.id
         LEFT JOIN albums al ON s.album_id = al.id
         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE s.file_path LIKE ? || '%' 
-                    AND mf.enabled = 1 
+                WHERE s.file_path LIKE ? || '%'
+                    AND mf.enabled = 1
                     AND ula.user_id = ?
                     AND s.marked_for_deletion_at IS NULL
         ORDER BY s.file_path
         "#,
-        )
-        .bind(&path_prefix)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = database.postgres_pool()?;
-        sqlx::query_as(
-            r#"
+        r#"
         SELECT s.*, a.name as artist_name, al.name as album_name
         FROM songs s
         LEFT JOIN artists a ON s.artist_id = a.id
@@ -480,12 +474,12 @@ async fn get_directory_contents(
                     AND s.marked_for_deletion_at IS NULL
         ORDER BY s.file_path
         "#,
-        )
-        .bind(&path_prefix)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?
-    };
+        [
+            sea_orm::Value::from(path_prefix.clone()),
+            sea_orm::Value::from(user_id),
+        ],
+    )
+    .await?;
 
     // Separate into direct children (songs in this folder) and subdirectories
     let mut direct_songs: Vec<crate::db::models::Song> = Vec::new();

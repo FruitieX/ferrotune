@@ -5,7 +5,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::DatabaseHandle;
+use crate::db::repo;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -13,6 +13,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -242,7 +243,7 @@ pub struct SaveTaggerScriptRequest {
 }
 
 /// Row struct for pending edits query (to avoid clippy type_complexity)
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct PendingEditRow {
     #[allow(dead_code)]
     id: i64,
@@ -261,20 +262,36 @@ struct PendingEditRow {
     updated_at: DateTime<Utc>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct TrackCleanupInfo {
     track_type: String,
     cover_art_filename: Option<String>,
     replacement_audio_filename: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct PendingEditMergeState {
     edited_tags: String,
     cover_art_filename: Option<String>,
     cover_art_removed: bool,
     replacement_audio_filename: Option<String>,
     replacement_audio_original_name: Option<String>,
+}
+
+#[derive(FromQueryResult)]
+struct SessionTrackRow {
+    track_id: String,
+    track_type: String,
+}
+
+#[derive(FromQueryResult)]
+struct CoverArtFilenameRow {
+    cover_art_filename: Option<String>,
+}
+
+#[derive(FromQueryResult)]
+struct SessionTrackIdRow {
+    track_id: String,
 }
 
 /// Request to save pending edits for specific tracks
@@ -367,260 +384,155 @@ fn mime_to_extension(mime: &str) -> &str {
     }
 }
 
+struct ScriptInsert<'a> {
+    id: &'a str,
+    user_id: i64,
+    name: &'a str,
+    script_type: &'a str,
+    script: &'a str,
+    position: i64,
+    now: DateTime<Utc>,
+}
+
+async fn insert_tagger_script(
+    database: &crate::db::Database,
+    script: ScriptInsert<'_>,
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+        [
+            Value::from(script.id.to_string()),
+            Value::from(script.user_id),
+            Value::from(script.name.to_string()),
+            Value::from(script.script_type.to_string()),
+            Value::from(script.script.to_string()),
+            Value::from(script.position),
+            Value::from(script.now),
+            Value::from(script.now),
+        ],
+    )
+    .await?;
+
+    Ok(())
+}
+
 /// Seed default scripts for a new user
 async fn seed_default_scripts(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
-) -> Result<(), sqlx::Error> {
+) -> crate::error::Result<()> {
     let now = chrono::Utc::now();
 
-    if let Ok(pool) = database.sqlite_pool() {
-        // Check if user already has scripts
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tagger_scripts WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await?;
+    let count = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT COUNT(*) FROM tagger_scripts WHERE user_id = ?",
+        "SELECT COUNT(*)::BIGINT FROM tagger_scripts WHERE user_id = $1",
+        [Value::from(user_id)],
+    )
+    .await?
+    .unwrap_or(0);
 
-        if count.0 > 0 {
-            return Ok(());
-        }
-
-        // Script 1: AlbumArtist/Album/Artist - Title (rename)
-        sqlx::query(
-            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )
-        .bind(format!("default-rename-{}", user_id))
-        .bind(user_id)
-        .bind("AlbumArtist/Album/Artist - Title")
-        .bind("rename")
-        .bind(DEFAULT_SCRIPT_RENAME_ARTIST_TITLE)
-        .bind(0i64)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await?;
-
-        // Script 2: AlbumArtist/Album/NN - Title (rename)
-        sqlx::query(
-            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )
-        .bind(format!("default-rename-tracknum-{}", user_id))
-        .bind(user_id)
-        .bind("AlbumArtist/Album/NN - Title")
-        .bind("rename")
-        .bind(DEFAULT_SCRIPT_RENAME_TRACKNUM_TITLE)
-        .bind(1i64)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await?;
-
-        // Script 3: Parse: Artist - Title (tags)
-        sqlx::query(
-            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )
-        .bind(format!("default-parse-artist-title-{}", user_id))
-        .bind(user_id)
-        .bind("Parse: Artist - Title")
-        .bind("tags")
-        .bind(DEFAULT_SCRIPT_PARSE_ARTIST_TITLE)
-        .bind(2i64)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await?;
-
-        // Script 4: Parse: NN - Artist - Title (tags)
-        sqlx::query(
-            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )
-        .bind(format!("default-parse-tracknum-{}", user_id))
-        .bind(user_id)
-        .bind("Parse: NN - Artist - Title")
-        .bind("tags")
-        .bind(DEFAULT_SCRIPT_PARSE_TRACKNUM_ARTIST_TITLE)
-        .bind(3i64)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await?;
-
-        // Script 5: Trim Whitespace (tags)
-        sqlx::query(
-            r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )
-        .bind(format!("default-trim-{}", user_id))
-        .bind(user_id)
-        .bind("Trim Whitespace")
-        .bind("tags")
-        .bind(DEFAULT_SCRIPT_TRIM_WHITESPACE)
-        .bind(4i64)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await?;
-
+    if count > 0 {
         return Ok(());
     }
 
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+    let defaults = [
+        (
+            format!("default-rename-{}", user_id),
+            "AlbumArtist/Album/Artist - Title",
+            "rename",
+            DEFAULT_SCRIPT_RENAME_ARTIST_TITLE,
+            0i64,
+        ),
+        (
+            format!("default-rename-tracknum-{}", user_id),
+            "AlbumArtist/Album/NN - Title",
+            "rename",
+            DEFAULT_SCRIPT_RENAME_TRACKNUM_TITLE,
+            1i64,
+        ),
+        (
+            format!("default-parse-artist-title-{}", user_id),
+            "Parse: Artist - Title",
+            "tags",
+            DEFAULT_SCRIPT_PARSE_ARTIST_TITLE,
+            2i64,
+        ),
+        (
+            format!("default-parse-tracknum-{}", user_id),
+            "Parse: NN - Artist - Title",
+            "tags",
+            DEFAULT_SCRIPT_PARSE_TRACKNUM_ARTIST_TITLE,
+            3i64,
+        ),
+        (
+            format!("default-trim-{}", user_id),
+            "Trim Whitespace",
+            "tags",
+            DEFAULT_SCRIPT_TRIM_WHITESPACE,
+            4i64,
+        ),
+    ];
 
-    let count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*)::BIGINT FROM tagger_scripts WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await?;
-
-    if count.0 > 0 {
-        return Ok(()); // User already has scripts
+    for (id, name, script_type, script, position) in defaults {
+        insert_tagger_script(
+            database,
+            ScriptInsert {
+                id: &id,
+                user_id,
+                name,
+                script_type,
+                script,
+                position,
+                now,
+            },
+        )
+        .await?;
     }
-
-    // Script 1: AlbumArtist/Album/Artist - Title (rename)
-    sqlx::query(
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-    )
-    .bind(format!("default-rename-{}", user_id))
-    .bind(user_id)
-    .bind("AlbumArtist/Album/Artist - Title")
-    .bind("rename")
-    .bind(DEFAULT_SCRIPT_RENAME_ARTIST_TITLE)
-    .bind(0i64)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    // Script 2: AlbumArtist/Album/NN - Title (rename)
-    sqlx::query(
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-    )
-    .bind(format!("default-rename-tracknum-{}", user_id))
-    .bind(user_id)
-    .bind("AlbumArtist/Album/NN - Title")
-    .bind("rename")
-    .bind(DEFAULT_SCRIPT_RENAME_TRACKNUM_TITLE)
-    .bind(1i64)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    // Script 3: Parse: Artist - Title (tags)
-    sqlx::query(
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-    )
-    .bind(format!("default-parse-artist-title-{}", user_id))
-    .bind(user_id)
-    .bind("Parse: Artist - Title")
-    .bind("tags")
-    .bind(DEFAULT_SCRIPT_PARSE_ARTIST_TITLE)
-    .bind(2i64)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    // Script 4: Parse: NN - Artist - Title (tags)
-    sqlx::query(
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-    )
-    .bind(format!("default-parse-tracknum-{}", user_id))
-    .bind(user_id)
-    .bind("Parse: NN - Artist - Title")
-    .bind("tags")
-    .bind(DEFAULT_SCRIPT_PARSE_TRACKNUM_ARTIST_TITLE)
-    .bind(3i64)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    // Script 5: Trim Whitespace (tags)
-    sqlx::query(
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-    )
-    .bind(format!("default-trim-{}", user_id))
-    .bind(user_id)
-    .bind("Trim Whitespace")
-    .bind("tags")
-    .bind(DEFAULT_SCRIPT_TRIM_WHITESPACE)
-    .bind(4i64)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
 
     Ok(())
 }
 
 /// Get or create a tagger session for the user
 pub async fn get_or_create_session(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
-) -> Result<i64, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let session: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
-                .bind(user_id)
-                .fetch_optional(pool)
-                .await?;
+) -> crate::error::Result<i64> {
+    let session_id = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT id FROM tagger_sessions WHERE user_id = ?",
+        "SELECT id FROM tagger_sessions WHERE user_id = $1",
+        [Value::from(user_id)],
+    )
+    .await?;
 
-        if let Some((id,)) = session {
-            return Ok(id);
-        }
-
-        let result = sqlx::query(
-            r#"
-            INSERT INTO tagger_sessions (user_id)
-            VALUES (?)
-            "#,
-        )
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-
-        if let Err(e) = seed_default_scripts(database, user_id).await {
-            tracing::warn!("Failed to seed default scripts for user {}: {}", user_id, e);
-        }
-
-        return Ok(result.last_insert_rowid());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    let session: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?;
-
-    if let Some((id,)) = session {
+    if let Some(id) = session_id {
         return Ok(id);
     }
 
-    let (session_id,): (i64,) = sqlx::query_as(
-        r#"
-        INSERT INTO tagger_sessions (user_id)
-        VALUES ($1)
-        RETURNING id
-        "#,
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
+    let session_id = if database.is_sqlite() {
+        crate::db::raw::execute(
+            database.conn(),
+            "INSERT INTO tagger_sessions (user_id) VALUES (?)",
+            "INSERT INTO tagger_sessions (user_id) VALUES ($1)",
+            [Value::from(user_id)],
+        )
+        .await?
+        .last_insert_id() as i64
+    } else {
+        crate::db::raw::query_scalar::<i64>(
+            database.conn(),
+            "INSERT INTO tagger_sessions (user_id) VALUES (?) RETURNING id",
+            "INSERT INTO tagger_sessions (user_id) VALUES ($1) RETURNING id",
+            [Value::from(user_id)],
+        )
+        .await?
+        .ok_or_else(|| Error::Internal("Failed to create tagger session".to_string()))?
+    };
 
     if let Err(e) = seed_default_scripts(database, user_id).await {
         tracing::warn!("Failed to seed default scripts for user {}: {}", user_id, e);
@@ -630,29 +542,19 @@ pub async fn get_or_create_session(
 }
 
 async fn fetch_tagger_session(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
-) -> Result<Option<crate::db::models::TaggerSession>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            r#"
-            SELECT id, user_id, active_rename_script_id, active_tag_script_id,
-                   target_library_id, visible_columns, column_widths, file_column_width,
-                   show_library_prefix, show_computed_path, details_panel_open,
-                   dangerous_char_mode, dangerous_char_replacement,
-                   created_at, updated_at
-            FROM tagger_sessions WHERE id = ?
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Option<crate::db::models::TaggerSession>> {
+    crate::db::raw::query_one(
+        database.conn(),
+        r#"
+        SELECT id, user_id, active_rename_script_id, active_tag_script_id,
+               target_library_id, visible_columns, column_widths, file_column_width,
+               show_library_prefix, show_computed_path, details_panel_open,
+               dangerous_char_mode, dangerous_char_replacement,
+               created_at, updated_at
+        FROM tagger_sessions WHERE id = ?
+        "#,
         r#"
         SELECT id, user_id, active_rename_script_id, active_tag_script_id,
                target_library_id, visible_columns, column_widths, file_column_width,
@@ -661,258 +563,169 @@ async fn fetch_tagger_session(
                created_at, updated_at
         FROM tagger_sessions WHERE id = $1
         "#,
+        [Value::from(session_id)],
     )
-    .bind(session_id)
-    .fetch_optional(pool)
     .await
+    .map_err(Into::into)
 }
 
 async fn fetch_tagger_session_track_rows(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = ? ORDER BY position",
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Vec<(String, String)>> {
+    let rows = crate::db::raw::query_all::<SessionTrackRow>(
+        database.conn(),
+        "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = ? ORDER BY position",
         "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = $1 ORDER BY position",
+        [Value::from(session_id)],
     )
-    .bind(session_id)
-    .fetch_all(pool)
-    .await
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.track_id, row.track_type))
+        .collect())
+}
+
+async fn update_tagger_session_field(
+    database: &crate::db::Database,
+    session_id: i64,
+    field: &str,
+    value: Value,
+) -> crate::error::Result<()> {
+    let sqlite_sql = format!(
+        "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
+        field
+    );
+    let postgres_sql = format!(
+        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        field
+    );
+
+    crate::db::raw::execute(
+        database.conn(),
+        &sqlite_sql,
+        &postgres_sql,
+        [value, Value::from(session_id)],
+    )
+    .await?;
+
+    Ok(())
 }
 
 async fn update_tagger_session_text_field(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     field: &str,
     value: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let query = format!(
-            "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
-            field
-        );
-        sqlx::query(&query)
-            .bind(value)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    let query = format!(
-        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        field
-    );
-    sqlx::query(&query)
-        .bind(value)
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    Ok(())
+) -> crate::error::Result<()> {
+    update_tagger_session_field(
+        database,
+        session_id,
+        field,
+        Value::from(value.map(str::to_string)),
+    )
+    .await
 }
 
 async fn update_tagger_session_bool_field(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     field: &str,
     value: bool,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let query = format!(
-            "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
-            field
-        );
-        sqlx::query(&query)
-            .bind(value)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    let query = format!(
-        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        field
-    );
-    sqlx::query(&query)
-        .bind(value)
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    Ok(())
+) -> crate::error::Result<()> {
+    update_tagger_session_field(database, session_id, field, Value::from(value)).await
 }
 
 async fn update_tagger_session_i64_field(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     field: &str,
     value: i64,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let query = format!(
-            "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
-            field
-        );
-        sqlx::query(&query)
-            .bind(value)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    let query = format!(
-        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        field
-    );
-    sqlx::query(&query)
-        .bind(value)
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    Ok(())
+) -> crate::error::Result<()> {
+    update_tagger_session_field(database, session_id, field, Value::from(value)).await
 }
 
 async fn fetch_pending_edits_for_session(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
-) -> Result<Vec<PendingEditRow>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            r#"
-            SELECT id, session_id, track_id, edited_tags, computed_path,
-                   cover_art_removed, cover_art_filename, replacement_audio_filename,
-                   replacement_audio_original_name, created_at, updated_at
-            FROM tagger_pending_edits WHERE session_id = ?
-            "#,
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Vec<PendingEditRow>> {
+    crate::db::raw::query_all(
+        database.conn(),
+        r#"
+        SELECT id, session_id, track_id, edited_tags, computed_path,
+               cover_art_removed, cover_art_filename, replacement_audio_filename,
+               replacement_audio_original_name, created_at, updated_at
+        FROM tagger_pending_edits WHERE session_id = ?
+        "#,
         r#"
         SELECT id, session_id, track_id, edited_tags, computed_path,
                cover_art_removed, cover_art_filename, replacement_audio_filename,
                replacement_audio_original_name, created_at, updated_at
         FROM tagger_pending_edits WHERE session_id = $1
         "#,
+        [Value::from(session_id)],
     )
-    .bind(session_id)
-    .fetch_all(pool)
     .await
+    .map_err(Into::into)
 }
 
 async fn fetch_pending_edit_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
-) -> Result<Option<PendingEditRow>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            r#"
-            SELECT id, session_id, track_id, edited_tags, computed_path,
-                   cover_art_removed, cover_art_filename, replacement_audio_filename,
-                   replacement_audio_original_name, created_at, updated_at
-            FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?
-            "#,
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Option<PendingEditRow>> {
+    crate::db::raw::query_one(
+        database.conn(),
+        r#"
+        SELECT id, session_id, track_id, edited_tags, computed_path,
+               cover_art_removed, cover_art_filename, replacement_audio_filename,
+               replacement_audio_original_name, created_at, updated_at
+        FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?
+        "#,
         r#"
         SELECT id, session_id, track_id, edited_tags, computed_path,
                cover_art_removed, cover_art_filename, replacement_audio_filename,
                replacement_audio_original_name, created_at, updated_at
         FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2
         "#,
+        [Value::from(session_id), Value::from(track_id.to_string())],
     )
-    .bind(session_id)
-    .bind(track_id)
-    .fetch_optional(pool)
     .await
+    .map_err(Into::into)
 }
 
 async fn fetch_cover_art_filenames_for_session(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
-) -> Result<Vec<(Option<String>,)>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND cover_art_filename IS NOT NULL",
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Vec<(Option<String>,)>> {
+    let rows = crate::db::raw::query_all::<CoverArtFilenameRow>(
+        database.conn(),
+        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND cover_art_filename IS NOT NULL",
         "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = $1 AND cover_art_filename IS NOT NULL",
+        [Value::from(session_id)],
     )
-    .bind(session_id)
-    .fetch_all(pool)
-    .await
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.cover_art_filename,))
+        .collect())
 }
 
 async fn fetch_session_track_type(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_scalar(
-            "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_scalar(
+) -> crate::error::Result<Option<String>> {
+    crate::db::raw::query_scalar(
+        database.conn(),
+        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
         "SELECT track_type FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
+        [Value::from(session_id), Value::from(track_id.to_string())],
     )
-    .bind(session_id)
-    .bind(track_id)
-    .fetch_optional(pool)
     .await
+    .map_err(Into::into)
 }
 
 struct PendingEditUpsert<'a> {
@@ -926,39 +739,21 @@ struct PendingEditUpsert<'a> {
 }
 
 async fn upsert_pending_edit(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     edit: PendingEditUpsert<'_>,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query(
-            r#"
-            INSERT INTO tagger_pending_edits
-            (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_id, track_id) DO UPDATE SET
-                edited_tags = excluded.edited_tags,
-                computed_path = excluded.computed_path,
-                cover_art_removed = excluded.cover_art_removed,
-                updated_at = excluded.updated_at
-            "#,
-        )
-        .bind(edit.session_id)
-        .bind(edit.track_id)
-        .bind(edit.track_type)
-        .bind(edit.edited_tags_json)
-        .bind(edit.computed_path)
-        .bind(edit.cover_art_removed)
-        .bind(edit.now)
-        .bind(edit.now)
-        .execute(pool)
-        .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query(
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        r#"
+        INSERT INTO tagger_pending_edits
+        (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            edited_tags = excluded.edited_tags,
+            computed_path = excluded.computed_path,
+            cover_art_removed = excluded.cover_art_removed,
+            updated_at = excluded.updated_at
+        "#,
         r#"
         INSERT INTO tagger_pending_edits
         (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
@@ -969,215 +764,143 @@ async fn upsert_pending_edit(
             cover_art_removed = EXCLUDED.cover_art_removed,
             updated_at = EXCLUDED.updated_at
         "#,
+        [
+            Value::from(edit.session_id),
+            Value::from(edit.track_id.to_string()),
+            Value::from(edit.track_type.to_string()),
+            Value::from(edit.edited_tags_json.to_string()),
+            Value::from(edit.computed_path.map(str::to_string)),
+            Value::from(edit.cover_art_removed),
+            Value::from(edit.now),
+            Value::from(edit.now),
+        ],
     )
-    .bind(edit.session_id)
-    .bind(edit.track_id)
-    .bind(edit.track_type)
-    .bind(edit.edited_tags_json)
-    .bind(edit.computed_path)
-    .bind(edit.cover_art_removed)
-    .bind(edit.now)
-    .bind(edit.now)
-    .execute(pool)
     .await?;
+
     Ok(())
 }
 
 async fn fetch_session_max_position(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
-) -> Result<i64, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_scalar(
-            "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = ?",
-        )
-        .bind(session_id)
-        .fetch_one(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_scalar(
+) -> crate::error::Result<i64> {
+    Ok(crate::db::raw::query_scalar(
+        database.conn(),
+        "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = ?",
         "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = $1",
+        [Value::from(session_id)],
     )
-    .bind(session_id)
-    .fetch_one(pool)
-    .await
+    .await?
+    .unwrap_or(-1))
 }
 
 async fn insert_session_track_ignore_duplicate(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
     track_type: &str,
     position: i64,
-) -> Result<u64, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        let result = sqlx::query(
-            "INSERT OR IGNORE INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .bind(track_type)
-        .bind(position)
-        .execute(pool)
-        .await?;
-        return Ok(result.rows_affected());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    let result = sqlx::query(
+) -> crate::error::Result<u64> {
+    let result = crate::db::raw::execute(
+        database.conn(),
+        "INSERT OR IGNORE INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
         "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4) ON CONFLICT(session_id, track_id) DO NOTHING",
+        [
+            Value::from(session_id),
+            Value::from(track_id.to_string()),
+            Value::from(track_type.to_string()),
+            Value::from(position),
+        ],
     )
-    .bind(session_id)
-    .bind(track_id)
-    .bind(track_type)
-    .bind(position)
-    .execute(pool)
     .await?;
+
     Ok(result.rows_affected())
 }
 
 async fn delete_pending_edit(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-            .bind(session_id)
-            .bind(track_id)
-            .execute(pool)
-            .await?;
-        return Ok(());
-    }
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        "DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+        "DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
+        [Value::from(session_id), Value::from(track_id.to_string())],
+    )
+    .await?;
 
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2")
-        .bind(session_id)
-        .bind(track_id)
-        .execute(pool)
-        .await?;
     Ok(())
 }
 
 async fn delete_session_track(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
-            .bind(session_id)
-            .bind(track_id)
-            .execute(pool)
-            .await?;
-        return Ok(());
-    }
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        "DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
+        "DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
+        [Value::from(session_id), Value::from(track_id.to_string())],
+    )
+    .await?;
 
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2")
-        .bind(session_id)
-        .bind(track_id)
-        .execute(pool)
-        .await?;
     Ok(())
 }
 
 async fn fetch_track_cleanup_info(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
-) -> Result<Option<TrackCleanupInfo>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
-               FROM tagger_session_tracks t
-               LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
-               WHERE t.session_id = ? AND t.track_id = ?"#,
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Option<TrackCleanupInfo>> {
+    crate::db::raw::query_one(
+        database.conn(),
+        r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
+           FROM tagger_session_tracks t
+           LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
+           WHERE t.session_id = ? AND t.track_id = ?"#,
         r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
            FROM tagger_session_tracks t
            LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
            WHERE t.session_id = $1 AND t.track_id = $2"#,
+        [Value::from(session_id), Value::from(track_id.to_string())],
     )
-    .bind(session_id)
-    .bind(track_id)
-    .fetch_optional(pool)
     .await
+    .map_err(Into::into)
 }
 
 async fn fetch_pending_edit_merge_state(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
-) -> Result<Option<PendingEditMergeState>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_as(
-            r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
-                      replacement_audio_filename, replacement_audio_original_name
-               FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?"#,
-        )
-        .bind(session_id)
-        .bind(track_id)
-        .fetch_optional(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_as(
+) -> crate::error::Result<Option<PendingEditMergeState>> {
+    crate::db::raw::query_one(
+        database.conn(),
+        r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
+                  replacement_audio_filename, replacement_audio_original_name
+           FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?"#,
         r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
                   replacement_audio_filename, replacement_audio_original_name
            FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2"#,
+        [Value::from(session_id), Value::from(track_id.to_string())],
     )
-    .bind(session_id)
-    .bind(track_id)
-    .fetch_optional(pool)
     .await
+    .map_err(Into::into)
 }
 
 async fn fetch_existing_tagger_session_id(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
-) -> Result<Option<i64>, sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        return sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM tagger_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await;
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query_scalar::<_, i64>(
+) -> crate::error::Result<Option<i64>> {
+    crate::db::raw::query_scalar(
+        database.conn(),
+        "SELECT id FROM tagger_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
         "SELECT id FROM tagger_sessions WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
+        [Value::from(user_id)],
     )
-    .bind(user_id)
-    .fetch_optional(pool)
     .await
+    .map_err(Into::into)
 }
 
 struct CoverArtStateUpsert<'a> {
@@ -1190,38 +913,20 @@ struct CoverArtStateUpsert<'a> {
 }
 
 async fn upsert_pending_edit_cover_art_state(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     edit: CoverArtStateUpsert<'_>,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query(
-            r#"
-            INSERT INTO tagger_pending_edits
-            (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_id, track_id) DO UPDATE SET
-                cover_art_filename = excluded.cover_art_filename,
-                cover_art_removed = excluded.cover_art_removed,
-                updated_at = excluded.updated_at
-            "#,
-        )
-        .bind(edit.session_id)
-        .bind(edit.track_id)
-        .bind(edit.track_type)
-        .bind("{}")
-        .bind(edit.cover_art_filename)
-        .bind(edit.cover_art_removed)
-        .bind(edit.now)
-        .bind(edit.now)
-        .execute(pool)
-        .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query(
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        r#"
+        INSERT INTO tagger_pending_edits
+        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            cover_art_filename = excluded.cover_art_filename,
+            cover_art_removed = excluded.cover_art_removed,
+            updated_at = excluded.updated_at
+        "#,
         r#"
         INSERT INTO tagger_pending_edits
         (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
@@ -1231,17 +936,19 @@ async fn upsert_pending_edit_cover_art_state(
             cover_art_removed = EXCLUDED.cover_art_removed,
             updated_at = EXCLUDED.updated_at
         "#,
+        [
+            Value::from(edit.session_id),
+            Value::from(edit.track_id.to_string()),
+            Value::from(edit.track_type.to_string()),
+            Value::from("{}".to_string()),
+            Value::from(edit.cover_art_filename.map(str::to_string)),
+            Value::from(edit.cover_art_removed),
+            Value::from(edit.now),
+            Value::from(edit.now),
+        ],
     )
-    .bind(edit.session_id)
-    .bind(edit.track_id)
-    .bind(edit.track_type)
-    .bind("{}")
-    .bind(edit.cover_art_filename)
-    .bind(edit.cover_art_removed)
-    .bind(edit.now)
-    .bind(edit.now)
-    .execute(pool)
     .await?;
+
     Ok(())
 }
 
@@ -1257,42 +964,23 @@ struct LibraryPendingEditUpsert<'a> {
 }
 
 async fn upsert_library_pending_edit(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     edit: LibraryPendingEditUpsert<'_>,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query(
-            r#"
-            INSERT INTO tagger_pending_edits
-            (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
-            VALUES (?, ?, 'library', ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_id, track_id) DO UPDATE SET
-                edited_tags = excluded.edited_tags,
-                cover_art_filename = excluded.cover_art_filename,
-                cover_art_removed = excluded.cover_art_removed,
-                replacement_audio_filename = excluded.replacement_audio_filename,
-                replacement_audio_original_name = excluded.replacement_audio_original_name,
-                updated_at = excluded.updated_at
-            "#,
-        )
-        .bind(edit.session_id)
-        .bind(edit.track_id)
-        .bind(edit.edited_tags_json)
-        .bind(edit.cover_art_filename)
-        .bind(edit.cover_art_removed)
-        .bind(edit.replacement_audio_filename)
-        .bind(edit.replacement_audio_original_name)
-        .bind(edit.now)
-        .bind(edit.now)
-        .execute(pool)
-        .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query(
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        r#"
+        INSERT INTO tagger_pending_edits
+        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
+        VALUES (?, ?, 'library', ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            edited_tags = excluded.edited_tags,
+            cover_art_filename = excluded.cover_art_filename,
+            cover_art_removed = excluded.cover_art_removed,
+            replacement_audio_filename = excluded.replacement_audio_filename,
+            replacement_audio_original_name = excluded.replacement_audio_original_name,
+            updated_at = excluded.updated_at
+        "#,
         r#"
         INSERT INTO tagger_pending_edits
         (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
@@ -1305,50 +993,41 @@ async fn upsert_library_pending_edit(
             replacement_audio_original_name = EXCLUDED.replacement_audio_original_name,
             updated_at = EXCLUDED.updated_at
         "#,
+        [
+            Value::from(edit.session_id),
+            Value::from(edit.track_id.to_string()),
+            Value::from(edit.edited_tags_json.to_string()),
+            Value::from(edit.cover_art_filename.map(str::to_string)),
+            Value::from(edit.cover_art_removed),
+            Value::from(edit.replacement_audio_filename.map(str::to_string)),
+            Value::from(edit.replacement_audio_original_name.map(str::to_string)),
+            Value::from(edit.now),
+            Value::from(edit.now),
+        ],
     )
-    .bind(edit.session_id)
-    .bind(edit.track_id)
-    .bind(edit.edited_tags_json)
-    .bind(edit.cover_art_filename)
-    .bind(edit.cover_art_removed)
-    .bind(edit.replacement_audio_filename)
-    .bind(edit.replacement_audio_original_name)
-    .bind(edit.now)
-    .bind(edit.now)
-    .execute(pool)
     .await?;
+
     Ok(())
 }
 
 async fn clear_pending_edit_replacement_audio(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
     now: DateTime<Utc>,
-) -> Result<(), sqlx::Error> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query(
-            "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = ? WHERE session_id = ? AND track_id = ?",
-        )
-        .bind(now)
-        .bind(session_id)
-        .bind(track_id)
-        .execute(pool)
-        .await?;
-        return Ok(());
-    }
-
-    let pool = database
-        .postgres_pool()
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-    sqlx::query(
+) -> crate::error::Result<()> {
+    crate::db::raw::execute(
+        database.conn(),
+        "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = ? WHERE session_id = ? AND track_id = ?",
         "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = $1 WHERE session_id = $2 AND track_id = $3",
+        [
+            Value::from(now),
+            Value::from(session_id),
+            Value::from(track_id.to_string()),
+        ],
     )
-    .bind(now)
-    .bind(session_id)
-    .bind(track_id)
-    .execute(pool)
     .await?;
+
     Ok(())
 }
 
@@ -1567,51 +1246,32 @@ pub async fn set_session_tracks(
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete existing tracks
-    let clear_result = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map(|result| result.rows_affected())
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map(|result| result.rows_affected())
-    };
-    if let Err(e) = clear_result {
+    if let Err(e) = crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM tagger_session_tracks WHERE session_id = ?",
+        "DELETE FROM tagger_session_tracks WHERE session_id = $1",
+        [Value::from(session_id)],
+    )
+    .await
+    {
         return Err(Error::Internal(format!("Failed to clear tracks: {}", e)).into());
     }
 
     // Insert new tracks
     for (position, track) in request.tracks.iter().enumerate() {
-        let insert_result = if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query(
-                "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
-            )
-            .bind(session_id)
-            .bind(&track.id)
-            .bind(&track.track_type)
-            .bind(position as i64)
-            .execute(pool)
-            .await
-            .map(|result| result.rows_affected())
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query(
-                "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4)",
-            )
-            .bind(session_id)
-            .bind(&track.id)
-            .bind(&track.track_type)
-            .bind(position as i64)
-            .execute(pool)
-            .await
-            .map(|result| result.rows_affected())
-        };
-        if let Err(e) = insert_result {
+        if let Err(e) = crate::db::raw::execute(
+            state.database.conn(),
+            "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
+            "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4)",
+            [
+                Value::from(session_id),
+                Value::from(track.id.clone()),
+                Value::from(track.track_type.clone()),
+                Value::from(position as i64),
+            ],
+        )
+        .await
+        {
             return Err(Error::Internal(format!("Failed to add track: {}", e)).into());
         }
     }
@@ -1707,21 +1367,14 @@ pub async fn clear_pending_edits(
         .unwrap_or_default();
 
     // Delete the edits
-    let delete_result = if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map(|result| result.rows_affected())
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map(|result| result.rows_affected())
-    };
-    if let Err(e) = delete_result {
+    if let Err(e) = crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM tagger_pending_edits WHERE session_id = ?",
+        "DELETE FROM tagger_pending_edits WHERE session_id = $1",
+        [Value::from(session_id)],
+    )
+    .await
+    {
         return Err(Error::Internal(format!("Failed to clear edits: {}", e)).into());
     }
 
@@ -2767,45 +2420,32 @@ pub async fn get_scripts(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let scripts: Vec<crate::db::models::TaggerScript> =
-        match if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query_as(
-                r#"
-            SELECT id, user_id, name, type, script, position, created_at, updated_at
-            FROM tagger_scripts WHERE user_id = ? ORDER BY position
-            "#,
+    let scripts: Vec<crate::db::models::TaggerScript> = match crate::db::raw::query_all(
+        state.database.conn(),
+        r#"
+        SELECT id, user_id, name, type AS script_type, script, position, created_at, updated_at
+        FROM tagger_scripts WHERE user_id = ? ORDER BY position
+        "#,
+        r#"
+        SELECT id, user_id, name, type AS script_type, script, position, created_at, updated_at
+        FROM tagger_scripts WHERE user_id = $1 ORDER BY position
+        "#,
+        [Value::from(user.user_id)],
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to fetch scripts",
+                    e.to_string(),
+                )),
             )
-            .bind(user.user_id)
-            .fetch_all(pool)
-            .await
-        } else {
-            match state.database.postgres_pool() {
-                Ok(pool) => {
-                    sqlx::query_as(
-                        r#"
-                    SELECT id, user_id, name, type, script, position, created_at, updated_at
-                    FROM tagger_scripts WHERE user_id = $1 ORDER BY position
-                    "#,
-                    )
-                    .bind(user.user_id)
-                    .fetch_all(pool)
-                    .await
-                }
-                Err(e) => Err(sqlx::Error::Protocol(e.to_string())),
-            }
-        } {
-            Ok(s) => s,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to fetch scripts",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
-            }
-        };
+                .into_response();
+        }
+    };
 
     let scripts_data: Vec<TaggerScriptData> = scripts
         .into_iter()
@@ -2832,62 +2472,32 @@ pub async fn save_scripts(
     Json(scripts): Json<Vec<TaggerScriptData>>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Delete existing scripts
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_scripts WHERE user_id = ?")
-            .bind(user.user_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM tagger_scripts WHERE user_id = $1")
-            .bind(user.user_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM tagger_scripts WHERE user_id = ?",
+        "DELETE FROM tagger_scripts WHERE user_id = $1",
+        [Value::from(user.user_id)],
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
 
     // Insert new scripts
     let now = Utc::now();
     for (position, script) in scripts.iter().enumerate() {
-        if let Ok(pool) = state.database.sqlite_pool() {
-            sqlx::query(
-                r#"
-                INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                "#
-            )
-            .bind(&script.id)
-            .bind(user.user_id)
-            .bind(&script.name)
-            .bind(&script.script_type)
-            .bind(&script.script)
-            .bind(position as i64)
-            .bind(now)
-            .bind(now)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
-        } else {
-            let pool = state.database.postgres_pool()?;
-            sqlx::query(
-                r#"
-                INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                "#
-            )
-            .bind(&script.id)
-            .bind(user.user_id)
-            .bind(&script.name)
-            .bind(&script.script_type)
-            .bind(&script.script)
-            .bind(position as i64)
-            .bind(now)
-            .bind(now)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
-        }
+        insert_tagger_script(
+            &state.database,
+            ScriptInsert {
+                id: &script.id,
+                user_id: user.user_id,
+                name: &script.name,
+                script_type: &script.script_type,
+                script: &script.script,
+                position: position as i64,
+                now,
+            },
+        )
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -2901,22 +2511,14 @@ pub async fn delete_script(
     State(state): State<Arc<AppState>>,
     Path(script_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?")
-            .bind(&script_id)
-            .bind(user.user_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM tagger_scripts WHERE id = $1 AND user_id = $2")
-            .bind(&script_id)
-            .bind(user.user_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?",
+        "DELETE FROM tagger_scripts WHERE id = $1 AND user_id = $2",
+        [Value::from(script_id), Value::from(user.user_id)],
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2933,36 +2535,24 @@ pub async fn clear_session(
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete tracks
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = $1")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM tagger_session_tracks WHERE session_id = ?",
+        "DELETE FROM tagger_session_tracks WHERE session_id = $1",
+        [Value::from(session_id)],
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
 
     // Delete edits
-    if let Ok(pool) = state.database.sqlite_pool() {
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
-    } else {
-        let pool = state.database.postgres_pool()?;
-        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = $1")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
-    }
+    crate::db::raw::execute(
+        state.database.conn(),
+        "DELETE FROM tagger_pending_edits WHERE session_id = ?",
+        "DELETE FROM tagger_pending_edits WHERE session_id = $1",
+        [Value::from(session_id)],
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2979,8 +2569,6 @@ pub async fn save_pending_edits(
     State(state): State<Arc<AppState>>,
     Json(request): Json<SavePendingEditsRequest>,
 ) -> FerrotuneApiResult<axum::response::Response> {
-    use crate::db::queries;
-
     let session_id = get_or_create_session(&state.database, user.user_id)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
@@ -3007,7 +2595,7 @@ pub async fn save_pending_edits(
     ];
 
     // Get music folders once for all tracks
-    let music_folders = queries::get_music_folders(&state.database)
+    let music_folders = crate::db::repo::users::get_music_folders(&state.database)
         .await
         .map_err(|e| Error::Internal(format!("Failed to get music folders: {}", e)))?;
 
@@ -3055,7 +2643,7 @@ pub async fn save_pending_edits(
             std::collections::HashMap::new();
 
         for song_id in &saved_library_song_ids {
-            if let Ok(Some(song)) = queries::get_song_by_id(&state.database, song_id).await {
+            if let Ok(Some(song)) = repo::browse::get_song_by_id(&state.database, song_id).await {
                 // Find which folder contains this file
                 for folder in &music_folders {
                     let candidate = std::path::PathBuf::from(&folder.path).join(&song.file_path);
@@ -3122,51 +2710,30 @@ pub async fn save_pending_edits(
 
 /// Helper function to get track IDs for a user's session (for orphaned files detection)
 pub async fn get_session_track_ids(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
-) -> Result<Vec<String>, sqlx::Error> {
-    let tracks: Vec<(String,)> = if let Ok(pool) = database.sqlite_pool() {
-        let session: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = ?")
-                .bind(user_id)
-                .fetch_optional(pool)
-                .await?;
+) -> crate::error::Result<Vec<String>> {
+    let session_id = crate::db::raw::query_scalar::<i64>(
+        database.conn(),
+        "SELECT id FROM tagger_sessions WHERE user_id = ?",
+        "SELECT id FROM tagger_sessions WHERE user_id = $1",
+        [Value::from(user_id)],
+    )
+    .await?;
 
-        let session_id = match session {
-            Some((id,)) => id,
-            None => return Ok(vec![]),
-        };
-
-        sqlx::query_as(
-            "SELECT track_id FROM tagger_session_tracks WHERE session_id = ? AND track_type = 'staged'",
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        let pool = database
-            .postgres_pool()
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let session: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM tagger_sessions WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_optional(pool)
-                .await?;
-
-        let session_id = match session {
-            Some((id,)) => id,
-            None => return Ok(vec![]),
-        };
-
-        sqlx::query_as(
-            "SELECT track_id FROM tagger_session_tracks WHERE session_id = $1 AND track_type = 'staged'",
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await?
+    let Some(session_id) = session_id else {
+        return Ok(vec![]);
     };
 
-    Ok(tracks.into_iter().map(|(id,)| id).collect())
+    let tracks = crate::db::raw::query_all::<SessionTrackIdRow>(
+        database.conn(),
+        "SELECT track_id FROM tagger_session_tracks WHERE session_id = ? AND track_type = 'staged'",
+        "SELECT track_id FROM tagger_session_tracks WHERE session_id = $1 AND track_type = 'staged'",
+        [Value::from(session_id)],
+    )
+    .await?;
+
+    Ok(tracks.into_iter().map(|row| row.track_id).collect())
 }
 
 /// POST /ferrotune/tagger/session/save-stream
@@ -3211,8 +2778,6 @@ async fn save_pending_edits_internal(
     request: SavePendingEditsRequest,
     tx: tokio::sync::mpsc::Sender<SaveProgressEvent>,
 ) {
-    use crate::db::queries;
-
     let total = request.track_ids.len() as i32;
 
     let session_id = match get_or_create_session(&state.database, user.user_id).await {
@@ -3260,7 +2825,7 @@ async fn save_pending_edits_internal(
     ];
 
     // Get music folders once for all tracks
-    let music_folders = match queries::get_music_folders(&state.database).await {
+    let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
             let _ = tx
@@ -3339,7 +2904,7 @@ async fn save_pending_edits_internal(
             std::collections::HashMap::new();
 
         for song_id in &saved_library_song_ids {
-            if let Ok(Some(song)) = queries::get_song_by_id(&state.database, song_id).await {
+            if let Ok(Some(song)) = repo::browse::get_song_by_id(&state.database, song_id).await {
                 for folder in &music_folders {
                     let candidate = PathBuf::from(&folder.path).join(&song.file_path);
                     if candidate.exists() {
@@ -3423,7 +2988,7 @@ struct SaveSingleTrackResult {
 /// Save a single track - extracted from save_pending_edits for reuse
 #[allow(clippy::too_many_arguments)]
 async fn save_single_track(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     session_id: i64,
     track_id: &str,
     path_overrides: &HashMap<String, String>,
@@ -3589,7 +3154,7 @@ async fn save_single_track(
         result.needs_rescan = true;
     } else {
         // === LIBRARY FILE HANDLING ===
-        let song = match queries::get_song_by_id(database, track_id).await {
+        let song = match repo::browse::get_song_by_id(database, track_id).await {
             Ok(Some(song)) => song,
             Ok(None) => return Err("Song not found in library".to_string()),
             Err(e) => return Err(format!("Database error: {}", e)),

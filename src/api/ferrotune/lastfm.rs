@@ -5,7 +5,6 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::DatabaseHandle;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
@@ -20,34 +19,30 @@ const LASTFM_API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
 const LASTFM_AUTH_URL: &str = "https://www.last.fm/api/auth/";
 
 async fn get_lastfm_credentials(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
 ) -> Result<Option<(String, String, String)>, String> {
-    let row: Option<(Option<String>, Option<String>, Option<String>)> =
-        if let Ok(pool) = database.sqlite_pool() {
-            sqlx::query_as(
-            "SELECT lastfm_api_key, lastfm_api_secret, lastfm_session_key FROM users WHERE id = ?",
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?
-        } else if let Ok(pool) = database.postgres_pool() {
-            sqlx::query_as(
-            "SELECT lastfm_api_key, lastfm_api_secret, lastfm_session_key FROM users WHERE id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?
-        } else {
-            return Err("DB error: unsupported database backend".to_string());
-        };
+    #[derive(sea_orm::FromQueryResult)]
+    struct CredsRow {
+        lastfm_api_key: Option<String>,
+        lastfm_api_secret: Option<String>,
+        lastfm_session_key: Option<String>,
+    }
+    let row = crate::db::raw::query_one::<CredsRow>(
+        database.conn(),
+        "SELECT lastfm_api_key, lastfm_api_secret, lastfm_session_key FROM users WHERE id = ?",
+        "SELECT lastfm_api_key, lastfm_api_secret, lastfm_session_key FROM users WHERE id = $1",
+        [sea_orm::Value::from(user_id)],
+    )
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
 
     Ok(match row {
-        Some((Some(api_key), Some(api_secret), Some(session_key)))
-            if !api_key.is_empty() && !api_secret.is_empty() =>
-        {
+        Some(CredsRow {
+            lastfm_api_key: Some(api_key),
+            lastfm_api_secret: Some(api_secret),
+            lastfm_session_key: Some(session_key),
+        }) if !api_key.is_empty() && !api_secret.is_empty() => {
             Some((api_key, api_secret, session_key))
         }
         _ => None,
@@ -55,134 +50,113 @@ async fn get_lastfm_credentials(
 }
 
 async fn get_lastfm_song_metadata(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     song_id: &str,
 ) -> Result<Option<(String, String, Option<String>, Option<i64>)>, String> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT s.title, ar.name, al.name, s.duration
+    #[derive(sea_orm::FromQueryResult)]
+    struct MetaRow {
+        title: String,
+        name: String,
+        album_name: Option<String>,
+        duration: Option<i64>,
+    }
+    let row = crate::db::raw::query_one::<MetaRow>(
+        database.conn(),
+        "SELECT s.title AS title, ar.name AS name, al.name AS album_name, s.duration AS duration
              FROM songs s
              LEFT JOIN artists ar ON s.artist_id = ar.id
              LEFT JOIN albums al ON s.album_id = al.id
              WHERE s.id = ?",
-        )
-        .bind(song_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("DB error: {}", e))
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query_as(
-            "SELECT s.title, ar.name, al.name, s.duration
+        "SELECT s.title AS title, ar.name AS name, al.name AS album_name, s.duration AS duration
              FROM songs s
              LEFT JOIN artists ar ON s.artist_id = ar.id
              LEFT JOIN albums al ON s.album_id = al.id
              WHERE s.id = $1",
-        )
-        .bind(song_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("DB error: {}", e))
-    } else {
-        Err("DB error: unsupported database backend".to_string())
-    }
+        [sea_orm::Value::from(song_id.to_string())],
+    )
+    .await
+    .map_err(|e| format!("DB error: {}", e))?;
+
+    Ok(row.map(|r| (r.title, r.name, r.album_name, r.duration)))
 }
 
 async fn get_lastfm_config_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<Option<(Option<String>, Option<String>)>> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as("SELECT lastfm_api_key, lastfm_api_secret FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(Into::into)
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query_as("SELECT lastfm_api_key, lastfm_api_secret FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(Into::into)
-    } else {
-        Err(Error::Internal("unsupported database backend".to_string()))
+    #[derive(sea_orm::FromQueryResult)]
+    struct ConfigRow {
+        lastfm_api_key: Option<String>,
+        lastfm_api_secret: Option<String>,
     }
+    let row = crate::db::raw::query_one::<ConfigRow>(
+        database.conn(),
+        "SELECT lastfm_api_key, lastfm_api_secret FROM users WHERE id = ?",
+        "SELECT lastfm_api_key, lastfm_api_secret FROM users WHERE id = $1",
+        [sea_orm::Value::from(user_id)],
+    )
+    .await?;
+    Ok(row.map(|r| (r.lastfm_api_key, r.lastfm_api_secret)))
 }
 
 async fn get_lastfm_status_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<Option<(Option<String>, Option<String>, Option<String>)>> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query_as(
-            "SELECT lastfm_api_key, lastfm_session_key, lastfm_username FROM users WHERE id = ?",
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(Into::into)
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query_as(
-            "SELECT lastfm_api_key, lastfm_session_key, lastfm_username FROM users WHERE id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(Into::into)
-    } else {
-        Err(Error::Internal("unsupported database backend".to_string()))
+    #[derive(sea_orm::FromQueryResult)]
+    struct StatusRow {
+        lastfm_api_key: Option<String>,
+        lastfm_session_key: Option<String>,
+        lastfm_username: Option<String>,
     }
+    let row = crate::db::raw::query_one::<StatusRow>(
+        database.conn(),
+        "SELECT lastfm_api_key, lastfm_session_key, lastfm_username FROM users WHERE id = ?",
+        "SELECT lastfm_api_key, lastfm_session_key, lastfm_username FROM users WHERE id = $1",
+        [sea_orm::Value::from(user_id)],
+    )
+    .await?;
+    Ok(row.map(|r| (r.lastfm_api_key, r.lastfm_session_key, r.lastfm_username)))
 }
 
 async fn update_lastfm_session_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     session_key: Option<&str>,
     username: Option<&str>,
 ) -> crate::error::Result<()> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query("UPDATE users SET lastfm_session_key = ?, lastfm_username = ? WHERE id = ?")
-            .bind(session_key)
-            .bind(username)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query("UPDATE users SET lastfm_session_key = $1, lastfm_username = $2 WHERE id = $3")
-            .bind(session_key)
-            .bind(username)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
-    } else {
-        return Err(Error::Internal("unsupported database backend".to_string()));
-    }
+    crate::db::raw::execute(
+        database.conn(),
+        "UPDATE users SET lastfm_session_key = ?, lastfm_username = ? WHERE id = ?",
+        "UPDATE users SET lastfm_session_key = $1, lastfm_username = $2 WHERE id = $3",
+        [
+            sea_orm::Value::from(session_key.map(|s| s.to_string())),
+            sea_orm::Value::from(username.map(|s| s.to_string())),
+            sea_orm::Value::from(user_id),
+        ],
+    )
+    .await?;
 
     Ok(())
 }
 
 async fn update_lastfm_config_row(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     api_key: &str,
     api_secret: &str,
 ) -> crate::error::Result<()> {
-    if let Ok(pool) = database.sqlite_pool() {
-        sqlx::query("UPDATE users SET lastfm_api_key = ?, lastfm_api_secret = ? WHERE id = ?")
-            .bind(api_key)
-            .bind(api_secret)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
-    } else if let Ok(pool) = database.postgres_pool() {
-        sqlx::query("UPDATE users SET lastfm_api_key = $1, lastfm_api_secret = $2 WHERE id = $3")
-            .bind(api_key)
-            .bind(api_secret)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
-    } else {
-        return Err(Error::Internal("unsupported database backend".to_string()));
-    }
+    crate::db::raw::execute(
+        database.conn(),
+        "UPDATE users SET lastfm_api_key = ?, lastfm_api_secret = ? WHERE id = ?",
+        "UPDATE users SET lastfm_api_key = $1, lastfm_api_secret = $2 WHERE id = $3",
+        [
+            sea_orm::Value::from(api_key.to_string()),
+            sea_orm::Value::from(api_secret.to_string()),
+            sea_orm::Value::from(user_id),
+        ],
+    )
+    .await?;
 
     Ok(())
 }
@@ -368,7 +342,7 @@ pub async fn disconnect(
 ///
 /// Called internally when a song is scrobbled locally.
 pub async fn forward_scrobble(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     song_id: &str,
     timestamp: i64,
@@ -430,7 +404,7 @@ pub async fn forward_scrobble(
 
 /// Send a "now playing" notification to Last.fm.
 pub async fn update_now_playing(
-    database: &(impl DatabaseHandle + ?Sized),
+    database: &crate::db::Database,
     user_id: i64,
     song_id: &str,
 ) -> Result<(), String> {

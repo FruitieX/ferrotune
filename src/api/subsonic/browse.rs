@@ -141,7 +141,7 @@ pub async fn get_artist_info2(
     Query(params): Query<ArtistInfoParams>,
 ) -> crate::error::Result<FormatResponse<ArtistInfo2Response>> {
     // Verify the artist exists
-    let _artist = crate::db::queries::get_artist_by_id(&state.database, &params.id)
+    let _artist = crate::db::repo::browse::get_artist_by_id(&state.database, &params.id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", params.id)))?;
 
@@ -301,9 +301,12 @@ pub async fn get_similar_songs2(
         )
         .await?;
         let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
-        let songs =
-            crate::db::queries::get_songs_by_ids_for_user(&state.database, &song_ids, user.user_id)
-                .await?;
+        let songs = crate::db::repo::browse::get_songs_by_ids_for_user(
+            &state.database,
+            &song_ids,
+            user.user_id,
+        )
+        .await?;
 
         let starred_map =
             get_starred_map(&state.database, user.user_id, ItemType::Song, &song_ids).await?;
