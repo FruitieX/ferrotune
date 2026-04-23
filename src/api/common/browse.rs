@@ -4,7 +4,6 @@ use crate::api::common::utils::{
     format_datetime_iso, format_datetime_iso_ms, get_content_type_for_format,
 };
 use crate::db::models::{Album, ItemType, Song};
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 // ===================================
@@ -290,37 +289,7 @@ pub async fn get_genres_logic(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<GenresList> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct GenreRow {
-        genre: String,
-        song_count: i64,
-        album_count: i64,
-    }
-    let genres: Vec<GenreRow> = crate::db::raw::query_all::<GenreRow>(
-        database.conn(),
-        "SELECT
-                s.genre,
-                COUNT(DISTINCT s.id) as song_count,
-                COUNT(DISTINCT s.album_id) as album_count
-             FROM songs s
-             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-             WHERE s.genre IS NOT NULL AND mf.enabled = 1 AND ula.user_id = ?
-             GROUP BY s.genre
-             ORDER BY s.genre COLLATE NOCASE",
-        "SELECT
-                s.genre,
-                COUNT(DISTINCT s.id) as song_count,
-                COUNT(DISTINCT s.album_id) as album_count
-             FROM songs s
-             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-             WHERE s.genre IS NOT NULL AND mf.enabled AND ula.user_id = $1
-             GROUP BY s.genre
-             ORDER BY LOWER(s.genre)",
-        [sea_orm::Value::from(user_id)],
-    )
-    .await?;
+    let genres = crate::db::repo::browse::list_genres_for_user(database, user_id).await?;
 
     let json_genres: Vec<GenreResponse> = genres
         .into_iter()
@@ -342,70 +311,26 @@ pub async fn get_indexes_logic(
     user_id: i64,
     folder_id: Option<i64>,
 ) -> crate::error::Result<(Vec<DirectoryIndex>, i64)> {
-    // Get top-level directory names from songs table
-    // We assume the first component of file_path is the directory (e.g. "Artist" in "Artist/Album/Song.mp3")
-    // Files in the root (no '/') are ignored as they are not folders.
-    #[derive(sea_orm::FromQueryResult)]
-    struct NameRow {
-        name: String,
+    // Get top-level directory names from songs table by extracting the first
+    // path component in Rust. Files in the root (no '/') are ignored.
+    let file_paths =
+        crate::db::repo::browse::list_visible_file_paths(database, user_id, folder_id).await?;
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut directory_names: Vec<String> = Vec::new();
+    for path in file_paths {
+        let Some(idx) = path.find('/') else {
+            continue;
+        };
+        let name = &path[..idx];
+        if name.is_empty() {
+            continue;
+        }
+        if seen.insert(name.to_string()) {
+            directory_names.push(name.to_string());
+        }
     }
-    let (sqlite_sql, postgres_sql, values): (&str, &str, Vec<sea_orm::Value>) = if let Some(fid) =
-        folder_id
-    {
-        (
-            r#"
-                SELECT DISTINCT
-                    substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
-                FROM songs s
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE mf.enabled = 1 AND mf.id = ? AND ula.user_id = ? AND instr(s.file_path, '/') > 0
-                ORDER BY name COLLATE NOCASE
-                "#,
-            r#"
-                SELECT name
-                FROM (
-                    SELECT DISTINCT split_part(s.file_path, '/', 1) AS name
-                    FROM songs s
-                    INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                    INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                    WHERE mf.enabled AND mf.id = $1 AND ula.user_id = $2 AND POSITION('/' IN s.file_path) > 0
-                ) directories
-                ORDER BY LOWER(name)
-                "#,
-            vec![sea_orm::Value::from(fid), sea_orm::Value::from(user_id)],
-        )
-    } else {
-        (
-            r#"
-                SELECT DISTINCT
-                    substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
-                FROM songs s
-                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE mf.enabled = 1 AND ula.user_id = ? AND instr(s.file_path, '/') > 0
-                ORDER BY name COLLATE NOCASE
-                "#,
-            r#"
-                SELECT name
-                FROM (
-                    SELECT DISTINCT split_part(s.file_path, '/', 1) AS name
-                    FROM songs s
-                    INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                    INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                    WHERE mf.enabled AND ula.user_id = $1 AND POSITION('/' IN s.file_path) > 0
-                ) directories
-                ORDER BY LOWER(name)
-                "#,
-            vec![sea_orm::Value::from(user_id)],
-        )
-    };
-    let directory_names: Vec<String> =
-        crate::db::raw::query_all::<NameRow>(database.conn(), sqlite_sql, postgres_sql, values)
-            .await?
-            .into_iter()
-            .map(|r| r.name)
-            .collect();
+    directory_names.sort_by_key(|s| s.to_lowercase());
 
     // Group by first letter
     let mut grouped: HashMap<String, Vec<DirectoryArtist>> = HashMap::new();
@@ -483,37 +408,8 @@ pub async fn get_song_play_stats(
     user_id: i64,
     song_id: &str,
 ) -> crate::error::Result<SongPlayStats> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct StatsRow {
-        play_count: i64,
-        last_played: Option<DateTime<Utc>>,
-    }
-    let row = crate::db::raw::query_one::<StatsRow>(
-        database.conn(),
-        r#"
-            SELECT
-                COUNT(*) as play_count,
-                MAX(played_at) as last_played
-            FROM scrobbles
-            WHERE user_id = ? AND song_id = ?
-            "#,
-        r#"
-            SELECT
-                COUNT(*) as play_count,
-                MAX(played_at) as last_played
-            FROM scrobbles
-            WHERE user_id = $1 AND song_id = $2
-            "#,
-        [
-            sea_orm::Value::from(user_id),
-            sea_orm::Value::from(song_id.to_string()),
-        ],
-    )
-    .await?
-    .unwrap_or(StatsRow {
-        play_count: 0,
-        last_played: None,
-    });
+    let row =
+        crate::db::repo::browse::get_song_play_count_and_last(database, user_id, song_id).await?;
     let row = (row.play_count, row.last_played);
 
     // Convert zero play count to None (never played)

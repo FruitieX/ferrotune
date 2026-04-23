@@ -13,7 +13,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use sea_orm::{FromQueryResult, Value};
+use sea_orm::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -243,56 +243,11 @@ pub struct SaveTaggerScriptRequest {
 }
 
 /// Row struct for pending edits query (to avoid clippy type_complexity)
-#[derive(FromQueryResult)]
-struct PendingEditRow {
-    #[allow(dead_code)]
-    id: i64,
-    #[allow(dead_code)]
-    session_id: i64,
-    track_id: String,
-    edited_tags: String,
-    computed_path: Option<String>,
-    cover_art_removed: bool,
-    cover_art_filename: Option<String>,
-    replacement_audio_filename: Option<String>,
-    replacement_audio_original_name: Option<String>,
-    #[allow(dead_code)]
-    created_at: DateTime<Utc>,
-    #[allow(dead_code)]
-    updated_at: DateTime<Utc>,
-}
+type PendingEditRow = crate::db::repo::tagger_session::PendingEditRow;
 
-#[derive(FromQueryResult)]
-struct TrackCleanupInfo {
-    track_type: String,
-    cover_art_filename: Option<String>,
-    replacement_audio_filename: Option<String>,
-}
+type TrackCleanupInfo = crate::db::repo::tagger_session::TrackCleanupInfo;
 
-#[derive(FromQueryResult)]
-struct PendingEditMergeState {
-    edited_tags: String,
-    cover_art_filename: Option<String>,
-    cover_art_removed: bool,
-    replacement_audio_filename: Option<String>,
-    replacement_audio_original_name: Option<String>,
-}
-
-#[derive(FromQueryResult)]
-struct SessionTrackRow {
-    track_id: String,
-    track_type: String,
-}
-
-#[derive(FromQueryResult)]
-struct CoverArtFilenameRow {
-    cover_art_filename: Option<String>,
-}
-
-#[derive(FromQueryResult)]
-struct SessionTrackIdRow {
-    track_id: String,
-}
+type PendingEditMergeState = crate::db::repo::tagger_session::PendingEditMergeState;
 
 /// Request to save pending edits for specific tracks
 #[derive(Debug, Deserialize, TS)]
@@ -398,26 +353,19 @@ async fn insert_tagger_script(
     database: &crate::db::Database,
     script: ScriptInsert<'_>,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::insert_tagger_script(
         database.conn(),
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-        r#"INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-        [
-            Value::from(script.id.to_string()),
-            Value::from(script.user_id),
-            Value::from(script.name.to_string()),
-            Value::from(script.script_type.to_string()),
-            Value::from(script.script.to_string()),
-            Value::from(script.position),
-            Value::from(script.now),
-            Value::from(script.now),
-        ],
+        crate::db::repo::tagger_session::ScriptInsert {
+            id: script.id,
+            user_id: script.user_id,
+            name: script.name,
+            script_type: script.script_type,
+            script: script.script,
+            position: script.position,
+            now: script.now,
+        },
     )
-    .await?;
-
-    Ok(())
+    .await
 }
 
 /// Seed default scripts for a new user
@@ -427,14 +375,9 @@ async fn seed_default_scripts(
 ) -> crate::error::Result<()> {
     let now = chrono::Utc::now();
 
-    let count = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT COUNT(*) FROM tagger_scripts WHERE user_id = ?",
-        "SELECT COUNT(*)::BIGINT FROM tagger_scripts WHERE user_id = $1",
-        [Value::from(user_id)],
-    )
-    .await?
-    .unwrap_or(0);
+    let count =
+        crate::db::repo::tagger_session::count_tagger_scripts_for_user(database.conn(), user_id)
+            .await?;
 
     if count > 0 {
         return Ok(());
@@ -502,37 +445,14 @@ pub async fn get_or_create_session(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<i64> {
-    let session_id = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT id FROM tagger_sessions WHERE user_id = ?",
-        "SELECT id FROM tagger_sessions WHERE user_id = $1",
-        [Value::from(user_id)],
-    )
-    .await?;
-
-    if let Some(id) = session_id {
+    if let Some(id) =
+        crate::db::repo::tagger_session::find_session_id_for_user(database.conn(), user_id).await?
+    {
         return Ok(id);
     }
 
-    let session_id = if database.is_sqlite() {
-        crate::db::raw::execute(
-            database.conn(),
-            "INSERT INTO tagger_sessions (user_id) VALUES (?)",
-            "INSERT INTO tagger_sessions (user_id) VALUES ($1)",
-            [Value::from(user_id)],
-        )
-        .await?
-        .last_insert_id() as i64
-    } else {
-        crate::db::raw::query_scalar::<i64>(
-            database.conn(),
-            "INSERT INTO tagger_sessions (user_id) VALUES (?) RETURNING id",
-            "INSERT INTO tagger_sessions (user_id) VALUES ($1) RETURNING id",
-            [Value::from(user_id)],
-        )
-        .await?
-        .ok_or_else(|| Error::Internal("Failed to create tagger session".to_string()))?
-    };
+    let session_id =
+        crate::db::repo::tagger_session::insert_session_for_user(database, user_id).await?;
 
     if let Err(e) = seed_default_scripts(database, user_id).await {
         tracing::warn!("Failed to seed default scripts for user {}: {}", user_id, e);
@@ -545,42 +465,15 @@ async fn fetch_tagger_session(
     database: &crate::db::Database,
     session_id: i64,
 ) -> crate::error::Result<Option<crate::db::models::TaggerSession>> {
-    crate::db::raw::query_one(
-        database.conn(),
-        r#"
-        SELECT id, user_id, active_rename_script_id, active_tag_script_id,
-               target_library_id, visible_columns, column_widths, file_column_width,
-               show_library_prefix, show_computed_path, details_panel_open,
-               dangerous_char_mode, dangerous_char_replacement,
-               created_at, updated_at
-        FROM tagger_sessions WHERE id = ?
-        "#,
-        r#"
-        SELECT id, user_id, active_rename_script_id, active_tag_script_id,
-               target_library_id, visible_columns, column_widths, file_column_width,
-               show_library_prefix, show_computed_path, details_panel_open,
-               dangerous_char_mode, dangerous_char_replacement,
-               created_at, updated_at
-        FROM tagger_sessions WHERE id = $1
-        "#,
-        [Value::from(session_id)],
-    )
-    .await
-    .map_err(Into::into)
+    crate::db::repo::tagger_session::fetch_tagger_session(database.conn(), session_id).await
 }
 
 async fn fetch_tagger_session_track_rows(
     database: &crate::db::Database,
     session_id: i64,
 ) -> crate::error::Result<Vec<(String, String)>> {
-    let rows = crate::db::raw::query_all::<SessionTrackRow>(
-        database.conn(),
-        "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = ? ORDER BY position",
-        "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = $1 ORDER BY position",
-        [Value::from(session_id)],
-    )
-    .await?;
-
+    let rows =
+        crate::db::repo::tagger_session::fetch_session_tracks(database.conn(), session_id).await?;
     Ok(rows
         .into_iter()
         .map(|row| (row.track_id, row.track_type))
@@ -593,24 +486,28 @@ async fn update_tagger_session_field(
     field: &str,
     value: Value,
 ) -> crate::error::Result<()> {
-    let sqlite_sql = format!(
-        "UPDATE tagger_sessions SET {} = ?, updated_at = datetime('now') WHERE id = ?",
-        field
-    );
-    let postgres_sql = format!(
-        "UPDATE tagger_sessions SET {} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        field
-    );
-
-    crate::db::raw::execute(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        [value, Value::from(session_id)],
-    )
-    .await?;
-
-    Ok(())
+    use crate::db::entity::tagger_sessions::Column;
+    let col = match field {
+        "visible_columns" => Column::VisibleColumns,
+        "column_widths" => Column::ColumnWidths,
+        "file_column_width" => Column::FileColumnWidth,
+        "show_library_prefix" => Column::ShowLibraryPrefix,
+        "show_computed_path" => Column::ShowComputedPath,
+        "details_panel_open" => Column::DetailsPanelOpen,
+        "active_rename_script_id" => Column::ActiveRenameScriptId,
+        "active_tag_script_id" => Column::ActiveTagScriptId,
+        "target_library_id" => Column::TargetLibraryId,
+        "dangerous_char_mode" => Column::DangerousCharMode,
+        "dangerous_char_replacement" => Column::DangerousCharReplacement,
+        other => {
+            return Err(Error::Internal(format!(
+                "Unknown tagger session column: {}",
+                other
+            )));
+        }
+    };
+    crate::db::repo::tagger_session::update_session_field(database.conn(), session_id, col, value)
+        .await
 }
 
 async fn update_tagger_session_text_field(
@@ -650,24 +547,8 @@ async fn fetch_pending_edits_for_session(
     database: &crate::db::Database,
     session_id: i64,
 ) -> crate::error::Result<Vec<PendingEditRow>> {
-    crate::db::raw::query_all(
-        database.conn(),
-        r#"
-        SELECT id, session_id, track_id, edited_tags, computed_path,
-               cover_art_removed, cover_art_filename, replacement_audio_filename,
-               replacement_audio_original_name, created_at, updated_at
-        FROM tagger_pending_edits WHERE session_id = ?
-        "#,
-        r#"
-        SELECT id, session_id, track_id, edited_tags, computed_path,
-               cover_art_removed, cover_art_filename, replacement_audio_filename,
-               replacement_audio_original_name, created_at, updated_at
-        FROM tagger_pending_edits WHERE session_id = $1
-        "#,
-        [Value::from(session_id)],
-    )
-    .await
-    .map_err(Into::into)
+    crate::db::repo::tagger_session::fetch_pending_edits_for_session(database.conn(), session_id)
+        .await
 }
 
 async fn fetch_pending_edit_row(
@@ -675,42 +556,19 @@ async fn fetch_pending_edit_row(
     session_id: i64,
     track_id: &str,
 ) -> crate::error::Result<Option<PendingEditRow>> {
-    crate::db::raw::query_one(
-        database.conn(),
-        r#"
-        SELECT id, session_id, track_id, edited_tags, computed_path,
-               cover_art_removed, cover_art_filename, replacement_audio_filename,
-               replacement_audio_original_name, created_at, updated_at
-        FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?
-        "#,
-        r#"
-        SELECT id, session_id, track_id, edited_tags, computed_path,
-               cover_art_removed, cover_art_filename, replacement_audio_filename,
-               replacement_audio_original_name, created_at, updated_at
-        FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2
-        "#,
-        [Value::from(session_id), Value::from(track_id.to_string())],
-    )
-    .await
-    .map_err(Into::into)
+    crate::db::repo::tagger_session::fetch_pending_edit(database.conn(), session_id, track_id).await
 }
 
 async fn fetch_cover_art_filenames_for_session(
     database: &crate::db::Database,
     session_id: i64,
 ) -> crate::error::Result<Vec<(Option<String>,)>> {
-    let rows = crate::db::raw::query_all::<CoverArtFilenameRow>(
+    let rows = crate::db::repo::tagger_session::fetch_cover_art_filenames_for_session(
         database.conn(),
-        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND cover_art_filename IS NOT NULL",
-        "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = $1 AND cover_art_filename IS NOT NULL",
-        [Value::from(session_id)],
+        session_id,
     )
     .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.cover_art_filename,))
-        .collect())
+    Ok(rows.into_iter().map(|f| (f,)).collect())
 }
 
 async fn fetch_session_track_type(
@@ -718,14 +576,8 @@ async fn fetch_session_track_type(
     session_id: i64,
     track_id: &str,
 ) -> crate::error::Result<Option<String>> {
-    crate::db::raw::query_scalar(
-        database.conn(),
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-        "SELECT track_type FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
-        [Value::from(session_id), Value::from(track_id.to_string())],
-    )
-    .await
-    .map_err(Into::into)
+    crate::db::repo::tagger_session::fetch_session_track_type(database.conn(), session_id, track_id)
+        .await
 }
 
 struct PendingEditUpsert<'a> {
@@ -742,56 +594,26 @@ async fn upsert_pending_edit(
     database: &crate::db::Database,
     edit: PendingEditUpsert<'_>,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::upsert_pending_edit(
         database.conn(),
-        r#"
-        INSERT INTO tagger_pending_edits
-        (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            edited_tags = excluded.edited_tags,
-            computed_path = excluded.computed_path,
-            cover_art_removed = excluded.cover_art_removed,
-            updated_at = excluded.updated_at
-        "#,
-        r#"
-        INSERT INTO tagger_pending_edits
-        (session_id, track_id, track_type, edited_tags, computed_path, cover_art_removed, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            edited_tags = EXCLUDED.edited_tags,
-            computed_path = EXCLUDED.computed_path,
-            cover_art_removed = EXCLUDED.cover_art_removed,
-            updated_at = EXCLUDED.updated_at
-        "#,
-        [
-            Value::from(edit.session_id),
-            Value::from(edit.track_id.to_string()),
-            Value::from(edit.track_type.to_string()),
-            Value::from(edit.edited_tags_json.to_string()),
-            Value::from(edit.computed_path.map(str::to_string)),
-            Value::from(edit.cover_art_removed),
-            Value::from(edit.now),
-            Value::from(edit.now),
-        ],
+        crate::db::repo::tagger_session::PendingEditUpsert {
+            session_id: edit.session_id,
+            track_id: edit.track_id,
+            track_type: edit.track_type,
+            edited_tags_json: edit.edited_tags_json,
+            computed_path: edit.computed_path,
+            cover_art_removed: edit.cover_art_removed,
+            now: edit.now,
+        },
     )
-    .await?;
-
-    Ok(())
+    .await
 }
 
 async fn fetch_session_max_position(
     database: &crate::db::Database,
     session_id: i64,
 ) -> crate::error::Result<i64> {
-    Ok(crate::db::raw::query_scalar(
-        database.conn(),
-        "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = ?",
-        "SELECT COALESCE(MAX(position), -1) FROM tagger_session_tracks WHERE session_id = $1",
-        [Value::from(session_id)],
-    )
-    .await?
-    .unwrap_or(-1))
+    crate::db::repo::tagger_session::fetch_session_max_position(database.conn(), session_id).await
 }
 
 async fn insert_session_track_ignore_duplicate(
@@ -801,20 +623,14 @@ async fn insert_session_track_ignore_duplicate(
     track_type: &str,
     position: i64,
 ) -> crate::error::Result<u64> {
-    let result = crate::db::raw::execute(
+    crate::db::repo::tagger_session::insert_session_track_ignore_duplicate(
         database.conn(),
-        "INSERT OR IGNORE INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
-        "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4) ON CONFLICT(session_id, track_id) DO NOTHING",
-        [
-            Value::from(session_id),
-            Value::from(track_id.to_string()),
-            Value::from(track_type.to_string()),
-            Value::from(position),
-        ],
+        session_id,
+        track_id,
+        track_type,
+        position,
     )
-    .await?;
-
-    Ok(result.rows_affected())
+    .await
 }
 
 async fn delete_pending_edit(
@@ -822,14 +638,8 @@ async fn delete_pending_edit(
     session_id: i64,
     track_id: &str,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-        "DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
-        [Value::from(session_id), Value::from(track_id.to_string())],
-    )
-    .await?;
-
+    crate::db::repo::tagger_session::delete_pending_edit(database.conn(), session_id, track_id)
+        .await?;
     Ok(())
 }
 
@@ -838,14 +648,8 @@ async fn delete_session_track(
     session_id: i64,
     track_id: &str,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-        "DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
-        [Value::from(session_id), Value::from(track_id.to_string())],
-    )
-    .await?;
-
+    crate::db::repo::tagger_session::delete_session_track(database.conn(), session_id, track_id)
+        .await?;
     Ok(())
 }
 
@@ -854,20 +658,8 @@ async fn fetch_track_cleanup_info(
     session_id: i64,
     track_id: &str,
 ) -> crate::error::Result<Option<TrackCleanupInfo>> {
-    crate::db::raw::query_one(
-        database.conn(),
-        r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
-           FROM tagger_session_tracks t
-           LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
-           WHERE t.session_id = ? AND t.track_id = ?"#,
-        r#"SELECT t.track_type, e.cover_art_filename, e.replacement_audio_filename
-           FROM tagger_session_tracks t
-           LEFT JOIN tagger_pending_edits e ON t.session_id = e.session_id AND t.track_id = e.track_id
-           WHERE t.session_id = $1 AND t.track_id = $2"#,
-        [Value::from(session_id), Value::from(track_id.to_string())],
-    )
-    .await
-    .map_err(Into::into)
+    crate::db::repo::tagger_session::fetch_track_cleanup_info(database.conn(), session_id, track_id)
+        .await
 }
 
 async fn fetch_pending_edit_merge_state(
@@ -875,32 +667,19 @@ async fn fetch_pending_edit_merge_state(
     session_id: i64,
     track_id: &str,
 ) -> crate::error::Result<Option<PendingEditMergeState>> {
-    crate::db::raw::query_one(
+    crate::db::repo::tagger_session::fetch_pending_edit_merge_state(
         database.conn(),
-        r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
-                  replacement_audio_filename, replacement_audio_original_name
-           FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?"#,
-        r#"SELECT edited_tags, cover_art_filename, cover_art_removed,
-                  replacement_audio_filename, replacement_audio_original_name
-           FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2"#,
-        [Value::from(session_id), Value::from(track_id.to_string())],
+        session_id,
+        track_id,
     )
     .await
-    .map_err(Into::into)
 }
 
 async fn fetch_existing_tagger_session_id(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<Option<i64>> {
-    crate::db::raw::query_scalar(
-        database.conn(),
-        "SELECT id FROM tagger_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
-        "SELECT id FROM tagger_sessions WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
-        [Value::from(user_id)],
-    )
-    .await
-    .map_err(Into::into)
+    crate::db::repo::tagger_session::find_latest_session_id_for_user(database.conn(), user_id).await
 }
 
 struct CoverArtStateUpsert<'a> {
@@ -916,40 +695,18 @@ async fn upsert_pending_edit_cover_art_state(
     database: &crate::db::Database,
     edit: CoverArtStateUpsert<'_>,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::upsert_pending_edit_cover_art_state(
         database.conn(),
-        r#"
-        INSERT INTO tagger_pending_edits
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            cover_art_filename = excluded.cover_art_filename,
-            cover_art_removed = excluded.cover_art_removed,
-            updated_at = excluded.updated_at
-        "#,
-        r#"
-        INSERT INTO tagger_pending_edits
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            cover_art_filename = EXCLUDED.cover_art_filename,
-            cover_art_removed = EXCLUDED.cover_art_removed,
-            updated_at = EXCLUDED.updated_at
-        "#,
-        [
-            Value::from(edit.session_id),
-            Value::from(edit.track_id.to_string()),
-            Value::from(edit.track_type.to_string()),
-            Value::from("{}".to_string()),
-            Value::from(edit.cover_art_filename.map(str::to_string)),
-            Value::from(edit.cover_art_removed),
-            Value::from(edit.now),
-            Value::from(edit.now),
-        ],
+        crate::db::repo::tagger_session::CoverArtStateUpsert {
+            session_id: edit.session_id,
+            track_id: edit.track_id,
+            track_type: edit.track_type,
+            cover_art_filename: edit.cover_art_filename,
+            cover_art_removed: edit.cover_art_removed,
+            now: edit.now,
+        },
     )
-    .await?;
-
-    Ok(())
+    .await
 }
 
 struct LibraryPendingEditUpsert<'a> {
@@ -967,47 +724,20 @@ async fn upsert_library_pending_edit(
     database: &crate::db::Database,
     edit: LibraryPendingEditUpsert<'_>,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::upsert_library_pending_edit(
         database.conn(),
-        r#"
-        INSERT INTO tagger_pending_edits
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
-        VALUES (?, ?, 'library', ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            edited_tags = excluded.edited_tags,
-            cover_art_filename = excluded.cover_art_filename,
-            cover_art_removed = excluded.cover_art_removed,
-            replacement_audio_filename = excluded.replacement_audio_filename,
-            replacement_audio_original_name = excluded.replacement_audio_original_name,
-            updated_at = excluded.updated_at
-        "#,
-        r#"
-        INSERT INTO tagger_pending_edits
-        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
-        VALUES ($1, $2, 'library', $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT(session_id, track_id) DO UPDATE SET
-            edited_tags = EXCLUDED.edited_tags,
-            cover_art_filename = EXCLUDED.cover_art_filename,
-            cover_art_removed = EXCLUDED.cover_art_removed,
-            replacement_audio_filename = EXCLUDED.replacement_audio_filename,
-            replacement_audio_original_name = EXCLUDED.replacement_audio_original_name,
-            updated_at = EXCLUDED.updated_at
-        "#,
-        [
-            Value::from(edit.session_id),
-            Value::from(edit.track_id.to_string()),
-            Value::from(edit.edited_tags_json.to_string()),
-            Value::from(edit.cover_art_filename.map(str::to_string)),
-            Value::from(edit.cover_art_removed),
-            Value::from(edit.replacement_audio_filename.map(str::to_string)),
-            Value::from(edit.replacement_audio_original_name.map(str::to_string)),
-            Value::from(edit.now),
-            Value::from(edit.now),
-        ],
+        crate::db::repo::tagger_session::LibraryPendingEditUpsert {
+            session_id: edit.session_id,
+            track_id: edit.track_id,
+            edited_tags_json: edit.edited_tags_json,
+            cover_art_filename: edit.cover_art_filename,
+            cover_art_removed: edit.cover_art_removed,
+            replacement_audio_filename: edit.replacement_audio_filename,
+            replacement_audio_original_name: edit.replacement_audio_original_name,
+            now: edit.now,
+        },
     )
-    .await?;
-
-    Ok(())
+    .await
 }
 
 async fn clear_pending_edit_replacement_audio(
@@ -1016,19 +746,13 @@ async fn clear_pending_edit_replacement_audio(
     track_id: &str,
     now: DateTime<Utc>,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::clear_pending_edit_replacement_audio(
         database.conn(),
-        "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = ? WHERE session_id = ? AND track_id = ?",
-        "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, replacement_audio_original_name = NULL, updated_at = $1 WHERE session_id = $2 AND track_id = $3",
-        [
-            Value::from(now),
-            Value::from(session_id),
-            Value::from(track_id.to_string()),
-        ],
+        session_id,
+        track_id,
+        now,
     )
-    .await?;
-
-    Ok(())
+    .await
 }
 
 // =============================================================================
@@ -1246,29 +970,21 @@ pub async fn set_session_tracks(
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete existing tracks
-    if let Err(e) = crate::db::raw::execute(
-        state.database.conn(),
-        "DELETE FROM tagger_session_tracks WHERE session_id = ?",
-        "DELETE FROM tagger_session_tracks WHERE session_id = $1",
-        [Value::from(session_id)],
-    )
-    .await
+    if let Err(e) =
+        crate::db::repo::tagger_session::delete_session_tracks(state.database.conn(), session_id)
+            .await
     {
         return Err(Error::Internal(format!("Failed to clear tracks: {}", e)).into());
     }
 
     // Insert new tracks
     for (position, track) in request.tracks.iter().enumerate() {
-        if let Err(e) = crate::db::raw::execute(
+        if let Err(e) = crate::db::repo::tagger_session::insert_session_track(
             state.database.conn(),
-            "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES (?, ?, ?, ?)",
-            "INSERT INTO tagger_session_tracks (session_id, track_id, track_type, position) VALUES ($1, $2, $3, $4)",
-            [
-                Value::from(session_id),
-                Value::from(track.id.clone()),
-                Value::from(track.track_type.clone()),
-                Value::from(position as i64),
-            ],
+            session_id,
+            &track.id,
+            &track.track_type,
+            position as i64,
         )
         .await
         {
@@ -1367,11 +1083,9 @@ pub async fn clear_pending_edits(
         .unwrap_or_default();
 
     // Delete the edits
-    if let Err(e) = crate::db::raw::execute(
+    if let Err(e) = crate::db::repo::tagger_session::delete_pending_edits_for_session(
         state.database.conn(),
-        "DELETE FROM tagger_pending_edits WHERE session_id = ?",
-        "DELETE FROM tagger_pending_edits WHERE session_id = $1",
-        [Value::from(session_id)],
+        session_id,
     )
     .await
     {
@@ -2420,32 +2134,25 @@ pub async fn get_scripts(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let scripts: Vec<crate::db::models::TaggerScript> = match crate::db::raw::query_all(
-        state.database.conn(),
-        r#"
-        SELECT id, user_id, name, type AS script_type, script, position, created_at, updated_at
-        FROM tagger_scripts WHERE user_id = ? ORDER BY position
-        "#,
-        r#"
-        SELECT id, user_id, name, type AS script_type, script, position, created_at, updated_at
-        FROM tagger_scripts WHERE user_id = $1 ORDER BY position
-        "#,
-        [Value::from(user.user_id)],
-    )
-    .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to fetch scripts",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    let scripts: Vec<crate::db::models::TaggerScript> =
+        match crate::db::repo::tagger_session::list_tagger_scripts_for_user(
+            state.database.conn(),
+            user.user_id,
+        )
+        .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to fetch scripts",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+        };
 
     let scripts_data: Vec<TaggerScriptData> = scripts
         .into_iter()
@@ -2472,11 +2179,9 @@ pub async fn save_scripts(
     Json(scripts): Json<Vec<TaggerScriptData>>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Delete existing scripts
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::delete_tagger_scripts_for_user(
         state.database.conn(),
-        "DELETE FROM tagger_scripts WHERE user_id = ?",
-        "DELETE FROM tagger_scripts WHERE user_id = $1",
-        [Value::from(user.user_id)],
+        user.user_id,
     )
     .await
     .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
@@ -2511,11 +2216,10 @@ pub async fn delete_script(
     State(state): State<Arc<AppState>>,
     Path(script_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::delete_tagger_script_by_id(
         state.database.conn(),
-        "DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?",
-        "DELETE FROM tagger_scripts WHERE id = $1 AND user_id = $2",
-        [Value::from(script_id), Value::from(user.user_id)],
+        &script_id,
+        user.user_id,
     )
     .await
     .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
@@ -2535,21 +2239,14 @@ pub async fn clear_session(
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete tracks
-    crate::db::raw::execute(
-        state.database.conn(),
-        "DELETE FROM tagger_session_tracks WHERE session_id = ?",
-        "DELETE FROM tagger_session_tracks WHERE session_id = $1",
-        [Value::from(session_id)],
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
+    crate::db::repo::tagger_session::delete_session_tracks(state.database.conn(), session_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
 
     // Delete edits
-    crate::db::raw::execute(
+    crate::db::repo::tagger_session::delete_pending_edits_for_session(
         state.database.conn(),
-        "DELETE FROM tagger_pending_edits WHERE session_id = ?",
-        "DELETE FROM tagger_pending_edits WHERE session_id = $1",
-        [Value::from(session_id)],
+        session_id,
     )
     .await
     .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
@@ -2713,27 +2410,14 @@ pub async fn get_session_track_ids(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<Vec<String>> {
-    let session_id = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT id FROM tagger_sessions WHERE user_id = ?",
-        "SELECT id FROM tagger_sessions WHERE user_id = $1",
-        [Value::from(user_id)],
-    )
-    .await?;
-
-    let Some(session_id) = session_id else {
+    let Some(session_id) =
+        crate::db::repo::tagger_session::find_session_id_for_user(database.conn(), user_id).await?
+    else {
         return Ok(vec![]);
     };
 
-    let tracks = crate::db::raw::query_all::<SessionTrackIdRow>(
-        database.conn(),
-        "SELECT track_id FROM tagger_session_tracks WHERE session_id = ? AND track_type = 'staged'",
-        "SELECT track_id FROM tagger_session_tracks WHERE session_id = $1 AND track_type = 'staged'",
-        [Value::from(session_id)],
-    )
-    .await?;
-
-    Ok(tracks.into_iter().map(|row| row.track_id).collect())
+    crate::db::repo::tagger_session::list_staged_session_track_ids(database.conn(), session_id)
+        .await
 }
 
 /// POST /ferrotune/tagger/session/save-stream

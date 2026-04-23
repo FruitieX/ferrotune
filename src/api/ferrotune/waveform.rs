@@ -38,22 +38,10 @@ pub async fn get_waveform(
     }
 
     // Get waveform data from database
-    #[derive(sea_orm::FromQueryResult)]
-    struct WaveformRow {
-        waveform_data: Vec<u8>,
-    }
-    let row = crate::db::raw::query_one::<WaveformRow>(
-        state.database.conn(),
-        "SELECT waveform_data FROM songs WHERE id = ? AND waveform_data IS NOT NULL",
-        "SELECT waveform_data FROM songs WHERE id = $1 AND waveform_data IS NOT NULL",
-        [sea_orm::Value::from(song_id.clone())],
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?;
-
-    let blob = row
-        .ok_or_else(|| Error::NotFound(format!("No waveform data for song {}", song_id)))?
-        .waveform_data;
+    let blob = crate::db::repo::waveform::get_waveform_blob(&state.database, &song_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?
+        .ok_or_else(|| Error::NotFound(format!("No waveform data for song {}", song_id)))?;
 
     let heights = crate::analysis::blob_to_waveform(&blob)?;
 

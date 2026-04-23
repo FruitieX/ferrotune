@@ -3,8 +3,8 @@
 //! This module provides shared search-related functionality used by both
 //! the OpenSubsonic API and the Ferrotune Admin API.
 //!
-//! DB-bound functions route dialect-specific SQL through
-//! [`crate::db::raw`]. SQLite uses FTS5 (`MATCH`), PostgreSQL uses
+//! DB-bound functions execute dialect-specific SQL directly via
+//! `sea_orm::Statement`. SQLite uses FTS5 (`MATCH`), PostgreSQL uses
 //! `to_tsvector` / `to_tsquery`. The two code paths share an identical
 //! bind-value order so the result-set shapes deserialise into the same
 //! `models::*` structs via `sea_orm::FromQueryResult`.

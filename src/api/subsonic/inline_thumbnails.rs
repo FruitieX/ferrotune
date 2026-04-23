@@ -12,30 +12,17 @@
 
 #![allow(dead_code)]
 
-use crate::db::raw;
 use crate::thumbnails::ThumbnailSize;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(FromQueryResult)]
-struct IdBlobRow {
-    id: String,
-    thumbnail: Vec<u8>,
-}
-
-fn sqlite_placeholders(count: usize) -> String {
-    std::iter::repeat_n("?", count)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn postgres_placeholders(start: usize, count: usize) -> String {
-    (0..count)
-        .map(|i| format!("${}", start + i))
-        .collect::<Vec<_>>()
-        .join(", ")
+fn thumbnail_is_medium(size: ThumbnailSize) -> Option<bool> {
+    match size {
+        ThumbnailSize::Small => Some(false),
+        ThumbnailSize::Medium => Some(true),
+        ThumbnailSize::Large => None,
+    }
 }
 
 /// Query parameter for requesting inline thumbnails
@@ -81,32 +68,11 @@ pub async fn get_album_thumbnails_base64(
     if album_ids.is_empty() {
         return HashMap::new();
     }
-
-    let Some(column) = thumbnail_column(size) else {
+    let Some(medium) = thumbnail_is_medium(size) else {
         return HashMap::new();
     };
-
-    let n = album_ids.len();
-    let sqlite_sql = format!(
-        "SELECT a.id AS id, t.{column} AS thumbnail FROM albums a \
-         INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash \
-         WHERE a.id IN ({})",
-        sqlite_placeholders(n)
-    );
-    let postgres_sql = format!(
-        "SELECT a.id AS id, t.{column} AS thumbnail FROM albums a \
-         INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash \
-         WHERE a.id IN ({})",
-        postgres_placeholders(1, n)
-    );
-    let params: Vec<Value> = album_ids.iter().map(|s| Value::from(s.clone())).collect();
-    let rows = match raw::query_all::<IdBlobRow>(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        params,
-    )
-    .await
+    let rows = match crate::db::repo::coverart::fetch_album_thumbnails(database, album_ids, medium)
+        .await
     {
         Ok(rows) => rows,
         Err(e) => {
@@ -114,7 +80,7 @@ pub async fn get_album_thumbnails_base64(
             return HashMap::new();
         }
     };
-    encode_thumbnail_rows(rows.into_iter().map(|r| (r.id, r.thumbnail)).collect())
+    encode_thumbnail_rows(rows)
 }
 
 /// Get a single album thumbnail as base64
@@ -136,51 +102,45 @@ pub async fn get_artist_thumbnails_base64(
     if artist_ids.is_empty() {
         return HashMap::new();
     }
-
-    let Some(column) = thumbnail_column(size) else {
+    let Some(medium) = thumbnail_is_medium(size) else {
         return HashMap::new();
     };
 
-    let n = artist_ids.len();
-    let sqlite_sql = format!(
-        r#"SELECT ar.id AS id, t.{column} AS thumbnail
-           FROM artists ar
-           LEFT JOIN albums a ON a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
-           LEFT JOIN cover_art_thumbnails t ON (ar.cover_art_hash = t.hash OR a.cover_art_hash = t.hash)
-           WHERE ar.id IN ({}) GROUP BY ar.id HAVING t.{column} IS NOT NULL"#,
-        sqlite_placeholders(n)
-    );
-    let postgres_sql = format!(
-        r#"SELECT ar.id AS id, COALESCE(artist_t.{column}, album_t.thumbnail) AS thumbnail
-           FROM artists ar
-           LEFT JOIN cover_art_thumbnails artist_t ON ar.cover_art_hash = artist_t.hash
-           LEFT JOIN LATERAL (
-               SELECT t.{column} AS thumbnail
-               FROM albums a
-               INNER JOIN cover_art_thumbnails t ON a.cover_art_hash = t.hash
-               WHERE a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
-               ORDER BY a.created_at, a.id
-               LIMIT 1
-           ) album_t ON TRUE
-           WHERE ar.id IN ({}) AND COALESCE(artist_t.{column}, album_t.thumbnail) IS NOT NULL"#,
-        postgres_placeholders(1, n)
-    );
-    let params: Vec<Value> = artist_ids.iter().map(|s| Value::from(s.clone())).collect();
-    let rows = match raw::query_all::<IdBlobRow>(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        params,
-    )
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("Failed to fetch artist thumbnails: {}", e);
-            return HashMap::new();
+    // Step 1: artists with their own cover_art_hash
+    let own_rows =
+        match crate::db::repo::coverart::fetch_artist_own_thumbnails(database, artist_ids, medium)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!("Failed to fetch artist thumbnails: {}", e);
+                Vec::new()
+            }
+        };
+    let mut result: HashMap<String, Vec<u8>> = own_rows.into_iter().collect();
+
+    // Step 2: album fallback for artists not yet resolved
+    let remaining: Vec<String> = artist_ids
+        .iter()
+        .filter(|id| !result.contains_key(*id))
+        .cloned()
+        .collect();
+    if !remaining.is_empty() {
+        match crate::db::repo::coverart::fetch_album_thumbnails_by_artists(
+            database, &remaining, medium,
+        )
+        .await
+        {
+            Ok(rows) => {
+                for (artist_id, blob) in rows {
+                    result.entry(artist_id).or_insert(blob);
+                }
+            }
+            Err(e) => tracing::warn!("Failed to fetch album fallback thumbnails: {}", e),
         }
-    };
-    encode_thumbnail_rows(rows.into_iter().map(|r| (r.id, r.thumbnail)).collect())
+    }
+
+    encode_thumbnail_rows(result.into_iter().collect())
 }
 
 /// Get thumbnails for songs (uses song's own cover art, falls back to album's cover art)
@@ -192,43 +152,23 @@ pub async fn get_song_thumbnails_base64(
     if songs.is_empty() {
         return HashMap::new();
     }
-
-    let Some(column) = thumbnail_column(size) else {
+    let Some(medium) = thumbnail_is_medium(size) else {
         return HashMap::new();
     };
 
     // First, try to get thumbnails from song's own cover_art_hash
     let song_ids: Vec<String> = songs.iter().map(|(id, _)| id.clone()).collect();
-    let n = song_ids.len();
-    let sqlite_sql = format!(
-        "SELECT s.id AS id, t.{column} AS thumbnail FROM songs s \
-         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash \
-         WHERE s.id IN ({})",
-        sqlite_placeholders(n)
-    );
-    let postgres_sql = format!(
-        "SELECT s.id AS id, t.{column} AS thumbnail FROM songs s \
-         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash \
-         WHERE s.id IN ({})",
-        postgres_placeholders(1, n)
-    );
-    let params: Vec<Value> = song_ids.iter().map(|s| Value::from(s.clone())).collect();
-    let song_rows = match raw::query_all::<IdBlobRow>(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        params,
-    )
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("Failed to fetch song thumbnails: {}", e);
-            Vec::new()
-        }
-    };
-    let mut result =
-        encode_thumbnail_rows(song_rows.into_iter().map(|r| (r.id, r.thumbnail)).collect());
+    let song_rows =
+        match crate::db::repo::coverart::fetch_song_own_thumbnails(database, &song_ids, medium)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!("Failed to fetch song thumbnails: {}", e);
+                Vec::new()
+            }
+        };
+    let mut result = encode_thumbnail_rows(song_rows);
 
     // For songs that don't have their own cover art, fall back to album thumbnails
     let songs_needing_album_fallback: Vec<&(String, Option<String>)> = songs
@@ -273,40 +213,16 @@ pub async fn get_playlist_thumbnail_base64(
 
     // Get medium thumbnails for tiling (better quality for compositing)
     let tile_size_enum = ThumbnailSize::Medium;
-    let column = "medium";
 
-    #[derive(FromQueryResult)]
-    struct HashBlobRow {
-        hash: String,
-        thumbnail: Vec<u8>,
-    }
-    let sqlite_sql = format!(
-        "SELECT t.hash AS hash, t.{column} AS thumbnail
-         FROM songs s
-         INNER JOIN playlist_songs ps ON s.id = ps.song_id
-         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash
-         WHERE ps.playlist_id = ? AND s.cover_art_hash IS NOT NULL
-         ORDER BY ps.position
-         LIMIT 4"
-    );
-    let postgres_sql = format!(
-        "SELECT t.hash AS hash, t.{column} AS thumbnail
-         FROM songs s
-         INNER JOIN playlist_songs ps ON s.id = ps.song_id
-         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash
-         WHERE ps.playlist_id = $1 AND s.cover_art_hash IS NOT NULL
-         ORDER BY ps.position
-         LIMIT 4"
-    );
-    let rows = raw::query_all::<HashBlobRow>(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        [Value::from(playlist_id.to_string())],
+    let rows = crate::db::repo::coverart::fetch_playlist_song_thumbnails(
+        database,
+        playlist_id,
+        true, // medium
+        4,
     )
     .await
     .ok()?;
-    let results: Vec<(String, Vec<u8>)> = rows.into_iter().map(|r| (r.hash, r.thumbnail)).collect();
+    let results: Vec<(String, Vec<u8>)> = rows;
 
     if results.is_empty() {
         return None;

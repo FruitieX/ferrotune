@@ -54,30 +54,9 @@ pub async fn get_libraries(
     let mut libraries = Vec::new();
     for folder in folders {
         // Get stats for this folder
-        #[derive(sea_orm::FromQueryResult)]
-        struct StatsRow {
-            file_count: i64,
-            total_size: i64,
-        }
-        let stats = crate::db::raw::query_one::<StatsRow>(
-            state.database.conn(),
-            r#"
-            SELECT COUNT(*) as file_count, COALESCE(SUM(file_size), 0) as total_size
-            FROM songs
-            WHERE music_folder_id = ?
-            "#,
-            r#"
-            SELECT COUNT(*)::BIGINT as file_count, COALESCE(SUM(file_size), 0)::BIGINT as total_size
-            FROM songs
-            WHERE music_folder_id = $1
-            "#,
-            [sea_orm::Value::from(folder.id)],
-        )
-        .await?
-        .unwrap_or(StatsRow {
-            file_count: 0,
-            total_size: 0,
-        });
+        let stats =
+            crate::db::repo::browse::get_music_folder_song_stats(&state.database, folder.id)
+                .await?;
 
         libraries.push(LibraryInfo {
             id: folder.id,
@@ -249,14 +228,9 @@ pub async fn get_directory_paged(
     }
 
     // Get the music folder
-    let folder = crate::db::raw::query_one::<crate::db::models::MusicFolder>(
-        state.database.conn(),
-        "SELECT * FROM music_folders WHERE id = ? AND enabled = 1",
-        "SELECT * FROM music_folders WHERE id = $1 AND enabled",
-        [sea_orm::Value::from(library_id)],
-    )
-    .await?
-    .ok_or_else(|| Error::NotFound("Library not found".to_string()))?;
+    let folder = crate::db::repo::browse::get_enabled_music_folder(&state.database, library_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Library not found".to_string()))?;
 
     // Get the relative path (empty string means library root)
     let relative_path = params.path.clone().unwrap_or_default();
@@ -414,78 +388,8 @@ async fn get_directory_contents_for_library(
     };
 
     // Get all songs that start with this path prefix and belong to this library
-    #[derive(sea_orm::FromQueryResult)]
-    struct DirSongRow {
-        id: String,
-        file_path: String,
-        title: String,
-        album_id: Option<String>,
-        album_name: Option<String>,
-        year: Option<i32>,
-        genre: Option<String>,
-        track_number: Option<i32>,
-        file_size: i64,
-        file_format: String,
-        duration: i64,
-        bitrate: Option<i32>,
-        artist_id: String,
-        artist_name: String,
-        created_at: chrono::DateTime<chrono::Utc>,
-    }
-    let song_rows = crate::db::raw::query_all::<DirSongRow>(
-        database.conn(),
-        r#"
-            SELECT
-                s.id,
-                s.file_path,
-                s.title,
-                s.album_id,
-                al.name as album_name,
-                s.year,
-                s.genre,
-                s.track_number,
-                s.file_size,
-                s.file_format,
-                s.duration,
-                s.bitrate,
-                s.artist_id,
-                ar.name as artist_name,
-                s.created_at
-            FROM songs s
-            LEFT JOIN artists ar ON s.artist_id = ar.id
-            LEFT JOIN albums al ON s.album_id = al.id
-            WHERE s.music_folder_id = ? AND s.file_path LIKE ? || '%'
-            ORDER BY s.file_path
-            "#,
-        r#"
-            SELECT
-                s.id,
-                s.file_path,
-                s.title,
-                s.album_id,
-                al.name as album_name,
-                s.year,
-                s.genre,
-                s.track_number,
-                s.file_size,
-                s.file_format,
-                s.duration,
-                s.bitrate,
-                s.artist_id,
-                ar.name as artist_name,
-                s.created_at
-            FROM songs s
-            LEFT JOIN artists ar ON s.artist_id = ar.id
-            LEFT JOIN albums al ON s.album_id = al.id
-            WHERE s.music_folder_id = $1 AND s.file_path LIKE $2 || '%'
-            ORDER BY s.file_path
-            "#,
-        [
-            sea_orm::Value::from(library_id),
-            sea_orm::Value::from(path_prefix.clone()),
-        ],
-    )
-    .await?;
+    let song_rows =
+        crate::db::repo::browse::list_directory_songs(database, library_id, &path_prefix).await?;
     let all_songs: Vec<DirectorySongRow> = song_rows
         .into_iter()
         .map(|r| {

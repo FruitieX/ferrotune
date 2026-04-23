@@ -22,60 +22,18 @@ async fn get_lastfm_credentials(
     database: &crate::db::Database,
     user_id: i64,
 ) -> Result<Option<(String, String, String)>, String> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct CredsRow {
-        lastfm_api_key: Option<String>,
-        lastfm_api_secret: Option<String>,
-        lastfm_session_key: Option<String>,
-    }
-    let row = crate::db::raw::query_one::<CredsRow>(
-        database.conn(),
-        "SELECT lastfm_api_key, lastfm_api_secret, lastfm_session_key FROM users WHERE id = ?",
-        "SELECT lastfm_api_key, lastfm_api_secret, lastfm_session_key FROM users WHERE id = $1",
-        [sea_orm::Value::from(user_id)],
-    )
-    .await
-    .map_err(|e| format!("DB error: {}", e))?;
-
-    Ok(match row {
-        Some(CredsRow {
-            lastfm_api_key: Some(api_key),
-            lastfm_api_secret: Some(api_secret),
-            lastfm_session_key: Some(session_key),
-        }) if !api_key.is_empty() && !api_secret.is_empty() => {
-            Some((api_key, api_secret, session_key))
-        }
-        _ => None,
-    })
+    crate::db::repo::users::get_lastfm_credentials(database, user_id)
+        .await
+        .map_err(|e| format!("DB error: {}", e))
 }
 
 async fn get_lastfm_song_metadata(
     database: &crate::db::Database,
     song_id: &str,
 ) -> Result<Option<(String, String, Option<String>, Option<i64>)>, String> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct MetaRow {
-        title: String,
-        name: String,
-        album_name: Option<String>,
-        duration: Option<i64>,
-    }
-    let row = crate::db::raw::query_one::<MetaRow>(
-        database.conn(),
-        "SELECT s.title AS title, ar.name AS name, al.name AS album_name, s.duration AS duration
-             FROM songs s
-             LEFT JOIN artists ar ON s.artist_id = ar.id
-             LEFT JOIN albums al ON s.album_id = al.id
-             WHERE s.id = ?",
-        "SELECT s.title AS title, ar.name AS name, al.name AS album_name, s.duration AS duration
-             FROM songs s
-             LEFT JOIN artists ar ON s.artist_id = ar.id
-             LEFT JOIN albums al ON s.album_id = al.id
-             WHERE s.id = $1",
-        [sea_orm::Value::from(song_id.to_string())],
-    )
-    .await
-    .map_err(|e| format!("DB error: {}", e))?;
+    let row = crate::db::repo::media::get_song_scrobble_metadata(database, song_id)
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
 
     Ok(row.map(|r| (r.title, r.name, r.album_name, r.duration)))
 }
@@ -84,39 +42,14 @@ async fn get_lastfm_config_row(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<Option<(Option<String>, Option<String>)>> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct ConfigRow {
-        lastfm_api_key: Option<String>,
-        lastfm_api_secret: Option<String>,
-    }
-    let row = crate::db::raw::query_one::<ConfigRow>(
-        database.conn(),
-        "SELECT lastfm_api_key, lastfm_api_secret FROM users WHERE id = ?",
-        "SELECT lastfm_api_key, lastfm_api_secret FROM users WHERE id = $1",
-        [sea_orm::Value::from(user_id)],
-    )
-    .await?;
-    Ok(row.map(|r| (r.lastfm_api_key, r.lastfm_api_secret)))
+    crate::db::repo::users::get_lastfm_config(database, user_id).await
 }
 
 async fn get_lastfm_status_row(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<Option<(Option<String>, Option<String>, Option<String>)>> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct StatusRow {
-        lastfm_api_key: Option<String>,
-        lastfm_session_key: Option<String>,
-        lastfm_username: Option<String>,
-    }
-    let row = crate::db::raw::query_one::<StatusRow>(
-        database.conn(),
-        "SELECT lastfm_api_key, lastfm_session_key, lastfm_username FROM users WHERE id = ?",
-        "SELECT lastfm_api_key, lastfm_session_key, lastfm_username FROM users WHERE id = $1",
-        [sea_orm::Value::from(user_id)],
-    )
-    .await?;
-    Ok(row.map(|r| (r.lastfm_api_key, r.lastfm_session_key, r.lastfm_username)))
+    crate::db::repo::users::get_lastfm_status(database, user_id).await
 }
 
 async fn update_lastfm_session_row(
@@ -125,19 +58,7 @@ async fn update_lastfm_session_row(
     session_key: Option<&str>,
     username: Option<&str>,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "UPDATE users SET lastfm_session_key = ?, lastfm_username = ? WHERE id = ?",
-        "UPDATE users SET lastfm_session_key = $1, lastfm_username = $2 WHERE id = $3",
-        [
-            sea_orm::Value::from(session_key.map(|s| s.to_string())),
-            sea_orm::Value::from(username.map(|s| s.to_string())),
-            sea_orm::Value::from(user_id),
-        ],
-    )
-    .await?;
-
-    Ok(())
+    crate::db::repo::users::update_lastfm_session(database, user_id, session_key, username).await
 }
 
 async fn update_lastfm_config_row(
@@ -146,19 +67,7 @@ async fn update_lastfm_config_row(
     api_key: &str,
     api_secret: &str,
 ) -> crate::error::Result<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "UPDATE users SET lastfm_api_key = ?, lastfm_api_secret = ? WHERE id = ?",
-        "UPDATE users SET lastfm_api_key = $1, lastfm_api_secret = $2 WHERE id = $3",
-        [
-            sea_orm::Value::from(api_key.to_string()),
-            sea_orm::Value::from(api_secret.to_string()),
-            sea_orm::Value::from(user_id),
-        ],
-    )
-    .await?;
-
-    Ok(())
+    crate::db::repo::users::update_lastfm_config(database, user_id, api_key, api_secret).await
 }
 
 /// Generate Last.fm API method signature.

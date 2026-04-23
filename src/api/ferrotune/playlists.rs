@@ -8,7 +8,8 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::subsonic::query::QsQuery;
 use crate::api::AppState;
 use crate::db::models::ItemType;
-use crate::db::{raw, Database};
+use crate::db::repo::playlists as playlists_repo;
+use crate::db::Database;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
@@ -16,7 +17,6 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use sea_orm::Value;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -78,355 +78,103 @@ async fn playlist_folder_exists(
     database: &Database,
     folder_id: &str,
     user_id: i64,
-) -> Result<bool, sea_orm::DbErr> {
-    Ok(raw::query_scalar::<bool>(
-        database.conn(),
-        "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?)",
-        "SELECT EXISTS(SELECT 1 FROM playlist_folders WHERE id = $1 AND owner_id = $2)",
-        [Value::from(folder_id.to_string()), Value::from(user_id)],
-    )
-    .await?
-    .unwrap_or(false))
+) -> crate::error::Result<bool> {
+    playlists_repo::playlist_folder_exists(database, folder_id, user_id).await
 }
 
 async fn next_playlist_folder_position(
     database: &Database,
     user_id: i64,
     parent_id: Option<&str>,
-) -> Result<i64, sea_orm::DbErr> {
-    Ok(raw::query_scalar::<i64>(
-        database.conn(),
-        r#"
-            SELECT COALESCE(MAX(position), -1) + 1
-            FROM playlist_folders
-            WHERE owner_id = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
-            "#,
-        r#"
-            SELECT COALESCE(MAX(position), -1) + 1
-            FROM playlist_folders
-            WHERE owner_id = $1 AND (parent_id = $2 OR (parent_id IS NULL AND $3 IS NULL))
-            "#,
-        [
-            Value::from(user_id),
-            Value::from(parent_id.map(|s| s.to_string())),
-            Value::from(parent_id.map(|s| s.to_string())),
-        ],
-    )
-    .await?
-    .unwrap_or(0))
+) -> crate::error::Result<i64> {
+    playlists_repo::next_playlist_folder_position(database, user_id, parent_id).await
 }
 
 async fn fetch_playlist_folder_response(
     database: &Database,
     folder_id: &str,
-) -> Result<PlaylistFolderResponse, sea_orm::DbErr> {
-    raw::query_one::<PlaylistFolderResponse>(
-        database.conn(),
-        r#"
-            SELECT id, name, parent_id, position,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
-                   (cover_art IS NOT NULL) as has_cover_art
-            FROM playlist_folders
-            WHERE id = ?
-            "#,
-        r#"
-            SELECT id, name, parent_id, position,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-                   (cover_art IS NOT NULL) as has_cover_art
-            FROM playlist_folders
-            WHERE id = $1
-            "#,
-        [Value::from(folder_id.to_string())],
-    )
-    .await?
-    .ok_or_else(|| sea_orm::DbErr::RecordNotFound(format!("playlist_folder {}", folder_id)))
+) -> crate::error::Result<PlaylistFolderResponse> {
+    playlists_repo::fetch_playlist_folder(database, folder_id)
+        .await?
+        .map(|folder| PlaylistFolderResponse {
+            id: folder.id,
+            name: folder.name,
+            parent_id: folder.parent_id,
+            position: folder.position,
+            created_at: format_datetime_iso(folder.created_at.with_timezone(&Utc)),
+            has_cover_art: folder.has_cover_art,
+        })
+        .ok_or_else(|| Error::NotFound(format!("playlist folder {} not found", folder_id)))
 }
 
 async fn playlist_owner_id(
     database: &Database,
     playlist_id: &str,
-) -> Result<Option<i64>, sea_orm::DbErr> {
-    raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT owner_id FROM playlists WHERE id = ?",
-        "SELECT owner_id FROM playlists WHERE id = $1",
-        [Value::from(playlist_id.to_string())],
-    )
-    .await
+) -> crate::error::Result<Option<i64>> {
+    playlists_repo::playlist_owner_id(database, playlist_id).await
 }
 
-async fn user_exists(database: &Database, user_id: i64) -> Result<bool, sea_orm::DbErr> {
-    Ok(raw::query_scalar::<bool>(
-        database.conn(),
-        "SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)",
-        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)",
-        [Value::from(user_id)],
-    )
-    .await?
-    .unwrap_or(false))
+async fn user_exists(database: &Database, user_id: i64) -> crate::error::Result<bool> {
+    playlists_repo::user_exists(database, user_id).await
 }
 
-async fn username_for_user(database: &Database, user_id: i64) -> Result<String, sea_orm::DbErr> {
-    raw::query_scalar::<String>(
-        database.conn(),
-        "SELECT username FROM users WHERE id = ?",
-        "SELECT username FROM users WHERE id = $1",
-        [Value::from(user_id)],
-    )
-    .await?
-    .ok_or_else(|| sea_orm::DbErr::RecordNotFound(format!("user {}", user_id)))
+async fn username_for_user(database: &Database, user_id: i64) -> crate::error::Result<String> {
+    playlists_repo::username_for_user(database, user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("user {} not found", user_id)))
 }
 
 async fn fetch_playlist_shares(
     database: &Database,
     playlist_id: &str,
-) -> Result<Vec<PlaylistShareResponse>, sea_orm::DbErr> {
-    raw::query_all::<PlaylistShareResponse>(
-        database.conn(),
-        r#"
-            SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
-            FROM playlist_shares ps
-            JOIN users u ON u.id = ps.shared_with_user_id
-            WHERE ps.playlist_id = ?
-            ORDER BY LOWER(u.username), u.username
-            "#,
-        r#"
-            SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
-            FROM playlist_shares ps
-            JOIN users u ON u.id = ps.shared_with_user_id
-            WHERE ps.playlist_id = $1
-            ORDER BY LOWER(u.username), u.username
-            "#,
-        [Value::from(playlist_id.to_string())],
-    )
-    .await
+) -> crate::error::Result<Vec<PlaylistShareResponse>> {
+    playlists_repo::fetch_playlist_shares(database, playlist_id)
+        .await
+        .map(|shares| {
+            shares
+                .into_iter()
+                .map(|share| PlaylistShareResponse {
+                    user_id: share.user_id,
+                    username: share.username,
+                    can_edit: share.can_edit,
+                })
+                .collect()
+        })
 }
 
 pub async fn get_playlist_folders(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<PlaylistFoldersResponse>> {
-    // Helper struct for SQL query
-    #[derive(sea_orm::FromQueryResult)]
-    struct PlaylistRow {
-        id: String,
-        name: String,
-        folder_id: Option<String>,
-        position: i64,
-        song_count: i64,
-        duration: i64,
-        updated_at: String,
-    }
-
-    #[derive(sea_orm::FromQueryResult)]
-    struct NonOwnedPlaylistRow {
-        id: String,
-        name: String,
-        song_count: i64,
-        duration: i64,
-        owner_name: String,
-        can_edit: bool,
-        folder_id: Option<String>,
-        updated_at: String,
-    }
-
-    let folders = raw::query_all::<PlaylistFolderResponse>(
-        state.database.conn(),
-        r#"
-            SELECT id, name, parent_id, position,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
-                   (cover_art IS NOT NULL) as has_cover_art
-            FROM playlist_folders
-            WHERE owner_id = ?
-            ORDER BY position, LOWER(name), name
-            "#,
-        r#"
-            SELECT id, name, parent_id, position,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-                   (cover_art IS NOT NULL) as has_cover_art
-            FROM playlist_folders
-            WHERE owner_id = $1
-            ORDER BY position, LOWER(name), name
-            "#,
-        [Value::from(user.user_id)],
-    )
-    .await?;
-
-    let owned_rows = raw::query_all::<PlaylistRow>(
-        state.database.conn(),
-        r#"
-            SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps
-                       JOIN songs s ON s.id = ps.song_id
-                       WHERE ps.playlist_id = p.id
-                   ), 0) as duration,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-            FROM playlists p
-            WHERE p.owner_id = ?
-            ORDER BY p.position, LOWER(p.name), p.name
-            "#,
-        r#"
-            SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps
-                       JOIN songs s ON s.id = ps.song_id
-                       WHERE ps.playlist_id = p.id
-                   ), 0)::BIGINT as duration,
-                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-            FROM playlists p
-            WHERE p.owner_id = $1
-            ORDER BY p.position, LOWER(p.name), p.name
-            "#,
-        [Value::from(user.user_id)],
-    )
-    .await?;
-
-    let shared_rows = raw::query_all::<NonOwnedPlaylistRow>(
-        state.database.conn(),
-        r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps2
-                       JOIN songs s ON s.id = ps2.song_id
-                       WHERE ps2.playlist_id = p.id
-                   ), 0) as duration,
-                   u.username as owner_name,
-                   psh.can_edit,
-                   upo.folder_id,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-            FROM playlists p
-            JOIN playlist_shares psh ON psh.playlist_id = p.id
-            JOIN users u ON u.id = p.owner_id
-            LEFT JOIN user_playlist_overrides upo
-                ON upo.playlist_id = p.id AND upo.user_id = ?
-            WHERE psh.shared_with_user_id = ?
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps2
-                       JOIN songs s ON s.id = ps2.song_id
-                       WHERE ps2.playlist_id = p.id
-                   ), 0)::BIGINT as duration,
-                   u.username as owner_name,
-                   psh.can_edit,
-                   upo.folder_id,
-                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-            FROM playlists p
-            JOIN playlist_shares psh ON psh.playlist_id = p.id
-            JOIN users u ON u.id = p.owner_id
-            LEFT JOIN user_playlist_overrides upo
-                ON upo.playlist_id = p.id AND upo.user_id = $1
-            WHERE psh.shared_with_user_id = $2
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        [Value::from(user.user_id), Value::from(user.user_id)],
-    )
-    .await?;
-
-    let public_rows = raw::query_all::<NonOwnedPlaylistRow>(
-        state.database.conn(),
-        r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps2
-                       JOIN songs s ON s.id = ps2.song_id
-                       WHERE ps2.playlist_id = p.id
-                   ), 0) as duration,
-                   u.username as owner_name,
-                   CAST(0 AS BOOLEAN) as can_edit,
-                   upo.folder_id,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
-            FROM playlists p
-            JOIN users u ON u.id = p.owner_id
-            LEFT JOIN user_playlist_overrides upo
-                ON upo.playlist_id = p.id AND upo.user_id = ?
-            WHERE p.is_public = 1
-              AND p.owner_id != ?
-              AND p.id NOT IN (
-                  SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?
-              )
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps2
-                       JOIN songs s ON s.id = ps2.song_id
-                       WHERE ps2.playlist_id = p.id
-                   ), 0)::BIGINT as duration,
-                   u.username as owner_name,
-                   FALSE as can_edit,
-                   upo.folder_id,
-                   to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-            FROM playlists p
-            JOIN users u ON u.id = p.owner_id
-            LEFT JOIN user_playlist_overrides upo
-                ON upo.playlist_id = p.id AND upo.user_id = $1
-            WHERE p.is_public = TRUE
-              AND p.owner_id != $2
-              AND p.id NOT IN (
-                  SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = $3
-              )
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        [
-            Value::from(user.user_id),
-            Value::from(user.user_id),
-            Value::from(user.user_id),
-        ],
-    )
-    .await?;
-
-    let mut playlists: Vec<PlaylistInFolder> = owned_rows
+    let folders = playlists_repo::list_playlist_folders_for_user(&state.database, user.user_id)
+        .await?
         .into_iter()
-        .map(|r| PlaylistInFolder {
-            id: r.id,
-            name: r.name,
-            folder_id: r.folder_id,
-            position: r.position,
-            song_count: r.song_count,
-            duration: r.duration,
-            owner: None,
-            shared_with_me: false,
-            can_edit: true,
-            updated_at: r.updated_at,
+        .map(|folder| PlaylistFolderResponse {
+            id: folder.id,
+            name: folder.name,
+            parent_id: folder.parent_id,
+            position: folder.position,
+            created_at: format_datetime_iso(folder.created_at.with_timezone(&Utc)),
+            has_cover_art: folder.has_cover_art,
         })
         .collect();
 
-    playlists.extend(shared_rows.into_iter().map(|r| PlaylistInFolder {
-        id: r.id,
-        name: r.name,
-        folder_id: r.folder_id,
-        position: 0,
-        song_count: r.song_count,
-        duration: r.duration,
-        owner: Some(r.owner_name),
-        shared_with_me: true,
-        can_edit: r.can_edit,
-        updated_at: r.updated_at,
-    }));
-
-    playlists.extend(public_rows.into_iter().map(|r| PlaylistInFolder {
-        id: r.id,
-        name: r.name,
-        folder_id: r.folder_id,
-        position: 0,
-        song_count: r.song_count,
-        duration: r.duration,
-        owner: Some(r.owner_name),
-        shared_with_me: false,
-        can_edit: false,
-        updated_at: r.updated_at,
-    }));
+    let playlists = playlists_repo::list_visible_playlists_for_user(&state.database, user.user_id)
+        .await?
+        .into_iter()
+        .map(|playlist| PlaylistInFolder {
+            id: playlist.id,
+            name: playlist.name,
+            folder_id: playlist.folder_id,
+            position: playlist.position,
+            song_count: playlist.song_count,
+            duration: playlist.duration,
+            owner: playlist.owner_name,
+            shared_with_me: playlist.shared_with_me,
+            can_edit: playlist.can_edit,
+            updated_at: format_datetime_iso(playlist.updated_at.with_timezone(&Utc)),
+        })
+        .collect();
 
     Ok(Json(PlaylistFoldersResponse { folders, playlists }))
 }
@@ -459,23 +207,13 @@ pub async fn create_playlist_folder(
         next_playlist_folder_position(&state.database, user.user_id, request.parent_id.as_deref())
             .await?;
 
-    raw::execute(
-        state.database.conn(),
-        r#"
-            INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
-            VALUES (?, ?, ?, ?, ?)
-            "#,
-        r#"
-            INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        [
-            Value::from(id.clone()),
-            Value::from(request.name.clone()),
-            Value::from(request.parent_id.clone()),
-            Value::from(user.user_id),
-            Value::from(next_position),
-        ],
+    playlists_repo::create_playlist_folder(
+        &state.database,
+        &id,
+        &request.name,
+        request.parent_id.as_deref(),
+        user.user_id,
+        next_position,
     )
     .await?;
 
@@ -506,13 +244,7 @@ pub async fn update_playlist_folder(
 
     // Update name if provided
     if let Some(ref name) = request.name {
-        raw::execute(
-            state.database.conn(),
-            "UPDATE playlist_folders SET name = ? WHERE id = ?",
-            "UPDATE playlist_folders SET name = $1 WHERE id = $2",
-            [Value::from(name.clone()), Value::from(folder_id.clone())],
-        )
-        .await?;
+        playlists_repo::update_playlist_folder_name(&state.database, &folder_id, name).await?;
     }
 
     // Update parent if provided
@@ -531,14 +263,10 @@ pub async fn update_playlist_folder(
             }
         }
 
-        raw::execute(
-            state.database.conn(),
-            "UPDATE playlist_folders SET parent_id = ? WHERE id = ?",
-            "UPDATE playlist_folders SET parent_id = $1 WHERE id = $2",
-            [
-                Value::from(new_parent.clone()),
-                Value::from(folder_id.clone()),
-            ],
+        playlists_repo::update_playlist_folder_parent(
+            &state.database,
+            &folder_id,
+            new_parent.as_deref(),
         )
         .await?;
     }
@@ -555,16 +283,7 @@ pub async fn delete_playlist_folder(
     Path(folder_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
-    let rows_affected = raw::execute(
-        state.database.conn(),
-        "DELETE FROM playlist_folders WHERE id = ? AND owner_id = ?",
-        "DELETE FROM playlist_folders WHERE id = $1 AND owner_id = $2",
-        [Value::from(folder_id.clone()), Value::from(user.user_id)],
-    )
-    .await?
-    .rows_affected();
-
-    if rows_affected == 0 {
+    if !playlists_repo::delete_playlist_folder(&state.database, &folder_id, user.user_id).await? {
         return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
@@ -603,13 +322,7 @@ pub async fn upload_playlist_folder_cover(
     }
 
     // Update the cover_art blob
-    raw::execute(
-        state.database.conn(),
-        "UPDATE playlist_folders SET cover_art = ? WHERE id = ?",
-        "UPDATE playlist_folders SET cover_art = $1 WHERE id = $2",
-        [Value::from(body.to_vec()), Value::from(folder_id.clone())],
-    )
-    .await?;
+    playlists_repo::set_playlist_folder_cover(&state.database, &folder_id, body.to_vec()).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -621,16 +334,9 @@ pub async fn delete_playlist_folder_cover(
     Path(folder_id): Path<String>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
-    let rows_affected = raw::execute(
-        state.database.conn(),
-        "UPDATE playlist_folders SET cover_art = NULL WHERE id = ? AND owner_id = ?",
-        "UPDATE playlist_folders SET cover_art = NULL WHERE id = $1 AND owner_id = $2",
-        [Value::from(folder_id.clone()), Value::from(user.user_id)],
-    )
-    .await?
-    .rows_affected();
-
-    if rows_affected == 0 {
+    if !playlists_repo::clear_playlist_folder_cover(&state.database, &folder_id, user.user_id)
+        .await?
+    {
         return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
@@ -683,47 +389,28 @@ pub async fn move_playlist(
 
     if access.is_owner {
         // Owner: update the playlist's folder_id directly
-        raw::execute(
-            state.database.conn(),
-            "UPDATE playlists SET folder_id = ? WHERE id = ?",
-            "UPDATE playlists SET folder_id = $1 WHERE id = $2",
-            [
-                Value::from(request.folder_id.clone()),
-                Value::from(playlist_id.clone()),
-            ],
+        crate::db::repo::playlists::set_playlist_folder_id(
+            &state.database,
+            &playlist_id,
+            request.folder_id.clone(),
         )
         .await?;
     } else {
         // Non-owner: store a per-user override
         if request.folder_id.is_some() {
-            raw::execute(
-                state.database.conn(),
-                r#"
-                    INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT (user_id, playlist_id)
-                    DO UPDATE SET folder_id = excluded.folder_id
-                    "#,
-                r#"
-                    INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (user_id, playlist_id)
-                    DO UPDATE SET folder_id = EXCLUDED.folder_id
-                    "#,
-                [
-                    Value::from(user.user_id),
-                    Value::from(playlist_id.clone()),
-                    Value::from(request.folder_id.clone()),
-                ],
+            crate::db::repo::playlists::upsert_user_playlist_override(
+                &state.database,
+                user.user_id,
+                &playlist_id,
+                request.folder_id.clone(),
             )
             .await?;
         } else {
             // Moving to root: remove the override
-            raw::execute(
-                state.database.conn(),
-                "DELETE FROM user_playlist_overrides WHERE user_id = ? AND playlist_id = ?",
-                "DELETE FROM user_playlist_overrides WHERE user_id = $1 AND playlist_id = $2",
-                [Value::from(user.user_id), Value::from(playlist_id.clone())],
+            crate::db::repo::playlists::delete_user_playlist_override(
+                &state.database,
+                user.user_id,
+                &playlist_id,
             )
             .await?;
         }
@@ -774,13 +461,16 @@ pub async fn reorder_playlist_songs(
     }
 
     // Verify all provided song IDs are in the playlist and get their added_at timestamps and entry_ids
-    let existing_entries: Vec<ExistingEntryRow> = raw::query_all::<ExistingEntryRow>(
-        state.database.conn(),
-        "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL ORDER BY position",
-        "SELECT song_id, added_at, entry_id FROM playlist_songs WHERE playlist_id = $1 AND song_id IS NOT NULL ORDER BY position",
-        [Value::from(playlist_id.clone())],
-    )
-    .await?;
+    let existing_entries: Vec<ExistingEntryRow> =
+        crate::db::repo::playlists::list_playlist_songs_for_reorder(&state.database, &playlist_id)
+            .await?
+            .into_iter()
+            .map(|r| ExistingEntryRow {
+                song_id: r.song_id,
+                added_at: r.added_at,
+                entry_id: r.entry_id,
+            })
+            .collect();
 
     // Create a map from song_id to (added_at, entry_id) for preserving timestamps and entry_ids
     let entry_data_map: std::collections::HashMap<String, (DateTime<Utc>, Option<String>)> =
@@ -815,28 +505,18 @@ pub async fn reorder_playlist_songs(
     use sea_orm::TransactionTrait;
     let tx = state.database.conn().begin().await?;
 
-    raw::execute(
-        &tx,
-        "DELETE FROM playlist_songs WHERE playlist_id = ?",
-        "DELETE FROM playlist_songs WHERE playlist_id = $1",
-        [Value::from(playlist_id.clone())],
-    )
-    .await?;
+    crate::db::repo::playlists::delete_all_playlist_songs(&tx, &playlist_id).await?;
 
     for (position, song_id) in request.song_ids.iter().enumerate() {
         let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
         let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        raw::execute(
+        crate::db::repo::playlists::insert_playlist_song_entry(
             &tx,
-            "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)",
-            "INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES ($1, $2, $3, $4, $5)",
-            [
-                Value::from(playlist_id.clone()),
-                Value::from(song_id.clone()),
-                Value::from(position as i64),
-                Value::from(added_at),
-                Value::from(entry_id),
-            ],
+            &playlist_id,
+            song_id,
+            position as i64,
+            added_at,
+            &entry_id,
         )
         .await?;
     }
@@ -884,29 +564,17 @@ pub async fn match_missing_entry(
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
-    #[derive(sea_orm::FromQueryResult)]
-    struct EntryRow {
-        song_id: Option<String>,
-        missing_entry_data: Option<String>,
-    }
-    let entry = raw::query_one::<EntryRow>(
-        state.database.conn(),
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-        [
-            Value::from(playlist_id.clone()),
-            Value::from(request.entry_id.clone()),
-        ],
+    let entry = crate::db::repo::playlists::get_playlist_entry_by_entry_id(
+        &state.database,
+        &playlist_id,
+        &request.entry_id,
     )
     .await?;
 
-    let Some(EntryRow {
-        song_id: _song_id,
-        missing_entry_data: missing_data,
-    }) = entry
-    else {
+    let Some(entry) = entry else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
     };
+    let missing_data = entry.missing_entry_data;
 
     // Only allow matching if this entry has missing_entry_data (either unmatched or previously matched)
     // This allows re-matching songs that were incorrectly matched
@@ -915,15 +583,7 @@ pub async fn match_missing_entry(
     }
 
     // Verify the song exists
-    let song_exists = raw::query_scalar::<String>(
-        state.database.conn(),
-        "SELECT id FROM songs WHERE id = ?",
-        "SELECT id FROM songs WHERE id = $1",
-        [Value::from(request.song_id.clone())],
-    )
-    .await?;
-
-    if song_exists.is_none() {
+    if !crate::db::repo::playlists::song_exists(&state.database, &request.song_id).await? {
         return Err(Error::NotFound("Song not found".to_string()).into());
     }
 
@@ -980,29 +640,18 @@ pub async fn unmatch_entry(
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
-    #[derive(sea_orm::FromQueryResult)]
-    struct EntryRow {
-        song_id: Option<String>,
-        missing_entry_data: Option<String>,
-    }
-    let entry = raw::query_one::<EntryRow>(
-        state.database.conn(),
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-        [
-            Value::from(playlist_id.clone()),
-            Value::from(request.entry_id.clone()),
-        ],
+    let entry = crate::db::repo::playlists::get_playlist_entry_by_entry_id(
+        &state.database,
+        &playlist_id,
+        &request.entry_id,
     )
     .await?;
 
-    let Some(EntryRow {
-        song_id,
-        missing_entry_data: missing_data,
-    }) = entry
-    else {
+    let Some(entry) = entry else {
         return Err(Error::NotFound("Entry not found".to_string()).into());
     };
+    let song_id = entry.song_id;
+    let missing_data = entry.missing_entry_data;
 
     // Can only unmatch entries that have missing_entry_data (imported entries)
     if missing_data.is_none() {
@@ -1144,14 +793,10 @@ pub async fn move_playlist_entry(
     }
 
     // Look up the current position of the entry by entry_id
-    let from_pos_result = raw::query_scalar::<i64>(
-        state.database.conn(),
-        "SELECT position FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
-        "SELECT position FROM playlist_songs WHERE playlist_id = $1 AND entry_id = $2",
-        [
-            Value::from(playlist_id.clone()),
-            Value::from(request.entry_id.clone()),
-        ],
+    let from_pos_result = crate::db::repo::playlists::get_entry_position_by_entry_id(
+        &state.database,
+        &playlist_id,
+        &request.entry_id,
     )
     .await?;
 
@@ -1164,14 +809,8 @@ pub async fn move_playlist_entry(
     }
 
     // Get count of entries to validate to_position
-    let count: i64 = raw::query_scalar::<i64>(
-        state.database.conn(),
-        "SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?",
-        "SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = $1",
-        [Value::from(playlist_id.clone())],
-    )
-    .await?
-    .unwrap_or(0);
+    let count: i64 =
+        crate::db::repo::playlists::count_playlist_entries(&state.database, &playlist_id).await?;
 
     if to_pos < 0 || to_pos >= count {
         return Err(Error::InvalidRequest("Invalid position".to_string()).into());
@@ -1181,41 +820,42 @@ pub async fn move_playlist_entry(
     use sea_orm::TransactionTrait;
     let tx = state.database.conn().begin().await?;
 
-    raw::execute(
+    use sea_orm::sea_query::Expr;
+    crate::db::repo::playlists::update_entry_position_at(
         &tx,
-        "UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?",
-        "UPDATE playlist_songs SET position = -1 WHERE playlist_id = $1 AND position = $2",
-        [Value::from(playlist_id.clone()), Value::from(from_pos)],
+        &playlist_id,
+        from_pos,
+        Expr::value(-1i64),
     )
     .await?;
 
     if from_pos < to_pos {
         for pos in (from_pos + 1)..=to_pos {
-            raw::execute(
+            crate::db::repo::playlists::update_entry_position_at(
                 &tx,
-                "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = ? AND position = ?",
-                "UPDATE playlist_songs SET position = position - 1 WHERE playlist_id = $1 AND position = $2",
-                [Value::from(playlist_id.clone()), Value::from(pos)],
+                &playlist_id,
+                pos,
+                Expr::col(crate::db::entity::playlist_songs::Column::Position).sub(1i64),
             )
             .await?;
         }
     } else {
         for pos in (to_pos..from_pos).rev() {
-            raw::execute(
+            crate::db::repo::playlists::update_entry_position_at(
                 &tx,
-                "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = ? AND position = ?",
-                "UPDATE playlist_songs SET position = position + 1 WHERE playlist_id = $1 AND position = $2",
-                [Value::from(playlist_id.clone()), Value::from(pos)],
+                &playlist_id,
+                pos,
+                Expr::col(crate::db::entity::playlist_songs::Column::Position).add(1i64),
             )
             .await?;
         }
     }
 
-    raw::execute(
+    crate::db::repo::playlists::update_entry_position_at(
         &tx,
-        "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1",
-        "UPDATE playlist_songs SET position = $1 WHERE playlist_id = $2 AND position = -1",
-        [Value::from(to_pos), Value::from(playlist_id.clone())],
+        &playlist_id,
+        -1,
+        Expr::value(to_pos),
     )
     .await?;
 
@@ -1553,19 +1193,19 @@ pub async fn get_playlist_songs(
         added_at: DateTime<Utc>,
         entry_id: Option<String>,
     }
-    let entries_raw: Vec<EntryRaw> = raw::query_all::<EntryRaw>(
-        state.database.conn(),
-        "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
-             FROM playlist_songs
-             WHERE playlist_id = ?
-             ORDER BY position",
-        "SELECT position, song_id, missing_entry_data, missing_search_text, added_at, entry_id
-             FROM playlist_songs
-             WHERE playlist_id = $1
-             ORDER BY position",
-        [Value::from(playlist_id.clone())],
-    )
-    .await?;
+    let entries_raw: Vec<EntryRaw> =
+        crate::db::repo::playlists::list_playlist_entries_full(&state.database, &playlist_id)
+            .await?
+            .into_iter()
+            .map(|r| EntryRaw {
+                position: r.position,
+                song_id: r.song_id,
+                missing_entry_data: r.missing_entry_data,
+                missing_search_text: r.missing_search_text,
+                added_at: r.added_at,
+                entry_id: r.entry_id,
+            })
+            .collect();
 
     // Count totals
     let total_entries = entries_raw.len() as i64;
@@ -2187,32 +1827,16 @@ pub async fn set_playlist_shares(
         }
     }
 
-    use sea_orm::TransactionTrait;
-    let tx = state.database.conn().begin().await?;
+    let share_inputs = request
+        .shares
+        .iter()
+        .map(|share| playlists_repo::PlaylistShareInput {
+            user_id: share.user_id,
+            can_edit: share.can_edit,
+        })
+        .collect::<Vec<_>>();
 
-    raw::execute(
-        &tx,
-        "DELETE FROM playlist_shares WHERE playlist_id = ?",
-        "DELETE FROM playlist_shares WHERE playlist_id = $1",
-        [Value::from(playlist_id.clone())],
-    )
-    .await?;
-
-    for share in &request.shares {
-        raw::execute(
-            &tx,
-            "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)",
-            "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES ($1, $2, $3)",
-            [
-                Value::from(playlist_id.clone()),
-                Value::from(share.user_id),
-                Value::from(share.can_edit),
-            ],
-        )
-        .await?;
-    }
-
-    tx.commit().await?;
+    playlists_repo::replace_playlist_shares(&state.database, &playlist_id, &share_inputs).await?;
 
     let shares = fetch_playlist_shares(&state.database, &playlist_id).await?;
 
@@ -2338,26 +1962,18 @@ pub async fn transfer_playlist_ownership(
     }
 
     // Transfer ownership
-    raw::execute(
-        state.database.conn(),
-        "UPDATE playlists SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        "UPDATE playlists SET owner_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        [
-            Value::from(request.new_owner_id),
-            Value::from(playlist_id.clone()),
-        ],
+    crate::db::repo::playlists::transfer_playlist_ownership(
+        &state.database,
+        &playlist_id,
+        request.new_owner_id,
     )
     .await?;
 
     // Remove any existing share entries for the new owner (since they're now the owner)
-    raw::execute(
-        state.database.conn(),
-        "DELETE FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
-        "DELETE FROM playlist_shares WHERE playlist_id = $1 AND shared_with_user_id = $2",
-        [
-            Value::from(playlist_id.clone()),
-            Value::from(request.new_owner_id),
-        ],
+    crate::db::repo::playlists::remove_playlist_share(
+        &state.database,
+        &playlist_id,
+        request.new_owner_id,
     )
     .await?;
 
@@ -2540,83 +2156,16 @@ pub async fn get_playlists_for_songs(
         }));
     }
 
-    #[derive(sea_orm::FromQueryResult)]
-    struct SongPlaylistRow {
-        song_id: String,
-        playlist_id: String,
-        playlist_name: String,
-    }
-
-    let placeholders_sqlite = params
-        .song_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(", ");
-    let placeholders_postgres = (2..2 + params.song_ids.len())
-        .map(|index| format!("${}", index))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sqlite_sql = format!(
-        r#"
-            SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
-            FROM playlist_songs ps
-            INNER JOIN playlists p ON ps.playlist_id = p.id
-            WHERE ps.song_id IN ({})
-              AND p.owner_id = ?
-              AND ps.song_id IS NOT NULL
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        placeholders_sqlite
-    );
-    let postgres_sql = format!(
-        r#"
-            SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
-            FROM playlist_songs ps
-            INNER JOIN playlists p ON ps.playlist_id = p.id
-            WHERE ps.song_id IN ({})
-              AND p.owner_id = $1
-              AND ps.song_id IS NOT NULL
-            ORDER BY LOWER(p.name), p.name
-            "#,
-        placeholders_postgres
-    );
-
-    // SQLite binds: song_ids..., user_id
-    // Postgres binds: user_id, song_ids...
-    let mut binds_sqlite: Vec<Value> = params
-        .song_ids
-        .iter()
-        .map(|s| Value::from(s.clone()))
-        .collect();
-    binds_sqlite.push(Value::from(user.user_id));
-    let mut binds_postgres: Vec<Value> = vec![Value::from(user.user_id)];
-    binds_postgres.extend(params.song_ids.iter().map(|s| Value::from(s.clone())));
-
-    let rows: Vec<SongPlaylistRow> = match state.database.sea_backend() {
-        sea_orm::DbBackend::Postgres => {
-            raw::query_all::<SongPlaylistRow>(
-                state.database.conn(),
-                &sqlite_sql,
-                &postgres_sql,
-                binds_postgres,
-            )
-            .await?
-        }
-        _ => {
-            raw::query_all::<SongPlaylistRow>(
-                state.database.conn(),
-                &sqlite_sql,
-                &postgres_sql,
-                binds_sqlite,
-            )
-            .await?
-        }
-    };
+    let rows = crate::db::repo::playlists::list_owner_playlists_containing_songs(
+        &state.database,
+        user.user_id,
+        &params.song_ids,
+    )
+    .await?;
 
     // Group by song_id
     let mut playlists_by_song: HashMap<String, Vec<PlaylistContainingSong>> = HashMap::new();
-    for SongPlaylistRow {
+    for crate::db::repo::playlists::SongPlaylistRow {
         song_id,
         playlist_id,
         playlist_name,
@@ -2664,152 +2213,39 @@ pub async fn get_recently_played_playlists(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<RecentPlaylistsResponse>> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct RegularRow {
-        id: String,
-        name: String,
-        song_count: i64,
-        duration: i64,
-        last_played_at: String,
-    }
+    use crate::api::common::utils::format_datetime_iso;
 
-    let regular: Vec<RegularRow> = raw::query_all::<RegularRow>(
-        state.database.conn(),
-        r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)
-                       FROM playlist_songs ps
-                       JOIN songs s ON s.id = ps.song_id
-                       WHERE ps.playlist_id = p.id
-                   ), 0) as duration,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
-            FROM playlists p
-            WHERE (p.owner_id = ? OR EXISTS (
-                SELECT 1 FROM playlist_shares ps_share
-                WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = ?
-            )) AND p.last_played_at IS NOT NULL
-            ORDER BY p.last_played_at DESC
-            LIMIT 50
-            "#,
-        r#"
-            SELECT p.id, p.name, p.song_count,
-                   COALESCE((
-                       SELECT SUM(s.duration)::BIGINT
-                       FROM playlist_songs ps
-                       JOIN songs s ON s.id = ps.song_id
-                       WHERE ps.playlist_id = p.id
-                   ), 0) as duration,
-                   to_char(p.last_played_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_played_at
-            FROM playlists p
-            WHERE (p.owner_id = $1 OR EXISTS (
-                SELECT 1 FROM playlist_shares ps_share
-                WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = $2
-            )) AND p.last_played_at IS NOT NULL
-            ORDER BY p.last_played_at DESC
-            LIMIT 50
-            "#,
-        [Value::from(user.user_id), Value::from(user.user_id)],
-    )
-    .await?;
+    let regular =
+        crate::db::repo::playlists::list_recent_regular_playlists(&state.database, user.user_id)
+            .await?;
 
-    // Fetch recently played smart playlists
-    #[derive(sea_orm::FromQueryResult)]
-    struct SmartRow {
-        id: String,
-        name: String,
-        last_played_at: String,
-    }
-
-    let smart: Vec<SmartRow> = match state.database.sea_backend() {
-        sea_orm::DbBackend::Postgres => {
-            let smart_playlists_available = raw::query_scalar::<bool>(
-                state.database.conn(),
-                "SELECT 1",
-                r#"
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public' AND table_name = 'smart_playlists'
-                )
-                "#,
-                std::iter::empty::<Value>(),
-            )
-            .await?
-            .unwrap_or(false);
-
-            if !smart_playlists_available {
-                Vec::new()
-            } else {
-                raw::query_all::<SmartRow>(
-                    state.database.conn(),
-                    "SELECT 1",
-                    r#"
-                    SELECT sp.id, sp.name,
-                           to_char(sp.last_played_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_played_at
-                    FROM smart_playlists sp
-                    WHERE sp.owner_id = $1 AND sp.last_played_at IS NOT NULL
-                    ORDER BY sp.last_played_at DESC
-                    LIMIT 50
-                    "#,
-                    [Value::from(user.user_id)],
-                )
-                .await?
-            }
-        }
-        _ => {
-            raw::query_all::<SmartRow>(
-                state.database.conn(),
-                r#"
-            SELECT sp.id, sp.name,
-                   strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
-            FROM smart_playlists sp
-            WHERE sp.owner_id = ? AND sp.last_played_at IS NOT NULL
-            ORDER BY sp.last_played_at DESC
-            LIMIT 50
-            "#,
-                "SELECT 1",
-                [Value::from(user.user_id)],
-            )
-            .await?
-        }
-    };
+    let smart =
+        crate::db::repo::playlists::list_recent_smart_playlists(&state.database, user.user_id)
+            .await?;
 
     let mut entries: Vec<RecentPlaylistEntry> = Vec::new();
 
-    for RegularRow {
-        id,
-        name,
-        song_count,
-        duration,
-        last_played_at,
-    } in regular
-    {
+    for row in regular {
         entries.push(RecentPlaylistEntry {
-            cover_art: Some(id.clone()),
-            id,
-            name,
+            cover_art: Some(row.id.clone()),
+            id: row.id,
+            name: row.name,
             playlist_type: "playlist".to_string(),
-            song_count,
-            duration,
-            last_played_at,
+            song_count: row.song_count,
+            duration: row.duration,
+            last_played_at: format_datetime_iso(row.last_played_at),
         });
     }
 
-    for SmartRow {
-        id,
-        name,
-        last_played_at,
-    } in smart
-    {
+    for row in smart {
         entries.push(RecentPlaylistEntry {
-            cover_art: Some(format!("sp-{}", id)),
+            cover_art: Some(format!("sp-{}", row.id)),
             playlist_type: "smartPlaylist".to_string(),
-            id,
-            name,
+            id: row.id,
+            name: row.name,
             song_count: 0, // Smart playlists compute this dynamically
             duration: 0,
-            last_played_at,
+            last_played_at: format_datetime_iso(row.last_played_at),
         });
     }
 

@@ -12,14 +12,21 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, Order,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 
 use crate::db::entity;
 use crate::db::models::{MusicFolder, User, UserPreferences};
+use crate::db::ordering::case_insensitive_order;
 use crate::db::Database;
 use crate::error::Result;
+
+#[derive(Debug, FromQueryResult)]
+struct ShareableUserRow {
+    id: i64,
+    username: String,
+}
 
 // ---------------------------------------------------------------------------
 // Conversions
@@ -74,6 +81,73 @@ impl From<entity::user_preferences::Model> for UserPreferences {
 pub async fn count_users(database: &Database) -> Result<i64> {
     let n = entity::users::Entity::find().count(database.conn()).await?;
     Ok(n as i64)
+}
+
+pub async fn count_music_folders(database: &Database) -> Result<i64> {
+    let n = entity::music_folders::Entity::find()
+        .count(database.conn())
+        .await?;
+    Ok(n as i64)
+}
+
+pub async fn get_user_by_id(database: &Database, user_id: i64) -> Result<Option<User>> {
+    let model = entity::users::Entity::find_by_id(user_id)
+        .one(database.conn())
+        .await?;
+    Ok(model.map(User::from))
+}
+
+pub async fn list_users(database: &Database) -> Result<Vec<User>> {
+    let rows = entity::users::Entity::find()
+        .order_by_asc(entity::users::Column::Id)
+        .all(database.conn())
+        .await?;
+    Ok(rows.into_iter().map(User::from).collect())
+}
+
+pub async fn list_shareable_users(
+    database: &Database,
+    exclude_user_id: i64,
+) -> Result<Vec<(i64, String)>> {
+    let rows = entity::users::Entity::find()
+        .select_only()
+        .column(entity::users::Column::Id)
+        .column(entity::users::Column::Username)
+        .filter(entity::users::Column::Id.ne(exclude_user_id))
+        .order_by(
+            case_insensitive_order(database.sea_backend(), entity::users::Column::Username),
+            Order::Asc,
+        )
+        .order_by_asc(entity::users::Column::Username)
+        .into_model::<ShareableUserRow>()
+        .all(database.conn())
+        .await?;
+    Ok(rows.into_iter().map(|row| (row.id, row.username)).collect())
+}
+
+pub async fn user_exists(database: &Database, user_id: i64) -> Result<bool> {
+    Ok(get_user_by_id(database, user_id).await?.is_some())
+}
+
+pub async fn username_exists(
+    database: &Database,
+    username: &str,
+    exclude_user_id: Option<i64>,
+) -> Result<bool> {
+    let mut query = entity::users::Entity::find()
+        .select_only()
+        .column(entity::users::Column::Id)
+        .filter(entity::users::Column::Username.eq(username));
+
+    if let Some(exclude_user_id) = exclude_user_id {
+        query = query.filter(entity::users::Column::Id.ne(exclude_user_id));
+    }
+
+    Ok(query
+        .into_tuple::<i64>()
+        .one(database.conn())
+        .await?
+        .is_some())
 }
 
 pub async fn get_user_by_username(database: &Database, username: &str) -> Result<Option<User>> {
@@ -147,6 +221,176 @@ pub async fn update_user_password(
         .exec(database.conn())
         .await?;
     Ok(result.rows_affected > 0)
+}
+
+pub async fn update_user_username_by_id(
+    database: &Database,
+    user_id: i64,
+    username: &str,
+) -> Result<bool> {
+    let result = entity::users::Entity::update_many()
+        .col_expr(
+            entity::users::Column::Username,
+            sea_orm::sea_query::Expr::value(username.to_string()),
+        )
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+pub async fn update_user_password_by_id(
+    database: &Database,
+    user_id: i64,
+    password_hash: &str,
+    subsonic_token: &str,
+) -> Result<bool> {
+    let result = entity::users::Entity::update_many()
+        .col_expr(
+            entity::users::Column::PasswordHash,
+            sea_orm::sea_query::Expr::value(password_hash.to_string()),
+        )
+        .col_expr(
+            entity::users::Column::SubsonicToken,
+            sea_orm::sea_query::Expr::value(subsonic_token.to_string()),
+        )
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+pub async fn update_user_email_by_id(
+    database: &Database,
+    user_id: i64,
+    email: Option<&str>,
+) -> Result<bool> {
+    let result = entity::users::Entity::update_many()
+        .col_expr(
+            entity::users::Column::Email,
+            sea_orm::sea_query::Expr::value(email.map(str::to_string)),
+        )
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+pub async fn update_user_admin_by_id(
+    database: &Database,
+    user_id: i64,
+    is_admin: bool,
+) -> Result<bool> {
+    let result = entity::users::Entity::update_many()
+        .col_expr(
+            entity::users::Column::IsAdmin,
+            sea_orm::sea_query::Expr::value(is_admin),
+        )
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+pub async fn delete_user_by_id(database: &Database, user_id: i64) -> Result<bool> {
+    let result = entity::users::Entity::delete_many()
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+pub async fn get_lastfm_credentials(
+    database: &Database,
+    user_id: i64,
+) -> Result<Option<(String, String, String)>> {
+    let model = entity::users::Entity::find_by_id(user_id)
+        .one(database.conn())
+        .await?;
+
+    Ok(match model {
+        Some(model) => match (
+            model.lastfm_api_key,
+            model.lastfm_api_secret,
+            model.lastfm_session_key,
+        ) {
+            (Some(api_key), Some(api_secret), Some(session_key))
+                if !api_key.is_empty() && !api_secret.is_empty() =>
+            {
+                Some((api_key, api_secret, session_key))
+            }
+            _ => None,
+        },
+        None => None,
+    })
+}
+
+pub async fn get_lastfm_config(
+    database: &Database,
+    user_id: i64,
+) -> Result<Option<(Option<String>, Option<String>)>> {
+    let model = entity::users::Entity::find_by_id(user_id)
+        .one(database.conn())
+        .await?;
+    Ok(model.map(|row| (row.lastfm_api_key, row.lastfm_api_secret)))
+}
+
+pub async fn get_lastfm_status(
+    database: &Database,
+    user_id: i64,
+) -> Result<Option<(Option<String>, Option<String>, Option<String>)>> {
+    let model = entity::users::Entity::find_by_id(user_id)
+        .one(database.conn())
+        .await?;
+    Ok(model.map(|row| {
+        (
+            row.lastfm_api_key,
+            row.lastfm_session_key,
+            row.lastfm_username,
+        )
+    }))
+}
+
+pub async fn update_lastfm_session(
+    database: &Database,
+    user_id: i64,
+    session_key: Option<&str>,
+    username: Option<&str>,
+) -> Result<()> {
+    entity::users::Entity::update_many()
+        .col_expr(
+            entity::users::Column::LastfmSessionKey,
+            sea_orm::sea_query::Expr::value(session_key.map(str::to_string)),
+        )
+        .col_expr(
+            entity::users::Column::LastfmUsername,
+            sea_orm::sea_query::Expr::value(username.map(str::to_string)),
+        )
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(())
+}
+
+pub async fn update_lastfm_config(
+    database: &Database,
+    user_id: i64,
+    api_key: &str,
+    api_secret: &str,
+) -> Result<()> {
+    entity::users::Entity::update_many()
+        .col_expr(
+            entity::users::Column::LastfmApiKey,
+            sea_orm::sea_query::Expr::value(api_key.to_string()),
+        )
+        .col_expr(
+            entity::users::Column::LastfmApiSecret,
+            sea_orm::sea_query::Expr::value(api_secret.to_string()),
+        )
+        .filter(entity::users::Column::Id.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +508,23 @@ pub async fn get_music_folder_ids(database: &Database) -> Result<Vec<i64>> {
     Ok(rows)
 }
 
+pub async fn get_enabled_accessible_music_folder_ids(
+    database: &Database,
+    user_id: i64,
+) -> Result<Vec<i64>> {
+    let rows = entity::music_folders::Entity::find()
+        .inner_join(entity::user_library_access::Entity)
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .select_only()
+        .column(entity::music_folders::Column::Id)
+        .order_by_asc(entity::music_folders::Column::Id)
+        .into_tuple::<i64>()
+        .all(database.conn())
+        .await?;
+    Ok(rows)
+}
+
 // ---------------------------------------------------------------------------
 // User library access
 // ---------------------------------------------------------------------------
@@ -294,4 +555,159 @@ pub async fn grant_user_library_access(
         .exec(database.conn())
         .await?;
     Ok(())
+}
+
+pub async fn get_user_library_access_ids(database: &Database, user_id: i64) -> Result<Vec<i64>> {
+    let rows = entity::user_library_access::Entity::find()
+        .select_only()
+        .column(entity::user_library_access::Column::MusicFolderId)
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .order_by_asc(entity::user_library_access::Column::MusicFolderId)
+        .into_tuple::<i64>()
+        .all(database.conn())
+        .await?;
+    Ok(rows)
+}
+
+pub async fn clear_user_library_access(database: &Database, user_id: i64) -> Result<()> {
+    entity::user_library_access::Entity::delete_many()
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .exec(database.conn())
+        .await?;
+    Ok(())
+}
+
+pub async fn replace_user_library_access(
+    database: &Database,
+    user_id: i64,
+    folder_ids: &[i64],
+) -> Result<()> {
+    clear_user_library_access(database, user_id).await?;
+
+    if folder_ids.is_empty() {
+        return Ok(());
+    }
+
+    use sea_orm::sea_query::OnConflict;
+
+    let models = folder_ids
+        .iter()
+        .copied()
+        .map(|music_folder_id| entity::user_library_access::ActiveModel {
+            user_id: Set(user_id),
+            music_folder_id: Set(music_folder_id),
+            created_at: Set(Utc::now().fixed_offset()),
+        })
+        .collect::<Vec<_>>();
+
+    entity::user_library_access::Entity::insert_many(models)
+        .on_conflict(
+            OnConflict::columns([
+                entity::user_library_access::Column::UserId,
+                entity::user_library_access::Column::MusicFolderId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec(database.conn())
+        .await?;
+
+    Ok(())
+}
+
+pub async fn list_api_keys(
+    database: &Database,
+    user_id: i64,
+) -> Result<Vec<(String, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>> {
+    let rows = entity::api_keys::Entity::find()
+        .filter(entity::api_keys::Column::UserId.eq(user_id))
+        .all(database.conn())
+        .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.name,
+                row.created_at.with_timezone(&Utc),
+                row.last_used.map(|value| value.with_timezone(&Utc)),
+            )
+        })
+        .collect())
+}
+
+pub async fn create_api_key(
+    database: &Database,
+    token: &str,
+    user_id: i64,
+    name: &str,
+) -> Result<()> {
+    let model = entity::api_keys::ActiveModel {
+        token: Set(token.to_string()),
+        user_id: Set(user_id),
+        name: Set(name.to_string()),
+        created_at: Set(Utc::now().fixed_offset()),
+        last_used: Set(None),
+    };
+
+    model.insert(database.conn()).await?;
+    Ok(())
+}
+
+pub async fn api_key_exists(database: &Database, user_id: i64, name: &str) -> Result<bool> {
+    Ok(entity::api_keys::Entity::find()
+        .select_only()
+        .column(entity::api_keys::Column::Token)
+        .filter(entity::api_keys::Column::UserId.eq(user_id))
+        .filter(entity::api_keys::Column::Name.eq(name))
+        .into_tuple::<String>()
+        .one(database.conn())
+        .await?
+        .is_some())
+}
+
+pub async fn delete_api_key(database: &Database, user_id: i64, name: &str) -> Result<()> {
+    entity::api_keys::Entity::delete_many()
+        .filter(entity::api_keys::Column::UserId.eq(user_id))
+        .filter(entity::api_keys::Column::Name.eq(name))
+        .exec(database.conn())
+        .await?;
+    Ok(())
+}
+
+pub async fn user_has_folder_access(
+    database: &Database,
+    user_id: i64,
+    folder_id: i64,
+) -> Result<bool> {
+    Ok(entity::user_library_access::Entity::find()
+        .select_only()
+        .column(entity::user_library_access::Column::MusicFolderId)
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .filter(entity::user_library_access::Column::MusicFolderId.eq(folder_id))
+        .into_tuple::<i64>()
+        .one(database.conn())
+        .await?
+        .is_some())
+}
+
+pub async fn user_has_song_access(
+    database: &Database,
+    user_id: i64,
+    song_id: &str,
+) -> Result<bool> {
+    let folder_ids = get_user_library_access_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(false);
+    }
+
+    Ok(entity::songs::Entity::find()
+        .select_only()
+        .column(entity::songs::Column::Id)
+        .filter(entity::songs::Column::Id.eq(song_id))
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids))
+        .into_tuple::<String>()
+        .one(database.conn())
+        .await?
+        .is_some())
 }

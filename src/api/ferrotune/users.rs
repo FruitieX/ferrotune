@@ -9,7 +9,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::models::User;
+use crate::db::repo::users as users_repo;
 use crate::error::{Error, FerrotuneApiResult};
 use crate::password;
 use axum::{
@@ -19,7 +19,6 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -154,7 +153,7 @@ pub struct ApiKeysResponse {
 }
 
 /// Minimal user info for sharing UI (available to all authenticated users)
-#[derive(Debug, Serialize, FromQueryResult, TS)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ShareableUser {
@@ -169,23 +168,6 @@ pub struct ShareableUser {
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ShareableUsersResponse {
     pub users: Vec<ShareableUser>,
-}
-
-#[derive(Debug, FromQueryResult)]
-struct FolderAccessRow {
-    music_folder_id: i64,
-}
-
-#[derive(Debug, FromQueryResult)]
-struct IdRow {
-    id: i64,
-}
-
-#[derive(Debug, FromQueryResult)]
-struct ApiKeySummaryRow {
-    name: String,
-    created_at: DateTime<Utc>,
-    last_used: Option<DateTime<Utc>>,
 }
 
 // ============================================================================
@@ -208,7 +190,11 @@ pub async fn list_shareable_users(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<ShareableUsersResponse>> {
-    let users = list_shareable_users_db(&state.database, user.user_id).await?;
+    let users = users_repo::list_shareable_users(&state.database, user.user_id)
+        .await?
+        .into_iter()
+        .map(|(id, username)| ShareableUser { id, username })
+        .collect();
 
     Ok(Json(ShareableUsersResponse { users }))
 }
@@ -219,11 +205,12 @@ pub async fn get_current_user(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<UserInfo>> {
     // Fetch the full user record from database to get all fields
-    let u = fetch_user_by_id(&state.database, user.user_id)
+    let u = users_repo::get_user_by_id(&state.database, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("User {} not found", user.user_id)))?;
 
-    let library_access = get_user_library_access(&state.database, user.user_id).await?;
+    let library_access =
+        users_repo::get_user_library_access_ids(&state.database, user.user_id).await?;
 
     Ok(Json(UserInfo {
         id: u.id,
@@ -242,11 +229,11 @@ pub async fn list_users(
 ) -> FerrotuneApiResult<Json<UsersResponse>> {
     require_admin(&user)?;
 
-    let users = list_users_db(&state.database).await?;
+    let users = users_repo::list_users(&state.database).await?;
 
     let mut user_infos = Vec::with_capacity(users.len());
     for u in users {
-        let library_access = get_user_library_access(&state.database, u.id).await?;
+        let library_access = users_repo::get_user_library_access_ids(&state.database, u.id).await?;
         user_infos.push(UserInfo {
             id: u.id,
             username: u.username,
@@ -268,11 +255,11 @@ pub async fn get_user(
 ) -> FerrotuneApiResult<Json<UserInfo>> {
     require_admin(&user)?;
 
-    let u = fetch_user_by_id(&state.database, id)
+    let u = users_repo::get_user_by_id(&state.database, id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("User {} not found", id)))?;
 
-    let library_access = get_user_library_access(&state.database, u.id).await?;
+    let library_access = users_repo::get_user_library_access_ids(&state.database, u.id).await?;
 
     Ok(Json(UserInfo {
         id: u.id,
@@ -303,7 +290,7 @@ pub async fn create_user(
     }
 
     // Check if username already exists
-    if username_exists(&state.database, &request.username, None).await? {
+    if users_repo::username_exists(&state.database, &request.username, None).await? {
         return Err(Error::InvalidRequest(format!(
             "Username '{}' is already taken",
             request.username
@@ -318,7 +305,7 @@ pub async fn create_user(
     let subsonic_token = password::create_subsonic_token(&request.password);
 
     // Create the user with hashed password
-    let user_id = insert_user_db(
+    let user_id = users_repo::create_user(
         &state.database,
         &request.username,
         &password_hash,
@@ -331,14 +318,12 @@ pub async fn create_user(
     // Set up library access
     let folder_ids = if request.library_access.is_empty() {
         // Grant access to all folders by default
-        list_music_folder_ids_db(&state.database).await?
+        users_repo::get_music_folder_ids(&state.database).await?
     } else {
         request.library_access
     };
 
-    for folder_id in &folder_ids {
-        grant_user_library_access(&state.database, user_id, *folder_id).await?;
-    }
+    users_repo::replace_user_library_access(&state.database, user_id, &folder_ids).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -359,7 +344,10 @@ pub async fn update_user(
     require_admin(&user)?;
 
     // Check if user exists
-    if fetch_user_by_id(&state.database, id).await?.is_none() {
+    if users_repo::get_user_by_id(&state.database, id)
+        .await?
+        .is_none()
+    {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
@@ -371,12 +359,12 @@ pub async fn update_user(
             .into());
         }
         // Check if username is taken by another user
-        if username_exists(&state.database, username, Some(id)).await? {
+        if users_repo::username_exists(&state.database, username, Some(id)).await? {
             return Err(
                 Error::InvalidRequest(format!("Username '{}' is already taken", username)).into(),
             );
         }
-        update_user_username_db(&state.database, id, username).await?;
+        users_repo::update_user_username_by_id(&state.database, id, username).await?;
     }
 
     // Handle password update specially - need to hash it
@@ -388,11 +376,17 @@ pub async fn update_user(
         let subsonic_token = password::create_subsonic_token(password);
 
         // Update both password_hash and subsonic_token
-        update_user_password_db(&state.database, id, &password_hash, &subsonic_token).await?;
+        users_repo::update_user_password_by_id(
+            &state.database,
+            id,
+            &password_hash,
+            &subsonic_token,
+        )
+        .await?;
     }
 
     if let Some(email) = &request.email {
-        update_user_email_db(&state.database, id, Some(email.as_str())).await?;
+        users_repo::update_user_email_by_id(&state.database, id, Some(email.as_str())).await?;
     }
 
     if let Some(is_admin) = request.is_admin {
@@ -403,20 +397,20 @@ pub async fn update_user(
             )
             .into());
         }
-        update_user_admin_db(&state.database, id, is_admin).await?;
+        users_repo::update_user_admin_by_id(&state.database, id, is_admin).await?;
     }
 
     // Update library access if provided
     if let Some(folder_ids) = request.library_access {
-        replace_user_library_access(&state.database, id, &folder_ids).await?;
+        users_repo::replace_user_library_access(&state.database, id, &folder_ids).await?;
     }
 
     // Return updated user info
-    let u = fetch_user_by_id(&state.database, id)
+    let u = users_repo::get_user_by_id(&state.database, id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("User {} not found", id)))?;
 
-    let library_access = get_user_library_access(&state.database, u.id).await?;
+    let library_access = users_repo::get_user_library_access_ids(&state.database, u.id).await?;
 
     Ok(Json(UserInfo {
         id: u.id,
@@ -442,12 +436,12 @@ pub async fn delete_user(
     }
 
     // Check if user exists
-    if !user_exists(&state.database, id).await? {
+    if !users_repo::user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Delete the user (cascades to api_keys, user_library_access, playlists, etc.)
-    delete_user_db(&state.database, id).await?;
+    users_repo::delete_user_by_id(&state.database, id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -465,11 +459,11 @@ pub async fn get_library_access(
     require_admin(&user)?;
 
     // Check if user exists
-    if !user_exists(&state.database, id).await? {
+    if !users_repo::user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
-    let access = get_user_library_access(&state.database, id).await?;
+    let access = users_repo::get_user_library_access_ids(&state.database, id).await?;
     Ok(Json(LibraryAccessResponse {
         user_id: id,
         folder_ids: access,
@@ -486,12 +480,12 @@ pub async fn set_library_access(
     require_admin(&user)?;
 
     // Check if user exists
-    if !user_exists(&state.database, id).await? {
+    if !users_repo::user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Replace existing access
-    replace_user_library_access(&state.database, id, &request.folder_ids).await?;
+    users_repo::replace_user_library_access(&state.database, id, &request.folder_ids).await?;
 
     Ok(Json(LibraryAccessResponse {
         user_id: id,
@@ -515,11 +509,11 @@ pub async fn list_api_keys(
     }
 
     // Check if user exists
-    if !user_exists(&state.database, id).await? {
+    if !users_repo::user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
-    let keys = list_api_keys_db(&state.database, id).await?;
+    let keys = users_repo::list_api_keys(&state.database, id).await?;
 
     let key_infos: Vec<ApiKeyInfo> = keys
         .into_iter()
@@ -549,7 +543,7 @@ pub async fn create_api_key(
     }
 
     // Check if user exists
-    if !user_exists(&state.database, id).await? {
+    if !users_repo::user_exists(&state.database, id).await? {
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
@@ -557,7 +551,7 @@ pub async fn create_api_key(
     let token = generate_api_key();
 
     // Create the key
-    insert_api_key_db(&state.database, &token, id, &request.name).await?;
+    users_repo::create_api_key(&state.database, &token, id, &request.name).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -580,327 +574,15 @@ pub async fn delete_api_key(
     }
 
     // Check if key exists
-    if !api_key_exists(&state.database, id, &name).await? {
+    if !users_repo::api_key_exists(&state.database, id, &name).await? {
         return Err(
             Error::NotFound(format!("API key '{}' not found for user {}", name, id)).into(),
         );
     }
 
-    delete_api_key_db(&state.database, id, &name).await?;
+    users_repo::delete_api_key(&state.database, id, &name).await?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-async fn get_user_library_access(
-    database: &crate::db::Database,
-    user_id: i64,
-) -> FerrotuneApiResult<Vec<i64>> {
-    let access = crate::db::raw::query_all::<FolderAccessRow>(
-        database.conn(),
-        "SELECT music_folder_id FROM user_library_access WHERE user_id = ?",
-        "SELECT music_folder_id FROM user_library_access WHERE user_id = $1",
-        [Value::from(user_id)],
-    )
-    .await?;
-
-    Ok(access.into_iter().map(|row| row.music_folder_id).collect())
-}
-
-async fn list_shareable_users_db(
-    database: &crate::db::Database,
-    exclude_user_id: i64,
-) -> FerrotuneApiResult<Vec<ShareableUser>> {
-    crate::db::raw::query_all::<ShareableUser>(
-        database.conn(),
-        "SELECT id, username FROM users WHERE id != ? ORDER BY username COLLATE NOCASE",
-        "SELECT id, username FROM users WHERE id != $1 ORDER BY LOWER(username)",
-        [Value::from(exclude_user_id)],
-    )
-    .await
-    .map_err(Into::into)
-}
-
-async fn fetch_user_by_id(
-    database: &crate::db::Database,
-    user_id: i64,
-) -> FerrotuneApiResult<Option<User>> {
-    crate::db::raw::query_one::<User>(
-        database.conn(),
-        "SELECT * FROM users WHERE id = ?",
-        "SELECT * FROM users WHERE id = $1",
-        [Value::from(user_id)],
-    )
-    .await
-    .map_err(Into::into)
-}
-
-async fn list_users_db(database: &crate::db::Database) -> FerrotuneApiResult<Vec<User>> {
-    crate::db::raw::query_all::<User>(
-        database.conn(),
-        "SELECT * FROM users ORDER BY id",
-        "SELECT * FROM users ORDER BY id",
-        std::iter::empty::<Value>(),
-    )
-    .await
-    .map_err(Into::into)
-}
-
-async fn user_exists(database: &crate::db::Database, user_id: i64) -> FerrotuneApiResult<bool> {
-    Ok(fetch_user_by_id(database, user_id).await?.is_some())
-}
-
-async fn username_exists(
-    database: &crate::db::Database,
-    username: &str,
-    exclude_user_id: Option<i64>,
-) -> FerrotuneApiResult<bool> {
-    let exists = if let Some(exclude_id) = exclude_user_id {
-        crate::db::raw::query_scalar::<i64>(
-            database.conn(),
-            "SELECT id FROM users WHERE username = ? AND id != ?",
-            "SELECT id FROM users WHERE username = $1 AND id != $2",
-            [Value::from(username.to_string()), Value::from(exclude_id)],
-        )
-        .await?
-    } else {
-        crate::db::raw::query_scalar::<i64>(
-            database.conn(),
-            "SELECT id FROM users WHERE username = ?",
-            "SELECT id FROM users WHERE username = $1",
-            [Value::from(username.to_string())],
-        )
-        .await?
-    };
-
-    Ok(exists.is_some())
-}
-
-async fn insert_user_db(
-    database: &crate::db::Database,
-    username: &str,
-    password_hash: &str,
-    subsonic_token: &str,
-    email: Option<&str>,
-    is_admin: bool,
-) -> FerrotuneApiResult<i64> {
-    crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin) VALUES (?, ?, ?, ?, ?) RETURNING id",
-        "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-        [
-            Value::from(username.to_string()),
-            Value::from(password_hash.to_string()),
-            Value::from(subsonic_token.to_string()),
-            Value::from(email.map(str::to_string)),
-            Value::from(is_admin),
-        ],
-    )
-    .await?
-    .ok_or_else(|| Error::Internal("Failed to insert user".to_string()).into())
-}
-
-async fn update_user_username_db(
-    database: &crate::db::Database,
-    user_id: i64,
-    username: &str,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "UPDATE users SET username = ? WHERE id = ?",
-        "UPDATE users SET username = $1 WHERE id = $2",
-        [Value::from(username.to_string()), Value::from(user_id)],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn update_user_password_db(
-    database: &crate::db::Database,
-    user_id: i64,
-    password_hash: &str,
-    subsonic_token: &str,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "UPDATE users SET password_hash = ?, subsonic_token = ? WHERE id = ?",
-        "UPDATE users SET password_hash = $1, subsonic_token = $2 WHERE id = $3",
-        [
-            Value::from(password_hash.to_string()),
-            Value::from(subsonic_token.to_string()),
-            Value::from(user_id),
-        ],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn update_user_email_db(
-    database: &crate::db::Database,
-    user_id: i64,
-    email: Option<&str>,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "UPDATE users SET email = ? WHERE id = ?",
-        "UPDATE users SET email = $1 WHERE id = $2",
-        [Value::from(email.map(str::to_string)), Value::from(user_id)],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn update_user_admin_db(
-    database: &crate::db::Database,
-    user_id: i64,
-    is_admin: bool,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "UPDATE users SET is_admin = ? WHERE id = ?",
-        "UPDATE users SET is_admin = $1 WHERE id = $2",
-        [Value::from(is_admin), Value::from(user_id)],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn delete_user_db(database: &crate::db::Database, user_id: i64) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "DELETE FROM users WHERE id = ?",
-        "DELETE FROM users WHERE id = $1",
-        [Value::from(user_id)],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn list_music_folder_ids_db(database: &crate::db::Database) -> FerrotuneApiResult<Vec<i64>> {
-    let folder_ids = crate::db::raw::query_all::<IdRow>(
-        database.conn(),
-        "SELECT id FROM music_folders ORDER BY id",
-        "SELECT id FROM music_folders ORDER BY id",
-        std::iter::empty::<Value>(),
-    )
-    .await?;
-
-    Ok(folder_ids.into_iter().map(|row| row.id).collect())
-}
-
-async fn clear_user_library_access(
-    database: &crate::db::Database,
-    user_id: i64,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "DELETE FROM user_library_access WHERE user_id = ?",
-        "DELETE FROM user_library_access WHERE user_id = $1",
-        [Value::from(user_id)],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn grant_user_library_access(
-    database: &crate::db::Database,
-    user_id: i64,
-    folder_id: i64,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-        "INSERT INTO user_library_access (user_id, music_folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [Value::from(user_id), Value::from(folder_id)],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn replace_user_library_access(
-    database: &crate::db::Database,
-    user_id: i64,
-    folder_ids: &[i64],
-) -> FerrotuneApiResult<()> {
-    clear_user_library_access(database, user_id).await?;
-
-    for folder_id in folder_ids {
-        grant_user_library_access(database, user_id, *folder_id).await?;
-    }
-
-    Ok(())
-}
-
-async fn list_api_keys_db(
-    database: &crate::db::Database,
-    user_id: i64,
-) -> FerrotuneApiResult<Vec<(String, DateTime<Utc>, Option<DateTime<Utc>>)>> {
-    let rows = crate::db::raw::query_all::<ApiKeySummaryRow>(
-        database.conn(),
-        "SELECT name, created_at, last_used FROM api_keys WHERE user_id = ?",
-        "SELECT name, created_at, last_used FROM api_keys WHERE user_id = $1",
-        [Value::from(user_id)],
-    )
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.name, row.created_at, row.last_used))
-        .collect())
-}
-
-async fn insert_api_key_db(
-    database: &crate::db::Database,
-    token: &str,
-    user_id: i64,
-    name: &str,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "INSERT INTO api_keys (token, user_id, name) VALUES (?, ?, ?)",
-        "INSERT INTO api_keys (token, user_id, name) VALUES ($1, $2, $3)",
-        [
-            Value::from(token.to_string()),
-            Value::from(user_id),
-            Value::from(name.to_string()),
-        ],
-    )
-    .await?;
-    Ok(())
-}
-
-async fn api_key_exists(
-    database: &crate::db::Database,
-    user_id: i64,
-    name: &str,
-) -> FerrotuneApiResult<bool> {
-    let existing = crate::db::raw::query_scalar::<String>(
-        database.conn(),
-        "SELECT token FROM api_keys WHERE user_id = ? AND name = ?",
-        "SELECT token FROM api_keys WHERE user_id = $1 AND name = $2",
-        [Value::from(user_id), Value::from(name.to_string())],
-    )
-    .await?;
-
-    Ok(existing.is_some())
-}
-
-async fn delete_api_key_db(
-    database: &crate::db::Database,
-    user_id: i64,
-    name: &str,
-) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "DELETE FROM api_keys WHERE user_id = ? AND name = ?",
-        "DELETE FROM api_keys WHERE user_id = $1 AND name = $2",
-        [Value::from(user_id), Value::from(name.to_string())],
-    )
-    .await?;
-    Ok(())
 }
 
 fn generate_api_key() -> String {
@@ -921,15 +603,9 @@ pub async fn user_has_folder_access(
     user_id: i64,
     folder_id: i64,
 ) -> FerrotuneApiResult<bool> {
-    let access = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT 1 FROM user_library_access WHERE user_id = ? AND music_folder_id = ?",
-        "SELECT 1::BIGINT FROM user_library_access WHERE user_id = $1 AND music_folder_id = $2",
-        [Value::from(user_id), Value::from(folder_id)],
-    )
-    .await?;
-
-    Ok(access.is_some())
+    users_repo::user_has_folder_access(database, user_id, folder_id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Check if a user has access to a specific song
@@ -938,19 +614,9 @@ pub async fn user_has_song_access(
     user_id: i64,
     song_id: &str,
 ) -> FerrotuneApiResult<bool> {
-    let access = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT 1 FROM songs s
-         JOIN user_library_access ula ON s.music_folder_id = ula.music_folder_id
-         WHERE s.id = ? AND ula.user_id = ?",
-        "SELECT 1::BIGINT FROM songs s
-         JOIN user_library_access ula ON s.music_folder_id = ula.music_folder_id
-         WHERE s.id = $1 AND ula.user_id = $2",
-        [Value::from(song_id.to_string()), Value::from(user_id)],
-    )
-    .await?;
-
-    Ok(access.is_some())
+    users_repo::user_has_song_access(database, user_id, song_id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Get the list of music folder IDs a user has access to
@@ -959,5 +625,7 @@ pub async fn get_user_accessible_folders(
     database: &crate::db::Database,
     user_id: i64,
 ) -> FerrotuneApiResult<Vec<i64>> {
-    get_user_library_access(database, user_id).await
+    users_repo::get_user_library_access_ids(database, user_id)
+        .await
+        .map_err(Into::into)
 }

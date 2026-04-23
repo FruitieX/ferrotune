@@ -6,7 +6,6 @@
 //! and chroma/harmonic content. Similarity is determined via euclidean distance
 //! between these vectors.
 
-use crate::db::raw;
 use crate::error::{Error, Result};
 use bliss_audio::decoder::symphonia::SymphoniaDecoder;
 use bliss_audio::decoder::Decoder as BlissDecoder;
@@ -90,77 +89,13 @@ pub async fn find_similar_songs(
     user_id: i64,
     count: usize,
 ) -> Result<Vec<(String, f32)>> {
-    use sea_orm::{FromQueryResult, Value};
+    let seed_row = crate::db::repo::bliss::fetch_seed(database.conn(), seed_song_id, user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to load seed song: {}", e)))?;
 
-    #[derive(FromQueryResult)]
-    struct SeedRow {
-        bliss_features: Vec<u8>,
-        title: String,
-        artist_id: String,
-    }
-    #[derive(FromQueryResult)]
-    struct CandidateRow {
-        id: String,
-        bliss_features: Vec<u8>,
-        title: String,
-        artist_id: String,
-    }
-
-    let seed_row = raw::query_one::<SeedRow>(
-        database.conn(),
-        "SELECT s.bliss_features, s.title, s.artist_id
-         FROM songs s
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-         WHERE s.id = ? AND s.bliss_features IS NOT NULL
-           AND s.marked_for_deletion_at IS NULL
-           AND mf.enabled = 1
-           AND ula.user_id = ?",
-        "SELECT s.bliss_features, s.title, s.artist_id
-         FROM songs s
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-         WHERE s.id = $1 AND s.bliss_features IS NOT NULL
-           AND s.marked_for_deletion_at IS NULL
-           AND mf.enabled
-           AND ula.user_id = $2",
-        [Value::from(seed_song_id.to_string()), Value::from(user_id)],
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to load seed song: {}", e)))?;
-
-    let rows = raw::query_all::<CandidateRow>(
-        database.conn(),
-        "SELECT s.id, s.bliss_features, s.title, s.artist_id
-         FROM songs s
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-         LEFT JOIN disabled_songs ds ON ds.song_id = s.id AND ds.user_id = ?
-         WHERE s.bliss_features IS NOT NULL
-           AND s.id != ?
-           AND s.marked_for_deletion_at IS NULL
-           AND mf.enabled = 1
-           AND ula.user_id = ?
-           AND ds.id IS NULL",
-        "SELECT s.id, s.bliss_features, s.title, s.artist_id
-         FROM songs s
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-         LEFT JOIN disabled_songs ds ON ds.song_id = s.id AND ds.user_id = $1
-         WHERE s.bliss_features IS NOT NULL
-           AND s.id != $2
-           AND s.marked_for_deletion_at IS NULL
-           AND mf.enabled
-           AND ula.user_id = $3
-           AND ds.id IS NULL",
-        [
-            Value::from(user_id),
-            Value::from(seed_song_id.to_string()),
-            Value::from(user_id),
-        ],
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to load song features: {}", e)))?;
+    let rows = crate::db::repo::bliss::fetch_candidates(database.conn(), seed_song_id, user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to load song features: {}", e)))?;
 
     let seed_row: Option<BlissSeedRow> = seed_row.map(|s| (s.bliss_features, s.title, s.artist_id));
     let rows: Vec<BlissCandidateRow> = rows

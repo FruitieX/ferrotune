@@ -208,6 +208,34 @@ pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Res
 
 **IMPORTANT**: Before implementing new functionality, check if shared utilities exist. Avoid duplicating code.
 
+### Database Layer (`src/db/`)
+
+| Module | Purpose |
+|--------|---------|
+| `entity/` | SeaORM entity structs generated from the Postgres schema. Prefer these for simple CRUD. |
+| `models.rs` | Shared DTO structs with `sea_orm::FromQueryResult` + `serde` derives used by `raw::*` queries and API responses. |
+| `raw.rs` | Dialect-aware raw-SQL escape hatch: `raw::query_all<T>`, `raw::query_one<T>`, `raw::query_scalar<T>`, `raw::execute`, `raw::query_rows`. Each takes SQLite and Postgres SQL variants so callers can keep dialect-specific syntax (`?` vs `$N`, FTS5 vs `to_tsvector`, `COLLATE NOCASE` vs `ILIKE`, typed NULL casts). |
+| `repo/` | Domain-scoped SeaORM query surface. All code under `src/api/**`, `src/watcher.rs`, `src/thumbnails.rs`, `src/bliss.rs`, etc. must go through `repo::*` helpers (or `entity::*` directly) instead of `crate::db::raw::*`. Submodules include: users/auth, config/setup, stats, song flags, starring/rating, scrobble import/dedupe helpers, browse reads, listening flows, playlist folder/share/mutation/recent slices, `coverart` (thumbnail presence/insert/fetch for albums/artists/songs/playlists), `bliss` (similarity seed + candidate fetch), `history` (play-history aggregates + batched song fetch), `music_folders`, and simple list/reporting reads. `raw::*` is now a database-internal escape hatch consumed only by `src/db/queries.rs`, `src/db/migrations.rs` and FTS/search helpers. |
+| `retry.rs` | `with_retry` for SQLite "database is locked" errors. Wraps `DbErr`. |
+| `ordering.rs` | `case_insensitive_order(backend, col)` helper. |
+
+```rust
+// ✅ Good — raw SQL via the dialect-aware helpers
+let songs: Vec<Song> = crate::db::raw::query_all(
+    database.conn(),
+    "SELECT ... FROM songs WHERE artist_id = ?",       // SQLite
+    "SELECT ... FROM songs WHERE artist_id = $1",      // Postgres
+    [sea_orm::Value::from(artist_id)],
+).await?;
+
+// ❌ Bad — do not reach for `sqlx::query_*` directly. `src/db/mod.rs` is the
+// only place allowed to depend on `sqlx` at runtime (pool bootstrap + migrator).
+```
+
+**Migrations**: schema changes are written as paired `.sql` files in `migrations/sqlite/NNN_*.sql` and `migrations/postgres/NNN_*.sql`. The sqlx migrator at startup applies whichever set matches the configured backend. There is no `ferrotune db migrate` CLI — migrations run automatically on server startup.
+
+**Migrating a prod SQLite DB to Postgres**: use `scripts/migrate_sqlite_to_postgres.py` (see script header for usage). The target Postgres must have schema applied (start the server once against the target URL to let the migrator create tables, then stop it before running the script).
+
 ### Backend Shared Modules (`src/api/common/`)
 
 | Module | Purpose | Key Functions |
@@ -371,3 +399,13 @@ Read these when working on specific areas:
 - When adding new shared functionality, update the "Shared Utilities" section in this file to document it for future agents.
 - Avoid Promise.race in e2e tests, instead write the test for specific expected behavior.
 - Avoid timeouts in tests, instead use proper waiting for elements or network requests.
+
+## Legacy / backwards-compatibility code
+
+This project has exactly one deployed user (the maintainer). It is almost never necessary to keep legacy code paths, shims, one-off data migrations, deprecated field fallbacks, or "just in case an old client does X" branches. **Before writing any such code, ask the user whether backwards compatibility is actually required.** Default to removing legacy code rather than preserving it. If in doubt, ask.
+
+Examples of code that usually should be deleted rather than retained:
+- One-shot data migrations guarded by a "migration_complete" flag (the migration has already run).
+- Fallback code paths for old config/request/response shapes.
+- Dual-writing to both old and new schemas.
+- `#[deprecated]` wrappers with no internal callers.

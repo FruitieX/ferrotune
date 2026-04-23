@@ -92,89 +92,102 @@ async fn reset_user_state(
     database: &crate::db::Database,
     user_id: i64,
 ) -> crate::error::Result<()> {
-    use sea_orm::TransactionTrait;
+    use crate::db::entity;
+    use sea_orm::{
+        ColumnTrait, EntityTrait, QueryFilter, QuerySelect, QueryTrait, TransactionTrait,
+    };
+
     let tx = database.conn().begin().await?;
 
-    let pairs: [(&str, &str); 17] = [
-        (
-            "DELETE FROM play_queue_entries WHERE user_id = ?",
-            "DELETE FROM play_queue_entries WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM play_queues WHERE user_id = ?",
-            "DELETE FROM play_queues WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM user_preferences WHERE user_id = ?",
-            "DELETE FROM user_preferences WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM starred WHERE user_id = ?",
-            "DELETE FROM starred WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM ratings WHERE user_id = ?",
-            "DELETE FROM ratings WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
-            "DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = $1)",
-        ),
-        (
-            "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = ?)",
-            "DELETE FROM playlist_shares WHERE playlist_id IN (SELECT id FROM playlists WHERE owner_id = $1)",
-        ),
-        (
-            "DELETE FROM playlists WHERE owner_id = ?",
-            "DELETE FROM playlists WHERE owner_id = $1",
-        ),
-        (
-            "DELETE FROM playlist_folders WHERE owner_id = ?",
-            "DELETE FROM playlist_folders WHERE owner_id = $1",
-        ),
-        (
-            "DELETE FROM smart_playlists WHERE owner_id = ?",
-            "DELETE FROM smart_playlists WHERE owner_id = $1",
-        ),
-        (
-            "DELETE FROM scrobbles WHERE user_id = ?",
-            "DELETE FROM scrobbles WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM listening_sessions WHERE user_id = ?",
-            "DELETE FROM listening_sessions WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
-            "DELETE FROM tagger_pending_edits WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = $1)",
-        ),
-        (
-            "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = ?)",
-            "DELETE FROM tagger_session_tracks WHERE session_id IN (SELECT id FROM tagger_sessions WHERE user_id = $1)",
-        ),
-        (
-            "DELETE FROM tagger_sessions WHERE user_id = ?",
-            "DELETE FROM tagger_sessions WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM shuffle_excludes WHERE user_id = ?",
-            "DELETE FROM shuffle_excludes WHERE user_id = $1",
-        ),
-        (
-            "DELETE FROM playback_sessions WHERE user_id = ?",
-            "DELETE FROM playback_sessions WHERE user_id = $1",
-        ),
-    ];
-
-    for (sqlite_sql, postgres_sql) in pairs {
-        crate::db::raw::execute(
-            &tx,
-            sqlite_sql,
-            postgres_sql,
-            [sea_orm::Value::from(user_id)],
-        )
+    // Simple `DELETE FROM t WHERE user_id = ?` tables.
+    entity::play_queue_entries::Entity::delete_many()
+        .filter(entity::play_queue_entries::Column::UserId.eq(user_id))
+        .exec(&tx)
         .await?;
-    }
+    entity::play_queues::Entity::delete_many()
+        .filter(entity::play_queues::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::user_preferences::Entity::delete_many()
+        .filter(entity::user_preferences::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::starred::Entity::delete_many()
+        .filter(entity::starred::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::ratings::Entity::delete_many()
+        .filter(entity::ratings::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+
+    // Playlist fan-out: owner_id -> playlists, then their songs/shares.
+    let owned_playlists_subq = entity::playlists::Entity::find()
+        .select_only()
+        .column(entity::playlists::Column::Id)
+        .filter(entity::playlists::Column::OwnerId.eq(user_id))
+        .into_query();
+    entity::playlist_songs::Entity::delete_many()
+        .filter(
+            entity::playlist_songs::Column::PlaylistId.in_subquery(owned_playlists_subq.clone()),
+        )
+        .exec(&tx)
+        .await?;
+    entity::playlist_shares::Entity::delete_many()
+        .filter(entity::playlist_shares::Column::PlaylistId.in_subquery(owned_playlists_subq))
+        .exec(&tx)
+        .await?;
+    entity::playlists::Entity::delete_many()
+        .filter(entity::playlists::Column::OwnerId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::playlist_folders::Entity::delete_many()
+        .filter(entity::playlist_folders::Column::OwnerId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::smart_playlists::Entity::delete_many()
+        .filter(entity::smart_playlists::Column::OwnerId.eq(user_id))
+        .exec(&tx)
+        .await?;
+
+    entity::scrobbles::Entity::delete_many()
+        .filter(entity::scrobbles::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::listening_sessions::Entity::delete_many()
+        .filter(entity::listening_sessions::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+
+    // Tagger sessions fan-out.
+    let owned_tagger_subq = entity::tagger_sessions::Entity::find()
+        .select_only()
+        .column(entity::tagger_sessions::Column::Id)
+        .filter(entity::tagger_sessions::Column::UserId.eq(user_id))
+        .into_query();
+    entity::tagger_pending_edits::Entity::delete_many()
+        .filter(
+            entity::tagger_pending_edits::Column::SessionId.in_subquery(owned_tagger_subq.clone()),
+        )
+        .exec(&tx)
+        .await?;
+    entity::tagger_session_tracks::Entity::delete_many()
+        .filter(entity::tagger_session_tracks::Column::SessionId.in_subquery(owned_tagger_subq))
+        .exec(&tx)
+        .await?;
+    entity::tagger_sessions::Entity::delete_many()
+        .filter(entity::tagger_sessions::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+
+    entity::shuffle_excludes::Entity::delete_many()
+        .filter(entity::shuffle_excludes::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
+    entity::playback_sessions::Entity::delete_many()
+        .filter(entity::playback_sessions::Column::UserId.eq(user_id))
+        .exec(&tx)
+        .await?;
 
     tx.commit().await?;
 

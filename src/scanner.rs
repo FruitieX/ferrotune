@@ -6,7 +6,7 @@ use futures::stream::{self, StreamExt};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
-use sea_orm::{FromQueryResult, TransactionTrait, Value};
+use sea_orm::TransactionTrait;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -247,16 +247,14 @@ pub async fn scan_specific_files(
             }
         } else {
             // File was deleted - remove from database
-            let rows_affected = crate::db::raw::execute(
+            let removed_row = crate::db::repo::scanner::delete_song_by_path(
                 database.conn(),
-                "DELETE FROM songs WHERE file_path = ? AND music_folder_id = ?",
-                "DELETE FROM songs WHERE file_path = $1 AND music_folder_id = $2",
-                [Value::from(relative_path.clone()), Value::from(folder_id)],
+                &relative_path,
+                folder_id,
             )
-            .await?
-            .rows_affected();
+            .await?;
 
-            if rows_affected > 0 {
+            if removed_row {
                 removed += 1;
                 tracing::info!("Removed: {}", relative_path);
             }
@@ -629,30 +627,9 @@ pub async fn scan_library_with_progress(
             state.log("INFO", "Cleaning up thumbnails...").await;
         }
 
-        // Remove thumbnails that are no longer referenced by any song, album, or artist
-        // Use a single DELETE with LEFT JOINs which is more efficient than triple NOT IN subqueries
-        let orphaned_thumbnails = crate::db::raw::execute(
-            runtime_database.conn(),
-            "DELETE FROM cover_art_thumbnails 
-             WHERE hash NOT IN (
-                 SELECT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL
-                 UNION
-                 SELECT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL
-                 UNION  
-                 SELECT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL
-             )",
-            "DELETE FROM cover_art_thumbnails 
-             WHERE hash NOT IN (
-                 SELECT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL
-                 UNION
-                 SELECT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL
-                 UNION  
-                 SELECT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL
-             )",
-            std::iter::empty::<Value>(),
-        )
-        .await?
-        .rows_affected();
+        // Remove thumbnails that are no longer referenced by any song, album, or artist.
+        let orphaned_thumbnails =
+            crate::db::repo::scanner::delete_orphaned_thumbnails(runtime_database.conn()).await?;
         if orphaned_thumbnails > 0 {
             tracing::info!("Removed {} orphaned thumbnails", orphaned_thumbnails);
         }
@@ -668,15 +645,9 @@ async fn get_music_folder(
     database: &crate::db::Database,
     id: i64,
 ) -> Result<crate::db::models::MusicFolder> {
-    let folder = crate::db::raw::query_one::<crate::db::models::MusicFolder>(
-        database.conn(),
-        "SELECT * FROM music_folders WHERE id = ? AND enabled = 1",
-        "SELECT * FROM music_folders WHERE id = $1 AND enabled",
-        [Value::from(id)],
-    )
-    .await?;
-
-    folder.ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
+    crate::db::repo::scanner::get_enabled_music_folder(database, id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
 }
 
 /// Info about missing files from a scanned folder, used for cross-library rename detection.
@@ -730,31 +701,9 @@ async fn scan_folder_files(
     }
 
     // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise), has_bliss, has_waveform
-    #[derive(FromQueryResult)]
-    struct ExistingSongPathRow {
-        id: String,
-        file_path: String,
-        file_mtime: Option<i64>,
-        has_rg: i32,
-        has_bliss: i32,
-        has_waveform: i32,
-    }
-
-    let existing_paths = crate::db::raw::query_all::<ExistingSongPathRow>(
-        database.conn(),
-        "SELECT id, file_path, file_mtime, 
-                CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
-                CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss,
-                CASE WHEN waveform_data IS NOT NULL THEN 1 ELSE 0 END as has_waveform
-         FROM songs WHERE music_folder_id = ?",
-        "SELECT id, file_path, file_mtime, 
-                CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
-                CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss,
-                CASE WHEN waveform_data IS NOT NULL THEN 1 ELSE 0 END as has_waveform
-         FROM songs WHERE music_folder_id = $1",
-        [Value::from(folder_id)],
-    )
-    .await?;
+    let existing_paths =
+        crate::db::repo::scanner::list_existing_song_paths_for_folder(database.conn(), folder_id)
+            .await?;
 
     // Map: file_path -> (song_id, file_mtime, has_replaygain, has_bliss, has_waveform)
     let mut unseen_files: std::collections::HashMap<
@@ -1335,50 +1284,19 @@ async fn resolve_missing_songs(
         partial_hash: Option<String>,
     }
 
-    #[derive(FromQueryResult)]
-    struct PartialHashRow {
-        partial_hash: Option<String>,
-    }
-
-    #[derive(FromQueryResult)]
-    struct RenameCandidateRow {
-        id: String,
-        file_path: String,
-        music_folder_id: i64,
-    }
-
-    #[derive(FromQueryResult)]
-    struct FileMtimeRow {
-        file_mtime: Option<i64>,
-    }
-
-    #[derive(FromQueryResult)]
-    struct SongMetaRow {
-        title: String,
-        artist_name: Option<String>,
-        album_name: Option<String>,
-        duration: i64,
-    }
-
     let mut missing_songs: Vec<MissingSong> = Vec::new();
 
     for folder_info in &all_missing_files {
         for (relative_path, song_id) in &folder_info.missing_files {
             // Get partial hash for this song
-            let hash = crate::db::raw::query_one::<PartialHashRow>(
-                database.conn(),
-                "SELECT partial_hash FROM songs WHERE id = ?",
-                "SELECT partial_hash FROM songs WHERE id = $1",
-                [Value::from(song_id.clone())],
-            )
-            .await?;
+            let hash = crate::db::repo::scanner::get_partial_hash(database.conn(), song_id).await?;
 
             missing_songs.push(MissingSong {
                 id: song_id.clone(),
                 old_relative_path: relative_path.clone(),
                 old_folder_id: folder_info.folder_id,
                 old_folder_path: folder_info.folder_path.clone(),
-                partial_hash: hash.and_then(|row| row.partial_hash),
+                partial_hash: hash,
             });
         }
     }
@@ -1403,26 +1321,18 @@ async fn resolve_missing_songs(
         if let Some(ref hash) = missing.partial_hash {
             // Look for a different song with the same partial_hash in ANY folder
             // The new song must have been created during this scan (id != missing.id)
-            let potential_rename = crate::db::raw::query_one::<RenameCandidateRow>(
-                database.conn(),
-                "SELECT id, file_path, music_folder_id FROM songs 
-                 WHERE partial_hash = ? AND id != ?",
-                "SELECT id, file_path, music_folder_id FROM songs 
-                 WHERE partial_hash = $1 AND id != $2",
-                [Value::from(hash.clone()), Value::from(missing.id.clone())],
-            )
-            .await?;
+            let potential_rename =
+                crate::db::repo::scanner::find_rename_candidate(database.conn(), hash, &missing.id)
+                    .await?;
 
             if let Some(candidate) = potential_rename {
                 let new_id = candidate.id;
                 let new_relative_path = candidate.file_path;
                 let new_folder_id = candidate.music_folder_id;
                 // Get the folder path for the new location
-                let new_folder_path = match crate::db::raw::query_scalar::<String>(
+                let new_folder_path = match crate::db::repo::scanner::get_music_folder_path(
                     database.conn(),
-                    "SELECT path FROM music_folders WHERE id = ?",
-                    "SELECT path FROM music_folders WHERE id = $1",
-                    [Value::from(new_folder_id)],
+                    new_folder_id,
                 )
                 .await?
                 {
@@ -1469,44 +1379,18 @@ async fn resolve_missing_songs(
                     let tx = database.conn().begin().await?;
 
                     // Get the mtime from the new entry before deleting it
-                    let new_mtime = crate::db::raw::query_one::<FileMtimeRow>(
-                        &tx,
-                        "SELECT file_mtime FROM songs WHERE id = ?",
-                        "SELECT file_mtime FROM songs WHERE id = $1",
-                        [Value::from(new_id.clone())],
-                    )
-                    .await?;
+                    let new_mtime = crate::db::repo::scanner::get_song_mtime(&tx, &new_id).await?;
 
                     // Delete the newly created entry FIRST (to free up the file_path)
-                    crate::db::raw::execute(
-                        &tx,
-                        "DELETE FROM songs WHERE id = ?",
-                        "DELETE FROM songs WHERE id = $1",
-                        [Value::from(new_id.clone())],
-                    )
-                    .await?;
+                    crate::db::repo::scanner::delete_song_by_id(&tx, &new_id).await?;
 
                     // Update the old entry with new file_path, music_folder_id, and mtime
-                    crate::db::raw::execute(
+                    crate::db::repo::scanner::update_song_location(
                         &tx,
-                        "UPDATE songs SET 
-                            file_path = ?,
-                            music_folder_id = ?,
-                            file_mtime = ?,
-                            updated_at = datetime('now')
-                         WHERE id = ?",
-                        "UPDATE songs SET 
-                            file_path = $1,
-                            music_folder_id = $2,
-                            file_mtime = $3,
-                            updated_at = CURRENT_TIMESTAMP
-                         WHERE id = $4",
-                        [
-                            Value::from(new_relative_path.clone()),
-                            Value::from(new_folder_id),
-                            Value::from(new_mtime.and_then(|row| row.file_mtime)),
-                            Value::from(missing.id.clone()),
-                        ],
+                        &missing.id,
+                        &new_relative_path,
+                        new_folder_id,
+                        new_mtime.and_then(|m| m),
                     )
                     .await?;
 
@@ -1596,21 +1480,7 @@ async fn resolve_missing_songs(
     // First, convert all playlist entries for these songs to "missing" entries
     for missing in &truly_missing {
         // Get song metadata before deleting
-        let song_meta = crate::db::raw::query_one::<SongMetaRow>(
-            &tx,
-            "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
-             FROM songs s
-             LEFT JOIN artists ar ON s.artist_id = ar.id
-             LEFT JOIN albums al ON s.album_id = al.id
-             WHERE s.id = ?",
-            "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
-             FROM songs s
-             LEFT JOIN artists ar ON s.artist_id = ar.id
-             LEFT JOIN albums al ON s.album_id = al.id
-             WHERE s.id = $1",
-            [Value::from(missing.id.clone())],
-        )
-        .await?;
+        let song_meta = crate::db::repo::scanner::get_song_meta(&tx, &missing.id).await?;
 
         if let Some(song_meta) = song_meta {
             let title = song_meta.title;
@@ -1639,119 +1509,43 @@ async fn resolve_missing_songs(
             let search_text = parts.join(" - ");
 
             // Convert playlist entries to "missing" entries
-            crate::db::raw::execute(
+            crate::db::repo::scanner::convert_playlist_entries_to_missing(
                 &tx,
-                "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = ?, missing_search_text = ? WHERE song_id = ?",
-                "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = $1, missing_search_text = $2 WHERE song_id = $3",
-                [
-                    Value::from(missing_json),
-                    Value::from(search_text),
-                    Value::from(missing.id.clone()),
-                ],
+                &missing.id,
+                &missing_json,
+                &search_text,
             )
             .await?;
         }
 
         // Delete the song
-        crate::db::raw::execute(
-            &tx,
-            "DELETE FROM songs WHERE id = ?",
-            "DELETE FROM songs WHERE id = $1",
-            [Value::from(missing.id.clone())],
-        )
-        .await?;
+        crate::db::repo::scanner::delete_song_by_id(&tx, &missing.id).await?;
     }
 
     // Update affected playlist totals
-    crate::db::raw::execute(
-        &tx,
-        "UPDATE playlists SET 
-            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id AND song_id IS NOT NULL),
-            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
-                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
-                        WHERE ps.playlist_id = playlists.id),
-            updated_at = datetime('now')",
-        "UPDATE playlists SET 
-            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id AND song_id IS NOT NULL),
-            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
-                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
-                        WHERE ps.playlist_id = playlists.id),
-            updated_at = CURRENT_TIMESTAMP",
-        std::iter::empty::<Value>(),
-    )
-    .await?;
+    crate::db::repo::scanner::refresh_all_playlist_totals(&tx).await?;
 
     // Clean up orphaned albums
-    let orphaned_albums = crate::db::raw::query_scalar::<i64>(
-        &tx,
-        "SELECT COUNT(*) FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-        "SELECT COUNT(*) FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-        std::iter::empty::<Value>(),
-    )
-    .await?
-    .unwrap_or(0);
+    let orphaned_albums = crate::db::repo::scanner::count_orphaned_albums(&tx).await?;
 
     if orphaned_albums > 0 {
-        crate::db::raw::execute(
-            &tx,
-            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
-            std::iter::empty::<Value>(),
-        )
-        .await?;
+        crate::db::repo::scanner::delete_orphaned_albums(&tx).await?;
         tracing::info!("Removed {} orphaned albums", orphaned_albums);
     }
 
     // Clean up orphaned artists
-    let orphaned_artists = crate::db::raw::query_scalar::<i64>(
-        &tx,
-        "SELECT COUNT(*) FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
-         AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
-        "SELECT COUNT(*) FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
-         AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
-        std::iter::empty::<Value>(),
-    )
-    .await?
-    .unwrap_or(0);
+    let orphaned_artists = crate::db::repo::scanner::count_orphaned_artists(&tx).await?;
 
     if orphaned_artists > 0 {
-        crate::db::raw::execute(
-            &tx,
-            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
-             AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
-            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
-             AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
-            std::iter::empty::<Value>(),
-        )
-        .await?;
+        crate::db::repo::scanner::delete_orphaned_artists(&tx).await?;
         tracing::info!("Removed {} orphaned artists", orphaned_artists);
     }
 
     // Update album song counts and durations
-    crate::db::raw::execute(
-        &tx,
-        "UPDATE albums SET 
-            song_count = (SELECT COUNT(*) FROM songs WHERE songs.album_id = albums.id),
-            duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE songs.album_id = albums.id)",
-        "UPDATE albums SET 
-            song_count = (SELECT COUNT(*) FROM songs WHERE songs.album_id = albums.id),
-            duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE songs.album_id = albums.id)",
-        std::iter::empty::<Value>(),
-    )
-    .await?;
+    crate::db::repo::scanner::refresh_all_album_totals(&tx).await?;
 
     // Update artist album counts and song counts
-    crate::db::raw::execute(
-        &tx,
-        "UPDATE artists SET 
-            album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE songs.artist_id = artists.id AND album_id IS NOT NULL),
-            song_count = (SELECT COUNT(*) FROM songs WHERE songs.artist_id = artists.id)",
-        "UPDATE artists SET 
-            album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE songs.artist_id = artists.id AND album_id IS NOT NULL),
-            song_count = (SELECT COUNT(*) FROM songs WHERE songs.artist_id = artists.id)",
-        std::iter::empty::<Value>(),
-    )
-    .await?;
+    crate::db::repo::scanner::refresh_all_artist_totals(&tx).await?;
 
     tx.commit().await?;
 
@@ -2117,11 +1911,6 @@ async fn upsert_song(
     file_path: String,
     folder_id: i64,
 ) -> Result<bool> {
-    #[derive(FromQueryResult)]
-    struct SongIdRow {
-        id: String,
-    }
-
     let SongMetadata {
         title,
         artist,
@@ -2181,222 +1970,52 @@ async fn upsert_song(
     let cover_art_width_i32 = cover_art_width.map(|w| w as i32);
     let cover_art_height_i32 = cover_art_height.map(|h| h as i32);
 
-    let existing = crate::db::raw::query_one::<SongIdRow>(
-        &tx,
-        "SELECT id FROM songs WHERE file_path = ? AND music_folder_id = ?",
-        "SELECT id FROM songs WHERE file_path = $1 AND music_folder_id = $2",
-        [Value::from(file_path.clone()), Value::from(folder_id)],
-    )
-    .await?;
+    let existing_id =
+        crate::db::repo::scanner::find_song_id_by_path(&tx, &file_path, folder_id).await?;
 
-    let is_new = existing.is_none();
-    if let Some(existing) = existing {
-        crate::db::raw::execute(
-            &tx,
-            "UPDATE songs SET 
-                title = ?, album_id = ?, artist_id = ?, track_number = ?, 
-                disc_number = ?, year = ?, genre = ?, duration = ?, 
-                bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
-                file_mtime = ?, partial_hash = ?, cover_art_hash = ?, 
-                cover_art_width = ?, cover_art_height = ?,
-                original_replaygain_track_gain = ?,
-                original_replaygain_track_peak = ?,
-                computed_replaygain_track_gain = COALESCE(?, computed_replaygain_track_gain),
-                computed_replaygain_track_peak = COALESCE(?, computed_replaygain_track_peak),
-                bliss_features = COALESCE(?, bliss_features),
-                bliss_version = COALESCE(?, bliss_version),
-                waveform_data = COALESCE(?, waveform_data),
-                full_file_hash = NULL, updated_at = datetime('now')
-             WHERE id = ?",
-            "UPDATE songs SET 
-                title = $1, album_id = $2, artist_id = $3, track_number = $4, 
-                disc_number = $5, year = $6, genre = $7, duration = $8, 
-                bitrate = $9, file_size = $10, file_format = $11, music_folder_id = $12,
-                file_mtime = $13, partial_hash = $14, cover_art_hash = $15, 
-                cover_art_width = $16, cover_art_height = $17,
-                original_replaygain_track_gain = $18,
-                original_replaygain_track_peak = $19,
-                computed_replaygain_track_gain = COALESCE($20, computed_replaygain_track_gain),
-                computed_replaygain_track_peak = COALESCE($21, computed_replaygain_track_peak),
-                bliss_features = COALESCE($22, bliss_features),
-                bliss_version = COALESCE($23, bliss_version),
-                waveform_data = COALESCE($24, waveform_data),
-                full_file_hash = NULL, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $25",
-            [
-                Value::from(title.clone()),
-                Value::from(album_id.clone()),
-                Value::from(track_artist_id.clone()),
-                Value::from(track_number_i32),
-                Value::from(disc_number_i32),
-                Value::from(year),
-                Value::from(genre.clone()),
-                Value::from(duration_i64),
-                Value::from(bitrate_i32),
-                Value::from(file_size_i64),
-                Value::from(file_format.clone()),
-                Value::from(folder_id),
-                Value::from(file_mtime),
-                Value::from(partial_hash.clone()),
-                Value::from(cover_art_hash.clone()),
-                Value::from(cover_art_width_i32),
-                Value::from(cover_art_height_i32),
-                Value::from(original_replaygain_track_gain),
-                Value::from(original_replaygain_track_peak),
-                Value::from(computed_replaygain_track_gain),
-                Value::from(computed_replaygain_track_peak),
-                Value::from(bliss_features.clone()),
-                Value::from(bliss_version),
-                Value::from(waveform_data.clone()),
-                Value::from(existing.id),
-            ],
-        )
-        .await?;
+    let is_new = existing_id.is_none();
+
+    let payload = crate::db::repo::scanner::SongWritePayload {
+        title: title.clone(),
+        album_id: album_id.clone(),
+        artist_id: track_artist_id.clone(),
+        track_number: track_number_i32,
+        disc_number: disc_number_i32,
+        year,
+        genre: genre.clone(),
+        duration: duration_i64,
+        bitrate: bitrate_i32,
+        file_path: file_path.clone(),
+        file_size: file_size_i64,
+        file_format: file_format.clone(),
+        music_folder_id: folder_id,
+        file_mtime,
+        partial_hash: partial_hash.clone(),
+        cover_art_hash: cover_art_hash.clone(),
+        cover_art_width: cover_art_width_i32,
+        cover_art_height: cover_art_height_i32,
+        original_replaygain_track_gain,
+        original_replaygain_track_peak,
+        computed_replaygain_track_gain,
+        computed_replaygain_track_peak,
+        bliss_features: bliss_features.clone(),
+        bliss_version,
+        waveform_data: waveform_data.clone(),
+    };
+
+    if let Some(song_id) = existing_id {
+        crate::db::repo::scanner::update_song_row(&tx, &song_id, &payload).await?;
     } else {
         let song_id = format!("so-{}", Uuid::new_v4());
-
-        crate::db::raw::execute(
-            &tx,
-            "INSERT INTO songs (
-                id, title, album_id, artist_id, track_number, disc_number,
-                year, genre, duration, bitrate, file_path, file_size,
-                file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash,
-                cover_art_width, cover_art_height,
-                original_replaygain_track_gain, original_replaygain_track_peak,
-                computed_replaygain_track_gain, computed_replaygain_track_peak,
-                bliss_features, bliss_version, waveform_data,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-            "INSERT INTO songs (
-                id, title, album_id, artist_id, track_number, disc_number,
-                year, genre, duration, bitrate, file_path, file_size,
-                file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash,
-                cover_art_width, cover_art_height,
-                original_replaygain_track_gain, original_replaygain_track_peak,
-                computed_replaygain_track_gain, computed_replaygain_track_peak,
-                bliss_features, bliss_version, waveform_data,
-                created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-            [
-                Value::from(song_id),
-                Value::from(title.clone()),
-                Value::from(album_id.clone()),
-                Value::from(track_artist_id.clone()),
-                Value::from(track_number_i32),
-                Value::from(disc_number_i32),
-                Value::from(year),
-                Value::from(genre.clone()),
-                Value::from(duration_i64),
-                Value::from(bitrate_i32),
-                Value::from(file_path.clone()),
-                Value::from(file_size_i64),
-                Value::from(file_format.clone()),
-                Value::from(folder_id),
-                Value::from(file_mtime),
-                Value::from(partial_hash.clone()),
-                Value::from(cover_art_hash.clone()),
-                Value::from(cover_art_width_i32),
-                Value::from(cover_art_height_i32),
-                Value::from(original_replaygain_track_gain),
-                Value::from(original_replaygain_track_peak),
-                Value::from(computed_replaygain_track_gain),
-                Value::from(computed_replaygain_track_peak),
-                Value::from(bliss_features.clone()),
-                Value::from(bliss_version),
-                Value::from(waveform_data.clone()),
-            ],
-        )
-        .await?;
+        crate::db::repo::scanner::insert_song_row(&tx, &song_id, &payload).await?;
     }
 
     if let Some(album_id) = &album_id {
-        crate::db::raw::execute(
-            &tx,
-            "UPDATE albums SET 
-                song_count = (SELECT COUNT(*) FROM songs WHERE album_id = ?),
-                duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE album_id = ?)
-             WHERE id = ?",
-            "UPDATE albums SET 
-                song_count = (SELECT COUNT(*) FROM songs WHERE album_id = $1),
-                duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE album_id = $2)
-             WHERE id = $3",
-            [
-                Value::from(album_id.clone()),
-                Value::from(album_id.clone()),
-                Value::from(album_id.clone()),
-            ],
-        )
-        .await?;
-
-        crate::db::raw::execute(
-            &tx,
-            "UPDATE albums SET 
-                cover_art_hash = (
-                    SELECT s.cover_art_hash FROM songs s 
-                    WHERE s.album_id = ? 
-                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                    LIMIT 1
-                ),
-                cover_art_width = (
-                    SELECT s.cover_art_width FROM songs s 
-                    WHERE s.album_id = ? 
-                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                    LIMIT 1
-                ),
-                cover_art_height = (
-                    SELECT s.cover_art_height FROM songs s 
-                    WHERE s.album_id = ? 
-                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                    LIMIT 1
-                )
-             WHERE id = ?",
-            "UPDATE albums SET 
-                cover_art_hash = (
-                    SELECT s.cover_art_hash FROM songs s 
-                    WHERE s.album_id = $1 
-                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                    LIMIT 1
-                ),
-                cover_art_width = (
-                    SELECT s.cover_art_width FROM songs s 
-                    WHERE s.album_id = $2 
-                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                    LIMIT 1
-                ),
-                cover_art_height = (
-                    SELECT s.cover_art_height FROM songs s 
-                    WHERE s.album_id = $3 
-                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                    LIMIT 1
-                )
-             WHERE id = $4",
-            [
-                Value::from(album_id.clone()),
-                Value::from(album_id.clone()),
-                Value::from(album_id.clone()),
-                Value::from(album_id.clone()),
-            ],
-        )
-        .await?;
+        crate::db::repo::scanner::refresh_album_totals(&tx, album_id).await?;
+        crate::db::repo::scanner::refresh_album_cover_art(&tx, album_id).await?;
     }
 
-    crate::db::raw::execute(
-        &tx,
-        "UPDATE artists SET 
-            album_count = (SELECT COUNT(*) FROM albums WHERE artist_id = ?),
-            song_count = (SELECT COUNT(*) FROM songs WHERE artist_id = ?)
-         WHERE id = ?",
-        "UPDATE artists SET 
-            album_count = (SELECT COUNT(*) FROM albums WHERE artist_id = $1),
-            song_count = (SELECT COUNT(*) FROM songs WHERE artist_id = $2)
-         WHERE id = $3",
-        [
-            Value::from(album_artist_id.clone()),
-            Value::from(album_artist_id.clone()),
-            Value::from(album_artist_id),
-        ],
-    )
-    .await?;
+    crate::db::repo::scanner::refresh_artist_totals(&tx, &album_artist_id).await?;
 
     tx.commit().await?;
 
@@ -2407,29 +2026,12 @@ async fn get_or_create_artist_raw(
     tx: &impl sea_orm::ConnectionTrait,
     name: &str,
 ) -> Result<String> {
-    let existing = crate::db::raw::query_scalar::<String>(
-        tx,
-        "SELECT id FROM artists WHERE name = ? COLLATE NOCASE",
-        "SELECT id FROM artists WHERE LOWER(name) = LOWER($1)",
-        [Value::from(name.to_string())],
-    )
-    .await?;
-
-    if let Some(id) = existing {
+    if let Some(id) = crate::db::repo::scanner::find_artist_id_by_name_ci(tx, name).await? {
         return Ok(id);
     }
 
     let artist_id = format!("ar-{}", Uuid::new_v4());
-    crate::db::raw::execute(
-        tx,
-        "INSERT INTO artists (id, name, album_count, song_count) VALUES (?, ?, 0, 0)",
-        "INSERT INTO artists (id, name, album_count, song_count) VALUES ($1, $2, 0, 0)",
-        [
-            Value::from(artist_id.clone()),
-            Value::from(name.to_string()),
-        ],
-    )
-    .await?;
+    crate::db::repo::scanner::insert_artist(tx, &artist_id, name).await?;
 
     Ok(artist_id)
 }
@@ -2445,48 +2047,17 @@ async fn get_or_create_album_raw(
     disc_number: Option<u32>,
     track_number: Option<u32>,
 ) -> Result<String> {
-    #[derive(FromQueryResult)]
-    struct AlbumLookupRow {
-        id: String,
-        cover_art_hash: Option<String>,
-    }
-
-    #[derive(FromQueryResult)]
-    struct EarliestTrackRow {
-        disc_number: i64,
-        track_number: i64,
-    }
-
-    let existing = crate::db::raw::query_one::<AlbumLookupRow>(
-        tx,
-        "SELECT id, cover_art_hash FROM albums WHERE name = ? COLLATE NOCASE AND artist_id = ?",
-        "SELECT id, cover_art_hash FROM albums WHERE LOWER(name) = LOWER($1) AND artist_id = $2",
-        [
-            Value::from(name.to_string()),
-            Value::from(artist_id.to_string()),
-        ],
-    )
-    .await?;
+    let existing =
+        crate::db::repo::scanner::find_album_by_name_artist_ci(tx, name, artist_id).await?;
 
     if let Some(existing) = existing {
-        let earliest = crate::db::raw::query_one::<EarliestTrackRow>(
-            tx,
-            "SELECT COALESCE(disc_number, 1) as disc_number, COALESCE(track_number, 1) as track_number FROM songs 
-             WHERE album_id = ? 
-             ORDER BY COALESCE(disc_number, 1), COALESCE(track_number, 1)
-             LIMIT 1",
-            "SELECT COALESCE(disc_number, 1)::BIGINT as disc_number, COALESCE(track_number, 1)::BIGINT as track_number FROM songs 
-             WHERE album_id = $1 
-             ORDER BY COALESCE(disc_number, 1), COALESCE(track_number, 1)
-             LIMIT 1",
-            [Value::from(existing.id.clone())],
-        )
-        .await?;
+        let earliest =
+            crate::db::repo::scanner::get_earliest_track_for_album(tx, &existing.id).await?;
 
         let is_earliest_track = match earliest {
             Some(earliest) => {
-                let this_disc = disc_number.unwrap_or(1) as i64;
-                let this_track = track_number.unwrap_or(1) as i64;
+                let this_disc = disc_number.unwrap_or(1) as i32;
+                let this_track = track_number.unwrap_or(1) as i32;
                 (this_disc, this_track) <= (earliest.disc_number, earliest.track_number)
             }
             None => true,
@@ -2497,36 +2068,22 @@ async fn get_or_create_album_raw(
                 || (is_earliest_track && existing.cover_art_hash.as_deref() != cover_art_hash));
 
         if should_update {
-            crate::db::raw::execute(
-                tx,
-                "UPDATE albums SET cover_art_hash = ? WHERE id = ?",
-                "UPDATE albums SET cover_art_hash = $1 WHERE id = $2",
-                [
-                    Value::from(cover_art_hash.map(str::to_string)),
-                    Value::from(existing.id.clone()),
-                ],
-            )
-            .await?;
+            crate::db::repo::scanner::update_album_cover_art_hash(tx, &existing.id, cover_art_hash)
+                .await?;
         }
 
         return Ok(existing.id);
     }
 
     let album_id = format!("al-{}", Uuid::new_v4());
-    crate::db::raw::execute(
+    crate::db::repo::scanner::insert_album(
         tx,
-        "INSERT INTO albums (id, name, artist_id, year, genre, created_at, cover_art_hash) 
-         VALUES (?, ?, ?, ?, ?, datetime('now'), ?)",
-        "INSERT INTO albums (id, name, artist_id, year, genre, created_at, cover_art_hash) 
-         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)",
-        [
-            Value::from(album_id.clone()),
-            Value::from(name.to_string()),
-            Value::from(artist_id.to_string()),
-            Value::from(year),
-            Value::from(genre.map(str::to_string)),
-            Value::from(cover_art_hash.map(str::to_string)),
-        ],
+        &album_id,
+        name,
+        artist_id,
+        year,
+        genre,
+        cover_art_hash,
     )
     .await?;
 
@@ -2545,39 +2102,12 @@ async fn detect_duplicates(
     _folder_id: Option<i64>,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<u64> {
-    #[derive(FromQueryResult)]
-    struct CollisionHashRow {
-        partial_hash: String,
-    }
-
-    #[derive(FromQueryResult)]
-    struct DuplicateSongRow {
-        id: String,
-        file_path: String,
-        music_folder_id: i64,
-        file_size: i64,
-        full_file_hash: Option<String>,
-    }
-
     // Note: We no longer clear full_file_hash here. Instead, full_file_hash is cleared
     // in upsert_song when a file is modified, so cached hashes for unchanged files are preserved.
 
     // Find partial hash collisions (songs with the same partial_hash)
-    let collision_hashes = crate::db::raw::query_all::<CollisionHashRow>(
-        database.conn(),
-        "SELECT partial_hash 
-         FROM songs 
-         WHERE partial_hash IS NOT NULL 
-         GROUP BY partial_hash 
-         HAVING COUNT(*) > 1",
-        "SELECT partial_hash 
-         FROM songs 
-         WHERE partial_hash IS NOT NULL 
-         GROUP BY partial_hash 
-         HAVING COUNT(*) > 1",
-        std::iter::empty::<Value>(),
-    )
-    .await?;
+    let collision_hashes =
+        crate::db::repo::scanner::list_partial_hash_collisions(database.conn()).await?;
 
     if collision_hashes.is_empty() {
         tracing::info!("No potential duplicates found (no partial hash collisions)");
@@ -2598,17 +2128,9 @@ async fn detect_duplicates(
     for collision in collision_hashes {
         let partial_hash = collision.partial_hash;
         // Get all songs with this partial hash, including cached full_file_hash if present
-        let songs = crate::db::raw::query_all::<DuplicateSongRow>(
-            database.conn(),
-            "SELECT s.id, s.file_path, s.music_folder_id, s.file_size, s.full_file_hash
-             FROM songs s
-             WHERE s.partial_hash = ?",
-            "SELECT s.id, s.file_path, s.music_folder_id, s.file_size, s.full_file_hash
-             FROM songs s
-             WHERE s.partial_hash = $1",
-            [Value::from(partial_hash.clone())],
-        )
-        .await?;
+        let songs =
+            crate::db::repo::scanner::list_songs_by_partial_hash(database.conn(), &partial_hash)
+                .await?;
 
         // Get music folders to resolve full paths
         let folders = crate::db::repo::users::get_music_folders(database).await?;
@@ -2687,11 +2209,10 @@ async fn detect_duplicates(
                     duplicate_paths.push(file_path.clone());
 
                     // Update the full_file_hash in database
-                    crate::db::raw::execute(
+                    crate::db::repo::scanner::set_full_file_hash(
                         database.conn(),
-                        "UPDATE songs SET full_file_hash = ? WHERE id = ?",
-                        "UPDATE songs SET full_file_hash = $1 WHERE id = $2",
-                        [Value::from(full_hash.clone()), Value::from(song_id.clone())],
+                        song_id,
+                        &full_hash,
                     )
                     .await?;
                 }
@@ -2728,34 +2249,9 @@ async fn detect_duplicates(
 
 /// Dry-run version of duplicate detection - just reports what would be found.
 async fn detect_duplicates_dry_run(database: &Database, _folder_id: Option<i64>) -> Result<()> {
-    #[derive(FromQueryResult)]
-    struct CollisionHashRow {
-        partial_hash: String,
-        cnt: i64,
-    }
-
-    #[derive(FromQueryResult)]
-    struct DryRunSongRow {
-        file_path: String,
-        file_size: i64,
-    }
-
     // Find partial hash collisions
-    let collision_hashes = crate::db::raw::query_all::<CollisionHashRow>(
-        database.conn(),
-        "SELECT partial_hash, COUNT(*) as cnt 
-         FROM songs 
-         WHERE partial_hash IS NOT NULL 
-         GROUP BY partial_hash 
-         HAVING COUNT(*) > 1",
-        "SELECT partial_hash, COUNT(*) as cnt 
-         FROM songs 
-         WHERE partial_hash IS NOT NULL 
-         GROUP BY partial_hash 
-         HAVING COUNT(*) > 1",
-        std::iter::empty::<Value>(),
-    )
-    .await?;
+    let collision_hashes =
+        crate::db::repo::scanner::list_partial_hash_collisions(database.conn()).await?;
 
     if collision_hashes.is_empty() {
         tracing::info!("Dry-run: No potential duplicates found");
@@ -2769,11 +2265,9 @@ async fn detect_duplicates_dry_run(database: &Database, _folder_id: Option<i64>)
 
     // Show details for each collision group
     for collision in &collision_hashes {
-        let songs = crate::db::raw::query_all::<DryRunSongRow>(
+        let songs = crate::db::repo::scanner::list_dry_run_songs_by_partial_hash(
             database.conn(),
-            "SELECT file_path, file_size FROM songs WHERE partial_hash = ?",
-            "SELECT file_path, file_size FROM songs WHERE partial_hash = $1",
-            [Value::from(collision.partial_hash.clone())],
+            &collision.partial_hash,
         )
         .await?;
 

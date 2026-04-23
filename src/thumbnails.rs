@@ -80,21 +80,11 @@ pub async fn ensure_cover_art_with_dimensions(
     database: &crate::db::Database,
     image_data: &[u8],
 ) -> Result<CoverArtResult> {
-    use crate::db::raw;
-    use sea_orm::Value;
-
     // 1. Compute hash
     let hash = blake3::hash(image_data).to_hex().to_string();
 
     // 2. Check if exists
-    let exists = raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT 1 FROM cover_art_thumbnails WHERE hash = ?",
-        "SELECT 1 FROM cover_art_thumbnails WHERE hash = $1",
-        [Value::from(hash.clone())],
-    )
-    .await?
-    .is_some();
+    let exists = crate::db::repo::coverart::thumbnail_exists(database, &hash).await?;
 
     // Clone data for the blocking task
     let data = image_data.to_vec();
@@ -119,25 +109,7 @@ pub async fn ensure_cover_art_with_dimensions(
             .map_err(|e| Error::Internal(e.to_string()))??;
 
     // 4. Insert
-    raw::execute(
-        database.conn(),
-        r#"
-            INSERT INTO cover_art_thumbnails (hash, small, medium, updated_at)
-            VALUES (?, ?, ?, datetime('now'))
-            ON CONFLICT(hash) DO NOTHING
-            "#,
-        r#"
-            INSERT INTO cover_art_thumbnails (hash, small, medium, updated_at)
-            VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-            ON CONFLICT(hash) DO NOTHING
-            "#,
-        [
-            Value::from(hash.clone()),
-            Value::from(small),
-            Value::from(medium),
-        ],
-    )
-    .await?;
+    crate::db::repo::coverart::insert_thumbnail_pair(database, &hash, small, medium).await?;
 
     Ok(CoverArtResult {
         hash,
@@ -171,32 +143,12 @@ pub async fn get_thumbnail(
     hash: &str,
     size: ThumbnailSize,
 ) -> Result<Option<Vec<u8>>> {
-    use crate::db::raw;
-    use sea_orm::{FromQueryResult, Value};
-
-    let column = match size {
-        ThumbnailSize::Small => "small",
-        ThumbnailSize::Medium => "medium",
+    let medium = match size {
+        ThumbnailSize::Small => false,
+        ThumbnailSize::Medium => true,
         ThumbnailSize::Large => return Ok(None),
     };
-
-    #[derive(FromQueryResult)]
-    struct BlobRow {
-        thumbnail: Vec<u8>,
-    }
-    let sqlite_sql =
-        format!("SELECT {column} AS thumbnail FROM cover_art_thumbnails WHERE hash = ?");
-    let postgres_sql =
-        format!("SELECT {column} AS thumbnail FROM cover_art_thumbnails WHERE hash = $1");
-    let result = raw::query_one::<BlobRow>(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        [Value::from(hash.to_string())],
-    )
-    .await?;
-
-    Ok(result.map(|r| r.thumbnail))
+    crate::db::repo::coverart::get_thumbnail_blob(database, hash, medium).await
 }
 
 /// Resize image to target size (square crop) and encode as JPEG

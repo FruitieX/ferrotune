@@ -10,9 +10,7 @@ use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso;
 use crate::api::subsonic::inline_thumbnails::get_song_thumbnails_base64;
 use crate::db::models::{ItemType, Song};
-use crate::db::raw;
 use crate::thumbnails::ThumbnailSize;
-use sea_orm::Value;
 use std::collections::HashMap;
 
 /// Play history entry with song and played_at timestamp
@@ -56,70 +54,33 @@ pub async fn fetch_play_history(
     user_id: i64,
     params: PlayHistoryParams,
 ) -> crate::error::Result<PlayHistoryResult> {
-    let songs: Vec<Song> = raw::query_all::<Song>(
+    // Step 1: Aggregate scrobbles per song (most recent N).
+    let aggregates = crate::db::repo::history::list_recent_song_aggregates(
         database.conn(),
-        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                  s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                  s.bitrate, s.file_path, s.file_size, s.file_format,
-                  s.created_at, s.updated_at, s.cover_art_hash,
-                  s.cover_art_width, s.cover_art_height,
-                  s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                  s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                  pc.play_count,
-                  sc.played_at as last_played,
-                  NULL as starred_at
-           FROM scrobbles sc
-           INNER JOIN songs s ON sc.song_id = s.id
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (
-                   SELECT song_id, COUNT(*) as play_count
-                   FROM scrobbles WHERE submission = 1 AND user_id = ?
-                   GROUP BY song_id
-           ) pc ON s.id = pc.song_id
-           WHERE sc.user_id = ? AND sc.submission = 1
-               AND sc.played_at = (
-                   SELECT MAX(sc2.played_at)
-                   FROM scrobbles sc2
-                   WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
-               )
-           ORDER BY sc.played_at DESC
-           LIMIT ? OFFSET ?"#,
-        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                  s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                  s.bitrate, s.file_path, s.file_size, s.file_format,
-                  s.created_at, s.updated_at, s.cover_art_hash,
-                  s.cover_art_width, s.cover_art_height,
-                  s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                  s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                  pc.play_count,
-                  sc.played_at as last_played,
-                  NULL::timestamptz as starred_at
-           FROM scrobbles sc
-           INNER JOIN songs s ON sc.song_id = s.id
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (
-                   SELECT song_id, COUNT(*)::BIGINT as play_count
-                   FROM scrobbles WHERE submission = TRUE AND user_id = $1
-                   GROUP BY song_id
-           ) pc ON s.id = pc.song_id
-           WHERE sc.user_id = $2 AND sc.submission = TRUE
-               AND sc.played_at = (
-                   SELECT MAX(sc2.played_at)
-                   FROM scrobbles sc2
-                   WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = TRUE
-               )
-           ORDER BY sc.played_at DESC
-           LIMIT $3 OFFSET $4"#,
-        [
-            Value::from(user_id),
-            Value::from(user_id),
-            Value::from(params.size),
-            Value::from(params.offset),
-        ],
+        user_id,
+        params.size,
+        params.offset,
     )
     .await?;
+
+    // Step 2: Fetch song metadata for the resulting ids.
+    let ordered_ids: Vec<String> = aggregates.iter().map(|a| a.song_id.clone()).collect();
+    let song_rows =
+        crate::db::repo::history::fetch_songs_by_ids(database.conn(), &ordered_ids).await?;
+
+    // Merge aggregates into songs preserving the aggregate ordering.
+    let mut song_by_id: HashMap<String, Song> =
+        song_rows.into_iter().map(|s| (s.id.clone(), s)).collect();
+    let songs: Vec<Song> = aggregates
+        .into_iter()
+        .filter_map(|agg| {
+            song_by_id.remove(&agg.song_id).map(|mut s| {
+                s.play_count = Some(agg.play_count);
+                s.last_played = Some(agg.last_played);
+                s
+            })
+        })
+        .collect();
 
     // Apply server-side filtering and sorting
     let songs = filter_and_sort_songs(
@@ -130,14 +91,8 @@ pub async fn fetch_play_history(
     );
 
     // Get total count of unique songs in history
-    let total: i64 = raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT COUNT(DISTINCT song_id) FROM scrobbles WHERE user_id = ? AND submission = 1",
-        "SELECT COUNT(DISTINCT song_id) FROM scrobbles WHERE user_id = $1 AND submission = TRUE",
-        [Value::from(user_id)],
-    )
-    .await?
-    .unwrap_or(0);
+    let total: i64 =
+        crate::db::repo::history::count_distinct_played_songs(database.conn(), user_id).await?;
 
     // Get starred status and ratings for all songs in the result
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();

@@ -8,5 +8,25 @@
 
 #![allow(dead_code)]
 
+pub mod bliss;
 pub mod browse;
+pub mod config;
+pub mod coverart;
+pub mod duplicates;
+pub mod history;
+pub mod listening;
+pub mod lists;
+pub mod matching;
+pub mod media;
+pub mod music_folders;
+pub mod playlists;
+pub mod recycle_bin;
+pub mod scanner;
+pub mod scrobbles;
+pub mod song_flags;
+pub mod starring;
+pub mod stats;
+pub mod tagger;
+pub mod tagger_session;
 pub mod users;
+pub mod waveform;

@@ -214,33 +214,24 @@ async fn list_visible_smart_playlists_for_user(
     database: &Database,
     user_id: i64,
 ) -> FerrotuneApiResult<Vec<SmartPlaylist>> {
-    use sea_orm::{ConnectionTrait, FromQueryResult, Statement, Values};
+    use crate::db::entity::smart_playlists;
+    use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder};
 
-    let sql = match smart_playlist_sql_dialect(database) {
-        SmartPlaylistSqlDialect::Sqlite => {
-            "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
-             FROM smart_playlists
-             WHERE owner_id = ? OR is_public = 1
-             ORDER BY name COLLATE NOCASE"
-        }
-        SmartPlaylistSqlDialect::Postgres => {
-            "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
-             FROM smart_playlists
-             WHERE owner_id = $1 OR is_public
-             ORDER BY LOWER(name), name"
-        }
-    };
-
-    let stmt = Statement::from_sql_and_values(
-        database.sea_backend(),
-        sql,
-        Values(vec![Value::from(user_id)]),
-    );
-    let rows = database.conn().query_all(stmt).await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| SmartPlaylist::from_query_result(&row, ""))
-        .collect::<Result<Vec<_>, _>>()?)
+    let backend = database.sea_backend();
+    Ok(smart_playlists::Entity::find()
+        .filter(
+            Condition::any()
+                .add(smart_playlists::Column::OwnerId.eq(user_id))
+                .add(smart_playlists::Column::IsPublic.eq(true)),
+        )
+        .order_by_asc(crate::db::ordering::case_insensitive_order(
+            backend,
+            (smart_playlists::Entity, smart_playlists::Column::Name),
+        ))
+        .order_by_asc(smart_playlists::Column::Name)
+        .into_model::<SmartPlaylist>()
+        .all(database.conn())
+        .await?)
 }
 
 async fn get_visible_smart_playlist_for_user(
@@ -248,35 +239,19 @@ async fn get_visible_smart_playlist_for_user(
     playlist_id: &str,
     user_id: i64,
 ) -> FerrotuneApiResult<Option<SmartPlaylist>> {
-    use sea_orm::{ConnectionTrait, FromQueryResult, Statement, Values};
+    use crate::db::entity::smart_playlists;
+    use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter};
 
-    let sql = match smart_playlist_sql_dialect(database) {
-        SmartPlaylistSqlDialect::Sqlite => {
-            "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
-             FROM smart_playlists
-             WHERE id = ? AND (owner_id = ? OR is_public = 1)"
-        }
-        SmartPlaylistSqlDialect::Postgres => {
-            "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
-             FROM smart_playlists
-             WHERE id = $1 AND (owner_id = $2 OR is_public)"
-        }
-    };
-
-    let stmt = Statement::from_sql_and_values(
-        database.sea_backend(),
-        sql,
-        Values(vec![
-            Value::from(playlist_id.to_string()),
-            Value::from(user_id),
-        ]),
-    );
-    Ok(database
-        .conn()
-        .query_one(stmt)
-        .await?
-        .map(|row| SmartPlaylist::from_query_result(&row, ""))
-        .transpose()?)
+    Ok(smart_playlists::Entity::find()
+        .filter(smart_playlists::Column::Id.eq(playlist_id))
+        .filter(
+            Condition::any()
+                .add(smart_playlists::Column::OwnerId.eq(user_id))
+                .add(smart_playlists::Column::IsPublic.eq(true)),
+        )
+        .into_model::<SmartPlaylist>()
+        .one(database.conn())
+        .await?)
 }
 
 async fn get_owned_smart_playlist_for_user(
@@ -284,31 +259,15 @@ async fn get_owned_smart_playlist_for_user(
     playlist_id: &str,
     user_id: i64,
 ) -> FerrotuneApiResult<Option<SmartPlaylist>> {
-    use sea_orm::{ConnectionTrait, FromQueryResult, Statement, Values};
+    use crate::db::entity::smart_playlists;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-    let sql = match smart_playlist_sql_dialect(database) {
-        SmartPlaylistSqlDialect::Sqlite => {
-            "SELECT * FROM smart_playlists WHERE id = ? AND owner_id = ?"
-        }
-        SmartPlaylistSqlDialect::Postgres => {
-            "SELECT * FROM smart_playlists WHERE id = $1 AND owner_id = $2"
-        }
-    };
-
-    let stmt = Statement::from_sql_and_values(
-        database.sea_backend(),
-        sql,
-        Values(vec![
-            Value::from(playlist_id.to_string()),
-            Value::from(user_id),
-        ]),
-    );
-    Ok(database
-        .conn()
-        .query_one(stmt)
-        .await?
-        .map(|row| SmartPlaylist::from_query_result(&row, ""))
-        .transpose()?)
+    Ok(smart_playlists::Entity::find()
+        .filter(smart_playlists::Column::Id.eq(playlist_id))
+        .filter(smart_playlists::Column::OwnerId.eq(user_id))
+        .into_model::<SmartPlaylist>()
+        .one(database.conn())
+        .await?)
 }
 
 // ============================================================================
@@ -396,27 +355,24 @@ pub async fn create_smart_playlist(
     let rules_json = serde_json::to_string(&request.rules)
         .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
 
-    let binds: Vec<Value> = vec![
-        Value::from(id.clone()),
-        Value::from(request.name.clone()),
-        Value::from(request.comment.clone()),
-        Value::from(user.user_id),
-        Value::from(request.is_public.unwrap_or(false)),
-        Value::from(rules_json),
-        Value::from(request.sort_field.clone()),
-        Value::from(request.sort_direction.clone()),
-        Value::from(request.max_songs),
-        Value::from(request.folder_id.clone()),
-    ];
-    execute_dml(
-        &state.database,
-        "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-        binds,
-    )
-    .await?;
+    {
+        use crate::db::entity::smart_playlists;
+        use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+        let active = smart_playlists::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(request.name.clone()),
+            comment: Set(request.comment.clone()),
+            owner_id: Set(user.user_id),
+            is_public: Set(request.is_public.unwrap_or(false)),
+            rules_json: Set(rules_json),
+            sort_field: Set(request.sort_field.clone()),
+            sort_direction: Set(request.sort_direction.clone()),
+            max_songs: Set(request.max_songs),
+            folder_id: Set(request.folder_id.clone()),
+            ..Default::default()
+        };
+        active.insert(state.database.conn()).await?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -445,103 +401,63 @@ pub async fn update_smart_playlist(
         .into());
     }
 
-    // Build dynamic update query
-    let dialect = smart_playlist_sql_dialect(&state.database);
-    let mut updates: Vec<String> = Vec::new();
-    let mut bindings: Vec<SmartPlaylistUpdateBinding> = Vec::new();
+    // Build dynamic update via SeaORM ActiveModel
+    use crate::db::entity::smart_playlists;
+    use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 
-    let next_placeholder = |count: usize| match dialect {
-        SmartPlaylistSqlDialect::Sqlite => "?".to_string(),
-        SmartPlaylistSqlDialect::Postgres => format!("${}", count + 1),
+    let mut active = smart_playlists::ActiveModel {
+        id: Set(id.clone()),
+        ..Default::default()
     };
+    let mut has_updates = false;
 
     if let Some(name) = &request.name {
-        updates.push(format!("name = {}", next_placeholder(bindings.len())));
-        bindings.push(SmartPlaylistUpdateBinding::Text(name.clone()));
+        active.name = Set(name.clone());
+        has_updates = true;
     }
     if let Some(comment) = &request.comment {
-        updates.push(format!("comment = {}", next_placeholder(bindings.len())));
-        bindings.push(SmartPlaylistUpdateBinding::Text(comment.clone()));
+        active.comment = Set(Some(comment.clone()));
+        has_updates = true;
     }
     if let Some(is_public) = request.is_public {
-        updates.push(format!("is_public = {}", next_placeholder(bindings.len())));
-        bindings.push(SmartPlaylistUpdateBinding::Bool(is_public));
+        active.is_public = Set(is_public);
+        has_updates = true;
     }
     if let Some(rules) = &request.rules {
         let rules_json = serde_json::to_string(rules)
             .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
-        updates.push(format!("rules_json = {}", next_placeholder(bindings.len())));
-        bindings.push(SmartPlaylistUpdateBinding::Text(rules_json));
+        active.rules_json = Set(rules_json);
+        has_updates = true;
     }
     if let Some(sort_field) = &request.sort_field {
-        updates.push(format!("sort_field = {}", next_placeholder(bindings.len())));
-        bindings.push(SmartPlaylistUpdateBinding::Text(sort_field.clone()));
+        active.sort_field = Set(Some(sort_field.clone()));
+        has_updates = true;
     }
     if let Some(sort_direction) = &request.sort_direction {
-        updates.push(format!(
-            "sort_direction = {}",
-            next_placeholder(bindings.len())
-        ));
-        bindings.push(SmartPlaylistUpdateBinding::Text(sort_direction.clone()));
+        active.sort_direction = Set(Some(sort_direction.clone()));
+        has_updates = true;
     }
-    // Handle max_songs which can be Some(Some(N)), Some(None), or None
+    // max_songs: Some(Some(N)) sets, Some(None) clears, None leaves unchanged
     if let Some(max_songs) = request.max_songs {
-        match max_songs {
-            Some(n) => {
-                updates.push(format!("max_songs = {}", next_placeholder(bindings.len())));
-                bindings.push(SmartPlaylistUpdateBinding::I64(n));
-            }
-            None => {
-                updates.push("max_songs = NULL".to_string());
-            }
-        }
+        active.max_songs = Set(max_songs);
+        has_updates = true;
     }
-
-    // Handle folder_id which can be Some(Some(id)), Some(None) to move to root, or None to leave unchanged
+    // folder_id: Some(Some(id)) sets, Some(None) clears to root, None leaves unchanged
     if let Some(folder_id) = &request.folder_id {
-        match folder_id {
-            Some(id) => {
-                updates.push(format!("folder_id = {}", next_placeholder(bindings.len())));
-                bindings.push(SmartPlaylistUpdateBinding::Text(id.clone()));
-            }
-            None => {
-                updates.push("folder_id = NULL".to_string());
-            }
-        }
+        active.folder_id = Set(folder_id.clone());
+        has_updates = true;
     }
 
-    if updates.is_empty() {
+    if !has_updates {
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
 
-    updates.push(match dialect {
-        SmartPlaylistSqlDialect::Sqlite => "updated_at = datetime('now')".to_string(),
-        SmartPlaylistSqlDialect::Postgres => "updated_at = CURRENT_TIMESTAMP".to_string(),
-    });
-
-    let id_placeholder = next_placeholder(bindings.len());
-    let query = format!(
-        "UPDATE smart_playlists SET {} WHERE id = {}",
-        updates.join(", "),
-        id_placeholder
-    );
-
-    let mut binds: Vec<Value> = Vec::with_capacity(bindings.len() + 1);
-    for binding in &bindings {
-        match binding {
-            SmartPlaylistUpdateBinding::Text(value) => binds.push(Value::from(value.clone())),
-            SmartPlaylistUpdateBinding::Bool(value) => binds.push(Value::from(*value)),
-            SmartPlaylistUpdateBinding::I64(value) => binds.push(Value::from(*value)),
-        }
-    }
-    binds.push(Value::from(id.clone()));
-
-    {
-        use sea_orm::{ConnectionTrait, Statement, Values};
-        let stmt =
-            Statement::from_sql_and_values(state.database.sea_backend(), &query, Values(binds));
-        state.database.conn().execute(stmt).await?;
-    }
+    active.updated_at = Set(chrono::Utc::now().fixed_offset());
+    smart_playlists::Entity::update_many()
+        .set(active)
+        .filter(smart_playlists::Column::Id.eq(id.clone()))
+        .exec(state.database.conn())
+        .await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
@@ -552,15 +468,16 @@ pub async fn delete_smart_playlist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
-    let rows_affected = execute_dml(
-        &state.database,
-        "DELETE FROM smart_playlists WHERE id = ? AND owner_id = ?",
-        "DELETE FROM smart_playlists WHERE id = $1 AND owner_id = $2",
-        vec![Value::from(id.clone()), Value::from(user.user_id)],
-    )
-    .await?;
+    use crate::db::entity::smart_playlists;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-    if rows_affected == 0 {
+    let res = smart_playlists::Entity::delete_many()
+        .filter(smart_playlists::Column::Id.eq(id.clone()))
+        .filter(smart_playlists::Column::OwnerId.eq(user.user_id))
+        .exec(state.database.conn())
+        .await?;
+
+    if res.rows_affected == 0 {
         return Err(Error::NotFound(format!(
             "Smart playlist {} not found or not owned by you",
             id
@@ -976,24 +893,6 @@ async fn execute_smart_playlist_song_query(
     execute_song_sql(database, sqlite_query, binds).await
 }
 
-/// Execute a DML (INSERT/UPDATE/DELETE) statement, choosing the dialect
-/// variant and returning the affected row count.
-async fn execute_dml(
-    database: &Database,
-    sqlite_sql: &str,
-    postgres_sql: &str,
-    binds: Vec<Value>,
-) -> FerrotuneApiResult<u64> {
-    use sea_orm::{ConnectionTrait, Statement, Values};
-    let sql = match smart_playlist_sql_dialect(database) {
-        SmartPlaylistSqlDialect::Sqlite => sqlite_sql,
-        SmartPlaylistSqlDialect::Postgres => postgres_sql,
-    };
-    let stmt = Statement::from_sql_and_values(database.sea_backend(), sql, Values(binds));
-    let result = database.conn().execute(stmt).await?;
-    Ok(result.rows_affected())
-}
-
 /// Materialize songs matching the smart playlist rules
 #[allow(clippy::too_many_arguments)]
 pub async fn materialize_smart_playlist_songs(
@@ -1337,13 +1236,6 @@ pub async fn get_smart_playlist_songs_by_id(
 #[derive(Debug, Clone)]
 enum SqlArg {
     Text(String),
-    I64(i64),
-}
-
-#[derive(Debug, Clone)]
-enum SmartPlaylistUpdateBinding {
-    Text(String),
-    Bool(bool),
     I64(i64),
 }
 

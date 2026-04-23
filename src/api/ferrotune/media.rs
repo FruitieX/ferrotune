@@ -121,24 +121,8 @@ pub async fn delete_song_files(
 
     for song_id in &request.song_ids {
         // Get the song and its folder path to construct the full file path
-        #[derive(sea_orm::FromQueryResult)]
-        struct SongPathRow {
-            file_path: String,
-            folder_path: String,
-        }
-        let result = crate::db::raw::query_one::<SongPathRow>(
-            state.database.conn(),
-            "SELECT s.file_path, mf.path as folder_path \
-             FROM songs s \
-             JOIN music_folders mf ON s.music_folder_id = mf.id \
-             WHERE s.id = ?",
-            "SELECT s.file_path, mf.path as folder_path \
-             FROM songs s \
-             JOIN music_folders mf ON s.music_folder_id = mf.id \
-             WHERE s.id = $1",
-            [sea_orm::Value::from(song_id.clone())],
-        )
-        .await;
+        let result =
+            crate::db::repo::media::get_song_with_folder_path(&state.database, song_id).await;
         let song_with_folder = match result {
             Ok(r) => r,
             Err(e) => {
@@ -148,10 +132,7 @@ pub async fn delete_song_files(
         };
 
         let (file_path, folder_path) = match song_with_folder {
-            Some(SongPathRow {
-                file_path,
-                folder_path,
-            }) => (file_path, folder_path),
+            Some(row) => (row.file_path, row.folder_path),
             None => {
                 errors.push(format!("Song not found: {}", song_id));
                 continue;

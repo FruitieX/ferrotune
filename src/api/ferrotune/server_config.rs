@@ -6,6 +6,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::db::repo::config as config_repo;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::extract::State;
 use axum::response::Json;
@@ -68,15 +69,10 @@ pub struct UpdateServerConfigRequest {
 
 /// Get server configuration from database
 async fn get_config_value(database: &crate::db::Database, key: &str) -> Option<String> {
-    crate::db::raw::query_scalar::<String>(
-        database.conn(),
-        "SELECT value FROM server_config WHERE key = ?",
-        "SELECT value FROM server_config WHERE key = $1",
-        [sea_orm::Value::from(key.to_string())],
-    )
-    .await
-    .ok()
-    .flatten()
+    config_repo::get_config_value(database, key)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Set server configuration value in database
@@ -85,18 +81,9 @@ async fn set_config_value(
     key: &str,
     value: &str,
 ) -> FerrotuneApiResult<()> {
-    crate::db::raw::execute(
-        database.conn(),
-        "INSERT OR REPLACE INTO server_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-        "INSERT INTO server_config (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
-        [
-            sea_orm::Value::from(key.to_string()),
-            sea_orm::Value::from(value.to_string()),
-        ],
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to set config value: {}", e)))?;
+    config_repo::set_config_value(database, key, value)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to set config value: {}", e)))?;
     Ok(())
 }
 
@@ -277,23 +264,13 @@ pub async fn get_all_config(
         )));
     }
 
-    #[derive(sea_orm::FromQueryResult)]
-    struct KvRow {
-        key: String,
-        value: String,
-    }
-    let rows: Vec<KvRow> = crate::db::raw::query_all::<KvRow>(
-        state.database.conn(),
-        "SELECT key, value FROM server_config",
-        "SELECT key, value FROM server_config",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?;
+    let rows = config_repo::get_all_config_values(&state.database)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?;
 
     let config: HashMap<String, serde_json::Value> = rows
         .into_iter()
-        .filter_map(|r| serde_json::from_str(&r.value).ok().map(|v| (r.key, v)))
+        .filter_map(|(key, value)| serde_json::from_str(&value).ok().map(|v| (key, v)))
         .collect();
 
     Ok(Json(config))

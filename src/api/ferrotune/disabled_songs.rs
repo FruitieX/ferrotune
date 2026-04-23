@@ -6,6 +6,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::db::repo::song_flags;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
@@ -65,21 +66,9 @@ pub async fn get_disabled(
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
 ) -> FerrotuneApiResult<Json<DisabledStatusResponse>> {
-    let result = crate::db::raw::query_scalar::<i64>(
-        state.database.conn(),
-        "SELECT id FROM disabled_songs WHERE user_id = ? AND song_id = ?",
-        "SELECT id FROM disabled_songs WHERE user_id = $1 AND song_id = $2",
-        [
-            sea_orm::Value::from(user.user_id),
-            sea_orm::Value::from(song_id.clone()),
-        ],
-    )
-    .await?;
+    let disabled = song_flags::is_song_disabled(&state.database, user.user_id, &song_id).await?;
 
-    Ok(Json(DisabledStatusResponse {
-        song_id,
-        disabled: result.is_some(),
-    }))
+    Ok(Json(DisabledStatusResponse { song_id, disabled }))
 }
 
 /// Set disabled status for a song.
@@ -91,42 +80,14 @@ pub async fn set_disabled(
     Path(song_id): Path<String>,
     Json(body): Json<SetDisabledRequest>,
 ) -> FerrotuneApiResult<Json<DisabledStatusResponse>> {
-    if body.disabled {
-        crate::db::raw::execute(
-            state.database.conn(),
-            "INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)",
-            "INSERT INTO disabled_songs (user_id, song_id) VALUES ($1, $2) \
-             ON CONFLICT (user_id, song_id) DO NOTHING",
-            [
-                sea_orm::Value::from(user.user_id),
-                sea_orm::Value::from(song_id.clone()),
-            ],
-        )
+    song_flags::set_song_disabled(&state.database, user.user_id, &song_id, body.disabled)
         .await
-        .map_err(|e| Error::Internal(format!("Failed to disable song: {}", e)))?;
+        .map_err(|e| Error::Internal(format!("Failed to set disabled state: {}", e)))?;
 
-        Ok(Json(DisabledStatusResponse {
-            song_id,
-            disabled: true,
-        }))
-    } else {
-        crate::db::raw::execute(
-            state.database.conn(),
-            "DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?",
-            "DELETE FROM disabled_songs WHERE user_id = $1 AND song_id = $2",
-            [
-                sea_orm::Value::from(user.user_id),
-                sea_orm::Value::from(song_id.clone()),
-            ],
-        )
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to enable song: {}", e)))?;
-
-        Ok(Json(DisabledStatusResponse {
-            song_id,
-            disabled: false,
-        }))
-    }
+    Ok(Json(DisabledStatusResponse {
+        song_id,
+        disabled: body.disabled,
+    }))
 }
 
 /// Get all disabled songs for the current user.
@@ -136,22 +97,11 @@ pub async fn get_all_disabled(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<DisabledSongsResponse>> {
-    #[derive(sea_orm::FromQueryResult)]
-    struct IdRow {
-        song_id: String,
-    }
-    let rows = crate::db::raw::query_all::<IdRow>(
-        state.database.conn(),
-        "SELECT song_id FROM disabled_songs WHERE user_id = ?",
-        "SELECT song_id FROM disabled_songs WHERE user_id = $1",
-        [sea_orm::Value::from(user.user_id)],
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to get disabled songs: {}", e)))?;
+    let song_ids = song_flags::list_disabled_song_ids(&state.database, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get disabled songs: {}", e)))?;
 
-    Ok(Json(DisabledSongsResponse {
-        song_ids: rows.into_iter().map(|r| r.song_id).collect(),
-    }))
+    Ok(Json(DisabledSongsResponse { song_ids }))
 }
 
 /// Bulk set disabled status for multiple songs.
@@ -164,34 +114,8 @@ pub async fn bulk_set_disabled(
 ) -> FerrotuneApiResult<Json<BulkDisabledResponse>> {
     let count = body.song_ids.len();
 
-    if body.disabled {
-        for song_id in &body.song_ids {
-            crate::db::raw::execute(
-                state.database.conn(),
-                "INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)",
-                "INSERT INTO disabled_songs (user_id, song_id) VALUES ($1, $2) \
-                 ON CONFLICT (user_id, song_id) DO NOTHING",
-                [
-                    sea_orm::Value::from(user.user_id),
-                    sea_orm::Value::from(song_id.clone()),
-                ],
-            )
-            .await?;
-        }
-    } else {
-        for song_id in &body.song_ids {
-            crate::db::raw::execute(
-                state.database.conn(),
-                "DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?",
-                "DELETE FROM disabled_songs WHERE user_id = $1 AND song_id = $2",
-                [
-                    sea_orm::Value::from(user.user_id),
-                    sea_orm::Value::from(song_id.clone()),
-                ],
-            )
-            .await?;
-        }
-    }
+    song_flags::bulk_set_disabled(&state.database, user.user_id, &body.song_ids, body.disabled)
+        .await?;
 
     Ok(Json(BulkDisabledResponse {
         count,
