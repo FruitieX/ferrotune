@@ -1,108 +1,295 @@
 //! Browse queries: artists, albums, songs.
 //!
 //! SeaORM replacement for the browse-related bodies in `src/db/queries.rs`.
-//! Because the existing queries rely on JOINs with computed columns
-//! (`play_count`, `last_played`, `starred_at`, `library_enabled`,
-//! `folder_path`, `artist_name`, `album_name`), this module uses the
-//! dialect-aware [`crate::db::raw`] helpers with [`sea_orm::FromQueryResult`]
-//! on the existing `models::*` structs.
+//! This module now uses SeaORM query-builder and Entity patterns for the
+//! browse read surface, including the song list/read queries. Aggregated play
+//! stats are composed via the shared scrobble repo helpers instead of inline
+//! dialect-specific SQL.
 
-use sea_orm::Value;
+use sea_orm::sea_query::{Expr, Func, SimpleExpr};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait, RelationTrait, Value,
+};
 
+use std::collections::HashMap;
+
+use crate::db::entity;
 use crate::db::models::{Album, Artist, Song, SongWithFolder, SongWithLibraryStatus};
-use crate::db::{raw, Database};
+use crate::db::ordering::case_insensitive_order;
+use crate::db::repo::scrobbles::{self, PlayStatsAggregation, SongPlayStatsRow};
+use crate::db::repo::users;
+use crate::db::Database;
 use crate::error::Result;
 
-// ---------------------------------------------------------------------------
-// SQL fragments
-// ---------------------------------------------------------------------------
+fn artist_sort_expr(database: &Database) -> SimpleExpr {
+    let sort_expr = Expr::col(entity::artists::Column::SortName)
+        .if_null(Expr::col(entity::artists::Column::Name));
 
-/// Base SELECT returning every column needed by `models::Song`, aliasing
-/// the optional JOIN columns as NULL by default. Callers append WHERE/JOIN
-/// clauses as needed.
-const SONG_SELECT_FULL_SQLITE: &str = r#"
-SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-       NULL AS play_count, NULL AS last_played, NULL AS starred_at
-FROM songs s
-INNER JOIN artists ar ON s.artist_id = ar.id
-LEFT JOIN albums al ON s.album_id = al.id
-"#;
+    match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => Expr::cust_with_expr("$1 COLLATE NOCASE", sort_expr),
+        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
+            SimpleExpr::FunctionCall(Func::lower(sort_expr))
+        }
+    }
+}
 
-const SONG_SELECT_FULL_POSTGRES: &str = r#"
-SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-       NULL::BIGINT AS play_count,
-       NULL::TIMESTAMPTZ AS last_played,
-       NULL::TIMESTAMPTZ AS starred_at
-FROM songs s
-INNER JOIN artists ar ON s.artist_id = ar.id
-LEFT JOIN albums al ON s.album_id = al.id
-"#;
+async fn enabled_music_folder_ids(database: &Database) -> Result<Vec<i64>> {
+    entity::music_folders::Entity::find()
+        .select_only()
+        .column(entity::music_folders::Column::Id)
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .into_tuple::<i64>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+async fn visible_artist_ids(database: &Database, folder_ids: &[i64]) -> Result<Vec<String>> {
+    if folder_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    entity::songs::Entity::find()
+        .select_only()
+        .column(entity::songs::Column::ArtistId)
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .distinct()
+        .into_tuple::<String>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+async fn visible_album_ids_for_artist(
+    database: &Database,
+    artist_id: &str,
+    folder_ids: &[i64],
+) -> Result<Vec<String>> {
+    if folder_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let album_ids = entity::songs::Entity::find()
+        .select_only()
+        .column(entity::songs::Column::AlbumId)
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .filter(entity::songs::Column::AlbumId.is_not_null())
+        .filter(
+            entity::songs::Column::ArtistId.eq(artist_id).or(Expr::col((
+                entity::songs::Entity,
+                entity::songs::Column::AlbumId,
+            ))
+            .in_subquery(
+                entity::albums::Entity::find()
+                    .select_only()
+                    .column(entity::albums::Column::Id)
+                    .filter(entity::albums::Column::ArtistId.eq(artist_id))
+                    .into_query(),
+            )),
+        )
+        .distinct()
+        .into_tuple::<Option<String>>()
+        .all(database.conn())
+        .await?;
+
+    Ok(album_ids.into_iter().flatten().collect())
+}
+
+fn artist_select() -> sea_orm::Select<entity::artists::Entity> {
+    entity::artists::Entity::find().select_only().columns([
+        entity::artists::Column::Id,
+        entity::artists::Column::Name,
+        entity::artists::Column::SortName,
+        entity::artists::Column::AlbumCount,
+        entity::artists::Column::SongCount,
+        entity::artists::Column::CoverArtHash,
+    ])
+}
+
+fn album_select() -> sea_orm::Select<entity::albums::Entity> {
+    entity::albums::Entity::find()
+        .select_only()
+        .column(entity::albums::Column::Id)
+        .column(entity::albums::Column::Name)
+        .column(entity::albums::Column::ArtistId)
+        .column(entity::albums::Column::Year)
+        .column(entity::albums::Column::Genre)
+        .column(entity::albums::Column::SongCount)
+        .column(entity::albums::Column::Duration)
+        .column(entity::albums::Column::CreatedAt)
+        .column(entity::albums::Column::CoverArtHash)
+        .column_as(entity::artists::Column::Name, "artist_name")
+        .join(JoinType::InnerJoin, entity::albums::Relation::Artists.def())
+}
+
+fn nullable_bigint_expr(database: &Database) -> SimpleExpr {
+    match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => Expr::value(Value::BigInt(None)),
+        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
+            Expr::value(Value::BigInt(None)).cast_as("BIGINT")
+        }
+    }
+}
+
+fn nullable_timestamptz_expr(database: &Database) -> SimpleExpr {
+    match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => Expr::value(Value::ChronoDateTimeWithTimeZone(None)),
+        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
+            Expr::value(Value::ChronoDateTimeWithTimeZone(None)).cast_as("TIMESTAMPTZ")
+        }
+    }
+}
+
+pub(crate) fn song_select(database: &Database) -> sea_orm::Select<entity::songs::Entity> {
+    entity::songs::Entity::find()
+        .join(JoinType::InnerJoin, entity::songs::Relation::Artists.def())
+        .join(JoinType::LeftJoin, entity::songs::Relation::Albums.def())
+        .column_as(
+            Expr::col((entity::artists::Entity, entity::artists::Column::Name)),
+            "artist_name",
+        )
+        .column_as(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Name)),
+            "album_name",
+        )
+        .column_as(nullable_bigint_expr(database), "play_count")
+        .column_as(nullable_timestamptz_expr(database), "last_played")
+        .column_as(nullable_timestamptz_expr(database), "starred_at")
+}
+
+fn song_with_folder_select(database: &Database) -> sea_orm::Select<entity::songs::Entity> {
+    song_select(database)
+        .join(
+            JoinType::LeftJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .column_as(
+            Expr::col((
+                entity::music_folders::Entity,
+                entity::music_folders::Column::Path,
+            )),
+            "folder_path",
+        )
+}
+
+fn song_with_library_status_select(database: &Database) -> sea_orm::Select<entity::songs::Entity> {
+    song_select(database)
+        .join(
+            JoinType::InnerJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .column_as(
+            Expr::col((
+                entity::music_folders::Entity,
+                entity::music_folders::Column::Enabled,
+            )),
+            "library_enabled",
+        )
+}
+
+pub(crate) fn apply_song_play_stats(songs: &mut [Song], stats: Vec<SongPlayStatsRow>) {
+    let stats_by_song = stats
+        .into_iter()
+        .map(|row| {
+            let song_id = row.song_id.clone();
+            (song_id, row)
+        })
+        .collect::<HashMap<_, _>>();
+
+    for song in songs {
+        if let Some(row) = stats_by_song.get(&song.id) {
+            song.play_count = Some(row.play_count);
+            song.last_played = row.last_played;
+        } else {
+            song.play_count = None;
+            song.last_played = None;
+        }
+        song.starred_at = None;
+    }
+}
+
+fn apply_song_library_status_play_stats(
+    songs: &mut [SongWithLibraryStatus],
+    stats: Vec<SongPlayStatsRow>,
+) {
+    let stats_by_song = stats
+        .into_iter()
+        .map(|row| {
+            let song_id = row.song_id.clone();
+            (song_id, row)
+        })
+        .collect::<HashMap<_, _>>();
+
+    for song in songs {
+        if let Some(row) = stats_by_song.get(&song.id) {
+            song.play_count = Some(row.play_count);
+            song.last_played = row.last_played;
+        } else {
+            song.play_count = None;
+            song.last_played = None;
+        }
+        song.starred_at = None;
+    }
+}
+
+fn artist_song_condition(artist_id: &str, album_ids: &[String]) -> Condition {
+    let mut condition = Condition::any().add(entity::songs::Column::ArtistId.eq(artist_id));
+
+    if !album_ids.is_empty() {
+        condition = condition.add(entity::songs::Column::AlbumId.is_in(album_ids.iter().cloned()));
+    }
+
+    condition
+}
 
 // ---------------------------------------------------------------------------
 // Artists
 // ---------------------------------------------------------------------------
 
 pub async fn get_artists(database: &Database) -> Result<Vec<Artist>> {
-    let rows = raw::query_all::<Artist>(
-        database.conn(),
-        r#"SELECT id, name, sort_name, album_count, song_count, cover_art_hash
-           FROM artists
-           WHERE EXISTS (
-               SELECT 1 FROM songs s
-               INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-               WHERE s.artist_id = artists.id AND mf.enabled = 1
-           )
-           ORDER BY COALESCE(sort_name, name) COLLATE NOCASE"#,
-        r#"SELECT id, name, sort_name, album_count, song_count, cover_art_hash
-           FROM artists
-           WHERE EXISTS (
-               SELECT 1 FROM songs s
-               INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-               WHERE s.artist_id = artists.id AND mf.enabled
-           )
-           ORDER BY LOWER(COALESCE(sort_name, name))"#,
-        [],
-    )
-    .await?;
-    Ok(rows)
+    let folder_ids = enabled_music_folder_ids(database).await?;
+    let artist_ids = visible_artist_ids(database, &folder_ids).await?;
+
+    if artist_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    artist_select()
+        .filter(entity::artists::Column::Id.is_in(artist_ids))
+        .order_by(artist_sort_expr(database), Order::Asc)
+        .order_by_asc(entity::artists::Column::Name)
+        .into_model::<Artist>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn get_artists_for_user(database: &Database, user_id: i64) -> Result<Vec<Artist>> {
-    let rows = raw::query_all::<Artist>(
-        database.conn(),
-        r#"SELECT id, name, sort_name, album_count, song_count, cover_art_hash
-           FROM artists
-           WHERE EXISTS (
-               SELECT 1 FROM songs s
-               INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-               INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-               WHERE s.artist_id = artists.id AND mf.enabled = 1 AND ula.user_id = ?
-           )
-           ORDER BY COALESCE(sort_name, name) COLLATE NOCASE"#,
-        r#"SELECT id, name, sort_name, album_count, song_count, cover_art_hash
-           FROM artists
-           WHERE EXISTS (
-               SELECT 1 FROM songs s
-               INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-               INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-               WHERE s.artist_id = artists.id AND mf.enabled AND ula.user_id = $1
-           )
-           ORDER BY LOWER(COALESCE(sort_name, name))"#,
-        [Value::from(user_id)],
-    )
-    .await?;
-    Ok(rows)
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    let artist_ids = visible_artist_ids(database, &folder_ids).await?;
+
+    if artist_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    artist_select()
+        .filter(entity::artists::Column::Id.is_in(artist_ids))
+        .order_by(artist_sort_expr(database), Order::Asc)
+        .order_by_asc(entity::artists::Column::Name)
+        .into_model::<Artist>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn get_artist_by_id(database: &Database, id: &str) -> Result<Option<Artist>> {
-    let row = raw::query_one::<Artist>(
-        database.conn(),
-        "SELECT * FROM artists WHERE id = ?",
-        "SELECT * FROM artists WHERE id = $1",
-        [Value::from(id.to_string())],
-    )
-    .await?;
-    Ok(row)
+    artist_select()
+        .filter(entity::artists::Column::Id.eq(id))
+        .into_model::<Artist>()
+        .one(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 // ---------------------------------------------------------------------------
@@ -110,32 +297,35 @@ pub async fn get_artist_by_id(database: &Database, id: &str) -> Result<Option<Ar
 // ---------------------------------------------------------------------------
 
 pub async fn get_albums_by_artist(database: &Database, artist_id: &str) -> Result<Vec<Album>> {
-    let rows = raw::query_all::<Album>(
-        database.conn(),
-        r#"SELECT a.*, ar.name AS artist_name
-           FROM albums a
-           INNER JOIN artists ar ON a.artist_id = ar.id
-           WHERE a.artist_id = ?
-             AND EXISTS (
-                 SELECT 1 FROM songs s
-                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                 WHERE s.album_id = a.id AND mf.enabled = 1
-             )
-           ORDER BY a.year, a.name COLLATE NOCASE"#,
-        r#"SELECT a.*, ar.name AS artist_name
-           FROM albums a
-           INNER JOIN artists ar ON a.artist_id = ar.id
-           WHERE a.artist_id = $1
-             AND EXISTS (
-                 SELECT 1 FROM songs s
-                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                 WHERE s.album_id = a.id AND mf.enabled
-             )
-           ORDER BY a.year, LOWER(a.name)"#,
-        [Value::from(artist_id.to_string())],
-    )
-    .await?;
-    Ok(rows)
+    let folder_ids = enabled_music_folder_ids(database).await?;
+    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
+
+    if album_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    album_select()
+        .filter(entity::albums::Column::ArtistId.eq(artist_id))
+        .filter(entity::albums::Column::Id.is_in(album_ids))
+        .order_by(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Year)),
+            Order::Asc,
+        )
+        .order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::albums::Entity, entity::albums::Column::Name),
+            ),
+            Order::Asc,
+        )
+        .order_by(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Name)),
+            Order::Asc,
+        )
+        .into_model::<Album>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn get_albums_by_artist_for_user(
@@ -143,51 +333,44 @@ pub async fn get_albums_by_artist_for_user(
     artist_id: &str,
     user_id: i64,
 ) -> Result<Vec<Album>> {
-    let rows = raw::query_all::<Album>(
-        database.conn(),
-        r#"SELECT a.*, ar.name AS artist_name
-           FROM albums a
-           INNER JOIN artists ar ON a.artist_id = ar.id
-           WHERE a.artist_id = ?
-             AND EXISTS (
-                 SELECT 1 FROM songs s
-                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                 WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?
-             )
-           ORDER BY a.year, a.name COLLATE NOCASE"#,
-        r#"SELECT a.*, ar.name AS artist_name
-           FROM albums a
-           INNER JOIN artists ar ON a.artist_id = ar.id
-           WHERE a.artist_id = $1
-             AND EXISTS (
-                 SELECT 1 FROM songs s
-                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                 WHERE s.album_id = a.id AND mf.enabled AND ula.user_id = $2
-             )
-           ORDER BY a.year, LOWER(a.name)"#,
-        [Value::from(artist_id.to_string()), Value::from(user_id)],
-    )
-    .await?;
-    Ok(rows)
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
+
+    if album_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    album_select()
+        .filter(entity::albums::Column::ArtistId.eq(artist_id))
+        .filter(entity::albums::Column::Id.is_in(album_ids))
+        .order_by(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Year)),
+            Order::Asc,
+        )
+        .order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::albums::Entity, entity::albums::Column::Name),
+            ),
+            Order::Asc,
+        )
+        .order_by(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Name)),
+            Order::Asc,
+        )
+        .into_model::<Album>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn get_album_by_id(database: &Database, id: &str) -> Result<Option<Album>> {
-    let row = raw::query_one::<Album>(
-        database.conn(),
-        r#"SELECT a.*, ar.name AS artist_name
-           FROM albums a
-           INNER JOIN artists ar ON a.artist_id = ar.id
-           WHERE a.id = ?"#,
-        r#"SELECT a.*, ar.name AS artist_name
-           FROM albums a
-           INNER JOIN artists ar ON a.artist_id = ar.id
-           WHERE a.id = $1"#,
-        [Value::from(id.to_string())],
-    )
-    .await?;
-    Ok(row)
+    album_select()
+        .filter(entity::albums::Column::Id.eq(id))
+        .into_model::<Album>()
+        .one(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 // ---------------------------------------------------------------------------
@@ -195,30 +378,31 @@ pub async fn get_album_by_id(database: &Database, id: &str) -> Result<Option<Alb
 // ---------------------------------------------------------------------------
 
 pub async fn get_songs_by_album(database: &Database, album_id: &str) -> Result<Vec<Song>> {
-    let rows = raw::query_all::<Song>(
-        database.conn(),
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (SELECT song_id, SUM(play_count) AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL AND s.album_id = ?
-           ORDER BY s.disc_number, s.track_number, s.title COLLATE NOCASE"#,
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (SELECT song_id, SUM(play_count)::BIGINT AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL AND s.album_id = $1
-           ORDER BY s.disc_number, s.track_number, LOWER(s.title)"#,
-        [Value::from(album_id.to_string())],
+    let mut songs = song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::AlbumId.eq(album_id))
+        .order_by_asc(entity::songs::Column::DiscNumber)
+        .order_by_asc(entity::songs::Column::TrackNumber)
+        .order_by(
+            case_insensitive_order(database.sea_backend(), entity::songs::Column::Title),
+            Order::Asc,
+        )
+        .order_by_asc(entity::songs::Column::Title)
+        .into_model::<Song>()
+        .all(database.conn())
+        .await?;
+
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = scrobbles::fetch_song_play_stats_rows(
+        database,
+        None,
+        &song_ids,
+        PlayStatsAggregation::SumPlayCount,
     )
     .await?;
-    Ok(rows)
+    apply_song_play_stats(&mut songs, stats);
+
+    Ok(songs)
 }
 
 pub async fn get_songs_by_album_for_user(
@@ -226,71 +410,66 @@ pub async fn get_songs_by_album_for_user(
     album_id: &str,
     user_id: i64,
 ) -> Result<Vec<Song>> {
-    let rows = raw::query_all::<Song>(
-        database.conn(),
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-           LEFT JOIN (SELECT song_id, SUM(play_count) AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL
-             AND s.album_id = ? AND mf.enabled = 1 AND ula.user_id = ?
-           ORDER BY s.disc_number, s.track_number, s.title COLLATE NOCASE"#,
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-           LEFT JOIN (SELECT song_id, SUM(play_count)::BIGINT AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission AND user_id = $1 GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL
-             AND s.album_id = $2 AND mf.enabled AND ula.user_id = $3
-           ORDER BY s.disc_number, s.track_number, LOWER(s.title)"#,
-        [
-            Value::from(user_id),
-            Value::from(album_id.to_string()),
-            Value::from(user_id),
-        ],
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut songs = song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::AlbumId.eq(album_id))
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .order_by_asc(entity::songs::Column::DiscNumber)
+        .order_by_asc(entity::songs::Column::TrackNumber)
+        .order_by(
+            case_insensitive_order(database.sea_backend(), entity::songs::Column::Title),
+            Order::Asc,
+        )
+        .order_by_asc(entity::songs::Column::Title)
+        .into_model::<Song>()
+        .all(database.conn())
+        .await?;
+
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = scrobbles::fetch_song_play_stats_rows(
+        database,
+        Some(user_id),
+        &song_ids,
+        PlayStatsAggregation::SumPlayCount,
     )
     .await?;
-    Ok(rows)
+    apply_song_play_stats(&mut songs, stats);
+
+    Ok(songs)
 }
 
 /// Get all songs by a specific artist (both track artist and album artist).
 pub async fn get_songs_by_artist(database: &Database, artist_id: &str) -> Result<Vec<Song>> {
-    let rows = raw::query_all::<Song>(
-        database.conn(),
-        r#"SELECT DISTINCT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (SELECT song_id, COUNT(*) AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL AND (s.artist_id = ? OR al.artist_id = ?)
-           ORDER BY s.album_id, s.disc_number, s.track_number, s.title COLLATE NOCASE"#,
-        r#"SELECT DISTINCT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (SELECT song_id, COUNT(*)::BIGINT AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL AND (s.artist_id = $1 OR al.artist_id = $2)
-           ORDER BY s.album_id, s.disc_number, s.track_number, s.title"#,
-        [
-            Value::from(artist_id.to_string()),
-            Value::from(artist_id.to_string()),
-        ],
+    let folder_ids = enabled_music_folder_ids(database).await?;
+    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
+
+    let mut songs = song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(artist_song_condition(artist_id, &album_ids))
+        .order_by_asc(entity::songs::Column::AlbumId)
+        .order_by_asc(entity::songs::Column::DiscNumber)
+        .order_by_asc(entity::songs::Column::TrackNumber)
+        .order_by_asc(entity::songs::Column::Title)
+        .into_model::<Song>()
+        .all(database.conn())
+        .await?;
+
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = scrobbles::fetch_song_play_stats_rows(
+        database,
+        None,
+        &song_ids,
+        PlayStatsAggregation::CountRows,
     )
     .await?;
-    Ok(rows)
+    apply_song_play_stats(&mut songs, stats);
+
+    Ok(songs)
 }
 
 pub async fn get_songs_by_artist_for_user(
@@ -298,62 +477,45 @@ pub async fn get_songs_by_artist_for_user(
     artist_id: &str,
     user_id: i64,
 ) -> Result<Vec<Song>> {
-    let rows = raw::query_all::<Song>(
-        database.conn(),
-        r#"SELECT DISTINCT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-           LEFT JOIN (SELECT song_id, COUNT(*) AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL
-             AND mf.enabled = 1
-             AND ula.user_id = ?
-             AND (s.artist_id = ? OR al.artist_id = ?)
-           ORDER BY s.album_id, s.disc_number, s.track_number, s.title COLLATE NOCASE"#,
-        r#"SELECT DISTINCT s.*, ar.name AS artist_name, al.name AS album_name,
-                  pc.play_count, pc.last_played, NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-           LEFT JOIN (SELECT song_id, COUNT(*)::BIGINT AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission AND user_id = $1 GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.marked_for_deletion_at IS NULL
-             AND mf.enabled
-             AND ula.user_id = $2
-             AND (s.artist_id = $3 OR al.artist_id = $4)
-           ORDER BY s.album_id, s.disc_number, s.track_number, s.title"#,
-        [
-            Value::from(user_id),
-            Value::from(user_id),
-            Value::from(artist_id.to_string()),
-            Value::from(artist_id.to_string()),
-        ],
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
+    let mut songs = song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .filter(artist_song_condition(artist_id, &album_ids))
+        .order_by_asc(entity::songs::Column::AlbumId)
+        .order_by_asc(entity::songs::Column::DiscNumber)
+        .order_by_asc(entity::songs::Column::TrackNumber)
+        .order_by_asc(entity::songs::Column::Title)
+        .into_model::<Song>()
+        .all(database.conn())
+        .await?;
+
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = scrobbles::fetch_song_play_stats_rows(
+        database,
+        Some(user_id),
+        &song_ids,
+        PlayStatsAggregation::CountRows,
     )
     .await?;
-    Ok(rows)
+    apply_song_play_stats(&mut songs, stats);
+
+    Ok(songs)
 }
 
 pub async fn get_song_by_id(database: &Database, id: &str) -> Result<Option<Song>> {
-    let row = raw::query_one::<Song>(
-        database.conn(),
-        &format!(
-            "{} WHERE s.marked_for_deletion_at IS NULL AND s.id = ?",
-            SONG_SELECT_FULL_SQLITE
-        ),
-        &format!(
-            "{} WHERE s.marked_for_deletion_at IS NULL AND s.id = $1",
-            SONG_SELECT_FULL_POSTGRES
-        ),
-        [Value::from(id.to_string())],
-    )
-    .await?;
-    Ok(row)
+    song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::Id.eq(id))
+        .into_model::<Song>()
+        .one(database.conn())
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn get_songs_by_ids_for_user(
@@ -365,49 +527,18 @@ pub async fn get_songs_by_ids_for_user(
         return Ok(Vec::new());
     }
 
-    let sqlite_placeholders = std::iter::repeat_n("?", ids.len())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let postgres_placeholders = (1..=ids.len())
-        .map(|i| format!("${}", i))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let user_placeholder = ids.len() + 1;
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(Vec::new());
+    }
 
-    let sqlite_sql = format!(
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-                 NULL AS play_count, NULL AS last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-           WHERE s.marked_for_deletion_at IS NULL
-             AND s.id IN ({})
-             AND mf.enabled = 1 AND ula.user_id = ?"#,
-        sqlite_placeholders,
-    );
-    let postgres_sql = format!(
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name,
-                 NULL::BIGINT AS play_count,
-                 NULL::TIMESTAMPTZ AS last_played,
-                 NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-           WHERE s.marked_for_deletion_at IS NULL
-             AND s.id IN ({})
-             AND mf.enabled AND ula.user_id = ${}"#,
-        postgres_placeholders, user_placeholder,
-    );
-
-    let mut values: Vec<Value> = ids.iter().map(|id| Value::from(id.clone())).collect();
-    values.push(Value::from(user_id));
-
-    let songs: Vec<Song> =
-        raw::query_all::<Song>(database.conn(), &sqlite_sql, &postgres_sql, values).await?;
+    let songs = song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::Id.is_in(ids.iter().cloned()))
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .into_model::<Song>()
+        .all(database.conn())
+        .await?;
 
     // Preserve the input ordering.
     let song_map: std::collections::HashMap<String, Song> =
@@ -429,52 +560,21 @@ pub async fn get_songs_by_ids_with_library_status(
         return Ok(Vec::new());
     }
 
-    let sqlite_placeholders = std::iter::repeat_n("?", ids.len())
-        .collect::<Vec<_>>()
-        .join(", ");
-    // First bind is user_id (=$1), then the IDs.
-    let postgres_placeholders = (2..=ids.len() + 1)
-        .map(|i| format!("${}", i))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let mut songs = song_with_library_status_select(database)
+        .filter(entity::songs::Column::Id.is_in(ids.iter().cloned()))
+        .into_model::<SongWithLibraryStatus>()
+        .all(database.conn())
+        .await?;
 
-    let sqlite_sql = format!(
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name, mf.enabled AS library_enabled,
-                  pc.play_count, pc.last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           LEFT JOIN (SELECT song_id, SUM(play_count) AS play_count, MAX(played_at) AS last_played
-                      FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
-           WHERE s.id IN ({})"#,
-        sqlite_placeholders,
-    );
-    let postgres_sql = format!(
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name, mf.enabled AS library_enabled,
-                  pc.play_count, pc.last_played, NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-           LEFT JOIN (
-               SELECT song_id, SUM(play_count)::BIGINT AS play_count, MAX(played_at) AS last_played
-               FROM scrobbles WHERE submission = TRUE AND user_id = $1 GROUP BY song_id
-           ) pc ON s.id = pc.song_id
-           WHERE s.id IN ({})"#,
-        postgres_placeholders,
-    );
-
-    let mut values: Vec<Value> = vec![Value::from(user_id)];
-    values.extend(ids.iter().map(|id| Value::from(id.clone())));
-
-    let songs: Vec<SongWithLibraryStatus> = raw::query_all::<SongWithLibraryStatus>(
-        database.conn(),
-        &sqlite_sql,
-        &postgres_sql,
-        values,
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = scrobbles::fetch_song_play_stats_rows(
+        database,
+        Some(user_id),
+        &song_ids,
+        PlayStatsAggregation::SumPlayCount,
     )
     .await?;
+    apply_song_library_status_play_stats(&mut songs, stats);
 
     // Preserve the input ordering.
     let song_map: std::collections::HashMap<String, SongWithLibraryStatus> =
@@ -490,26 +590,268 @@ pub async fn get_song_by_id_with_folder(
     database: &Database,
     id: &str,
 ) -> Result<Option<SongWithFolder>> {
-    let row = raw::query_one::<SongWithFolder>(
-        database.conn(),
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name, mf.path AS folder_path,
-                 NULL AS play_count, NULL AS last_played, NULL AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN music_folders mf ON s.music_folder_id = mf.id
-           WHERE s.id = ?"#,
-        r#"SELECT s.*, ar.name AS artist_name, al.name AS album_name, mf.path AS folder_path,
-                 NULL::BIGINT AS play_count,
-                 NULL::TIMESTAMPTZ AS last_played,
-                 NULL::TIMESTAMPTZ AS starred_at
-           FROM songs s
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN music_folders mf ON s.music_folder_id = mf.id
-           WHERE s.id = $1"#,
-        [Value::from(id.to_string())],
-    )
-    .await?;
-    Ok(row)
+    song_with_folder_select(database)
+        .filter(entity::songs::Column::Id.eq(id))
+        .into_model::<SongWithFolder>()
+        .one(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+// ---------------------------------------------------------------------------
+// Genres / indexes / listings (migrated from common/browse.rs raw SQL)
+// ---------------------------------------------------------------------------
+
+/// Row shape returned by [`list_genres_for_user`].
+#[derive(Debug, Clone, sea_orm::FromQueryResult)]
+pub struct GenreRow {
+    pub genre: String,
+    pub song_count: i64,
+    pub album_count: i64,
+}
+
+/// List distinct genres visible to `user_id` along with song and album counts,
+/// ordered case-insensitively by genre name.
+pub async fn list_genres_for_user(database: &Database, user_id: i64) -> Result<Vec<GenreRow>> {
+    let backend = database.sea_backend();
+
+    entity::songs::Entity::find()
+        .select_only()
+        .column(entity::songs::Column::Genre)
+        .expr_as(
+            Expr::expr(Expr::col((
+                entity::songs::Entity,
+                entity::songs::Column::Id,
+            )))
+            .count_distinct(),
+            "song_count",
+        )
+        .expr_as(
+            Expr::expr(Expr::col((
+                entity::songs::Entity,
+                entity::songs::Column::AlbumId,
+            )))
+            .count_distinct(),
+            "album_count",
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::music_folders::Relation::UserLibraryAccess.def(),
+        )
+        .filter(entity::songs::Column::Genre.is_not_null())
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .group_by(entity::songs::Column::Genre)
+        .order_by(
+            case_insensitive_order(backend, entity::songs::Column::Genre),
+            Order::Asc,
+        )
+        .into_model::<GenreRow>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+/// Return all `file_path` values visible to `user_id` from enabled music
+/// folders, optionally scoped to a single folder id. Callers split the path
+/// client-side to build directory indexes — this avoids a dialect-specific
+/// SQL `substr`/`split_part` branch.
+pub async fn list_visible_file_paths(
+    database: &Database,
+    user_id: i64,
+    folder_id: Option<i64>,
+) -> Result<Vec<String>> {
+    let mut q = entity::songs::Entity::find()
+        .select_only()
+        .column(entity::songs::Column::FilePath)
+        .join(
+            JoinType::InnerJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::music_folders::Relation::UserLibraryAccess.def(),
+        )
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .filter(entity::user_library_access::Column::UserId.eq(user_id));
+
+    if let Some(fid) = folder_id {
+        q = q.filter(entity::music_folders::Column::Id.eq(fid));
+    }
+
+    q.into_tuple::<String>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+/// Aggregate play statistics (count + last played) for a specific song.
+#[derive(Debug, Clone, sea_orm::FromQueryResult)]
+pub struct SongPlayCountAndLast {
+    pub play_count: i64,
+    pub last_played: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub async fn get_song_play_count_and_last(
+    database: &Database,
+    user_id: i64,
+    song_id: &str,
+) -> Result<SongPlayCountAndLast> {
+    let row: Option<SongPlayCountAndLast> = entity::scrobbles::Entity::find()
+        .select_only()
+        .expr_as(entity::scrobbles::Column::Id.count(), "play_count")
+        .expr_as(entity::scrobbles::Column::PlayedAt.max(), "last_played")
+        .filter(entity::scrobbles::Column::UserId.eq(user_id))
+        .filter(entity::scrobbles::Column::SongId.eq(song_id))
+        .into_model::<SongPlayCountAndLast>()
+        .one(database.conn())
+        .await?;
+    Ok(row.unwrap_or(SongPlayCountAndLast {
+        play_count: 0,
+        last_played: None,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Ferrotune directory helpers
+// ---------------------------------------------------------------------------
+
+/// File count + total byte size for a given music folder.
+#[derive(Debug, Clone, sea_orm::FromQueryResult)]
+pub struct MusicFolderSongStats {
+    pub file_count: i64,
+    pub total_size: i64,
+}
+
+pub async fn get_music_folder_song_stats(
+    database: &Database,
+    folder_id: i64,
+) -> Result<MusicFolderSongStats> {
+    let row: Option<MusicFolderSongStats> = entity::songs::Entity::find()
+        .select_only()
+        .expr_as(entity::songs::Column::Id.count(), "file_count")
+        .expr_as(
+            Expr::expr(Func::coalesce([
+                Expr::col(entity::songs::Column::FileSize).sum(),
+                Expr::val(0_i64).into(),
+            ]))
+            .cast_as(sea_orm::sea_query::Alias::new("BIGINT")),
+            "total_size",
+        )
+        .filter(entity::songs::Column::MusicFolderId.eq(folder_id))
+        .into_model::<MusicFolderSongStats>()
+        .one(database.conn())
+        .await?;
+    Ok(row.unwrap_or(MusicFolderSongStats {
+        file_count: 0,
+        total_size: 0,
+    }))
+}
+
+/// Fetch an enabled music folder by id, returning `None` if it's disabled or
+/// doesn't exist.
+pub async fn get_enabled_music_folder(
+    database: &Database,
+    folder_id: i64,
+) -> Result<Option<crate::db::models::MusicFolder>> {
+    entity::music_folders::Entity::find_by_id(folder_id)
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .into_model::<crate::db::models::MusicFolder>()
+        .one(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+/// Directory-listing row for a song under a folder path prefix.
+#[derive(Debug, Clone, sea_orm::FromQueryResult)]
+pub struct DirectorySongRow {
+    pub id: String,
+    pub file_path: String,
+    pub title: String,
+    pub album_id: Option<String>,
+    pub album_name: Option<String>,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub track_number: Option<i32>,
+    pub file_size: i64,
+    pub file_format: String,
+    pub duration: i64,
+    pub bitrate: Option<i32>,
+    pub artist_id: String,
+    pub artist_name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Select all songs in `folder_id` whose `file_path` begins with `prefix`,
+/// ordered by `file_path`. Pass an empty prefix to match every song.
+pub async fn list_directory_songs(
+    database: &Database,
+    folder_id: i64,
+    prefix: &str,
+) -> Result<Vec<DirectorySongRow>> {
+    let mut q = entity::songs::Entity::find()
+        .select_only()
+        .column(entity::songs::Column::Id)
+        .column(entity::songs::Column::FilePath)
+        .column(entity::songs::Column::Title)
+        .column(entity::songs::Column::AlbumId)
+        .column_as(entity::albums::Column::Name, "album_name")
+        .column(entity::songs::Column::Year)
+        .column(entity::songs::Column::Genre)
+        .column(entity::songs::Column::TrackNumber)
+        .column(entity::songs::Column::FileSize)
+        .column(entity::songs::Column::FileFormat)
+        .column(entity::songs::Column::Duration)
+        .column(entity::songs::Column::Bitrate)
+        .column(entity::songs::Column::ArtistId)
+        .column_as(entity::artists::Column::Name, "artist_name")
+        .column(entity::songs::Column::CreatedAt)
+        .join(JoinType::LeftJoin, entity::songs::Relation::Artists.def())
+        .join(JoinType::LeftJoin, entity::songs::Relation::Albums.def())
+        .filter(entity::songs::Column::MusicFolderId.eq(folder_id))
+        .order_by_asc(entity::songs::Column::FilePath);
+
+    if !prefix.is_empty() {
+        q = q.filter(entity::songs::Column::FilePath.starts_with(prefix));
+    }
+
+    q.into_model::<DirectorySongRow>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+/// List `Song` rows visible to `user_id` whose `file_path` starts with
+/// `prefix`, filtered to non-deleted songs under enabled folders.
+pub async fn list_user_songs_by_path_prefix(
+    database: &Database,
+    user_id: i64,
+    prefix: &str,
+) -> Result<Vec<Song>> {
+    let mut q = song_select(database)
+        .join(
+            JoinType::InnerJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::music_folders::Relation::UserLibraryAccess.def(),
+        )
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .order_by_asc(entity::songs::Column::FilePath);
+
+    if !prefix.is_empty() {
+        q = q.filter(entity::songs::Column::FilePath.starts_with(prefix));
+    }
+
+    q.into_model::<Song>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
 }

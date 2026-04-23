@@ -22,7 +22,6 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::{AppState, SessionEvent};
 use crate::db::models::{ItemType, PlayQueue, QueueSourceType, RepeatMode};
 use crate::db::queries;
-use crate::db::raw;
 use crate::db::repo;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
@@ -30,7 +29,6 @@ use axum::{
     Json,
 };
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
-use sea_orm::Value;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -842,20 +840,13 @@ pub async fn start_queue(
     if let Some(ref source_id) = request.source_id {
         match source_type {
             QueueSourceType::Playlist => {
-                raw::execute(
-                    state.database.conn(),
-                    "UPDATE playlists SET last_played_at = datetime('now') WHERE id = ?",
-                    "UPDATE playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
-                    [Value::from(source_id.clone())],
-                )
-                .await?;
+                crate::db::repo::playlists::touch_playlist_last_played(&state.database, source_id)
+                    .await?;
             }
             QueueSourceType::SmartPlaylist => {
-                raw::execute(
-                    state.database.conn(),
-                    "UPDATE smart_playlists SET last_played_at = datetime('now') WHERE id = ?",
-                    "UPDATE smart_playlists SET last_played_at = CURRENT_TIMESTAMP WHERE id = $1",
-                    [Value::from(source_id.clone())],
+                crate::db::repo::playlists::touch_smart_playlist_last_played(
+                    &state.database,
+                    source_id,
                 )
                 .await?;
             }
@@ -1920,66 +1911,30 @@ async fn materialize_queue_songs(
         }
         QueueSourceType::History => {
             // Fetch play history songs (deduplicated, most recent play per song)
-            let songs: Vec<crate::db::models::Song> = raw::query_all::<crate::db::models::Song>(
+            let aggregates = crate::db::repo::history::list_recent_song_aggregates(
                 database.conn(),
-                r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                            s.bitrate, s.file_path, s.file_size, s.file_format,
-                            s.created_at, s.updated_at, s.cover_art_hash,
-                            s.cover_art_width, s.cover_art_height,
-                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                            pc.play_count,
-                            sc.played_at as last_played,
-                            NULL as starred_at
-                 FROM scrobbles sc
-                 INNER JOIN songs s ON sc.song_id = s.id
-                 INNER JOIN artists ar ON s.artist_id = ar.id
-                 LEFT JOIN albums al ON s.album_id = al.id
-                 LEFT JOIN (
-                     SELECT song_id, COUNT(*) as play_count
-                     FROM scrobbles WHERE submission = 1 AND user_id = ?
-                     GROUP BY song_id
-                 ) pc ON s.id = pc.song_id
-                 WHERE sc.user_id = ? AND sc.submission = 1
-                     AND sc.played_at = (
-                         SELECT MAX(sc2.played_at)
-                         FROM scrobbles sc2
-                         WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
-                     )
-                 ORDER BY sc.played_at DESC
-                 LIMIT 500"#,
-                r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                            s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                            s.bitrate, s.file_path, s.file_size, s.file_format,
-                            s.created_at, s.updated_at, s.cover_art_hash,
-                            s.cover_art_width, s.cover_art_height,
-                            s.original_replaygain_track_gain, s.original_replaygain_track_peak,
-                            s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
-                            pc.play_count,
-                            sc.played_at as last_played,
-                            NULL::timestamptz as starred_at
-                 FROM scrobbles sc
-                 INNER JOIN songs s ON sc.song_id = s.id
-                 INNER JOIN artists ar ON s.artist_id = ar.id
-                 LEFT JOIN albums al ON s.album_id = al.id
-                 LEFT JOIN (
-                     SELECT song_id, COUNT(*)::BIGINT as play_count
-                     FROM scrobbles WHERE submission = TRUE AND user_id = $1
-                     GROUP BY song_id
-                 ) pc ON s.id = pc.song_id
-                 WHERE sc.user_id = $2 AND sc.submission = TRUE
-                     AND sc.played_at = (
-                         SELECT MAX(sc2.played_at)
-                         FROM scrobbles sc2
-                         WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = TRUE
-                     )
-                 ORDER BY sc.played_at DESC
-                 LIMIT 500"#,
-                [Value::from(user_id), Value::from(user_id)],
+                user_id,
+                500,
+                0,
             )
             .await
             .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
+            let ids: Vec<String> = aggregates.iter().map(|a| a.song_id.clone()).collect();
+            let rows = crate::db::repo::history::fetch_songs_by_ids(database.conn(), &ids)
+                .await
+                .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
+            let mut by_id: std::collections::HashMap<String, crate::db::models::Song> =
+                rows.into_iter().map(|s| (s.id.clone(), s)).collect();
+            let songs: Vec<crate::db::models::Song> = aggregates
+                .into_iter()
+                .filter_map(|agg| {
+                    by_id.remove(&agg.song_id).map(|mut s| {
+                        s.play_count = Some(agg.play_count);
+                        s.last_played = Some(agg.last_played);
+                        s
+                    })
+                })
+                .collect();
 
             Ok(sorting::filter_and_sort_songs(
                 songs,

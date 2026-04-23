@@ -84,85 +84,28 @@ pub async fn get_match_dictionary(
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<MatchDictionaryResponse>> {
     // Query entries from the dedicated match_dictionary table
-    #[derive(sea_orm::FromQueryResult)]
-    struct DictDbRow {
-        original_title: Option<String>,
-        original_artist: Option<String>,
-        original_album: Option<String>,
-        original_duration_ms: Option<i32>,
-        song_id: String,
-    }
-    let dict_rows: Vec<DictRow> = crate::db::raw::query_all::<DictDbRow>(
-        state.database.conn(),
-        r#"
-            SELECT
-                original_title,
-                original_artist,
-                original_album,
-                original_duration_ms,
-                song_id
-            FROM match_dictionary
-            WHERE user_id = ?
-            "#,
-        r#"
-            SELECT
-                original_title,
-                original_artist,
-                original_album,
-                original_duration_ms,
-                song_id
-            FROM match_dictionary
-            WHERE user_id = $1
-            "#,
-        [sea_orm::Value::from(user.user_id)],
-    )
-    .await?
-    .into_iter()
-    .map(|r| {
-        (
-            r.original_title,
-            r.original_artist,
-            r.original_album,
-            r.original_duration_ms,
-            r.song_id,
-        )
-    })
-    .collect();
+    let dict_rows: Vec<DictRow> =
+        crate::db::repo::matching::list_match_dictionary(&state.database, user.user_id)
+            .await?
+            .into_iter()
+            .map(|r| {
+                (
+                    r.original_title,
+                    r.original_artist,
+                    r.original_album,
+                    r.original_duration_ms,
+                    r.song_id,
+                )
+            })
+            .collect();
 
     // Query legacy entries from playlists owned by the user
-    #[derive(sea_orm::FromQueryResult)]
-    struct LegacyDbRow {
-        missing_entry_data: String,
-        song_id: String,
-    }
-    let legacy_rows: Vec<(String, String)> = crate::db::raw::query_all::<LegacyDbRow>(
-        state.database.conn(),
-        r#"
-        SELECT DISTINCT
-            ps.missing_entry_data,
-            ps.song_id
-        FROM playlist_songs ps
-        INNER JOIN playlists p ON ps.playlist_id = p.id
-        WHERE p.owner_id = ?
-          AND ps.missing_entry_data IS NOT NULL
-          AND ps.song_id IS NOT NULL
-        "#,
-        r#"
-        SELECT DISTINCT
-            ps.missing_entry_data,
-            ps.song_id
-        FROM playlist_songs ps
-        INNER JOIN playlists p ON ps.playlist_id = p.id
-        WHERE p.owner_id = $1
-          AND ps.missing_entry_data IS NOT NULL
-          AND ps.song_id IS NOT NULL
-        "#,
-        [sea_orm::Value::from(user.user_id)],
-    )
-    .await?
-    .into_iter()
-    .map(|r| (r.missing_entry_data, r.song_id))
-    .collect();
+    let legacy_rows: Vec<(String, String)> =
+        crate::db::repo::matching::list_legacy_match_entries(&state.database, user.user_id)
+            .await?
+            .into_iter()
+            .map(|r| (r.missing_entry_data, r.song_id))
+            .collect();
 
     // Build entries from the dedicated table
     let mut entries: Vec<MatchDictionaryEntry> = dict_rows
@@ -245,44 +188,19 @@ pub async fn save_match_dictionary(
         };
 
         // Use UPSERT to insert or update
-        let result = crate::db::raw::execute(
-            state.database.conn(),
-            r#"
-                INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (user_id, lookup_key) DO UPDATE SET
-                    original_title = excluded.original_title,
-                    original_artist = excluded.original_artist,
-                    original_album = excluded.original_album,
-                    original_duration_ms = excluded.original_duration_ms,
-                    song_id = excluded.song_id,
-                    updated_at = CURRENT_TIMESTAMP
-                "#,
-            r#"
-                INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (user_id, lookup_key) DO UPDATE SET
-                    original_title = EXCLUDED.original_title,
-                    original_artist = EXCLUDED.original_artist,
-                    original_album = EXCLUDED.original_album,
-                    original_duration_ms = EXCLUDED.original_duration_ms,
-                    song_id = EXCLUDED.song_id,
-                    updated_at = CURRENT_TIMESTAMP
-                "#,
-            [
-                sea_orm::Value::from(user.user_id),
-                sea_orm::Value::from(lookup_key),
-                sea_orm::Value::from(entry.title.clone()),
-                sea_orm::Value::from(entry.artist.clone()),
-                sea_orm::Value::from(entry.album.clone()),
-                sea_orm::Value::from(entry.duration),
-                sea_orm::Value::from(entry.song_id.clone()),
-            ],
+        let written = crate::db::repo::matching::upsert_match_dictionary_entry(
+            &state.database,
+            user.user_id,
+            &lookup_key,
+            entry.title.as_deref(),
+            entry.artist.as_deref(),
+            entry.album.as_deref(),
+            entry.duration,
+            &entry.song_id,
         )
-        .await?
-        .rows_affected();
+        .await?;
 
-        if result > 0 {
+        if written {
             saved += 1;
         }
     }

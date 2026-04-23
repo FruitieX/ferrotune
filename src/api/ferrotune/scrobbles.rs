@@ -5,7 +5,7 @@
 use crate::api::common::scrobbling::insert_submission_scrobble_if_not_recent_duplicate;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::db::{raw, Database};
+use crate::db::repo::scrobbles as scrobbles_repo;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
@@ -13,218 +13,9 @@ use axum::{
     response::Json,
 };
 use chrono::Utc;
-use sea_orm::{FromQueryResult, Value};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
-
-fn postgres_placeholders(start_index: usize, count: usize) -> String {
-    (start_index..start_index + count)
-        .map(|index| format!("${}", index))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-async fn fetch_existing_song_ids(
-    database: &Database,
-    song_ids: &[&str],
-) -> crate::error::Result<Vec<String>> {
-    if song_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    #[derive(FromQueryResult)]
-    struct IdRow {
-        id: String,
-    }
-
-    let sqlite_placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
-    let sqlite_sql = format!(
-        "SELECT id FROM songs WHERE id IN ({})",
-        sqlite_placeholders.join(", ")
-    );
-    let postgres_sql = format!(
-        "SELECT id FROM songs WHERE id IN ({})",
-        postgres_placeholders(1, song_ids.len())
-    );
-
-    let binds: Vec<Value> = song_ids
-        .iter()
-        .map(|s| Value::from(s.to_string()))
-        .collect();
-
-    let rows = raw::query_all::<IdRow>(database.conn(), &sqlite_sql, &postgres_sql, binds).await?;
-    Ok(rows.into_iter().map(|r| r.id).collect())
-}
-
-async fn delete_user_rows_for_song_ids(
-    database: &Database,
-    table: &str,
-    user_id: i64,
-    song_ids: &[String],
-) -> crate::error::Result<u64> {
-    if song_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let sqlite_sql = format!(
-        "DELETE FROM {table} WHERE user_id = ? AND song_id IN ({})",
-        vec!["?"; song_ids.len()].join(", ")
-    );
-    let postgres_sql = format!(
-        "DELETE FROM {table} WHERE user_id = $1 AND song_id IN ({})",
-        postgres_placeholders(2, song_ids.len())
-    );
-
-    let mut binds: Vec<Value> = Vec::with_capacity(song_ids.len() + 1);
-    binds.push(Value::from(user_id));
-    for song_id in song_ids {
-        binds.push(Value::from(song_id.clone()));
-    }
-
-    let result = raw::execute(database.conn(), &sqlite_sql, &postgres_sql, binds).await?;
-    Ok(result.rows_affected())
-}
-
-async fn fetch_duplicate_import_stats(
-    database: &Database,
-    user_id: i64,
-    description: &str,
-) -> crate::error::Result<Option<(i64, i64)>> {
-    #[derive(FromQueryResult)]
-    struct StatsRow {
-        song_count: i64,
-        total_plays: i64,
-    }
-
-    let row = raw::query_one::<StatsRow>(
-        database.conn(),
-        r#"
-            SELECT COUNT(DISTINCT song_id) as song_count, COALESCE(SUM(play_count), 0) as total_plays
-            FROM scrobbles
-            WHERE user_id = ? AND description = ?
-        "#,
-        r#"
-            SELECT COUNT(DISTINCT song_id)::BIGINT as song_count,
-                   COALESCE(SUM(play_count), 0)::BIGINT as total_plays
-            FROM scrobbles
-            WHERE user_id = $1 AND description = $2
-        "#,
-        [
-            Value::from(user_id),
-            Value::from(description.to_string()),
-        ],
-    )
-    .await?;
-
-    Ok(row.map(|r| (r.song_count, r.total_plays)))
-}
-
-async fn fetch_song_play_count_rows(
-    database: &Database,
-    user_id: i64,
-    song_ids: &[String],
-) -> crate::error::Result<Vec<(String, i64)>> {
-    if song_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    #[derive(FromQueryResult)]
-    struct PlayCountRow {
-        song_id: String,
-        play_count: i64,
-    }
-
-    let sqlite_sql = format!(
-        r#"
-        SELECT song_id, COALESCE(SUM(play_count), 0) as play_count
-        FROM scrobbles
-        WHERE user_id = ? AND submission = 1 AND song_id IN ({})
-        GROUP BY song_id
-        "#,
-        vec!["?"; song_ids.len()].join(", ")
-    );
-    let postgres_sql = format!(
-        r#"
-        SELECT song_id, COALESCE(SUM(play_count), 0)::BIGINT as play_count
-        FROM scrobbles
-        WHERE user_id = $1 AND submission AND song_id IN ({})
-        GROUP BY song_id
-        "#,
-        postgres_placeholders(2, song_ids.len())
-    );
-
-    let mut binds: Vec<Value> = Vec::with_capacity(song_ids.len() + 1);
-    binds.push(Value::from(user_id));
-    for song_id in song_ids {
-        binds.push(Value::from(song_id.clone()));
-    }
-
-    let rows =
-        raw::query_all::<PlayCountRow>(database.conn(), &sqlite_sql, &postgres_sql, binds).await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| (r.song_id, r.play_count))
-        .collect())
-}
-
-async fn insert_import_scrobble_row(
-    database: &Database,
-    user_id: i64,
-    song_id: &str,
-    played_at: Option<chrono::DateTime<Utc>>,
-    play_count: i32,
-    description: Option<String>,
-) -> crate::error::Result<u64> {
-    let result = raw::execute(
-        database.conn(),
-        r#"
-            INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-            VALUES (?, ?, ?, 1, ?, ?)
-        "#,
-        r#"
-            INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-            VALUES ($1, $2, $3, TRUE, $4, $5)
-        "#,
-        [
-            Value::from(user_id),
-            Value::from(song_id.to_string()),
-            Value::from(played_at),
-            Value::from(play_count),
-            Value::from(description),
-        ],
-    )
-    .await?;
-    Ok(result.rows_affected())
-}
-
-async fn insert_listening_session_row(
-    database: &Database,
-    user_id: i64,
-    song_id: &str,
-    duration_seconds: i32,
-    listened_at: chrono::DateTime<Utc>,
-) -> crate::error::Result<u64> {
-    let result = raw::execute(
-        database.conn(),
-        r#"
-            INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-            VALUES (?, ?, ?, ?)
-        "#,
-        r#"
-            INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-            VALUES ($1, $2, $3, $4)
-        "#,
-        [
-            Value::from(user_id),
-            Value::from(song_id.to_string()),
-            Value::from(duration_seconds),
-            Value::from(listened_at),
-        ],
-    )
-    .await?;
-    Ok(result.rows_affected())
-}
 
 // ============================================================================
 // Scrobble Endpoint (Single)
@@ -384,7 +175,7 @@ pub async fn import_scrobbles(
     // Collect all song IDs for validation
     let song_ids: Vec<&str> = request.entries.iter().map(|e| e.song_id.as_str()).collect();
 
-    let existing_ids = fetch_existing_song_ids(&state.database, &song_ids).await?;
+    let existing_ids = scrobbles_repo::fetch_existing_song_ids(&state.database, &song_ids).await?;
 
     // Filter entries to only include existing songs
     let existing_set: std::collections::HashSet<&str> =
@@ -407,8 +198,12 @@ pub async fn import_scrobbles(
             .iter()
             .map(|entry| entry.song_id.clone())
             .collect();
-        delete_user_rows_for_song_ids(&state.database, "scrobbles", user.user_id, &song_ids_owned)
-            .await?;
+        scrobbles_repo::delete_scrobbles_for_song_ids(
+            &state.database,
+            user.user_id,
+            &song_ids_owned,
+        )
+        .await?;
     }
 
     // Insert new scrobbles - one row per song with play_count
@@ -420,7 +215,7 @@ pub async fn import_scrobbles(
             continue;
         }
 
-        let result = insert_import_scrobble_row(
+        let result = scrobbles_repo::insert_import_scrobble_row(
             &state.database,
             user.user_id,
             &entry.song_id,
@@ -490,7 +285,9 @@ pub async fn check_import_duplicate(
     }
 
     // Query for existing scrobbles with this description
-    let result = fetch_duplicate_import_stats(&state.database, user.user_id, description).await?;
+    let result =
+        scrobbles_repo::fetch_duplicate_import_stats(&state.database, user.user_id, description)
+            .await?;
 
     match result {
         Some((song_count, total_plays)) if song_count > 0 => {
@@ -558,7 +355,12 @@ pub async fn get_play_counts(
         return Ok(Json(GetPlayCountsResponse { counts: vec![] }));
     }
 
-    let rows = fetch_song_play_count_rows(&state.database, user.user_id, &request.song_ids).await?;
+    let rows = scrobbles_repo::fetch_song_play_count_rows(
+        &state.database,
+        user.user_id,
+        &request.song_ids,
+    )
+    .await?;
 
     let counts: Vec<SongPlayCount> = rows
         .into_iter()
@@ -656,7 +458,7 @@ pub async fn import_with_timestamps(
     // Collect all song IDs for validation
     let song_ids: Vec<&str> = request.songs.iter().map(|s| s.song_id.as_str()).collect();
 
-    let existing_ids = fetch_existing_song_ids(&state.database, &song_ids).await?;
+    let existing_ids = scrobbles_repo::fetch_existing_song_ids(&state.database, &song_ids).await?;
     let existing_set: std::collections::HashSet<&str> =
         existing_ids.iter().map(|s| s.as_str()).collect();
 
@@ -679,11 +481,14 @@ pub async fn import_with_timestamps(
             .iter()
             .map(|song| song.song_id.clone())
             .collect();
-        delete_user_rows_for_song_ids(&state.database, "scrobbles", user.user_id, &song_ids_owned)
-            .await?;
-        delete_user_rows_for_song_ids(
+        scrobbles_repo::delete_scrobbles_for_song_ids(
             &state.database,
-            "listening_sessions",
+            user.user_id,
+            &song_ids_owned,
+        )
+        .await?;
+        scrobbles_repo::delete_listening_sessions_for_song_ids(
+            &state.database,
             user.user_id,
             &song_ids_owned,
         )
@@ -725,7 +530,7 @@ pub async fn import_with_timestamps(
             };
 
             // Insert into listening_sessions (all plays for duration tracking)
-            let session_result = insert_listening_session_row(
+            let session_result = scrobbles_repo::insert_listening_session_row(
                 &state.database,
                 user.user_id,
                 &song.song_id,
@@ -741,7 +546,7 @@ pub async fn import_with_timestamps(
 
             // Insert into scrobbles only if this is a scrobble
             if play.is_scrobble {
-                let scrobble_result = insert_import_scrobble_row(
+                let scrobble_result = scrobbles_repo::insert_import_scrobble_row(
                     &state.database,
                     user.user_id,
                     &song.song_id,

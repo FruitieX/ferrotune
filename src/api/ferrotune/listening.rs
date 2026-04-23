@@ -6,12 +6,19 @@ use crate::api::subsonic::inline_thumbnails::{
     InlineImagesParam,
 };
 use crate::api::AppState;
+use crate::db::entity;
+use crate::db::repo::listening as listening_repo;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
     response::Json,
 };
-use sea_orm::{FromQueryResult, Value};
+use chrono::{DateTime, Datelike, TimeZone, Utc};
+use sea_orm::sea_query::{Expr, SubQueryStatement};
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, JoinType, Order, QueryFilter, QueryOrder,
+    QuerySelect, RelationTrait,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -79,86 +86,24 @@ pub struct ListeningStatsResponse {
     pub all_time: ListeningStats,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ListeningSqlDialect {
-    Sqlite,
-    Postgres,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ListeningStatsFilter {
-    sqlite_listening: &'static str,
-    sqlite_scrobbles: &'static str,
-    postgres_listening: &'static str,
-    postgres_scrobbles: &'static str,
-}
-
-#[derive(Debug, Clone)]
-struct ListeningPeriodFilter {
-    sqlite: String,
-    postgres: String,
-}
-
-const LAST_7_DAYS_FILTER: ListeningStatsFilter = ListeningStatsFilter {
-    sqlite_listening: "AND listened_at >= datetime('now', '-7 days')",
-    sqlite_scrobbles: "AND played_at >= datetime('now', '-7 days')",
-    postgres_listening: "AND listened_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'",
-    postgres_scrobbles: "AND played_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'",
-};
-
-const LAST_30_DAYS_FILTER: ListeningStatsFilter = ListeningStatsFilter {
-    sqlite_listening: "AND listened_at >= datetime('now', '-30 days')",
-    sqlite_scrobbles: "AND played_at >= datetime('now', '-30 days')",
-    postgres_listening: "AND listened_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'",
-    postgres_scrobbles: "AND played_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'",
-};
-
-const THIS_YEAR_FILTER: ListeningStatsFilter = ListeningStatsFilter {
-    sqlite_listening: "AND strftime('%Y', listened_at) = strftime('%Y', 'now')",
-    sqlite_scrobbles: "AND strftime('%Y', played_at) = strftime('%Y', 'now')",
-    postgres_listening: "AND EXTRACT(YEAR FROM listened_at) = EXTRACT(YEAR FROM CURRENT_TIMESTAMP)",
-    postgres_scrobbles: "AND EXTRACT(YEAR FROM played_at) = EXTRACT(YEAR FROM CURRENT_TIMESTAMP)",
-};
-
-const ALL_TIME_FILTER: ListeningStatsFilter = ListeningStatsFilter {
-    sqlite_listening: "",
-    sqlite_scrobbles: "",
-    postgres_listening: "",
-    postgres_scrobbles: "",
-};
-
-fn listening_sql_dialect(
-    database: &crate::db::Database,
-) -> FerrotuneApiResult<ListeningSqlDialect> {
-    if database.is_sqlite() {
-        Ok(ListeningSqlDialect::Sqlite)
-    } else if database.is_postgres() {
-        Ok(ListeningSqlDialect::Postgres)
-    } else {
-        Err(Error::Internal(
-            "database handle exposed neither a SQLite nor PostgreSQL pool".to_string(),
-        )
-        .into())
-    }
-}
-
-fn build_period_review_filter(year: i32, month: Option<i32>) -> ListeningPeriodFilter {
+fn period_bounds(year: i32, month: Option<i32>) -> (DateTime<Utc>, DateTime<Utc>) {
     if let Some(month) = month {
-        ListeningPeriodFilter {
-            sqlite: format!(
-                "AND strftime('%Y', listened_at) = '{}' AND strftime('%m', listened_at) = '{:02}'",
-                year, month
-            ),
-            postgres: format!(
-                "AND EXTRACT(YEAR FROM listened_at) = {} AND EXTRACT(MONTH FROM listened_at) = {}",
-                year, month
-            ),
-        }
+        let start = Utc
+            .with_ymd_and_hms(year, month as u32, 1, 0, 0, 0)
+            .unwrap();
+        let (next_year, next_month) = if month == 12 {
+            (year + 1, 1)
+        } else {
+            (year, month + 1)
+        };
+        let end = Utc
+            .with_ymd_and_hms(next_year, next_month as u32, 1, 0, 0, 0)
+            .unwrap();
+        (start, end)
     } else {
-        ListeningPeriodFilter {
-            sqlite: format!("AND strftime('%Y', listened_at) = '{}'", year),
-            postgres: format!("AND EXTRACT(YEAR FROM listened_at) = {}", year),
-        }
+        let start = Utc.with_ymd_and_hms(year, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(year + 1, 1, 1, 0, 0, 0).unwrap();
+        (start, end)
     }
 }
 
@@ -176,15 +121,7 @@ pub async fn log_listening(
     let database = &state.database;
 
     // Validate that the song exists
-    let song_exists = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "SELECT CASE WHEN EXISTS(SELECT 1 FROM songs WHERE id = ?) THEN 1 ELSE 0 END",
-        "SELECT (CASE WHEN EXISTS(SELECT 1 FROM songs WHERE id = $1) THEN 1 ELSE 0 END)::BIGINT",
-        [Value::from(request.song_id.clone())],
-    )
-    .await?
-    .unwrap_or(0)
-        != 0;
+    let song_exists = listening_repo::song_exists(database, &request.song_id).await?;
 
     if !song_exists {
         return Err(Error::NotFound("Song not found".to_string()).into());
@@ -192,32 +129,24 @@ pub async fn log_listening(
 
     // If session_id is provided, update the existing session
     if let Some(session_id) = request.session_id {
-        let update_res = crate::db::raw::execute(
-            database.conn(),
-            "UPDATE listening_sessions \
-             SET duration_seconds = ?, skipped = ? \
-             WHERE id = ? AND user_id = ? AND song_id = ?",
-            "UPDATE listening_sessions \
-             SET duration_seconds = $1, skipped = $2 \
-             WHERE id = $3 AND user_id = $4 AND song_id = $5",
-            [
-                Value::from(request.duration_seconds),
-                Value::from(request.skipped),
-                Value::from(session_id),
-                Value::from(user.user_id),
-                Value::from(request.song_id.clone()),
-            ],
+        let update_res = listening_repo::update_listening_session(
+            database,
+            session_id,
+            user.user_id,
+            &request.song_id,
+            request.duration_seconds,
+            request.skipped,
         )
         .await;
 
         match update_res {
-            Ok(res) if res.rows_affected() > 0 => {
+            Ok(true) => {
                 return Ok(Json(LogListeningResponse {
                     success: true,
                     session_id,
                 }));
             }
-            Ok(_) => {
+            Ok(false) => {
                 tracing::warn!(
                     "Session {} not found for update, creating new one",
                     session_id
@@ -233,29 +162,22 @@ pub async fn log_listening(
     }
 
     // Insert a new listening session
-    let new_id = crate::db::raw::query_scalar::<i64>(
-        database.conn(),
-        "INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at) \
-         VALUES (?, ?, ?, ?, datetime('now')) RETURNING id",
-        "INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at) \
-         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) RETURNING id",
-        [
-            Value::from(user.user_id),
-            Value::from(request.song_id.clone()),
-            Value::from(request.duration_seconds),
-            Value::from(request.skipped),
-        ],
+    match listening_repo::create_listening_session(
+        database,
+        user.user_id,
+        &request.song_id,
+        request.duration_seconds,
+        request.skipped,
     )
-    .await?;
-
-    match new_id {
-        Some(session_id) => Ok(Json(LogListeningResponse {
+    .await
+    {
+        Ok(session_id) => Ok(Json(LogListeningResponse {
             success: true,
             session_id,
         })),
-        None => {
+        Err(e) => {
             tracing::error!("Failed to log listening session: no row returned");
-            Err(Error::Internal("Failed to log listening session".to_string()).into())
+            Err(e.into())
         }
     }
 }
@@ -267,72 +189,62 @@ pub async fn get_listening_stats(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<ListeningStatsResponse>> {
-    // Helper to get stats for a date filter
-    async fn get_stats_for_period(
-        database: &crate::db::Database,
-        user_id: i64,
-        filter: ListeningStatsFilter,
-    ) -> FerrotuneApiResult<ListeningStats> {
-        let sqlite_sql = format!(
-            r#"
-                SELECT
-                    COALESCE(SUM(ls.duration_seconds), 0) as total_seconds,
-                    COUNT(*) as session_count,
-                    COUNT(DISTINCT ls.song_id) as unique_songs,
-                    COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0) as skip_count,
-                    COALESCE((
-                        SELECT SUM(s.play_count) FROM scrobbles s
-                        WHERE s.user_id = ? {date_filter_scrobbles}
-                    ), 0) as scrobble_count
-                FROM listening_sessions ls
-                WHERE ls.user_id = ?
-                {date_filter_ls}
-                "#,
-            date_filter_ls = filter.sqlite_listening,
-            date_filter_scrobbles = filter.sqlite_scrobbles,
-        );
-        let postgres_sql = format!(
-            r#"
-                SELECT
-                    COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_seconds,
-                    COUNT(*) as session_count,
-                    COUNT(DISTINCT ls.song_id) as unique_songs,
-                    COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0)::BIGINT as skip_count,
-                    COALESCE((
-                        SELECT COALESCE(SUM(s.play_count), 0)::BIGINT FROM scrobbles s
-                        WHERE s.user_id = $1 {date_filter_scrobbles}
-                    ), 0)::BIGINT as scrobble_count
-                FROM listening_sessions ls
-                WHERE ls.user_id = $2
-                {date_filter_ls}
-                "#,
-            date_filter_ls = filter.postgres_listening,
-            date_filter_scrobbles = filter.postgres_scrobbles,
-        );
+    let now = Utc::now();
+    let current_year_start = Utc
+        .with_ymd_and_hms(now.year(), 1, 1, 0, 0, 0)
+        .single()
+        .ok_or_else(|| Error::Internal("Failed to compute current year start".to_string()))?;
 
-        let row = crate::db::raw::query_one::<ListeningStats>(
-            database.conn(),
-            &sqlite_sql,
-            &postgres_sql,
-            [Value::from(user_id), Value::from(user_id)],
-        )
-        .await?;
-        row.ok_or_else(|| Error::Internal("Failed to fetch listening stats".to_string()).into())
-    }
-
-    // Get stats for each time period
-    let last_7_days =
-        get_stats_for_period(&state.database, user.user_id, LAST_7_DAYS_FILTER).await?;
-    let last_30_days =
-        get_stats_for_period(&state.database, user.user_id, LAST_30_DAYS_FILTER).await?;
-    let this_year = get_stats_for_period(&state.database, user.user_id, THIS_YEAR_FILTER).await?;
-    let all_time = get_stats_for_period(&state.database, user.user_id, ALL_TIME_FILTER).await?;
+    let last_7_days = listening_repo::get_listening_stats_for_period(
+        &state.database,
+        user.user_id,
+        Some(now - chrono::Duration::days(7)),
+    )
+    .await?;
+    let last_30_days = listening_repo::get_listening_stats_for_period(
+        &state.database,
+        user.user_id,
+        Some(now - chrono::Duration::days(30)),
+    )
+    .await?;
+    let this_year = listening_repo::get_listening_stats_for_period(
+        &state.database,
+        user.user_id,
+        Some(current_year_start),
+    )
+    .await?;
+    let all_time =
+        listening_repo::get_listening_stats_for_period(&state.database, user.user_id, None).await?;
 
     Ok(Json(ListeningStatsResponse {
-        last_7_days,
-        last_30_days,
-        this_year,
-        all_time,
+        last_7_days: ListeningStats {
+            total_seconds: last_7_days.total_seconds,
+            session_count: last_7_days.session_count,
+            unique_songs: last_7_days.unique_songs,
+            skip_count: last_7_days.skip_count,
+            scrobble_count: last_7_days.scrobble_count,
+        },
+        last_30_days: ListeningStats {
+            total_seconds: last_30_days.total_seconds,
+            session_count: last_30_days.session_count,
+            unique_songs: last_30_days.unique_songs,
+            skip_count: last_30_days.skip_count,
+            scrobble_count: last_30_days.scrobble_count,
+        },
+        this_year: ListeningStats {
+            total_seconds: this_year.total_seconds,
+            session_count: this_year.session_count,
+            unique_songs: this_year.unique_songs,
+            skip_count: this_year.skip_count,
+            scrobble_count: this_year.scrobble_count,
+        },
+        all_time: ListeningStats {
+            total_seconds: all_time.total_seconds,
+            session_count: all_time.session_count,
+            unique_songs: all_time.unique_songs,
+            skip_count: all_time.skip_count,
+            scrobble_count: all_time.scrobble_count,
+        },
     }))
 }
 
@@ -453,68 +365,81 @@ pub async fn get_period_review(
     let year = query.year.unwrap_or(now.year());
     let month = query.month;
 
-    let dialect = listening_sql_dialect(&state.database)?;
-    let date_filter = build_period_review_filter(year, month);
-    let enabled_filter = match dialect {
-        ListeningSqlDialect::Sqlite => "mf.enabled = 1",
-        ListeningSqlDialect::Postgres => "mf.enabled",
-    };
+    let (start, end) = period_bounds(year, month);
+    let start_off = start.fixed_offset();
+    let end_off = end.fixed_offset();
 
-    // Get overall stats for the period
+    // Get overall stats for the period. No library-visibility gate here to
+    // match the previous raw SQL which joined songs with LEFT JOIN only.
     #[derive(FromQueryResult)]
     struct PeriodStatsRow {
-        total_listening_secs: i64,
+        total_listening_secs: Option<i64>,
         total_play_count: i64,
         unique_tracks: i64,
         unique_albums: i64,
         unique_artists: i64,
     }
 
-    let stats_sqlite = format!(
-        r#"
-            SELECT
-                COALESCE(SUM(ls.duration_seconds), 0) as total_listening_secs,
-                COUNT(*) as total_play_count,
-                COUNT(DISTINCT ls.song_id) as unique_tracks,
-                COUNT(DISTINCT s.album_id) as unique_albums,
-                COUNT(DISTINCT s.artist_id) as unique_artists
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            WHERE ls.user_id = ? {}
-            "#,
-        date_filter.sqlite
-    );
-    let stats_postgres = format!(
-        r#"
-            SELECT
-                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_listening_secs,
-                COUNT(*) as total_play_count,
-                COUNT(DISTINCT ls.song_id) as unique_tracks,
-                COUNT(DISTINCT s.album_id) as unique_albums,
-                COUNT(DISTINCT s.artist_id) as unique_artists
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            WHERE ls.user_id = $1 {}
-            "#,
-        date_filter.postgres
-    );
-
-    let stats_opt = crate::db::raw::query_all::<PeriodStatsRow>(
-        state.database.conn(),
-        &stats_sqlite,
-        &stats_postgres,
-        [Value::from(user.user_id)],
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch period stats: {}", e);
-        Error::Internal("Failed to fetch period review".to_string())
-    })?;
+    let stats_opt: Option<PeriodStatsRow> = entity::listening_sessions::Entity::find()
+        .select_only()
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::DurationSeconds,
+            ))
+            .sum()
+            .cast_as("BIGINT"),
+            "total_listening_secs",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::Id,
+            ))
+            .count()
+            .cast_as("BIGINT"),
+            "total_play_count",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::SongId,
+            ))
+            .count_distinct()
+            .cast_as("BIGINT"),
+            "unique_tracks",
+        )
+        .expr_as(
+            Expr::col((entity::songs::Entity, entity::songs::Column::AlbumId))
+                .count_distinct()
+                .cast_as("BIGINT"),
+            "unique_albums",
+        )
+        .expr_as(
+            Expr::col((entity::songs::Entity, entity::songs::Column::ArtistId))
+                .count_distinct()
+                .cast_as("BIGINT"),
+            "unique_artists",
+        )
+        .join(
+            JoinType::LeftJoin,
+            entity::listening_sessions::Relation::Songs.def(),
+        )
+        .filter(entity::listening_sessions::Column::UserId.eq(user.user_id))
+        .filter(entity::listening_sessions::Column::ListenedAt.gte(start_off))
+        .filter(entity::listening_sessions::Column::ListenedAt.lt(end_off))
+        .into_model::<PeriodStatsRow>()
+        .one(state.database.conn())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch period stats: {}", e);
+            Error::Internal("Failed to fetch period review".to_string())
+        })?;
 
     let (total_listening_secs, total_play_count, unique_tracks, unique_albums, unique_artists) =
-        match stats_opt.into_iter().next() {
+        match stats_opt {
             Some(row) => (
-                row.total_listening_secs,
+                row.total_listening_secs.unwrap_or(0),
                 row.total_play_count,
                 row.unique_tracks,
                 row.unique_albums,
@@ -523,168 +448,190 @@ pub async fn get_period_review(
             None => (0, 0, 0, 0, 0),
         };
 
-    // Get top artists
-    let top_artists_sqlite = format!(
-        r#"
-            SELECT
-                COALESCE(s.artist_id, 'unknown') as artist_id,
-                COALESCE(a.name, 'Unknown Artist') as artist_name,
-                COUNT(*) as play_count,
-                COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
-                (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            LEFT JOIN artists a ON s.artist_id = a.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-            WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
-            GROUP BY s.artist_id
-            ORDER BY play_count DESC
-            LIMIT 100
-            "#,
-        date_filter.sqlite,
-    );
-    let top_artists_postgres = format!(
-        r#"
-            SELECT
-                COALESCE(s.artist_id, 'unknown') as artist_id,
-                COALESCE(a.name, 'Unknown Artist') as artist_name,
-                COUNT(*) as play_count,
-                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
-                (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            LEFT JOIN artists a ON s.artist_id = a.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-            WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
-            GROUP BY s.artist_id, a.name
-            ORDER BY play_count DESC
-            LIMIT 100
-            "#,
-        date_filter.postgres,
-    );
-    let mut top_artists: Vec<TopArtist> = crate::db::raw::query_all::<TopArtist>(
-        state.database.conn(),
-        &top_artists_sqlite,
-        &top_artists_postgres,
-        [Value::from(user.user_id), Value::from(user.user_id)],
-    )
-    .await?;
+    // Build a base select that applies the period + visibility gate used by
+    // the top-artists / albums / tracks queries.
+    let gated_base = || {
+        entity::listening_sessions::Entity::find()
+            .join(
+                JoinType::LeftJoin,
+                entity::listening_sessions::Relation::Songs.def(),
+            )
+            .join(JoinType::LeftJoin, entity::songs::Relation::Artists.def())
+            .join(JoinType::LeftJoin, entity::songs::Relation::Albums.def())
+            .join(
+                JoinType::InnerJoin,
+                entity::songs::Relation::MusicFolders.def(),
+            )
+            .join(
+                JoinType::InnerJoin,
+                entity::music_folders::Relation::UserLibraryAccess.def(),
+            )
+            .filter(entity::listening_sessions::Column::UserId.eq(user.user_id))
+            .filter(entity::music_folders::Column::Enabled.eq(true))
+            .filter(entity::user_library_access::Column::UserId.eq(user.user_id))
+            .filter(entity::listening_sessions::Column::ListenedAt.gte(start_off))
+            .filter(entity::listening_sessions::Column::ListenedAt.lt(end_off))
+    };
 
-    // Get top albums
-    let top_albums_sqlite = format!(
-        r#"
-            SELECT
-                COALESCE(s.album_id, 'unknown') as album_id,
-                COALESCE(al.name, 'Unknown Album') as album_name,
-                s.artist_id as artist_id,
-                COALESCE(a.name, 'Unknown Artist') as artist_name,
-                COUNT(*) as play_count,
-                COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
-                s.album_id as cover_art
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            LEFT JOIN albums al ON s.album_id = al.id
-            LEFT JOIN artists a ON s.artist_id = a.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-            WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
-            GROUP BY s.album_id
-            ORDER BY play_count DESC
-            LIMIT 100
-            "#,
-        date_filter.sqlite,
-    );
-    let top_albums_postgres = format!(
-        r#"
-            SELECT
-                COALESCE(s.album_id, 'unknown') as album_id,
-                COALESCE(al.name, 'Unknown Album') as album_name,
-                s.artist_id as artist_id,
-                COALESCE(a.name, 'Unknown Artist') as artist_name,
-                COUNT(*) as play_count,
-                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
-                s.album_id as cover_art
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            LEFT JOIN albums al ON s.album_id = al.id
-            LEFT JOIN artists a ON s.artist_id = a.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-            WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
-            GROUP BY s.album_id, al.name, s.artist_id, a.name
-            ORDER BY play_count DESC
-            LIMIT 100
-            "#,
-        date_filter.postgres,
-    );
-    let mut top_albums: Vec<TopAlbum> = crate::db::raw::query_all::<TopAlbum>(
-        state.database.conn(),
-        &top_albums_sqlite,
-        &top_albums_postgres,
-        [Value::from(user.user_id), Value::from(user.user_id)],
-    )
-    .await?;
+    // Correlated subquery: the first album id for a given artist id.
+    let cover_art_subquery = {
+        use sea_orm::sea_query::Query as SqQuery;
+        SqQuery::select()
+            .column((entity::albums::Entity, entity::albums::Column::Id))
+            .from(entity::albums::Entity)
+            .and_where(
+                Expr::col((entity::albums::Entity, entity::albums::Column::ArtistId))
+                    .equals((entity::songs::Entity, entity::songs::Column::ArtistId)),
+            )
+            .limit(1)
+            .to_owned()
+    };
 
-    // Get top tracks
-    let top_tracks_sqlite = format!(
-        r#"
-            SELECT
-                s.id as track_id,
-                COALESCE(s.title, 'Unknown Track') as track_title,
-                s.artist_id as artist_id,
-                COALESCE(a.name, 'Unknown Artist') as artist_name,
-                s.album_id as album_id,
-                COALESCE(al.name, 'Unknown Album') as album_name,
-                COUNT(*) as play_count,
-                COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
-                s.album_id as cover_art
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            LEFT JOIN albums al ON s.album_id = al.id
-            LEFT JOIN artists a ON s.artist_id = a.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-            WHERE ls.user_id = ? AND {enabled_filter} AND ula.user_id = ? {}
-            GROUP BY s.id
-            ORDER BY play_count DESC
-            LIMIT 100
-            "#,
-        date_filter.sqlite,
-    );
-    let top_tracks_postgres = format!(
-        r#"
-            SELECT
-                s.id as track_id,
-                COALESCE(s.title, 'Unknown Track') as track_title,
-                s.artist_id as artist_id,
-                COALESCE(a.name, 'Unknown Artist') as artist_name,
-                s.album_id as album_id,
-                COALESCE(al.name, 'Unknown Album') as album_name,
-                COUNT(*) as play_count,
-                COALESCE(SUM(ls.duration_seconds), 0)::BIGINT as total_duration_secs,
-                s.album_id as cover_art
-            FROM listening_sessions ls
-            LEFT JOIN songs s ON ls.song_id = s.id
-            LEFT JOIN albums al ON s.album_id = al.id
-            LEFT JOIN artists a ON s.artist_id = a.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-            WHERE ls.user_id = $1 AND {enabled_filter} AND ula.user_id = $2 {}
-            GROUP BY s.id, s.title, s.artist_id, a.name, s.album_id, al.name
-            ORDER BY play_count DESC
-            LIMIT 100
-            "#,
-        date_filter.postgres,
-    );
-    let mut top_tracks: Vec<TopTrack> = crate::db::raw::query_all::<TopTrack>(
-        state.database.conn(),
-        &top_tracks_sqlite,
-        &top_tracks_postgres,
-        [Value::from(user.user_id), Value::from(user.user_id)],
-    )
-    .await?;
+    // Top artists
+    let mut top_artists: Vec<TopArtist> = gated_base()
+        .select_only()
+        .expr_as(
+            Expr::col((entity::songs::Entity, entity::songs::Column::ArtistId)).if_null("unknown"),
+            "artist_id",
+        )
+        .expr_as(
+            Expr::col((entity::artists::Entity, entity::artists::Column::Name))
+                .if_null("Unknown Artist"),
+            "artist_name",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::Id,
+            ))
+            .count()
+            .cast_as("BIGINT"),
+            "play_count",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::DurationSeconds,
+            ))
+            .sum()
+            .cast_as("BIGINT"),
+            "total_duration_secs",
+        )
+        .expr_as(
+            sea_orm::sea_query::SimpleExpr::SubQuery(
+                None,
+                Box::new(SubQueryStatement::SelectStatement(
+                    cover_art_subquery.clone(),
+                )),
+            ),
+            "cover_art",
+        )
+        .group_by(entity::songs::Column::ArtistId)
+        .group_by(entity::artists::Column::Name)
+        .order_by_desc(Expr::col(sea_orm::sea_query::Alias::new("play_count")))
+        .limit(100)
+        .into_model::<TopArtist>()
+        .all(state.database.conn())
+        .await?;
+
+    // Top albums
+    let mut top_albums: Vec<TopAlbum> = gated_base()
+        .select_only()
+        .expr_as(
+            Expr::col((entity::songs::Entity, entity::songs::Column::AlbumId)).if_null("unknown"),
+            "album_id",
+        )
+        .expr_as(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Name))
+                .if_null("Unknown Album"),
+            "album_name",
+        )
+        .column_as(entity::songs::Column::ArtistId, "artist_id")
+        .expr_as(
+            Expr::col((entity::artists::Entity, entity::artists::Column::Name))
+                .if_null("Unknown Artist"),
+            "artist_name",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::Id,
+            ))
+            .count()
+            .cast_as("BIGINT"),
+            "play_count",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::DurationSeconds,
+            ))
+            .sum()
+            .cast_as("BIGINT"),
+            "total_duration_secs",
+        )
+        .column_as(entity::songs::Column::AlbumId, "cover_art")
+        .group_by(entity::songs::Column::AlbumId)
+        .group_by(entity::albums::Column::Name)
+        .group_by(entity::songs::Column::ArtistId)
+        .group_by(entity::artists::Column::Name)
+        .order_by_desc(Expr::col(sea_orm::sea_query::Alias::new("play_count")))
+        .limit(100)
+        .into_model::<TopAlbum>()
+        .all(state.database.conn())
+        .await?;
+
+    // Top tracks
+    let mut top_tracks: Vec<TopTrack> = gated_base()
+        .select_only()
+        .column_as(entity::songs::Column::Id, "track_id")
+        .expr_as(
+            Expr::col((entity::songs::Entity, entity::songs::Column::Title))
+                .if_null("Unknown Track"),
+            "track_title",
+        )
+        .column_as(entity::songs::Column::ArtistId, "artist_id")
+        .expr_as(
+            Expr::col((entity::artists::Entity, entity::artists::Column::Name))
+                .if_null("Unknown Artist"),
+            "artist_name",
+        )
+        .column_as(entity::songs::Column::AlbumId, "album_id")
+        .expr_as(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Name))
+                .if_null("Unknown Album"),
+            "album_name",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::Id,
+            ))
+            .count()
+            .cast_as("BIGINT"),
+            "play_count",
+        )
+        .expr_as(
+            Expr::col((
+                entity::listening_sessions::Entity,
+                entity::listening_sessions::Column::DurationSeconds,
+            ))
+            .sum()
+            .cast_as("BIGINT"),
+            "total_duration_secs",
+        )
+        .column_as(entity::songs::Column::AlbumId, "cover_art")
+        .group_by(entity::songs::Column::Id)
+        .group_by(entity::songs::Column::Title)
+        .group_by(entity::songs::Column::ArtistId)
+        .group_by(entity::artists::Column::Name)
+        .group_by(entity::songs::Column::AlbumId)
+        .group_by(entity::albums::Column::Name)
+        .order_by_desc(Expr::col(sea_orm::sea_query::Alias::new("play_count")))
+        .limit(100)
+        .into_model::<TopTrack>()
+        .all(state.database.conn())
+        .await?;
 
     // Get inline thumbnails if requested
     let inline_size = query.inline_images.get_size();
@@ -716,37 +663,29 @@ pub async fn get_period_review(
         }
     }
 
-    // Get available periods (years and months with data)
-    #[derive(FromQueryResult)]
-    struct PeriodRow {
-        year: i32,
-        month: i32,
+    // Get available periods (years and months with data). We fetch distinct
+    // listened_at timestamps and derive (year, month) in Rust to avoid a
+    // dialect branch on EXTRACT/strftime.
+    let listened_ats: Vec<chrono::DateTime<chrono::FixedOffset>> =
+        entity::listening_sessions::Entity::find()
+            .select_only()
+            .column(entity::listening_sessions::Column::ListenedAt)
+            .filter(entity::listening_sessions::Column::UserId.eq(user.user_id))
+            .distinct()
+            .order_by(entity::listening_sessions::Column::ListenedAt, Order::Desc)
+            .into_tuple::<chrono::DateTime<chrono::FixedOffset>>()
+            .all(state.database.conn())
+            .await?;
+
+    let mut period_pairs: std::collections::BTreeSet<(i32, i32)> =
+        std::collections::BTreeSet::new();
+    for dt in &listened_ats {
+        let utc = dt.with_timezone(&Utc);
+        period_pairs.insert((utc.year(), utc.month() as i32));
     }
-    let period_rows_raw = crate::db::raw::query_all::<PeriodRow>(
-        state.database.conn(),
-        r#"
-            SELECT DISTINCT
-                CAST(strftime('%Y', listened_at) AS INTEGER) as year,
-                CAST(strftime('%m', listened_at) AS INTEGER) as month
-            FROM listening_sessions
-            WHERE user_id = ?
-            ORDER BY year DESC, month DESC
-        "#,
-        r#"
-            SELECT DISTINCT
-                EXTRACT(YEAR FROM listened_at)::INTEGER as year,
-                EXTRACT(MONTH FROM listened_at)::INTEGER as month
-            FROM listening_sessions
-            WHERE user_id = $1
-            ORDER BY year DESC, month DESC
-        "#,
-        [Value::from(user.user_id)],
-    )
-    .await?;
-    let period_rows: Vec<(i32, i32)> = period_rows_raw
-        .into_iter()
-        .map(|r| (r.year, r.month))
-        .collect();
+    // Convert to a Vec in descending order (year desc, month desc).
+    let mut period_rows: Vec<(i32, i32)> = period_pairs.into_iter().collect();
+    period_rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
 
     // Build available periods list - include both year summaries and monthly breakdowns
     let mut available_periods = Vec::new();
@@ -799,5 +738,3 @@ pub async fn get_period_review(
         available_periods,
     }))
 }
-
-use chrono::Datelike;

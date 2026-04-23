@@ -139,22 +139,11 @@ pub async fn mark_for_deletion(
     let mut marked_count = 0;
 
     for song_id in &request.song_ids {
-        let affected = crate::db::raw::execute(
-            state.database.conn(),
-            "UPDATE songs SET marked_for_deletion_at = ? WHERE id = ? AND marked_for_deletion_at IS NULL",
-            "UPDATE songs SET marked_for_deletion_at = $1 WHERE id = $2 AND marked_for_deletion_at IS NULL",
-            [
-                sea_orm::Value::from(now),
-                sea_orm::Value::from(song_id.clone()),
-            ],
-        )
-        .await
-        .map(|r| r.rows_affected());
+        let affected =
+            crate::db::repo::recycle_bin::mark_for_deletion(&state.database, song_id, now).await;
 
-        if let Ok(affected) = affected {
-            if affected > 0 {
-                marked_count += 1;
-            }
+        if let Ok(true) = affected {
+            marked_count += 1;
         }
     }
 
@@ -185,19 +174,10 @@ pub async fn restore_songs(
     let mut restored_count = 0;
 
     for song_id in &request.song_ids {
-        let affected = crate::db::raw::execute(
-            state.database.conn(),
-            "UPDATE songs SET marked_for_deletion_at = NULL WHERE id = ? AND marked_for_deletion_at IS NOT NULL",
-            "UPDATE songs SET marked_for_deletion_at = NULL WHERE id = $1 AND marked_for_deletion_at IS NOT NULL",
-            [sea_orm::Value::from(song_id.clone())],
-        )
-        .await
-        .map(|r| r.rows_affected());
+        let affected = crate::db::repo::recycle_bin::restore(&state.database, song_id).await;
 
-        if let Ok(affected) = affected {
-            if affected > 0 {
-                restored_count += 1;
-            }
+        if let Ok(true) = affected {
+            restored_count += 1;
         }
     }
 
@@ -225,35 +205,12 @@ pub async fn list_recycle_bin(
     let offset = params.offset.unwrap_or(0);
 
     // Get total count + songs
-    let total_count = crate::db::raw::query_scalar::<i64>(
-        state.database.conn(),
-        "SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL",
-        "SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await?
-    .unwrap_or(0);
-    let songs = crate::db::raw::query_all::<RecycleBinSong>(
-        state.database.conn(),
-        "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, \
-             s.duration, s.file_path, s.file_size, s.cover_art_hash, s.marked_for_deletion_at, \
-             0 as days_remaining \
-             FROM songs s \
-             INNER JOIN artists ar ON s.artist_id = ar.id \
-             LEFT JOIN albums al ON s.album_id = al.id \
-             WHERE s.marked_for_deletion_at IS NOT NULL \
-             ORDER BY s.marked_for_deletion_at DESC \
-             LIMIT ? OFFSET ?",
-        "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, \
-             s.duration, s.file_path, s.file_size, s.cover_art_hash, s.marked_for_deletion_at, \
-             0 as days_remaining \
-             FROM songs s \
-             INNER JOIN artists ar ON s.artist_id = ar.id \
-             LEFT JOIN albums al ON s.album_id = al.id \
-             WHERE s.marked_for_deletion_at IS NOT NULL \
-             ORDER BY s.marked_for_deletion_at DESC \
-             LIMIT $1 OFFSET $2",
-        [sea_orm::Value::from(limit), sea_orm::Value::from(offset)],
+    let total_count =
+        crate::db::repo::recycle_bin::count_marked_for_deletion(&state.database).await?;
+    let songs = crate::db::repo::recycle_bin::list_marked_for_deletion::<RecycleBinSong>(
+        &state.database,
+        limit,
+        offset,
     )
     .await?;
 
@@ -286,23 +243,9 @@ async fn delete_songs_internal(
 
     for song_id in song_ids {
         // Get song info including path
-        #[derive(sea_orm::FromQueryResult)]
-        struct SongPathRow {
-            file_path: String,
-            folder_path: String,
-            marked_for_deletion_at: Option<DateTime<Utc>>,
-        }
-        let song_with_folder = match crate::db::raw::query_one::<SongPathRow>(
-            state.database.conn(),
-            "SELECT s.file_path, mf.path as folder_path, s.marked_for_deletion_at \
-             FROM songs s \
-             JOIN music_folders mf ON s.music_folder_id = mf.id \
-             WHERE s.id = ?",
-            "SELECT s.file_path, mf.path as folder_path, s.marked_for_deletion_at \
-             FROM songs s \
-             JOIN music_folders mf ON s.music_folder_id = mf.id \
-             WHERE s.id = $1",
-            [sea_orm::Value::from(song_id.clone())],
+        let song_with_folder = match crate::db::repo::recycle_bin::get_song_for_permanent_delete(
+            &state.database,
+            song_id,
         )
         .await
         {
@@ -314,11 +257,7 @@ async fn delete_songs_internal(
         };
 
         let (file_path, folder_path, marked_at) = match song_with_folder {
-            Some(SongPathRow {
-                file_path,
-                folder_path,
-                marked_for_deletion_at,
-            }) => (file_path, folder_path, marked_for_deletion_at),
+            Some(row) => (row.file_path, row.folder_path, row.marked_for_deletion_at),
             None => {
                 errors.push(format!("Song not found: {}", song_id));
                 continue;
@@ -426,19 +365,9 @@ pub async fn empty_recycle_bin(
     }
 
     // Get all songs in recycle bin
-    #[derive(sea_orm::FromQueryResult)]
-    struct IdRow {
-        id: String,
-    }
-    let song_ids = crate::db::raw::query_all::<IdRow>(
-        state.database.conn(),
-        "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL",
-        "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await?;
+    let ids = crate::db::repo::recycle_bin::list_all_marked_ids(&state.database).await?;
 
-    if song_ids.is_empty() {
+    if ids.is_empty() {
         return Ok(Json(PermanentDeleteResponse {
             success: true,
             deleted_count: 0,
@@ -447,7 +376,6 @@ pub async fn empty_recycle_bin(
         }));
     }
 
-    let ids: Vec<String> = song_ids.into_iter().map(|r| r.id).collect();
     let response = delete_songs_internal(&state, &ids, true).await;
     Ok(Json(response))
 }
@@ -472,19 +400,10 @@ pub async fn purge_expired(
     let cutoff = Utc::now() - Duration::days(RETENTION_DAYS);
 
     // Get all expired songs
-    #[derive(sea_orm::FromQueryResult)]
-    struct IdRow {
-        id: String,
-    }
-    let song_ids = crate::db::raw::query_all::<IdRow>(
-        state.database.conn(),
-        "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL AND marked_for_deletion_at < ?",
-        "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL AND marked_for_deletion_at < $1",
-        [sea_orm::Value::from(cutoff)],
-    )
-    .await?;
+    let ids =
+        crate::db::repo::recycle_bin::list_expired_marked_ids(&state.database, cutoff).await?;
 
-    if song_ids.is_empty() {
+    if ids.is_empty() {
         return Ok(Json(PermanentDeleteResponse {
             success: true,
             deleted_count: 0,
@@ -493,9 +412,8 @@ pub async fn purge_expired(
         }));
     }
 
-    tracing::info!("Purging {} expired songs from recycle bin", song_ids.len());
+    tracing::info!("Purging {} expired songs from recycle bin", ids.len());
 
-    let ids: Vec<String> = song_ids.into_iter().map(|r| r.id).collect();
     let response = delete_songs_internal(&state, &ids, true).await;
     Ok(Json(response))
 }

@@ -32,43 +32,17 @@ pub struct SetupStatusResponse {
 pub async fn get_setup_status(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SetupStatusResponse>> {
-    use crate::db::raw;
+    let setup_complete = crate::db::repo::config::is_initial_setup_complete(&state.database)
+        .await
+        .map_err(|e| Error::Internal(format!("Database error checking setup status: {}", e)))?;
 
-    // Check if initial_setup_complete is true in server_config
-    let setup_complete_raw: Option<String> = raw::query_scalar::<String>(
-        state.database.conn(),
-        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
-        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Database error checking setup status: {}", e)))?;
+    let user_count = crate::db::repo::users::count_users(&state.database)
+        .await
+        .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?;
 
-    let setup_complete: bool = setup_complete_raw
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or(false);
-
-    // Check if there are any users
-    let user_count: i64 = raw::query_scalar::<i64>(
-        state.database.conn(),
-        "SELECT COUNT(*) FROM users",
-        "SELECT COUNT(*) FROM users",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?
-    .unwrap_or(0);
-
-    // Check if there are any music folders
-    let folder_count: i64 = raw::query_scalar::<i64>(
-        state.database.conn(),
-        "SELECT COUNT(*) FROM music_folders",
-        "SELECT COUNT(*) FROM music_folders",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?
-    .unwrap_or(0);
+    let folder_count = crate::db::repo::users::count_music_folders(&state.database)
+        .await
+        .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?;
 
     Ok(Json(SetupStatusResponse {
         setup_complete,
@@ -87,19 +61,9 @@ pub async fn complete_setup(
         return Err(Error::Forbidden("Admin privileges required".to_string()).into());
     }
 
-    // Set initial_setup_complete to true
-    crate::db::raw::execute(
-        state.database.conn(),
-        "INSERT INTO server_config (key, value, updated_at) \
-         VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        "INSERT INTO server_config (key, value, updated_at) \
-         VALUES ('initial_setup_complete', 'true', CURRENT_TIMESTAMP) \
-         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to update setup status: {}", e)))?;
+    crate::db::repo::config::set_initial_setup_complete(&state.database, true)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to update setup status: {}", e)))?;
 
     // Return updated status
     get_setup_status(State(state)).await

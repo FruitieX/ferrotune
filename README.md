@@ -39,13 +39,26 @@ On first run, open `http://localhost:4040` in your browser to:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `FERROTUNE_DATABASE_URL` | Database connection URL. Overrides `[database]` in the TOML config. | unset (falls back to SQLite at `FERROTUNE_DATA_DIR`) |
 | `FERROTUNE_DATA_DIR` | Directory for database and cache | Platform-specific |
 | `FERROTUNE_CONFIG` | Path to config file | `~/.config/ferrotune/config.toml` |
 | `FERROTUNE_HOST` | Server bind address | `127.0.0.1` |
 | `FERROTUNE_PORT` | Server port | `4040` |
 
+`FERROTUNE_DATABASE_URL` accepted schemes:
+
+- `sqlite:///absolute/path/to/file.db` or `sqlite:relative.db` — SQLite file
+- `postgres://user:pw@host:5432/dbname` or `postgresql://…` — PostgreSQL server
+
+Example (configless Postgres):
+
+```bash
+FERROTUNE_DATABASE_URL="postgres://ferrotune:ferrotune@localhost:5432/ferrotune" \
+  ferrotune serve --host 0.0.0.0 --port 4040
+```
+
 When `FERROTUNE_DATA_DIR` is set:
-- Database: `$FERROTUNE_DATA_DIR/ferrotune.db`
+- Database: `$FERROTUNE_DATA_DIR/ferrotune.db` (if using SQLite)
 - Cache: `$FERROTUNE_DATA_DIR/cache/`
 
 ## CLI Commands

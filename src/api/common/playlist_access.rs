@@ -1,6 +1,6 @@
-use crate::db::raw;
+use crate::db::entity::playlist_shares;
 use crate::error::Result;
-use sea_orm::{FromQueryResult, Value};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 
 /// Represents a user's access level to a playlist.
 pub struct PlaylistAccess {
@@ -32,18 +32,19 @@ pub async fn get_playlist_access(
         });
     }
 
-    #[derive(FromQueryResult)]
+    #[derive(sea_orm::FromQueryResult)]
     struct ShareRow {
         can_edit: bool,
     }
 
-    let share = raw::query_one::<ShareRow>(
-        database.conn(),
-        "SELECT can_edit FROM playlist_shares WHERE playlist_id = ? AND shared_with_user_id = ?",
-        "SELECT can_edit FROM playlist_shares WHERE playlist_id = $1 AND shared_with_user_id = $2",
-        [Value::from(playlist_id.to_string()), Value::from(user_id)],
-    )
-    .await?;
+    let share = playlist_shares::Entity::find()
+        .select_only()
+        .column(playlist_shares::Column::CanEdit)
+        .filter(playlist_shares::Column::PlaylistId.eq(playlist_id))
+        .filter(playlist_shares::Column::SharedWithUserId.eq(user_id))
+        .into_model::<ShareRow>()
+        .one(database.conn())
+        .await?;
 
     if let Some(ShareRow { can_edit }) = share {
         return Ok(PlaylistAccess {

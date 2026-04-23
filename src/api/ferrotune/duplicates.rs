@@ -100,74 +100,31 @@ pub async fn get_duplicates(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<DuplicatesResponse>> {
     // Query for all songs with non-null full_file_hash, grouped by hash
-    let query = "SELECT 
-                s.full_file_hash,
-                s.id,
-                s.file_path,
-                s.file_size,
-                s.title,
-                ar.name as artist_name,
-                al.name as album_name,
-                mf.name as folder_name
-             FROM songs s
-             INNER JOIN artists ar ON s.artist_id = ar.id
-             LEFT JOIN albums al ON s.album_id = al.id
-             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-             WHERE s.full_file_hash IS NOT NULL
-             ORDER BY s.full_file_hash, s.file_path";
-
-    let rows = {
-        #[derive(sea_orm::FromQueryResult)]
-        struct DupRow {
-            full_file_hash: String,
-            id: String,
-            file_path: String,
-            file_size: i64,
-            title: String,
-            artist_name: Option<String>,
-            album_name: Option<String>,
-            folder_name: String,
-        }
-        crate::db::raw::query_all::<DupRow>(
-            state.database.conn(),
-            query,
-            query,
-            std::iter::empty::<sea_orm::Value>(),
-        )
+    let rows = crate::db::repo::duplicates::list_hash_candidates(&state.database)
         .await
-        .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?
-        .into_iter()
-        .map(|r| {
-            (
-                r.full_file_hash,
-                r.id,
-                r.file_path,
-                r.file_size,
-                r.title,
-                r.artist_name,
-                r.album_name,
-                r.folder_name,
-            )
-        })
-        .collect::<Vec<_>>()
-    };
+        .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?;
 
     // Group by hash
     let mut groups: std::collections::HashMap<String, Vec<DuplicateFile>> =
         std::collections::HashMap::new();
     let mut file_sizes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
 
-    for (hash, id, file_path, file_size, title, artist, album, folder) in rows {
-        file_sizes.entry(hash.clone()).or_insert(file_size);
-        groups.entry(hash).or_default().push(DuplicateFile {
-            id,
-            file_path,
-            file_size,
-            title,
-            artist,
-            album,
-            folder,
-        });
+    for row in rows {
+        file_sizes
+            .entry(row.full_file_hash.clone())
+            .or_insert(row.file_size);
+        groups
+            .entry(row.full_file_hash)
+            .or_default()
+            .push(DuplicateFile {
+                id: row.id,
+                file_path: row.file_path,
+                file_size: row.file_size,
+                title: row.title,
+                artist: row.artist_name,
+                album: row.album_name,
+                folder: row.folder_name,
+            });
     }
 
     // Convert to response format

@@ -446,40 +446,9 @@ async fn get_directory_contents(
     };
 
     // Get all songs that start with this path prefix from enabled music folders
-    let songs = crate::db::raw::query_all::<crate::db::models::Song>(
-        database.conn(),
-        r#"
-        SELECT s.*, a.name as artist_name, al.name as album_name
-        FROM songs s
-        LEFT JOIN artists a ON s.artist_id = a.id
-        LEFT JOIN albums al ON s.album_id = al.id
-        INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE s.file_path LIKE ? || '%'
-                    AND mf.enabled = 1
-                    AND ula.user_id = ?
-                    AND s.marked_for_deletion_at IS NULL
-        ORDER BY s.file_path
-        "#,
-        r#"
-        SELECT s.*, a.name as artist_name, al.name as album_name
-        FROM songs s
-        LEFT JOIN artists a ON s.artist_id = a.id
-        LEFT JOIN albums al ON s.album_id = al.id
-        INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                WHERE s.file_path LIKE $1 || '%'
-                    AND mf.enabled
-                    AND ula.user_id = $2
-                    AND s.marked_for_deletion_at IS NULL
-        ORDER BY s.file_path
-        "#,
-        [
-            sea_orm::Value::from(path_prefix.clone()),
-            sea_orm::Value::from(user_id),
-        ],
-    )
-    .await?;
+    let songs =
+        crate::db::repo::browse::list_user_songs_by_path_prefix(database, user_id, &path_prefix)
+            .await?;
 
     // Separate into direct children (songs in this folder) and subdirectories
     let mut direct_songs: Vec<crate::db::models::Song> = Vec::new();

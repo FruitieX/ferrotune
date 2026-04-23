@@ -716,20 +716,15 @@ pub async fn delete_staged_file(
             .await
     {
         // Get the cover art filename from pending edits
-        #[derive(sea_orm::FromQueryResult)]
-        struct CoverRow {
-            cover_art_filename: Option<String>,
-        }
-        let cover_art_filename: Option<String> = crate::db::raw::query_one::<CoverRow>(
-            state.database.conn(),
-            "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-            "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
-            [sea_orm::Value::from(session_id), sea_orm::Value::from(id.clone())],
-        )
-        .await
-        .ok()
-        .flatten()
-        .and_then(|r| r.cover_art_filename);
+        let cover_art_filename: Option<String> =
+            crate::db::repo::tagger::get_pending_edit_cover_filename(
+                &state.database,
+                session_id,
+                &id,
+            )
+            .await
+            .ok()
+            .flatten();
 
         // Delete cover art file if it exists
         if let Some(filename) = cover_art_filename {
@@ -744,28 +739,12 @@ pub async fn delete_staged_file(
         }
 
         // Delete the pending edit record
-        let _ = crate::db::raw::execute(
-            state.database.conn(),
-            "DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
-            "DELETE FROM tagger_pending_edits WHERE session_id = $1 AND track_id = $2",
-            [
-                sea_orm::Value::from(session_id),
-                sea_orm::Value::from(id.clone()),
-            ],
-        )
-        .await;
+        let _ =
+            crate::db::repo::tagger::delete_pending_edit(&state.database, session_id, &id).await;
 
         // Also remove from session tracks
-        let _ = crate::db::raw::execute(
-            state.database.conn(),
-            "DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
-            "DELETE FROM tagger_session_tracks WHERE session_id = $1 AND track_id = $2",
-            [
-                sea_orm::Value::from(session_id),
-                sea_orm::Value::from(id.clone()),
-            ],
-        )
-        .await;
+        let _ =
+            crate::db::repo::tagger::delete_session_track(&state.database, session_id, &id).await;
     }
 
     // Success (No Content)
@@ -1712,21 +1691,6 @@ pub struct SongPathsResponse {
     pub songs: Vec<SongPathMetadata>,
 }
 
-#[derive(sea_orm::FromQueryResult)]
-struct SongPathRow {
-    id: String,
-    file_path: String,
-    title: String,
-    artist_name: String,
-    file_format: String,
-    album_name: Option<String>,
-    track_number: Option<i32>,
-    disc_number: i32,
-    year: Option<i32>,
-    genre: Option<String>,
-    album_artist_name: Option<String>,
-}
-
 /// GET /ferrotune/tagger/song-paths
 ///
 /// Returns lightweight metadata for all library songs, intended for client-side
@@ -1736,38 +1700,9 @@ pub async fn get_song_paths(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SongPathsResponse>> {
     // Query all songs with artist and album info in a single query
-    let rows = crate::db::raw::query_all::<SongPathRow>(
-        state.database.conn(),
-        r#"
-        SELECT s.id, s.file_path, s.title, ar.name as artist_name, s.file_format,
-               al.name as album_name, s.track_number, s.disc_number, s.year, s.genre,
-               aa.name as album_artist_name
-        FROM songs s
-        LEFT JOIN artists ar ON s.artist_id = ar.id
-        LEFT JOIN albums al ON s.album_id = al.id
-        LEFT JOIN artists aa ON al.artist_id = aa.id
-        WHERE NOT EXISTS (
-            SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id
-        )
-        ORDER BY s.file_path
-        "#,
-        r#"
-        SELECT s.id, s.file_path, s.title, ar.name as artist_name, s.file_format,
-               al.name as album_name, s.track_number, s.disc_number, s.year, s.genre,
-               aa.name as album_artist_name
-        FROM songs s
-        LEFT JOIN artists ar ON s.artist_id = ar.id
-        LEFT JOIN albums al ON s.album_id = al.id
-        LEFT JOIN artists aa ON al.artist_id = aa.id
-        WHERE NOT EXISTS (
-            SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id
-        )
-        ORDER BY s.file_path
-        "#,
-        std::iter::empty::<sea_orm::Value>(),
-    )
-    .await
-    .map_err(|e| Error::Internal(format!("Failed to fetch songs: {}", e)))?;
+    let rows = crate::db::repo::tagger::list_song_paths(&state.database)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to fetch songs: {}", e)))?;
 
     let songs: Vec<SongPathMetadata> = rows
         .into_iter()

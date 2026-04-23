@@ -1,10 +1,9 @@
+pub mod dialect;
 pub mod dto;
 pub mod entity;
-pub mod migrations;
 pub mod models;
 pub mod ordering;
 pub mod queries;
-pub mod raw;
 pub mod repo;
 pub mod retry;
 
@@ -116,6 +115,23 @@ impl Database {
 
     pub fn postgres_pool_cloned(&self) -> crate::error::Result<PgPool> {
         self.postgres_pool().cloned()
+    }
+
+    /// Construct an in-memory SQLite-backed `Database`, running the full
+    /// production migrator against it. Intended for unit tests that need a
+    /// schema identical to runtime without depending on a real file or
+    /// PostgreSQL instance.
+    #[cfg(test)]
+    pub async fn new_sqlite_in_memory() -> crate::error::Result<Self> {
+        let pool = SqlitePool::connect(":memory:")
+            .await
+            .map_err(sqlx_database_error)?;
+        SQLITE_MIGRATOR
+            .run(&pool)
+            .await
+            .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
+        let conn = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
+        Ok(Self::Sqlite { pool, conn })
     }
 }
 
@@ -290,9 +306,6 @@ async fn create_sqlite_pool(database_path: &Path) -> crate::error::Result<Sqlite
         .run(&pool)
         .await
         .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
-
-    let migration_conn = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
-    migrations::run_data_migrations(&migration_conn).await?;
 
     // Let SQLite update query planner statistics if stale (best-effort)
     if let Err(e) = sqlx::query("PRAGMA optimize").execute(&pool).await {
