@@ -9,11 +9,13 @@ pub mod retry;
 
 use crate::config::{DatabaseBackend, DatabaseConfig};
 use sea_orm::{DatabaseConnection, SqlxPostgresConnector, SqlxSqliteConnector};
+use sqlx::migrate::MigrateDatabase;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode, SqlitePool, SqlitePoolOptions,
     SqliteSynchronous,
 };
+use sqlx::Postgres;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
@@ -234,6 +236,8 @@ async fn create_postgres_pool(database_url: &str) -> crate::error::Result<PgPool
 
     tracing::info!("PostgreSQL config: max_connections={:?}", max_connections);
 
+    ensure_postgres_database_exists(database_url).await?;
+
     let mut pool_options = PgPoolOptions::new();
     if let Some(max) = max_connections {
         pool_options = pool_options.max_connections(max);
@@ -250,6 +254,29 @@ async fn create_postgres_pool(database_url: &str) -> crate::error::Result<PgPool
         .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
 
     Ok(pool)
+}
+
+async fn ensure_postgres_database_exists(database_url: &str) -> crate::error::Result<()> {
+    if Postgres::database_exists(database_url)
+        .await
+        .map_err(sqlx_database_error)?
+    {
+        return Ok(());
+    }
+
+    tracing::info!("PostgreSQL database missing, creating it");
+
+    if let Err(error) = Postgres::create_database(database_url).await {
+        match Postgres::database_exists(database_url).await {
+            Ok(true) => {
+                tracing::info!("PostgreSQL database was created concurrently");
+                return Ok(());
+            }
+            Ok(false) | Err(_) => return Err(sqlx_database_error(error)),
+        }
+    }
+
+    Ok(())
 }
 
 async fn create_sqlite_pool(database_path: &Path) -> crate::error::Result<SqlitePool> {

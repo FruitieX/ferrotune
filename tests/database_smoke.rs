@@ -28,6 +28,15 @@ fn unique_sqlite_db_path() -> PathBuf {
         .join("ferrotune.db")
 }
 
+fn unique_postgres_db_name(prefix: &str) -> String {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_nanos();
+
+    format!("{prefix}_{unique}")
+}
+
 async fn assert_repository_smoke(database: &db::Database) {
     assert_eq!(
         repo::users::count_users(database)
@@ -136,6 +145,46 @@ fn test_postgres_create_pool_runs_migrations_and_repository_smoke() {
         })
         .await
         .expect("postgres smoke database should initialize");
+
+        assert_repository_smoke(&database).await;
+    });
+}
+
+#[test]
+fn test_postgres_create_pool_creates_missing_database_then_runs_migrations_and_repository_smoke() {
+    if !docker_available() {
+        eprintln!("Skipping test: docker not available");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres host should resolve")
+        .to_string();
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres port should resolve");
+    let database_name = unique_postgres_db_name("ferrotune_missing_db_smoke");
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("postgres smoke runtime should build");
+
+    runtime.block_on(async move {
+        let database = db::create_pool(&DatabaseConfig {
+            backend: DatabaseBackend::Postgres,
+            path: PathBuf::new(),
+            url: Some(format!(
+                "postgres://postgres:postgres@{}:{}/{}",
+                host, port, database_name
+            )),
+        })
+        .await
+        .expect("postgres create_pool should create a missing database and initialize it");
 
         assert_repository_smoke(&database).await;
     });
