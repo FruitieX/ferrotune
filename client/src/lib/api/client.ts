@@ -132,6 +132,10 @@ import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
 import type { FerrotuneAlbumListResponse } from "./generated/FerrotuneAlbumListResponse";
 import type { FerrotuneSearchResponse } from "./generated/FerrotuneSearchResponse";
 import type { FerrotunePlayHistoryResponse } from "./generated/FerrotunePlayHistoryResponse";
+import type { ManagedHistoryEntriesResponse } from "./generated/ManagedHistoryEntriesResponse";
+import type { DeleteManagedHistoryEntriesRequest } from "./generated/DeleteManagedHistoryEntriesRequest";
+import type { DeleteMatchingManagedHistoryEntriesRequest } from "./generated/DeleteMatchingManagedHistoryEntriesRequest";
+import type { DeleteManagedHistoryEntriesResponse } from "./generated/DeleteManagedHistoryEntriesResponse";
 import type { HomePageResponse } from "./generated/HomePageResponse";
 import type { HomeContinueListeningSection } from "./generated/HomeContinueListeningSection";
 import type { FerrotuneSimilarSongsResponse } from "./generated/FerrotuneSimilarSongsResponse";
@@ -851,6 +855,40 @@ export class FerrotuneClient {
         total: res.total ?? undefined,
       },
     };
+  }
+
+  async getManagedHistoryEntries(
+    params: {
+      from?: string;
+      to?: string;
+      minDuration?: number;
+      maxDuration?: number;
+      offset?: number;
+      limit?: number;
+      includeScrobbles?: boolean;
+      includeSessions?: boolean;
+    } = {},
+  ): Promise<ManagedHistoryEntriesResponse> {
+    const endpoint = buildEndpoint("/ferrotune/history/entries", params);
+    return this.request(endpoint);
+  }
+
+  async deleteManagedHistoryEntries(
+    request: DeleteManagedHistoryEntriesRequest,
+  ): Promise<DeleteManagedHistoryEntriesResponse> {
+    return this.request("/ferrotune/history/delete", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteMatchingManagedHistoryEntries(
+    request: DeleteMatchingManagedHistoryEntriesRequest,
+  ): Promise<DeleteManagedHistoryEntriesResponse> {
+    return this.request("/ferrotune/history/delete-matching", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
   }
 
   // Media URL builders (no fetch, returns URL string)

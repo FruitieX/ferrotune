@@ -14,6 +14,7 @@ pub mod config;
 pub mod coverart;
 pub mod duplicates;
 pub mod history;
+pub mod history_admin;
 pub mod listening;
 pub mod lists;
 pub mod matching;

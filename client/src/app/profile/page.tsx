@@ -16,6 +16,7 @@ import {
   Upload,
   FileSpreadsheet,
   Heart,
+  History,
   SkipForward,
   Music,
 } from "lucide-react";
@@ -145,8 +146,8 @@ export default function ProfilePage() {
     return (
       <div className="p-4 lg:p-6 space-y-6">
         <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-[200px] w-full" />
-        <Skeleton className="h-[200px] w-full" />
+        <Skeleton className="h-50 w-full" />
+        <Skeleton className="h-50 w-full" />
         {signOutCard}
       </div>
     );
@@ -280,6 +281,12 @@ export default function ProfilePage() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Link href="/history/manage">
+                <Button size="sm" variant="outline" className="gap-2">
+                  <History className="w-4 h-4" />
+                  Manage
+                </Button>
+              </Link>
               <Link href="/review">
                 <Button
                   size="sm"
