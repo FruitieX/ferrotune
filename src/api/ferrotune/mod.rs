@@ -87,6 +87,7 @@ mod disabled_songs;
 mod duplicates;
 mod filesystem;
 pub mod history;
+mod history_admin;
 mod home;
 pub mod lastfm;
 mod listening;
@@ -120,6 +121,12 @@ mod waveform;
 
 pub use duplicates::{
     get_duplicates as ferrotune_get_duplicates, DuplicateFile, DuplicateGroup, DuplicatesResponse,
+};
+pub use history_admin::{
+    delete_history_entries, delete_matching_history_entries, list_history_entries,
+    DeleteManagedHistoryEntriesRequest, DeleteManagedHistoryEntriesResponse,
+    DeleteMatchingManagedHistoryEntriesRequest, ManagedHistoryEntriesResponse, ManagedHistoryEntry,
+    ManagedHistoryEntryKind, ManagedHistoryFilter,
 };
 pub use home::{
     get_continue_listening, get_home, ContinueListeningParams, HomeContinueListeningSection,
@@ -214,6 +221,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/starred", get(starring::get_starred))
         // History endpoint (migrated from OpenSubsonic)
         .route("/ferrotune/history", get(history::get_play_history))
+        .route(
+            "/ferrotune/history/entries",
+            get(history_admin::list_history_entries),
+        )
+        .route(
+            "/ferrotune/history/delete",
+            post(history_admin::delete_history_entries),
+        )
+        .route(
+            "/ferrotune/history/delete-matching",
+            post(history_admin::delete_matching_history_entries),
+        )
         // Setup endpoint (unauthenticated - for first-run detection)
         .route("/ferrotune/setup/status", get(setup::get_setup_status))
         .route("/ferrotune/setup/complete", post(setup::complete_setup))
