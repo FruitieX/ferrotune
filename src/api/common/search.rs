@@ -305,6 +305,10 @@ fn sort_albums_for_search(
     albums
 }
 
+fn is_starred_sort(sort: Option<&String>) -> bool {
+    matches!(sort.map(|value| value.as_str()), Some("starred"))
+}
+
 async fn search_songs_unified(
     database: &Database,
     user_id: i64,
@@ -321,7 +325,9 @@ async fn search_songs_unified(
     sql.push_str(
         "SELECT s.*, ar.name AS artist_name, al.name AS album_name, pc.play_count, pc.last_played, ",
     );
-    sql.push_str(if pg {
+    sql.push_str(if filter_conds.has_starred_filter {
+        "st.starred_at AS starred_at"
+    } else if pg {
         "NULL::TIMESTAMPTZ AS starred_at"
     } else {
         "NULL AS starred_at"
@@ -611,6 +617,7 @@ pub fn get_song_order_clause_for_search(
         Some("duration") => format!("s.duration {dir}, s.title COLLATE NOCASE {dir}"),
         Some("playCount") => format!("COALESCE(play_count, 0) {dir}, s.title COLLATE NOCASE {dir}"),
         Some("lastPlayed") => format!("last_played {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
+        Some("starred") => format!("starred_at {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("s.created_at {dir}, s.title COLLATE NOCASE {dir}"),
         Some("recommended") => {
             let seed = hour_seed();
@@ -672,6 +679,11 @@ pub fn get_album_order_clause(
             extra_join: None,
             extra_join_user_ids: vec![],
         },
+        Some("starred") => AlbumOrderClause {
+            order_by: format!("st.starred_at {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
         Some("recommended") => {
             let seed = hour_seed();
             let uid = user_id.unwrap_or(0);
@@ -722,6 +734,7 @@ pub fn get_artist_order_clause(
     match sort.map(|s| s.as_str()) {
         Some("albumCount") => format!("a.album_count {dir}, a.name COLLATE NOCASE {dir}"),
         Some("songCount") => format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
+        Some("starred") => format!("st.starred_at {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"),
         Some("recommended") => {
             let seed = hour_seed();
             // Score: recent plays of artist songs (0-40) + total plays (0-25) + random (0-20)
@@ -750,7 +763,8 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
     // Always exclude songs marked for deletion (in recycle bin)
     let mut conditions = vec!["s.marked_for_deletion_at IS NULL".to_string()];
     let has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
-    let has_starred_filter = params.starred_only.unwrap_or(false);
+    let has_starred_filter =
+        params.starred_only.unwrap_or(false) || is_starred_sort(params.song_sort.as_ref());
     let has_shuffle_exclude_filter = params.shuffle_excluded_only.unwrap_or(false);
 
     if let Some(min_year) = params.min_year {
@@ -776,7 +790,7 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
     if let Some(max_rating) = params.max_rating {
         conditions.push(format!("COALESCE(r.rating, 0) <= {}", max_rating));
     }
-    if has_starred_filter {
+    if params.starred_only.unwrap_or(false) {
         // starred table uses composite PK (user_id, item_type, item_id) - no 'id' column
         conditions.push("st.item_id IS NOT NULL".to_string());
     }
@@ -1011,12 +1025,13 @@ pub async fn search_artists(
     };
     let is_wildcard = is_wildcard_input || fts_query.is_none();
 
-    let artist_has_starred_filter = params.starred_only.unwrap_or(false);
+    let artist_has_starred_filter =
+        params.starred_only.unwrap_or(false) || is_starred_sort(params.artist_sort.as_ref());
     let artist_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
 
     // Filter conditions (reused across primary + count + fuzzy supplement).
     let mut artist_filter_conds: Vec<String> = Vec::new();
-    if artist_has_starred_filter {
+    if params.starred_only.unwrap_or(false) {
         artist_filter_conds.push("st.item_id IS NOT NULL".to_string());
     }
     if let Some(min_rating) = params.min_rating {
@@ -1177,13 +1192,22 @@ pub async fn search_artists(
             sql.push_str(&sqlite_case_insensitive_sql_to_postgres(condition));
         }
 
+        if is_starred_sort(params.artist_sort.as_ref()) {
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&sqlite_case_insensitive_sql_to_postgres(&artist_order));
+        }
+
         let artists =
             query_all_for_backend::<crate::db::models::Artist>(database, &sql, binds).await?;
-        let artists = sort_artists_for_search(
-            artists,
-            params.artist_sort.as_ref(),
-            params.artist_sort_dir.as_ref(),
-        );
+        let artists = if is_starred_sort(params.artist_sort.as_ref()) {
+            artists
+        } else {
+            sort_artists_for_search(
+                artists,
+                params.artist_sort.as_ref(),
+                params.artist_sort_dir.as_ref(),
+            )
+        };
         let total = Some(artists.len() as i64);
         (artists, total)
     } else if is_wildcard || fts_query.is_some() {
@@ -1271,7 +1295,8 @@ pub async fn search_albums(
 
     let album_filter_conds = build_album_filter_conditions(params);
     let album_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
-    let album_has_starred_filter = params.starred_only.unwrap_or(false);
+    let album_has_starred_filter =
+        params.starred_only.unwrap_or(false) || is_starred_sort(params.album_sort.as_ref());
     let pg = is_postgres(database);
 
     // Helper to build the primary or count query.
@@ -1355,13 +1380,18 @@ pub async fn search_albums(
             }
         }
 
-        if !count_only && !pg {
+        let should_order_in_sql = !pg || is_starred_sort(params.album_sort.as_ref());
+        if !count_only && should_order_in_sql {
             sql.push_str(" ORDER BY ");
-            sql.push_str(album_order);
-            sql.push_str(" LIMIT ");
-            push_bind(&mut sql, &mut binds, limit, pg);
-            sql.push_str(" OFFSET ");
-            push_bind(&mut sql, &mut binds, offset, pg);
+            if pg {
+                sql.push_str(&sqlite_case_insensitive_sql_to_postgres(album_order));
+            } else {
+                sql.push_str(album_order);
+                sql.push_str(" LIMIT ");
+                push_bind(&mut sql, &mut binds, limit, pg);
+                sql.push_str(" OFFSET ");
+                push_bind(&mut sql, &mut binds, offset, pg);
+            }
         }
         (sql, binds)
     };
@@ -1370,11 +1400,15 @@ pub async fn search_albums(
         let (sql, binds) = build_query(false);
         let albums =
             query_all_for_backend::<crate::db::models::Album>(database, &sql, binds).await?;
-        let albums = sort_albums_for_search(
-            albums,
-            params.album_sort.as_ref(),
-            params.album_sort_dir.as_ref(),
-        );
+        let albums = if is_starred_sort(params.album_sort.as_ref()) {
+            albums
+        } else {
+            sort_albums_for_search(
+                albums,
+                params.album_sort.as_ref(),
+                params.album_sort_dir.as_ref(),
+            )
+        };
         let total = Some(albums.len() as i64);
         (albums, total)
     } else if is_wildcard || fts_query.is_some() {

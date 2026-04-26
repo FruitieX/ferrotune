@@ -3453,6 +3453,12 @@ fn test_postgres_home_handler_works() {
         let (user, _artist_id, album_id, _song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
+        sqlx::query("UPDATE songs SET album_id = NULL WHERE id = $1")
+            .bind(&song_2)
+            .execute(pool)
+            .await
+            .expect("postgres albumless song update should succeed");
+
         sqlx::query(
             "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
               VALUES ($1, $2, NOW() - INTERVAL '121 days', TRUE, 5, NULL),
@@ -3490,7 +3496,7 @@ fn test_postgres_home_handler_works() {
         .expect("postgres ferrotune home handler should succeed")
         .0;
 
-        assert!(response.continue_listening.total >= 1);
+        assert_eq!(response.continue_listening.total, 1);
         assert_eq!(response.most_played_recently.total, Some(1));
         assert_eq!(response.recently_added.total, Some(1));
         assert_eq!(response.discover.total, Some(1));
@@ -5561,6 +5567,149 @@ fn test_postgres_execute_search_works() {
             .map(|song| song.id)
             .collect();
         assert_eq!(typo_song_ids, vec![song_1]);
+
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let newer_artist_id = "ar-integration-newer-star";
+        let newer_album_id = "al-integration-newer-star";
+        let newer_song_id = "so-integration-newer-star";
+        let folder_id: i64 = sqlx::query_scalar("SELECT id FROM music_folders LIMIT 1")
+            .fetch_one(pool)
+            .await
+            .expect("postgres music folder lookup should succeed");
+
+        sqlx::query(
+            "INSERT INTO artists (id, name, sort_name, album_count, song_count, cover_art_hash)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(newer_artist_id)
+        .bind("Integration Newer Star Artist")
+        .bind(Some("Integration Newer Star Artist"))
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(Option::<String>::None)
+        .execute(pool)
+        .await
+        .expect("postgres newer starred artist insert should succeed");
+        sqlx::query(
+            "INSERT INTO albums (id, name, artist_id, year, genre, song_count, duration, cover_art_hash, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())",
+        )
+        .bind(newer_album_id)
+        .bind("Integration Newer Star Album")
+        .bind(newer_artist_id)
+        .bind(2026_i32)
+        .bind(Some("rock"))
+        .bind(1_i64)
+        .bind(180_i64)
+        .bind(Option::<String>::None)
+        .execute(pool)
+        .await
+        .expect("postgres newer starred album insert should succeed");
+        sqlx::query(
+            "INSERT INTO songs (
+                id, title, album_id, artist_id, music_folder_id, track_number, disc_number, year, genre,
+                duration, bitrate, file_path, file_size, file_format, file_mtime, created_at, updated_at
+             ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, $14, $15, NOW(), NOW()
+             )",
+        )
+        .bind(newer_song_id)
+        .bind("Integration Newer Star Song")
+        .bind(newer_album_id)
+        .bind(newer_artist_id)
+        .bind(folder_id)
+        .bind(1_i32)
+        .bind(1_i32)
+        .bind(2026_i32)
+        .bind(Some("rock"))
+        .bind(180_i64)
+        .bind(Some(320_i32))
+        .bind("Artist/New Album/01 - Integration Newer Star Song.mp3")
+        .bind(5_000_000_i64)
+        .bind("mp3")
+        .bind(Some(1_i64))
+        .execute(pool)
+        .await
+        .expect("postgres newer starred song insert should succeed");
+        sqlx::query(
+            "INSERT INTO starred (user_id, item_type, item_id, starred_at)
+             VALUES
+                ($1, 'artist', $2, NOW() + INTERVAL '1 hour'),
+                ($1, 'album', $3, NOW() + INTERVAL '1 hour'),
+                ($1, 'song', $4, NOW() + INTERVAL '1 hour')",
+        )
+        .bind(user.id)
+        .bind(newer_artist_id)
+        .bind(newer_album_id)
+        .bind(newer_song_id)
+        .execute(pool)
+        .await
+        .expect("postgres newer starred rows insert should succeed");
+
+        let starred_params = ferrotune::api::common::search::SearchParams {
+            query: "integration".to_string(),
+            artist_count: Some(5),
+            artist_offset: Some(0),
+            album_count: Some(5),
+            album_offset: Some(0),
+            song_count: Some(5),
+            song_offset: Some(0),
+            song_sort: Some("starred".to_string()),
+            song_sort_dir: Some("desc".to_string()),
+            album_sort: Some("starred".to_string()),
+            album_sort_dir: Some("desc".to_string()),
+            artist_sort: Some("starred".to_string()),
+            artist_sort_dir: Some("desc".to_string()),
+            inline_images: None,
+            min_year: None,
+            max_year: None,
+            genre: None,
+            min_duration: None,
+            max_duration: None,
+            min_rating: None,
+            max_rating: None,
+            starred_only: Some(true),
+            min_play_count: None,
+            max_play_count: None,
+            shuffle_excluded_only: None,
+            disabled_only: None,
+            min_bitrate: None,
+            max_bitrate: None,
+            added_after: None,
+            added_before: None,
+            missing_cover_art: None,
+            file_format: None,
+            artist_filter: None,
+            album_filter: None,
+            title_filter: None,
+            last_played_after: None,
+            last_played_before: None,
+            music_folder_id: None,
+        };
+        let starred_results = ferrotune::api::common::search_utils::execute_search(
+            &database,
+            user.id,
+            &starred_params.query,
+            &starred_params,
+            5,
+            0,
+            5,
+            0,
+            5,
+            0,
+            None,
+        )
+        .await
+        .expect("postgres starred-date sorted search should succeed");
+        assert_eq!(starred_results.artist_responses[0].id, newer_artist_id);
+        assert_eq!(starred_results.album_responses[0].id, newer_album_id);
+        assert_eq!(starred_results.song_responses[0].id, newer_song_id);
+        assert!(starred_results.artist_responses[0].starred.is_some());
+        assert!(starred_results.album_responses[0].starred.is_some());
+        assert!(starred_results.song_responses[0].starred.is_some());
     });
 }
 
@@ -5993,6 +6142,28 @@ fn test_postgres_playlist_queries_work() {
             .await
             .expect("postgres playlist list should resolve for shared playlist");
         assert!(visible_playlists.iter().any(|candidate| candidate.id == playlist_id));
+
+        sqlx::query("UPDATE songs SET cover_art_hash = $1 WHERE id = $2")
+            .bind("cover-a")
+            .bind(&song_1)
+            .execute(pool)
+            .await
+            .expect("postgres song cover hash update should succeed");
+        sqlx::query("UPDATE songs SET cover_art_hash = $1 WHERE id = $2")
+            .bind("cover-b")
+            .bind(&song_2)
+            .execute(pool)
+            .await
+            .expect("postgres second song cover hash update should succeed");
+
+        db::queries::add_songs_to_playlist(&database, &playlist_id, std::slice::from_ref(&song_1))
+            .await
+            .expect("postgres duplicate playlist song insert should succeed");
+
+        let cover_art_hashes = db::repo::coverart::get_playlist_cover_art_hashes(&database, &playlist_id)
+            .await
+            .expect("postgres playlist cover art hashes should resolve");
+        assert_eq!(cover_art_hashes, vec!["cover-a".to_string(), "cover-b".to_string()]);
 
         db::queries::delete_playlist(&database, &playlist_id)
             .await
@@ -7317,6 +7488,16 @@ fn test_postgres_ferrotune_history_handler_work() {
             .await
             .expect("postgres scrobble insert should succeed");
         }
+
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count) VALUES ($1, $2, NULL, TRUE, $3)",
+        )
+        .bind(owner.id)
+        .bind(&song_2)
+        .bind(1_i64)
+        .execute(pool)
+        .await
+        .expect("postgres null played_at scrobble insert should succeed");
 
         let state = Arc::new(AppState {
             database: database.clone(),

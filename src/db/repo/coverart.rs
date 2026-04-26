@@ -4,6 +4,7 @@ use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, JoinType, Order, QueryFilter, QueryOrder,
     QuerySelect, RelationTrait,
 };
+use std::collections::HashSet;
 
 use crate::db::entity;
 use crate::db::Database;
@@ -109,13 +110,27 @@ pub async fn get_playlist_cover_art_hashes(
         )
         .filter(entity::playlist_songs::Column::PlaylistId.eq(playlist_id))
         .filter(entity::songs::Column::CoverArtHash.is_not_null())
-        .distinct()
         .order_by(entity::playlist_songs::Column::Position, Order::Asc)
-        .limit(4)
         .into_tuple()
         .all(database.conn())
         .await?;
-    Ok(rows.into_iter().filter_map(|(h,)| h).collect())
+
+    let mut seen = HashSet::new();
+    let mut hashes = Vec::with_capacity(4);
+    for (hash,) in rows {
+        let Some(hash) = hash else {
+            continue;
+        };
+
+        if seen.insert(hash.clone()) {
+            hashes.push(hash);
+            if hashes.len() == 4 {
+                break;
+            }
+        }
+    }
+
+    Ok(hashes)
 }
 
 /// Minimal projection of a smart playlist for cover-art materialization.

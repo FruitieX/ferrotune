@@ -760,7 +760,7 @@ pub async fn list_continue_listening_sources(
     #[derive(FromQueryResult)]
     struct Row {
         source_type: String,
-        source_id: String,
+        source_id: Option<String>,
         last_played: Option<DateTime<FixedOffset>>,
     }
 
@@ -776,10 +776,13 @@ pub async fn list_continue_listening_sources(
     Ok(rows
         .into_iter()
         .filter_map(|row| {
-            row.last_played.map(|dt| ContinueListeningSource {
+            let source_id = row.source_id?;
+            let last_played = row.last_played?;
+
+            Some(ContinueListeningSource {
                 source_type: row.source_type,
-                source_id: row.source_id,
-                last_played: dt.with_timezone(&Utc),
+                source_id,
+                last_played: last_played.with_timezone(&Utc),
             })
         })
         .collect())
@@ -791,15 +794,17 @@ pub async fn count_continue_listening_sources(database: &Database, user_id: i64)
 
     #[derive(FromQueryResult)]
     struct Row {
-        source_type: String,
-        source_id: String,
+        source_id: Option<String>,
     }
 
     let stmt = continue_listening_subquery(user_id);
     let backend = database.conn().get_database_backend();
     let sql = backend.build(&stmt);
     let rows = Row::find_by_statement(sql).all(database.conn()).await?;
-    Ok(rows.len() as i64)
+    Ok(rows
+        .into_iter()
+        .filter(|row| row.source_id.is_some())
+        .count() as i64)
 }
 
 /// Fetch the minimal playlist summary (id, name, song_count, total duration)

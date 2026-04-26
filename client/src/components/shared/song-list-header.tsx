@@ -101,7 +101,7 @@ export function SongListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "72px" && "top-[72px]",
+        stickyTop === "72px" && "top-18",
         className,
       )}
       style={
@@ -137,9 +137,8 @@ export function SongListHeader({
         {columnVisibility.starred && (
           <SortableHeader
             field="starred"
-            label="Fav"
-            width="w-8"
-            align="center"
+            label="Favorited"
+            width="w-24"
             sortConfig={sortConfig}
             onSort={handleSort}
           />
@@ -257,7 +256,7 @@ export function FilesListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "72px" && "top-[72px]",
+        stickyTop === "72px" && "top-18",
         className,
       )}
       style={
@@ -322,7 +321,7 @@ export function AlbumListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "72px" && "top-[72px]",
+        stickyTop === "72px" && "top-18",
         className,
       )}
       style={
@@ -402,7 +401,7 @@ export function ArtistListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "72px" && "top-[72px]",
+        stickyTop === "72px" && "top-18",
         className,
       )}
       style={

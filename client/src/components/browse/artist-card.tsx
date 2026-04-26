@@ -1,10 +1,10 @@
 "use client";
 
-import { Users, Heart, HeartOff } from "lucide-react";
+import { Users } from "lucide-react";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredArtist } from "@/lib/store/starred";
-import { formatCount } from "@/lib/utils/format";
+import { formatCount, formatDate } from "@/lib/utils/format";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import {
   MediaRow,
@@ -175,12 +175,8 @@ export function ArtistCardCompact({
         showAlbumCount || showSongCount || showStarred || showRating ? (
           <div className="flex items-center gap-4">
             {showStarred && (
-              <span className="w-8 text-center shrink-0">
-                {isStarred ? (
-                  <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
-                ) : (
-                  <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
-                )}
+              <span className="text-sm text-muted-foreground w-24 text-right shrink-0">
+                {artist.starred ? formatDate(artist.starred) : "—"}
               </span>
             )}
             {showRating && (
