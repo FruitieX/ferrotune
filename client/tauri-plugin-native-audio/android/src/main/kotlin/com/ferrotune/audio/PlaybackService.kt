@@ -1,12 +1,18 @@
 package com.ferrotune.audio
 
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Binder
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
@@ -89,6 +95,9 @@ class PlaybackService : MediaSessionService() {
         private const val STREAM_TARGET_BUFFER_BYTES = 64 * 1024 * 1024
         // Stop the foreground service after this many ms of inactivity (paused)
         private const val INACTIVITY_TIMEOUT_MS = 5L * 60 * 1000
+        // Give Android's media routing a short moment to settle after device
+        // removal before deciding that the active media output is still safe.
+        private const val AUDIO_ROUTE_SETTLE_DELAY_MS = 500L
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
         // SimpleCache is a singleton — only one instance may exist per cache directory.
@@ -110,6 +119,9 @@ class PlaybackService : MediaSessionService() {
     private var currentTrack: TrackInfo? = null
     private var queue: List<TrackInfo> = emptyList()
     private var queueIndex: Int = -1
+    private lateinit var audioManager: AudioManager
+    private var hadNoisyAudioOutput = false
+    private var pausedForAudioOutputLoss = false
     // Offset of the first item in ExoPlayer's queue relative to the server queue
     private var queueOffset: Int = 0
 
@@ -195,6 +207,75 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private val noisyAudioReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                return
+            }
+
+            Log.i(TAG, "Received ACTION_AUDIO_BECOMING_NOISY")
+            // Let ExoPlayer's own becoming-noisy receiver handle the broadcast
+            // first when it is active. If Media3 was not listening for some
+            // reason, this posted fallback still pauses on the next loop turn.
+            handler.post { pauseForAudioOutputLoss("ACTION_AUDIO_BECOMING_NOISY") }
+        }
+    }
+
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            refreshAudioOutputRouteSnapshot("devices added=${audioDeviceTypeNames(addedDevices.asList())}")
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            val removedNoisyOutputs = removedDevices.filter(::isNoisyAudioOutput)
+            val hadNoisyOutputBeforeRemoval = hadNoisyAudioOutput
+            val currentNoisyOutputs = getNoisyAudioOutputDevices()
+            hadNoisyAudioOutput = currentNoisyOutputs.isNotEmpty()
+
+            Log.d(
+                TAG,
+                "Audio devices removed: removed=${audioDeviceTypeNames(removedDevices.asList())}, " +
+                    "removedNoisy=${audioDeviceTypeNames(removedNoisyOutputs)}, " +
+                    "hadNoisyAudioOutput=$hadNoisyOutputBeforeRemoval, " +
+                    "currentNoisyOutputs=${audioDeviceTypeNames(currentNoisyOutputs)}"
+            )
+
+            if (removedNoisyOutputs.isEmpty() || !hadNoisyOutputBeforeRemoval) {
+                return
+            }
+
+            // API 31+ can ask Android which devices are routed for media attributes,
+            // so only pause when the active media output moved away from a noisy
+            // output. Older Android versions only expose connected devices here; on
+            // those devices, prefer a harmless false pause over silent playback
+            // draining the battery through the speaker after output loss.
+            val lostNoisyOutput = !canQueryMediaOutputRoute() || !hadNoisyAudioOutput
+            if (lostNoisyOutput) {
+                pauseForAudioOutputLoss(
+                    "AudioDeviceCallback removed=${audioDeviceTypeNames(removedNoisyOutputs)}"
+                )
+            } else {
+                val removedTypes = audioDeviceTypeNames(removedNoisyOutputs)
+                Log.d(
+                    TAG,
+                    "Media route still reports noisy output after removal=$removedTypes; rechecking after settle"
+                )
+                handler.postDelayed({
+                    val settledNoisyOutputs = getNoisyAudioOutputDevices()
+                    hadNoisyAudioOutput = settledNoisyOutputs.isNotEmpty()
+                    if (settledNoisyOutputs.isEmpty()) {
+                        pauseForAudioOutputLoss("AudioDeviceCallback removed=$removedTypes after route settle")
+                    } else {
+                        Log.d(
+                            TAG,
+                            "Audio route still safe after settle: noisyOutputs=${audioDeviceTypeNames(settledNoisyOutputs)}"
+                        )
+                    }
+                }, AUDIO_ROUTE_SETTLE_DELAY_MS)
+            }
+        }
+    }
+
     private val progressRunnable = object : Runnable {
         override fun run() {
             if (player.isPlaying) {
@@ -239,6 +320,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "PlaybackService created")
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // Set up clipping detection callback (posts to main thread for event emission)
         replayGainProcessor.setClippingCallback { peakOverDb ->
@@ -342,6 +424,8 @@ class PlaybackService : MediaSessionService() {
         // Add player listener
         player.addListener(PlayerListener())
 
+        registerAudioRouteCallbacks()
+
         // Use ForwardingSimpleBasePlayer instead of ForwardingPlayer.
         // ForwardingSimpleBasePlayer uses atomic getState() which properly
         // propagates timeline/queue state to all listeners including the
@@ -406,10 +490,12 @@ class PlaybackService : MediaSessionService() {
             ): ListenableFuture<*> {
                 when (seekCommand) {
                     COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                        clearAudioOutputLossPause("media session next command")
                         autonomousSkipNext()
                         return Futures.immediateVoidFuture()
                     }
                     COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                        clearAudioOutputLossPause("media session previous command")
                         autonomousSkipPrevious()
                         return Futures.immediateVoidFuture()
                     }
@@ -499,6 +585,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
+        unregisterAudioRouteCallbacks()
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(inactivityTimeoutRunnable)
         handler.removeCallbacks(positionSyncRunnable)
@@ -540,6 +627,7 @@ class PlaybackService : MediaSessionService() {
 
     fun play() {
         Log.d(TAG, "play()")
+        clearAudioOutputLossPause("explicit play()")
         if (player.mediaItemCount == 0 && apiClient.hasSessionConfig()) {
             Log.d(TAG, "play(): no media loaded, bootstrapping from server queue")
             handler.removeCallbacks(inactivityTimeoutRunnable)
@@ -689,10 +777,19 @@ class PlaybackService : MediaSessionService() {
             is SessionEvent.PlaybackCommand -> {
                 Log.d(TAG, "SSE PlaybackCommand: action=${event.action}, positionMs=${event.positionMs}")
                 when (event.action) {
-                    "play" -> { player.playWhenReady = true }
+                    "play" -> {
+                        clearAudioOutputLossPause("SSE play command")
+                        player.playWhenReady = true
+                    }
                     "pause" -> { player.playWhenReady = false }
-                    "next" -> autonomousSkipNext()
-                    "previous" -> autonomousSkipPrevious()
+                    "next" -> {
+                        clearAudioOutputLossPause("SSE next command")
+                        autonomousSkipNext()
+                    }
+                    "previous" -> {
+                        clearAudioOutputLossPause("SSE previous command")
+                        autonomousSkipPrevious()
+                    }
                     "seek" -> event.positionMs?.let { seek(it) }
                 }
             }
@@ -817,6 +914,10 @@ class PlaybackService : MediaSessionService() {
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
             "sourceType=$sourceType, sourceId=$sourceId)")
 
+        if (playWhenReady) {
+            clearAudioOutputLossPause("startPlayback(playWhenReady=true)")
+        }
+
         // Update session ID on the API client if provided
         if (sessionId != null) {
             apiClient.updateSessionId(sessionId)
@@ -846,7 +947,10 @@ class PlaybackService : MediaSessionService() {
                         Log.d(TAG, "startPlayback: target track already loaded, syncing queue without restart")
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
                         if (effectivePlay && !player.playWhenReady) {
-                            player.playWhenReady = true
+                            player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                                true,
+                                "startPlayback existing target"
+                            )
                         }
                     } else {
                         // Use response.currentIndex (server truth) instead of JS-passed
@@ -885,6 +989,11 @@ class PlaybackService : MediaSessionService() {
         startPositionMs: Long,
         playWhenReady: Boolean,
     ) {
+        val effectivePlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+            playWhenReady,
+            "queue window load target=$targetIndex"
+        )
+
         serverTotalCount = response.totalCount
         this.isShuffled = response.isShuffled
         this.repeatMode = response.repeatMode
@@ -932,7 +1041,7 @@ class PlaybackService : MediaSessionService() {
 
             mediaItems[exoStartIndex] = newMediaItem
 
-            player.playWhenReady = playWhenReady
+            player.playWhenReady = effectivePlayWhenReady
             player.setMediaItems(mediaItems, exoStartIndex, 0)
             player.prepare()
 
@@ -942,7 +1051,7 @@ class PlaybackService : MediaSessionService() {
         } else {
             seekTimeOffsetMs = 0
 
-            player.playWhenReady = playWhenReady
+            player.playWhenReady = effectivePlayWhenReady
             player.setMediaItems(mediaItems, exoStartIndex, startPositionMs)
             player.prepare()
 
@@ -1043,6 +1152,11 @@ class PlaybackService : MediaSessionService() {
     private fun autonomousSkipNext() {
         seekTimeOffsetMs = 0
         Log.d(TAG, "autonomousSkipNext: serverIndex=$serverQueueIndex, total=$serverTotalCount")
+        if (pausedForAudioOutputLoss) {
+            Log.i(TAG, "Suppressing automatic skip next after audio-output loss")
+            return
+        }
+        val continuePlayback = shouldStartPlaybackAfterAudioOutputLoss(true, "autonomous skip next")
         val nextIndex = serverQueueIndex + 1
 
         if (nextIndex >= serverTotalCount) {
@@ -1056,7 +1170,7 @@ class PlaybackService : MediaSessionService() {
                         apiClient.updatePosition(0, 0, reshuffle = isShuffled)
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
-                            handleQueueWindowResponse(response, 0, 0, true)
+                            handleQueueWindowResponse(response, 0, 0, continuePlayback)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to wrap queue", e)
@@ -1079,7 +1193,7 @@ class PlaybackService : MediaSessionService() {
         // Check if the next track is already loaded in ExoPlayer
         val exoIndex = exoIndexToServerPosition.indexOf(nextIndex)
         if (exoIndex >= 0) {
-            player.playWhenReady = true
+            player.playWhenReady = continuePlayback
             player.seekTo(exoIndex, 0)
             // Track-boundary errors can leave ExoPlayer idle before we advance.
             // Re-prepare whenever the player isn't ready to continue after seek.
@@ -1098,7 +1212,7 @@ class PlaybackService : MediaSessionService() {
                     apiClient.updatePosition(nextIndex, 0)
                     val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
-                        handleQueueWindowResponse(response, nextIndex, 0, true)
+                        handleQueueWindowResponse(response, nextIndex, 0, continuePlayback)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to fetch window for skip next", e)
@@ -1112,10 +1226,15 @@ class PlaybackService : MediaSessionService() {
      */
     private fun autonomousSkipPrevious() {
         Log.d(TAG, "autonomousSkipPrevious: serverIndex=$serverQueueIndex, pos=${player.currentPosition}")
+        if (pausedForAudioOutputLoss) {
+            Log.i(TAG, "Suppressing automatic skip previous after audio-output loss")
+            return
+        }
+        val continuePlayback = shouldStartPlaybackAfterAudioOutputLoss(true, "autonomous skip previous")
 
         // If more than 3 seconds in, restart current track
         if (player.currentPosition > 3000) {
-            player.playWhenReady = true
+            player.playWhenReady = continuePlayback
             seek(0) // Use seek() to properly reload transcoded streams from beginning
             accumulatedListenMs = 0
             hasScrobbled = false
@@ -1133,7 +1252,7 @@ class PlaybackService : MediaSessionService() {
                         apiClient.updatePosition(serverTotalCount - 1, 0)
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
-                            handleQueueWindowResponse(response, serverTotalCount - 1, 0, true)
+                            handleQueueWindowResponse(response, serverTotalCount - 1, 0, continuePlayback)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to wrap queue backward", e)
@@ -1150,7 +1269,7 @@ class PlaybackService : MediaSessionService() {
 
         val exoIndex = exoIndexToServerPosition.indexOf(prevIndex)
         if (exoIndex >= 0) {
-            player.playWhenReady = true
+            player.playWhenReady = continuePlayback
             player.seekTo(exoIndex, 0)
             maybePrefetchMore()
         } else {
@@ -1159,7 +1278,7 @@ class PlaybackService : MediaSessionService() {
                     apiClient.updatePosition(prevIndex, 0)
                     val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
-                        handleQueueWindowResponse(response, prevIndex, 0, true)
+                        handleQueueWindowResponse(response, prevIndex, 0, continuePlayback)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to fetch window for skip previous", e)
@@ -1375,7 +1494,10 @@ class PlaybackService : MediaSessionService() {
                     if (isCurrentTrackAtTarget(response, response.currentIndex)) {
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
                         if (shouldPlay && !player.playWhenReady) {
-                            player.playWhenReady = true
+                            player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                                true,
+                                "invalidateQueue existing target"
+                            )
                         }
                     } else {
                         Log.d(TAG, "invalidateQueue: current track changed, full reload")
@@ -1533,6 +1655,7 @@ class PlaybackService : MediaSessionService() {
 
     fun nextTrack() {
         Log.d(TAG, "nextTrack()")
+        clearAudioOutputLossPause("explicit nextTrack()")
         autonomousSkipNext()
     }
 
@@ -1542,6 +1665,7 @@ class PlaybackService : MediaSessionService() {
      */
     fun playAtIndex(index: Int) {
         Log.d(TAG, "playAtIndex($index): serverTotal=$serverTotalCount")
+        clearAudioOutputLossPause("explicit playAtIndex()")
         if (index < 0) {
             Log.w(TAG, "playAtIndex: negative index $index")
             return
@@ -1595,6 +1719,7 @@ class PlaybackService : MediaSessionService() {
 
     fun previousTrack() {
         Log.d(TAG, "previousTrack()")
+        clearAudioOutputLossPause("explicit previousTrack()")
         autonomousSkipPrevious()
     }
 
@@ -1723,6 +1848,176 @@ class PlaybackService : MediaSessionService() {
         val network = cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun registerAudioRouteCallbacks() {
+        refreshAudioOutputRouteSnapshot("register callbacks")
+
+        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(noisyAudioReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(noisyAudioReceiver, filter)
+        }
+
+        audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler)
+        Log.d(TAG, "Audio route callbacks registered")
+    }
+
+    private fun unregisterAudioRouteCallbacks() {
+        try {
+            unregisterReceiver(noisyAudioReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Receiver may not have been registered if service initialization failed early.
+        }
+
+        audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+    }
+
+    private fun refreshAudioOutputRouteSnapshot(reason: String) {
+        val noisyOutputs = getNoisyAudioOutputDevices()
+        hadNoisyAudioOutput = noisyOutputs.isNotEmpty()
+        Log.d(
+            TAG,
+            "Audio route snapshot ($reason): hadNoisyAudioOutput=$hadNoisyAudioOutput, " +
+                "noisyOutputs=${audioDeviceTypeNames(noisyOutputs)}, " +
+                "routeQuery=${if (canQueryMediaOutputRoute()) "media-route" else "connected-outputs"}"
+        )
+    }
+
+    private fun getNoisyAudioOutputDevices(): List<AudioDeviceInfo> {
+        return getAudioOutputDevicesForMedia().filter(::isNoisyAudioOutput)
+    }
+
+    private fun getAudioOutputDevicesForMedia(): List<AudioDeviceInfo> {
+        if (canQueryMediaOutputRoute()) {
+            getAudioOutputDevicesForMediaAttributes()?.let { return it }
+        }
+
+        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+    }
+
+    private fun getAudioOutputDevicesForMediaAttributes(): List<AudioDeviceInfo>? {
+        return try {
+            val attributes = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            val devices = audioManager.javaClass
+                .getMethod("getDevicesForAttributes", android.media.AudioAttributes::class.java)
+                .invoke(audioManager, attributes)
+
+            when (devices) {
+                is List<*> -> devices.filterIsInstance<AudioDeviceInfo>()
+                is Array<*> -> devices.filterIsInstance<AudioDeviceInfo>()
+                else -> null
+            }
+        } catch (e: ReflectiveOperationException) {
+            Log.d(TAG, "Media route query unavailable; falling back to connected outputs", e)
+            null
+        } catch (e: RuntimeException) {
+            Log.d(TAG, "Media route query failed; falling back to connected outputs", e)
+            null
+        }
+    }
+
+    private fun canQueryMediaOutputRoute(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    }
+
+    private fun isNoisyAudioOutput(deviceInfo: AudioDeviceInfo): Boolean {
+        return when (deviceInfo.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLE_BROADCAST,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLE_SPEAKER,
+            AudioDeviceInfo.TYPE_HEARING_AID,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET -> true
+            else -> false
+        }
+    }
+
+    private fun clearAudioOutputLossPause(reason: String) {
+        if (pausedForAudioOutputLoss) {
+            Log.i(TAG, "Clearing audio-output-loss pause guard: $reason")
+        }
+        pausedForAudioOutputLoss = false
+    }
+
+    private fun shouldStartPlaybackAfterAudioOutputLoss(
+        requestedPlayWhenReady: Boolean,
+        reason: String,
+    ): Boolean {
+        if (!requestedPlayWhenReady) {
+            return false
+        }
+        if (!pausedForAudioOutputLoss) {
+            return true
+        }
+
+        Log.i(TAG, "Suppressing automatic playback after audio-output loss: $reason")
+        return false
+    }
+
+    private fun pauseForAudioOutputLoss(reason: String) {
+        val noisyOutputs = getNoisyAudioOutputDevices()
+        hadNoisyAudioOutput = noisyOutputs.isNotEmpty()
+
+        if (!player.playWhenReady || player.playbackState == Player.STATE_ENDED) {
+            Log.d(
+                TAG,
+                "Ignoring audio output loss while not actively playing: $reason, " +
+                    "playWhenReady=${player.playWhenReady}, playbackState=${player.playbackState}, " +
+                    "noisyOutputs=${audioDeviceTypeNames(noisyOutputs)}"
+            )
+            return
+        }
+
+        pausedForAudioOutputLoss = true
+        Log.i(
+            TAG,
+            "Pausing playback after audio output loss: $reason, " +
+                "remainingNoisyOutputs=${audioDeviceTypeNames(noisyOutputs)}"
+        )
+        pause()
+    }
+
+    private fun audioDeviceTypeNames(devices: List<AudioDeviceInfo>): String {
+        return if (devices.isEmpty()) "none" else devices.joinToString { audioDeviceTypeName(it.type) }
+    }
+
+    private fun audioDeviceTypeName(deviceType: Int): String {
+        return when (deviceType) {
+            AudioDeviceInfo.TYPE_BLE_BROADCAST -> "BLE_BROADCAST"
+            AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
+            AudioDeviceInfo.TYPE_BLE_SPEAKER -> "BLE_SPEAKER"
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "BLUETOOTH_A2DP"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
+            AudioDeviceInfo.TYPE_HEARING_AID -> "HEARING_AID"
+            AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB_ACCESSORY"
+            AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
+            AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "WIRED_HEADPHONES"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
+            else -> "type=$deviceType"
+        }
+    }
+
+    private fun playWhenReadyChangeReasonName(reason: Int): String {
+        return when (reason) {
+            Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> "USER_REQUEST"
+            Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> "AUDIO_FOCUS_LOSS"
+            Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> "AUDIO_BECOMING_NOISY"
+            Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE -> "REMOTE"
+            Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM -> "END_OF_MEDIA_ITEM"
+            else -> "UNKNOWN($reason)"
+        }
     }
 
     fun getState(): PlaybackState {
@@ -1864,6 +2159,8 @@ class PlaybackService : MediaSessionService() {
 
             // Restore volume after track transition completes
             if (playbackState == Player.STATE_READY) {
+                refreshAudioOutputRouteSnapshot("playback ready")
+
                 // Reset network retry counter on successful playback
                 networkRetryCount = 0
 
@@ -1933,10 +2230,21 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: $reason")
+            Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: ${playWhenReadyChangeReasonName(reason)}")
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) {
+                pausedForAudioOutputLoss = true
+                Log.i(TAG, "ExoPlayer paused playback because audio is becoming noisy")
+            } else if (playWhenReady && (
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST ||
+                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE
+                    )
+            ) {
+                clearAudioOutputLossPause("playWhenReady=true reason=${playWhenReadyChangeReasonName(reason)}")
+            }
             emitStateChange()
 
             if (playWhenReady && player.playbackState == Player.STATE_READY) {
+                refreshAudioOutputRouteSnapshot("playWhenReady=true")
                 lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
                 handler.removeCallbacks(inactivityTimeoutRunnable)
@@ -2041,6 +2349,11 @@ class PlaybackService : MediaSessionService() {
                         return@postDelayed
                     }
 
+                    val retryPlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                        true,
+                        "network retry for ${track.id}"
+                    )
+
                     if (playbackSettings.transcodingEnabled) {
                         // For transcoded streams, rebuild URL with the furthest
                         // known playback position so a transient player reset at
@@ -2090,7 +2403,7 @@ class PlaybackService : MediaSessionService() {
                         val currentIndex = player.currentMediaItemIndex
                         player.replaceMediaItem(currentIndex, newMediaItem)
                         player.seekTo(currentIndex, 0)
-                        player.playWhenReady = true
+                        player.playWhenReady = retryPlayWhenReady
                         player.prepare()
                         Log.d(
                             TAG,
@@ -2099,7 +2412,7 @@ class PlaybackService : MediaSessionService() {
                         )
                     } else {
                         // For non-transcoded streams, just re-prepare at the current position
-                        player.playWhenReady = true
+                        player.playWhenReady = retryPlayWhenReady
                         player.prepare()
                         Log.d(TAG, "Network retry: re-prepared non-transcoded stream")
                     }
