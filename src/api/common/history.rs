@@ -74,9 +74,10 @@ pub async fn fetch_play_history(
     let songs: Vec<Song> = aggregates
         .into_iter()
         .filter_map(|agg| {
+            let last_played = agg.last_played?;
             song_by_id.remove(&agg.song_id).map(|mut s| {
                 s.play_count = Some(agg.play_count);
-                s.last_played = Some(agg.last_played);
+                s.last_played = Some(last_played);
                 s
             })
         })

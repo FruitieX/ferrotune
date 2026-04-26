@@ -15,7 +15,7 @@ use crate::error::Result;
 pub struct SongPlayAggregate {
     pub song_id: String,
     pub play_count: i64,
-    pub last_played: DateTime<Utc>,
+    pub last_played: Option<DateTime<Utc>>,
 }
 
 /// Fetch the top N most-recently scrobbled songs for a user, paginated.
@@ -33,6 +33,7 @@ pub async fn list_recent_song_aggregates<C: ConnectionTrait>(
         .expr_as(S::PlayedAt.max(), "last_played")
         .filter(S::Submission.eq(true))
         .filter(S::UserId.eq(user_id))
+        .filter(S::PlayedAt.is_not_null())
         .group_by(S::SongId)
         .order_by_desc(sea_orm::sea_query::Expr::col(
             sea_orm::sea_query::Alias::new("last_played"),
@@ -57,6 +58,7 @@ pub async fn count_distinct_played_songs<C: ConnectionTrait>(
         .expr(Func::count_distinct(Expr::col(S::SongId)))
         .filter(S::Submission.eq(true))
         .filter(S::UserId.eq(user_id))
+        .filter(S::PlayedAt.is_not_null())
         .into_tuple::<i64>()
         .one(conn)
         .await?;

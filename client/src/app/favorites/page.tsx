@@ -246,7 +246,12 @@ export default function FavoritesPage() {
     isLoading: isArtistsLoading,
     ensureRange: ensureArtistsRange,
   } = useSparsePagination<ArtistResponse>({
-    queryKey: ["starred-artists", debouncedArtistSearch, artistViewMode],
+    queryKey: [
+      "starred-artists",
+      debouncedArtistSearch,
+      artistSortConfig,
+      artistViewMode,
+    ],
     pageSize: PAGE_SIZE,
     fetchPage: async (offset) => {
       const client = getClient();
@@ -259,6 +264,12 @@ export default function FavoritesPage() {
         artistCount: PAGE_SIZE,
         artistOffset: offset,
         starredOnly: true,
+        artistSort:
+          artistSortConfig.field !== "custom" ? artistSortConfig.field : null,
+        artistSortDir:
+          artistSortConfig.field !== "custom"
+            ? artistSortConfig.direction
+            : null,
         // Request medium inline thumbnails for artist cards
         inlineImages: "medium",
       });
@@ -551,7 +562,7 @@ export default function FavoritesPage() {
       <div className="min-h-dvh">
         {/* Header skeleton */}
         <div className="relative">
-          <div className="absolute inset-0 h-[300px] bg-linear-to-b from-red-500/20 to-background" />
+          <div className="absolute inset-0 h-75 bg-linear-to-b from-red-500/20 to-background" />
           <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
             <div className="flex items-center gap-6">
               <Skeleton className="w-48 h-48 rounded-lg" />

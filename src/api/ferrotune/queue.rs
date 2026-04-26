@@ -1928,9 +1928,10 @@ async fn materialize_queue_songs(
             let songs: Vec<crate::db::models::Song> = aggregates
                 .into_iter()
                 .filter_map(|agg| {
+                    let last_played = agg.last_played?;
                     by_id.remove(&agg.song_id).map(|mut s| {
                         s.play_count = Some(agg.play_count);
-                        s.last_played = Some(agg.last_played);
+                        s.last_played = Some(last_played);
                         s
                     })
                 })

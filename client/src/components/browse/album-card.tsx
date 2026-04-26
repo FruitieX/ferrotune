@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Disc, Heart, HeartOff } from "lucide-react";
+import { Disc } from "lucide-react";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredAlbum } from "@/lib/store/starred";
@@ -155,12 +155,11 @@ export function AlbumCardCompact({
   const metadataColumns = [];
   if (showStarred) {
     metadataColumns.push(
-      <span key="starred" className="w-8 text-center shrink-0">
-        {isStarred ? (
-          <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
-        ) : (
-          <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
-        )}
+      <span
+        key="starred"
+        className="text-sm text-muted-foreground w-24 text-right shrink-0"
+      >
+        {album.starred ? formatDate(album.starred) : "—"}
       </span>,
     );
   }

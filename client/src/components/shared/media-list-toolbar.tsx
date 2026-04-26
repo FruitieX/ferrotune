@@ -40,12 +40,14 @@ const albumSortOptions: { value: SortField; label: string }[] = [
   { value: "artist", label: "Artist" },
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
+  { value: "starred", label: "Favorited" },
   { value: "songCount", label: "Track Count" },
 ];
 
 // Sort options for artists
 const artistSortOptions: { value: SortField; label: string }[] = [
   { value: "name", label: "Name" },
+  { value: "starred", label: "Favorited" },
   { value: "albumCount", label: "Album Count" },
 ];
 
@@ -59,6 +61,7 @@ const albumColumnOptions: {
   { key: "year", label: "Year" },
   { key: "songCount", label: "Songs" },
   { key: "duration", label: "Duration" },
+  { key: "starred", label: "Favorited" },
 ];
 
 // Column options for artists in list view
@@ -69,6 +72,7 @@ const artistColumnOptions: {
   { key: "showIndex", label: "Row Number" },
   { key: "albumCount", label: "Albums" },
   { key: "songCount", label: "Songs" },
+  { key: "starred", label: "Favorited" },
 ];
 
 interface MediaListToolbarProps {

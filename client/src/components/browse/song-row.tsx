@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Check, Shuffle, Ban, Heart, HeartOff, Music } from "lucide-react";
+import { Check, Shuffle, Ban, Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -444,12 +444,8 @@ export function SongRow({
                 </Tooltip>
               )}
               {showStarred && (
-                <span className="w-8 text-center">
-                  {isStarred ? (
-                    <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
-                  ) : (
-                    <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
-                  )}
+                <span className="w-24 text-right">
+                  {song.starred ? formatDate(song.starred) : "—"}
                 </span>
               )}
               {showRating && (
