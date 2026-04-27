@@ -1,0 +1,11 @@
+import { createRoot } from "react-dom/client";
+import { AppRouter } from "@/routes";
+import "@/app/globals.css";
+
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error("Root element #root was not found");
+}
+
+createRoot(rootElement).render(<AppRouter />);

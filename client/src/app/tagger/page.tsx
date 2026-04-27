@@ -1398,12 +1398,12 @@ export default function TaggerPage() {
               <span>{focusedTrack.track.fileFormat.toUpperCase()}</span>
               <span>
                 {Math.floor(
-                  (Number(focusedTrack.track.durationMs) ?? 0) / 1000 / 60,
+                  Number(focusedTrack.track.durationMs ?? 0) / 1000 / 60,
                 )}
                 :
                 {String(
                   Math.floor(
-                    ((Number(focusedTrack.track.durationMs) ?? 0) / 1000) % 60,
+                    (Number(focusedTrack.track.durationMs ?? 0) / 1000) % 60,
                   ),
                 ).padStart(2, "0")}
               </span>

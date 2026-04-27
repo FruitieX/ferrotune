@@ -127,7 +127,7 @@ export default function SetupPage() {
   const backendUrl = isEmbeddedMode
     ? getApiBaseUrl()
     : serverUrl.trim() ||
-      (process.env.NODE_ENV === "development"
+      (import.meta.env.DEV
         ? "http://localhost:4040"
         : typeof window !== "undefined"
           ? window.location.origin

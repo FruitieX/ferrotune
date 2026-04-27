@@ -13,11 +13,14 @@
 # testing
 /coverage
 
-# next.js
+# Vite build output
+/out/
+
+# Legacy Next.js artifacts
 /.next/
 /.next-test/
 /.next-dev/
-/out/
+next-env.d.ts
 
 # production
 /build
@@ -40,7 +43,6 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 playwright-report
 test-results

@@ -1,29 +1,40 @@
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import js from "@eslint/js";
+import reactHooks from "eslint-plugin-react-hooks";
+import globals from "globals";
+import tseslint from "typescript-eslint";
 
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  // Override default ignores of eslint-config-next.
-  globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    ".next-dev/**",
-    ".next-test/**",
-    "node_modules/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-    // Tauri build artifacts:
-    "src-tauri/**",
-    // Test output directories:
-    "playwright-report/**",
-    "test-results/**",
-  ]),
+export default tseslint.config(
   {
+    ignores: [
+      "node_modules/**",
+      "out/**",
+      ".next/**",
+      ".next-dev/**",
+      ".next-test/**",
+      "build/**",
+      "src-tauri/**",
+      "playwright-report/**",
+      "test-results/**",
+    ],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ["**/*.{js,jsx,ts,tsx,mjs}"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        chrome: "readonly",
+      },
+    },
+    plugins: {
+      "react-hooks": reactHooks,
+    },
     rules: {
-      // Allow unused vars prefixed with underscore (for intentionally unused params)
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       "@typescript-eslint/no-unused-vars": [
         "warn",
         {
@@ -45,11 +56,7 @@ const eslintConfig = defineConfig([
           ],
         },
       ],
-      // useVirtualizer returns functions that can't be memoized - this is expected behavior
-      // and React Compiler handles it by skipping memoization for those components
       "react-hooks/incompatible-library": "off",
     },
   },
-]);
-
-export default eslintConfig;
+);

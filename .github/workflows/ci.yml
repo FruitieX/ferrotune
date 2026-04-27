@@ -146,7 +146,7 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: client/pnpm-lock.yaml
 
-      - name: Build Next.js client (static export)
+      - name: Build Vite client
         run: moon run client:build-export
 
       - name: Build binary (musl)

@@ -191,8 +191,8 @@ export default function SettingsPage() {
     return (
       <div className="p-4 lg:p-6 space-y-6">
         <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-[200px] w-full" />
-        <Skeleton className="h-[200px] w-full" />
+        <Skeleton className="h-50 w-full" />
+        <Skeleton className="h-50 w-full" />
       </div>
     );
   }
@@ -926,7 +926,7 @@ export default function SettingsPage() {
               <Separator />
               <p className="text-sm text-muted-foreground">
                 Ferrotune is a modern music player for your personal music
-                library. Built with Next.js and powered by the OpenSubsonic API.
+                library. Built with Vite and powered by the OpenSubsonic API.
               </p>
             </CardContent>
           </Card>

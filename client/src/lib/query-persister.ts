@@ -32,7 +32,7 @@ export const PERSIST_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 /**
  * React Query implements gcTime with timers, and JS runtimes clamp timer
  * durations to a signed 32-bit integer. Keep persisted maxAge at 30 days, but
- * clamp in-memory gcTime so Next.js builds do not emit TimeoutOverflowWarning.
+ * clamp in-memory gcTime so production builds do not emit TimeoutOverflowWarning.
  */
 const MAX_TIMER_DURATION_MS = 2_147_483_647;
 export const PERSIST_GC_TIME_MS = Math.min(

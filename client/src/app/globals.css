@@ -46,6 +46,10 @@
 /* Ferrotune Dark Theme */
 :root {
   --radius: 0.5rem;
+  --font-inter: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-jetbrains-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
   --sidebar-width: 280px;
   --queue-sidebar-width: 0px;
 

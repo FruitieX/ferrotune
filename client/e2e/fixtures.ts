@@ -356,7 +356,7 @@ export const test = base.extend<
    * This ensures complete isolation between parallel test workers.
    */
   server: [
-    async ({}, use, workerInfo) => {
+    async ({ browserName: _browserName }, use, workerInfo) => {
       // Skip spawning if using external server
       if (process.env.FERROTUNE_EXTERNAL_SERVER === "true") {
         const serverInfo = getExternalServerInfo();
@@ -388,7 +388,7 @@ export const isolatedTest = base.extend<{
   authenticatedPage: Page;
   server: ServerInfo;
 }>({
-  server: async ({}, runFixture) => {
+  server: async ({ browserName: _browserName }, runFixture) => {
     if (process.env.FERROTUNE_EXTERNAL_SERVER === "true") {
       const serverInfo = getExternalServerInfo();
       await runFixture(serverInfo);

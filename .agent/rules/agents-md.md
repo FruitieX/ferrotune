@@ -6,20 +6,20 @@ trigger: always_on
 
 ## Project Overview
 
-**Ferrotune** is an OpenSubsonic-compatible music server written in Rust with a Next.js web client. It enables users to stream their personal music libraries using any Subsonic-compatible client application.
+**Ferrotune** is an OpenSubsonic-compatible music server written in Rust with a Vite/React web client. It enables users to stream their personal music libraries using any Subsonic-compatible client application.
 
 ### Technology Stack
 | Component | Technology |
 |-----------|------------|
 | Backend | Rust, Axum, SQLite (sqlx), Tokio |
-| Frontend | Next.js, React, TailwindCSS, Jotai |
+| Frontend | Vite, React, React Router, TailwindCSS, Jotai |
 | Testing | Hurl (backend), Playwright (frontend) |
 | Task Runner | Moon |
 
 ### Architecture
 - **OpenSubsonic API** (`/rest` port 4040) - Client-facing API for Subsonic ecosystem
 - **Admin API** (`/ferrotune` port 4040) - REST API for administration
-- **Web Client** (`client/`) - Next.js web interface
+- **Web Client** (`client/`) - Vite/React web interface
 
 ---
 
@@ -32,7 +32,7 @@ ferrotune/
 │   ├── api/subsonic/         # OpenSubsonic endpoints
 │   ├── api/ferrotune/        # Admin API
 │   └── db/                   # Database queries
-├── client/                   # Next.js frontend
+├── client/                   # Vite/React frontend
 │   ├── src/app/              # App router pages
 │   ├── src/components/       # React components
 │   ├── src/lib/              # Utilities, API client, store
@@ -58,7 +58,7 @@ All tasks are managed via [Moon](https://moonrepo.dev/). Run tasks with `moon ru
 moon run build              # Debug build (Rust backend)
 moon run build-release      # Release build (Rust backend)
 moon run build-release-ui   # Release build with embedded web UI
-moon run client:build       # Build Next.js client
+moon run client:build       # Build Vite client
 ```
 
 ### Running Servers
@@ -169,7 +169,7 @@ pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Res
 
 **Query Parameters**: Use custom deserializers in `query.rs` for Subsonic's quirky parameter handling (single values OR arrays).
 
-### Frontend (Next.js)
+### Frontend (Vite/React)
 
 **State Management**: Jotai atoms in `src/lib/store/`
 **API Client**: `src/lib/api/client.ts` wraps OpenSubsonic calls

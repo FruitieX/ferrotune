@@ -137,7 +137,10 @@ export function ScriptManager() {
   }
 
   // Characters that are dangerous in filenames across platforms
-  const DANGEROUS_CHARS_REGEX = /[\\/:*?"<>|\x00]/g;
+  const DANGEROUS_CHARS_REGEX = new RegExp(
+    `[\\\\/:*?"<>|${String.fromCharCode(0)}]`,
+    "g",
+  );
 
   // Sanitize a path segment based on dangerous char mode
   function sanitizePathSegment(

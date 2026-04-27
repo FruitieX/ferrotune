@@ -44,7 +44,7 @@ if (process.env.FERROTUNE_ANDROID_E2E === "true") {
 export default defineConfig({
   testDir: "./e2e",
 
-  /* Global setup and teardown (starts/stops Next.js server) */
+  /* Global setup and teardown (starts/stops Vite preview server) */
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
 

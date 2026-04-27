@@ -243,7 +243,7 @@ function parseJSON(jsonText: string, type: FavoriteType): ParsedFavorite[] {
 
     // Extract fields flexibly based on type
     let title: string | null = null;
-    let artist: string | null = null;
+    let artist: string | null;
     let album: string | null = null;
     let duration: number | null = null;
 
@@ -830,7 +830,7 @@ export function ImportFavoritesDialog({
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
-          className="w-[95vw] max-w-[1200px] h-[90vh] max-h-[90vh] flex flex-col overflow-hidden"
+          className="w-[95vw] max-w-300 h-[90vh] max-h-[90vh] flex flex-col overflow-hidden"
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => {
             e.preventDefault();

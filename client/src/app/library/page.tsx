@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { Navigate } from "react-router-dom";
 
 export default function LibraryPage() {
-  redirect("/library/albums");
+  return <Navigate to="/library/albums" replace />;
 }

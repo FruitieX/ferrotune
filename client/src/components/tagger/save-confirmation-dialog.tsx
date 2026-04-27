@@ -456,10 +456,7 @@ export function SaveConfirmationDialog({
                           }))
                         }
                       >
-                        <SelectTrigger
-                          id="target-library"
-                          className="w-[180px] h-8"
-                        >
+                        <SelectTrigger id="target-library" className="w-45 h-8">
                           <SelectValue placeholder="Select library..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -526,7 +523,7 @@ export function SaveConfirmationDialog({
                     }}
                     disabled={renameScripts.length === 0}
                   >
-                    <SelectTrigger id="rename-script" className="w-[160px] h-8">
+                    <SelectTrigger id="rename-script" className="w-40 h-8">
                       <SelectValue
                         placeholder={
                           renameScripts.length === 0 ? "No scripts" : "None"
@@ -885,7 +882,6 @@ export function SaveConfirmationDialog({
                           {/* Original cover art */}
                           {change.originalCoverArtUrl ? (
                             <div className="relative w-12 h-12 rounded overflow-hidden border border-border bg-muted shrink-0">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={change.originalCoverArtUrl}
                                 alt="Original cover"
@@ -910,7 +906,6 @@ export function SaveConfirmationDialog({
                               {/* New cover art */}
                               {change.newCoverArtDataUrl ? (
                                 <div className="relative w-12 h-12 rounded overflow-hidden border-2 border-green-500/50 bg-muted shrink-0">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img
                                     src={change.newCoverArtDataUrl}
                                     alt="New cover"

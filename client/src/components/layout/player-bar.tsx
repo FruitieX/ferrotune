@@ -279,7 +279,6 @@ function SwipeableNowPlaying({
       prevTrackIdForAnimationRef.current = track.id;
       // setIsAnimating is only called after track change, not on every render
       // This is a valid use case - synchronizing with external prop change
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsAnimating(false);
     }
   }, [track.id]);
@@ -1131,7 +1130,7 @@ export function PlayerBar() {
       {/* Follower session indicator */}
       <FollowerIndicator />
 
-      <div className="flex items-center h-[88px] px-4 gap-2 md:gap-4">
+      <div className="flex items-center h-22 px-4 gap-2 md:gap-4">
         {/* Now Playing Info - takes available space on mobile, fixed width on desktop */}
         <div className="flex items-center gap-3 flex-1 md:flex-none md:w-[30%] min-w-0">
           <NowPlayingInfo track={currentTrack} isEnded={isEnded} />
@@ -1172,10 +1171,7 @@ export function PlayerBarSkeleton() {
   return (
     <footer
       data-testid="player-bar-skeleton"
-      className={cn(
-        "relative z-50",
-        "h-[88px] bg-background/95 backdrop-blur-lg",
-      )}
+      className={cn("relative z-50", "h-22 bg-background/95 backdrop-blur-lg")}
     >
       {/* Progress bar placeholder */}
       <div className="absolute top-0 left-0 right-0 h-1 bg-muted" />

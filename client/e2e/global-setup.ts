@@ -3,9 +3,9 @@
  *
  * This script:
  * 1. Checks that test fixtures exist
- * 2. Builds the Next.js app (if not already built)
+ * 2. Verifies that the Vite app has been built
  * 3. Kills any stale process on port 13000
- * 4. Starts the Next.js production server (shared by all workers)
+ * 4. Starts the Vite preview server (shared by all workers)
  *
  * Each test worker spawns its own Ferrotune server via fixtures.ts
  */
@@ -14,9 +14,9 @@ import { spawn, execSync, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
-// Store Next.js server info globally so teardown can access it
+// Store Vite preview server info globally so teardown can access it
 declare global {
-  var __NEXTJS_SERVER__:
+  var __VITE_PREVIEW_SERVER__:
     | {
         process: ChildProcess;
         port: number;
@@ -59,11 +59,10 @@ function binaryExists(): boolean {
   return fs.existsSync(debugBinary) || fs.existsSync(releaseBinary);
 }
 
-/** Check if Next.js build exists */
+/** Check if Vite build exists */
 function buildExists(clientDir: string): boolean {
-  const buildDir = path.join(clientDir, ".next");
-  const buildManifest = path.join(buildDir, "BUILD_ID");
-  return fs.existsSync(buildManifest);
+  const indexHtml = path.join(clientDir, "out/index.html");
+  return fs.existsSync(indexHtml);
 }
 
 /** Kill any process using the specified port */
@@ -120,84 +119,82 @@ export default async function globalSetup() {
   }
 
   const clientDir = __dirname.replace(/\/e2e$/, "");
-  const nextPort = 13000;
+  const vitePort = 13000;
 
-  // Verify Next.js build exists (moon should have built it via task dependencies)
+  // Verify Vite build exists (moon should have built it via task dependencies)
   if (!buildExists(clientDir)) {
     throw new Error(
-      "Next.js build not found. Run 'moon run client:build' first, or use 'moon run client:test-e2e' which handles this automatically.",
+      "Vite build not found. Run 'moon run client:build' first, or use 'moon run client:test-e2e' which handles this automatically.",
     );
   }
-  console.log("✅ Using existing Next.js build\n");
+  console.log("✅ Using existing Vite build\n");
 
-  // Kill any stale process on the Next.js port before starting
-  console.log(`Checking for stale processes on port ${nextPort}...`);
-  killProcessOnPort(nextPort);
+  // Kill any stale process on the Vite preview port before starting
+  console.log(`Checking for stale processes on port ${vitePort}...`);
+  killProcessOnPort(vitePort);
 
   // Small delay to ensure port is released
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  // Start Next.js production server (faster than dev server)
-  console.log(`Starting Next.js production server on port ${nextPort}...`);
+  // Start Vite preview server
+  console.log(`Starting Vite preview server on port ${vitePort}...`);
 
-  const nextProcess = spawn("npm", ["run", "start"], {
+  const viteProcess = spawn("pnpm", ["exec", "vite", "preview"], {
     cwd: clientDir,
     env: {
       ...process.env,
-      PORT: nextPort.toString(),
+      PORT: vitePort.toString(),
     },
     stdio: "pipe",
     detached: false,
   });
 
-  let nextOutput = "";
-  let nextError = "";
+  let viteOutput = "";
+  let viteError = "";
 
-  nextProcess.stdout?.on("data", (data) => {
-    nextOutput += data.toString();
+  viteProcess.stdout?.on("data", (data) => {
+    viteOutput += data.toString();
     if (process.env.DEBUG) {
-      console.log(`[next] ${data}`);
+      console.log(`[vite] ${data}`);
     }
   });
 
-  nextProcess.stderr?.on("data", (data) => {
-    nextError += data.toString();
+  viteProcess.stderr?.on("data", (data) => {
+    viteError += data.toString();
     if (process.env.DEBUG) {
-      console.error(`[next] ${data}`);
+      console.error(`[vite] ${data}`);
     }
   });
 
-  nextProcess.on("error", (err) => {
-    console.error("Failed to start Next.js server:", err);
+  viteProcess.on("error", (err) => {
+    console.error("Failed to start Vite preview server:", err);
   });
 
-  nextProcess.on("exit", (code) => {
+  viteProcess.on("exit", (code) => {
     if (code !== null && code !== 0) {
-      console.error(`Next.js server exited with code ${code}`);
-      console.error("Next.js output:", nextOutput);
-      console.error("Next.js errors:", nextError);
+      console.error(`Vite preview server exited with code ${code}`);
+      console.error("Vite output:", viteOutput);
+      console.error("Vite errors:", viteError);
     }
   });
 
-  // Wait for Next.js to be ready
-  const nextUrl = `http://localhost:${nextPort}`;
-  const nextReady = await waitForServer(nextUrl, 30000); // Production starts faster
+  // Wait for Vite preview to be ready
+  const viteUrl = `http://localhost:${vitePort}`;
+  const viteReady = await waitForServer(viteUrl, 30000);
 
-  if (!nextReady) {
-    console.error("Next.js server failed to start. Output:", nextOutput);
-    console.error("Next.js errors:", nextError);
-    nextProcess.kill();
-    throw new Error("Next.js server failed to start within timeout");
+  if (!viteReady) {
+    console.error("Vite preview server failed to start. Output:", viteOutput);
+    console.error("Vite errors:", viteError);
+    viteProcess.kill();
+    throw new Error("Vite preview server failed to start within timeout");
   }
 
-  console.log(
-    `✅ Next.js production server ready at http://localhost:${nextPort}`,
-  );
+  console.log(`✅ Vite preview server ready at http://localhost:${vitePort}`);
 
-  // Store Next.js server info for teardown
-  global.__NEXTJS_SERVER__ = {
-    process: nextProcess,
-    port: nextPort,
+  // Store Vite preview server info for teardown
+  global.__VITE_PREVIEW_SERVER__ = {
+    process: viteProcess,
+    port: vitePort,
   };
 
   console.log("\n📊 Test data (per worker):");

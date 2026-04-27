@@ -1,6 +1,6 @@
 //! Embedded UI static file serving.
 //!
-//! This module provides a fallback handler for serving the embedded Next.js web client.
+//! This module provides a fallback handler for serving the embedded Vite web client.
 //! When the `embedded-ui` feature is enabled and the static files are present at
 //! `client/out`, they will be compiled into the binary and served from the root path.
 
@@ -14,7 +14,7 @@ use axum::{
 #[cfg(feature = "embedded-ui")]
 use rust_embed::RustEmbed;
 
-/// Embedded static files from the Next.js export.
+/// Embedded static files from the Vite build output.
 /// The path is relative to the Cargo.toml file.
 /// Files will only be embedded if the `client/out` directory exists at compile time.
 #[cfg(feature = "embedded-ui")]
@@ -30,7 +30,7 @@ use rust_embed::RustEmbed;
 #[include = "*.txt"]
 #[include = "*.woff"]
 #[include = "*.woff2"]
-#[include = "_next/**/*"]
+#[include = "assets/**/*"]
 struct EmbeddedAssets;
 
 /// Check if embedded UI assets are available.
@@ -72,7 +72,7 @@ pub async fn serve_embedded_ui(request: Request<Body>) -> impl IntoResponse {
         return serve_file(&index_path, file.data.as_ref());
     }
 
-    // Try with .html extension for Next.js static routes
+    // Try with .html extension for static routes
     let html_path = format!("{}.html", path);
     if let Some(file) = EmbeddedAssets::get(&html_path) {
         return serve_file(&html_path, file.data.as_ref());
@@ -80,7 +80,7 @@ pub async fn serve_embedded_ui(request: Request<Body>) -> impl IntoResponse {
 
     // For SPA routing, fall back to root index.html
     // This allows client-side routing to work
-    if !path.starts_with("_next/") && !path.contains('.') {
+    if !path.starts_with("assets/") && !path.contains('.') {
         if let Some(file) = EmbeddedAssets::get("index.html") {
             return serve_file("index.html", file.data.as_ref());
         }
@@ -101,9 +101,9 @@ fn serve_file(path: &str, data: &[u8]) -> Response<Body> {
         .to_string();
 
     // Determine cache headers
-    // _next/ assets are hashed and can be cached indefinitely
+    // assets/ files are hashed and can be cached indefinitely
     // Other files should be revalidated
-    let cache_control = if path.starts_with("_next/") {
+    let cache_control = if path.starts_with("assets/") {
         "public, max-age=31536000, immutable"
     } else {
         "public, max-age=0, must-revalidate"

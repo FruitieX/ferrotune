@@ -98,19 +98,17 @@ test.describe("Sorting and Filtering", () => {
 
       // After toggle, order should be reversed
       const wasAZ = isSortedAZ;
+      const titlesSortedAZ = [...titlesAfterToggle].sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase()),
+      );
+      const titlesSortedZA = [...titlesAfterToggle].sort((a, b) =>
+        b.toLowerCase().localeCompare(a.toLowerCase()),
+      );
       const newSortedAZ = titlesAfterToggle.every(
-        (t, i) =>
-          t.toLowerCase() ===
-          [...titlesAfterToggle]
-            .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
-            [i].toLowerCase(),
+        (t, i) => t.toLowerCase() === titlesSortedAZ[i].toLowerCase(),
       );
       const newSortedZA = titlesAfterToggle.every(
-        (t, i) =>
-          t.toLowerCase() ===
-          [...titlesAfterToggle]
-            .sort((a, b) => b.toLowerCase().localeCompare(a.toLowerCase()))
-            [i].toLowerCase(),
+        (t, i) => t.toLowerCase() === titlesSortedZA[i].toLowerCase(),
       );
 
       // Should now be sorted in the opposite direction

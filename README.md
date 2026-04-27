@@ -1,6 +1,6 @@
 # Ferrotune
 
-A self-hosted music server written in Rust with a Next.js web client.
+A self-hosted music server written in Rust with a Vite/React web client.
 
 ⚠️ Note on AI usage: Claude Opus 4.5 was used during development of this project.
 

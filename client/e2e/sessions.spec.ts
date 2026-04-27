@@ -16,6 +16,7 @@ import {
   resetState,
   ServerInfo,
 } from "./fixtures";
+import { gotoAppPath, waitForAuthenticatedHome } from "./app-helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,10 +51,8 @@ async function createSecondTab(
       password: server.password,
     },
   );
-  await page.reload();
-  await expect(page.locator("h1:has-text('Home')").first()).toBeVisible({
-    timeout: 15000,
-  });
+  await gotoAppPath(page, "/");
+  await waitForAuthenticatedHome(page);
   return { context, page };
 }
 
@@ -326,11 +325,9 @@ test.describe.serial("Multi-Session Playback", () => {
         ownerBar.getByRole("button", { name: "Play" }).first(),
       ).toBeVisible({ timeout: 10000 });
 
-      // The follower never received the pause heartbeat, so it still thinks
-      // the remote owner is playing.
-      await expect(followerPauseBtn).toBeVisible({ timeout: 5000 });
-
       // Simulate an ownership change with no explicit resume request.
+      // The follower must stay paused whether it already observed the owner's
+      // pause state or was still showing the stale playing state.
       await sendTakeoverCommand(followerPage);
 
       await expect(

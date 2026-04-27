@@ -3494,22 +3494,72 @@ fn test_postgres_home_handler_works() {
         )
         .await
         .expect("postgres ferrotune home handler should succeed")
-        .0;
+        .into_response();
+        let response_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("postgres ferrotune home response body should decode");
+        let response_json: serde_json::Value = serde_json::from_slice(&response_bytes)
+            .expect("postgres ferrotune home response should be valid JSON");
 
-        assert_eq!(response.continue_listening.total, 1);
-        assert_eq!(response.most_played_recently.total, Some(1));
-        assert_eq!(response.recently_added.total, Some(1));
-        assert_eq!(response.discover.total, Some(1));
-        assert_eq!(response.most_played_recently.album.len(), 1);
-        assert_eq!(response.recently_added.album.len(), 1);
-        assert_eq!(response.discover.album.len(), 1);
-        assert_eq!(response.most_played_recently.album[0].id, album_id);
-        assert_eq!(response.recently_added.album[0].id, album_id);
-        assert_eq!(response.discover.album[0].id, album_id);
-        assert_eq!(response.forgotten_favorites.total, 1);
-        assert_eq!(response.forgotten_favorites.song.len(), 1);
-        assert_eq!(response.forgotten_favorites.song[0].id, song_2);
-        assert_eq!(response.forgotten_favorites.seed, 42);
+        assert_eq!(response_json["continueListening"]["total"].as_i64(), Some(1));
+        assert_eq!(
+            response_json["mostPlayedRecently"]["total"].as_i64(),
+            Some(1),
+        );
+        assert_eq!(response_json["recentlyAdded"]["total"].as_i64(), Some(1));
+        assert_eq!(response_json["discover"]["total"].as_i64(), Some(1));
+        assert_eq!(
+            response_json["mostPlayedRecently"]["album"]
+                .as_array()
+                .expect("most played recently albums should be an array")
+                .len(),
+            1,
+        );
+        assert_eq!(
+            response_json["recentlyAdded"]["album"]
+                .as_array()
+                .expect("recently added albums should be an array")
+                .len(),
+            1,
+        );
+        assert_eq!(
+            response_json["discover"]["album"]
+                .as_array()
+                .expect("discover albums should be an array")
+                .len(),
+            1,
+        );
+        assert_eq!(
+            response_json["mostPlayedRecently"]["album"][0]["id"].as_str(),
+            Some(album_id.as_str()),
+        );
+        assert_eq!(
+            response_json["recentlyAdded"]["album"][0]["id"].as_str(),
+            Some(album_id.as_str()),
+        );
+        assert_eq!(
+            response_json["discover"]["album"][0]["id"].as_str(),
+            Some(album_id.as_str()),
+        );
+        assert_eq!(
+            response_json["forgottenFavorites"]["total"].as_i64(),
+            Some(1),
+        );
+        assert_eq!(
+            response_json["forgottenFavorites"]["song"]
+                .as_array()
+                .expect("forgotten favorites songs should be an array")
+                .len(),
+            1,
+        );
+        assert_eq!(
+            response_json["forgottenFavorites"]["song"][0]["id"].as_str(),
+            Some(song_2.as_str()),
+        );
+        assert_eq!(
+            response_json["forgottenFavorites"]["seed"].as_i64(),
+            Some(42),
+        );
     });
 }
 

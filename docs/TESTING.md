@@ -138,7 +138,7 @@ Available variables:
 
 E2E tests live in `client/e2e/` and use Playwright:
 
-- **Global Setup** (`global-setup.ts`) - Starts Ferrotune backend + Next.js dev server
+- **Global Setup** (`global-setup.ts`) - Starts Ferrotune backend + Vite preview server
 - **Fixtures** (`fixtures.ts`) - Test helpers and known test data
 - **Global Teardown** (`global-teardown.ts`) - Stops servers
 

@@ -31,7 +31,10 @@ import { getClient } from "@/lib/api/client";
 import type { SongPathMetadata } from "@/lib/api/generated/SongPathMetadata";
 
 // Characters that are dangerous in filenames across Windows, Linux, macOS
-const DANGEROUS_CHARS_REGEX = /[\\/:*?"<>|\x00]/g;
+const DANGEROUS_CHARS_REGEX = new RegExp(
+  `[\\\\/:*?"<>|${String.fromCharCode(0)}]`,
+  "g",
+);
 
 function sanitizePathSegment(
   segment: string,

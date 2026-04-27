@@ -4,7 +4,7 @@ This document tracks the implementation of a Tauri Android app for Ferrotune wit
 
 ## Overview
 
-The app embeds the existing Next.js web UI in a Tauri WebView. Audio playback is handled by Android's native ExoPlayer via MediaSessionService to enable:
+The app embeds the existing Vite/React web UI in a Tauri WebView. Audio playback is handled by Android's native ExoPlayer via MediaSessionService to enable:
 - Background audio playback (app minimized, screen off)
 - Lock screen media controls
 - Bluetooth metadata and controls
@@ -16,7 +16,7 @@ The app embeds the existing Next.js web UI in a Tauri WebView. Audio playback is
 ┌─────────────────────────────────────────────────────────────┐
 │                     Tauri Android App                        │
 ├─────────────────────────────────────────────────────────────┤
-│  WebView (Next.js)                                          │
+│  WebView (Vite/React)                                      │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ React UI ←→ hooks.ts ←→ tauri.ts (bridge)           │   │
 │  └─────────────────────────────────────────────────────┘   │
@@ -44,7 +44,7 @@ The app embeds the existing Next.js web UI in a Tauri WebView. Audio playback is
 - [x] **1.1** Install Tauri CLI and API packages in client
   ```bash
   cd client
-  npm install @tauri-apps/cli @tauri-apps/api
+  pnpm add @tauri-apps/cli @tauri-apps/api
   ```
 
 - [x] **1.2** Initialize Tauri project
@@ -55,9 +55,9 @@ The app embeds the existing Next.js web UI in a Tauri WebView. Audio playback is
   - App name: `ferrotune`
   - Window title: `Ferrotune`
   - Frontend dev URL: `http://localhost:3000`
-  - Frontend dist: `out` (Next.js static export)
-  - Dev command: `npm run dev`
-  - Build command: `NEXT_OUTPUT_STATIC=1 npm run build`
+  - Frontend dist: `out` (Vite build output)
+  - Dev command: `pnpm run dev`
+  - Build command: `pnpm run build`
 
 - [ ] **1.3** Initialize Android support
   ```bash
@@ -79,7 +79,7 @@ The app embeds the existing Next.js web UI in a Tauri WebView. Audio playback is
 
 - [ ] **1.6** Test basic Android build (without custom plugin)
   ```bash
-  NEXT_OUTPUT_STATIC=1 npm run build
+  pnpm run build
   npx tauri android build --debug
   ```
 
@@ -302,7 +302,7 @@ The app embeds the existing Next.js web UI in a Tauri WebView. Audio playback is
 - ✅ Moon tasks for Tauri development
 - ✅ Nix flake updated with Android SDK support
 - ✅ TypeScript compilation passes
-- ✅ Next.js build passes
+- ✅ Vite build passes
 
 ### Next Steps
 1. Enter Android nix shell: `nix develop .#android`
@@ -316,7 +316,7 @@ To continue Android development, enter the Android-enabled nix shell:
 ```bash
 nix develop .#android
 cd client
-npm install  # Install dependencies including the local plugin
+pnpm install  # Install dependencies including the local plugin
 npx tauri android init
 npx tauri android dev  # Or: moon run client:tauri-android-dev
 ```

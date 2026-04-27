@@ -69,7 +69,13 @@ tasks:
     inputs:
       - '@group(sources)'
       - 'client/src/**/*'
+      - 'client/public/**/*'
+      - 'client/out/**/*'
+      - 'client/index.html'
+      - 'client/vite.config.ts'
+      - 'client/tsconfig.json'
       - 'client/package.json'
+      - 'client/pnpm-lock.yaml'
     outputs:
       - 'target/release/ferrotune'
       - 'client/out/**/*'
@@ -81,7 +87,13 @@ tasks:
     inputs:
       - '@group(sources)'
       - 'client/src/**/*'
+      - 'client/public/**/*'
+      - 'client/out/**/*'
+      - 'client/index.html'
+      - 'client/vite.config.ts'
+      - 'client/tsconfig.json'
       - 'client/package.json'
+      - 'client/pnpm-lock.yaml'
     deps:
       - 'client:build-export'
     options:
@@ -269,7 +281,13 @@ tasks:
     inputs:
       - '@group(sources)'
       - 'client/src/**/*'
+      - 'client/public/**/*'
+      - 'client/out/**/*'
+      - 'client/index.html'
+      - 'client/vite.config.ts'
+      - 'client/tsconfig.json'
       - 'client/package.json'
+      - 'client/pnpm-lock.yaml'
     deps:
       - 'build-release-ui'
     options:

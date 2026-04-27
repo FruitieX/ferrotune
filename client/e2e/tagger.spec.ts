@@ -314,16 +314,13 @@ test.describe("Tagger", () => {
     await dialog.getByRole("button", { name: /add.*track/i }).click();
     await expect(dialog).not.toBeVisible({ timeout: 5000 });
 
-    // Track should be in the grid - look for the title span
-    const titleCell = page.locator(
-      'span.truncate.flex-1:has-text("FLAC Track One")',
-    );
-    await expect(titleCell).toBeVisible({ timeout: 5000 });
-
-    // Right-click on the track row to open context menu
-    const trackRowInGrid = page.locator("[data-row-id]").filter({
-      has: page.locator('span.truncate:has-text("FLAC Track One")'),
-    });
+    // Track should be in the grid. Match row text instead of a specific cell
+    // shape so the test remains stable when visible tagger columns change.
+    const trackRowInGrid = page
+      .locator("[data-row-id]")
+      .filter({ hasText: "FLAC Track One" })
+      .first();
+    await expect(trackRowInGrid).toBeVisible({ timeout: 5000 });
     await trackRowInGrid.click({ button: "right" });
 
     // Look for "Replace with file" or similar option in context menu

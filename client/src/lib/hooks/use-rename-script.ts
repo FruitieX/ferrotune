@@ -13,7 +13,10 @@ import {
 // Windows: \ / : * ? " < > |
 // macOS/Linux: / and NUL
 // We include all to be safe across platforms
-const DANGEROUS_CHARS_REGEX = /[\\/:*?"<>|\x00]/g;
+const DANGEROUS_CHARS_REGEX = new RegExp(
+  `[\\\\/:*?"<>|${String.fromCharCode(0)}]`,
+  "g",
+);
 
 /**
  * Sanitize a path segment based on dangerous char mode settings

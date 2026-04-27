@@ -14,7 +14,8 @@ fileGroups:
   sources:
     - "src/**/*"
     - "public/**/*"
-    - "next.config.ts"
+    - "index.html"
+    - "vite.config.ts"
     - "tsconfig.json"
     - "package.json"
   plugin-guest-js:
@@ -82,7 +83,7 @@ tasks:
       - "@group(sources)"
       - "@group(styles)"
     outputs:
-      - ".next"
+      - "out"
     deps:
       - "install"
       - "build-native-audio-api"
@@ -99,8 +100,6 @@ tasks:
       - "install"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"
-    env:
-      NEXT_OUTPUT_STATIC: "1"
 
   # ============================================================================
   # CODE QUALITY
@@ -111,6 +110,7 @@ tasks:
     inputs:
       - "eslint.config.mjs"
       - "@group(sources)"
+      - "@group(e2e)"
     deps:
       - "install"
       - "build-native-audio-api"
@@ -119,9 +119,7 @@ tasks:
     command: "pnpm exec tsc --noEmit"
     inputs:
       - "@group(sources)"
-      # Include Next.js generated types - cache must invalidate when these change/are missing
-      - ".next/types/**/*.ts"
-      - ".next-dev/types/**/*.ts"
+      - "@group(e2e)"
     deps:
       - "install"
       - "build-native-audio-api"
@@ -359,7 +357,7 @@ tasks:
   # ============================================================================
 
   clean:
-    command: "rm -rf .next node_modules test-results playwright-report"
+    command: "rm -rf out node_modules test-results playwright-report"
     options:
       cache: false
       runInCI: false
@@ -367,7 +365,7 @@ tasks:
   start:
     command: "pnpm run start"
     inputs:
-      - ".next"
+      - "out"
     deps:
       - "build"
     options:

@@ -10,7 +10,7 @@ const getServerSnapshot = () => false;
 /**
  * Hook that returns true after the component has mounted on the client.
  *
- * This is useful for preventing hydration mismatches in Next.js when
+ * This is useful for preventing render mismatches when
  * you need to render different content on the server vs client.
  *
  * Uses useSyncExternalStore which is the React-recommended approach for

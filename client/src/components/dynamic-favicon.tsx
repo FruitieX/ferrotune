@@ -166,7 +166,7 @@ export function DynamicFavicon() {
     const svgBase64 = btoa(svg);
     const dataUrl = `data:image/svg+xml;base64,${svgBase64}`;
 
-    // Update all icon link elements (Next.js may create multiple)
+    // Update all icon link elements
     const iconLinks = document.querySelectorAll(
       "link[rel='icon'], link[rel='shortcut icon']",
     );

@@ -8,8 +8,7 @@ import { serverConnectionAtom } from "@/lib/store/auth";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 
 // Default backend URL for setup check
-const DEFAULT_BACKEND_URL =
-  process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
+const DEFAULT_BACKEND_URL = import.meta.env.DEV ? "http://localhost:4040" : "";
 
 /**
  * SetupGuard checks if initial setup is complete and redirects to /setup if not.
