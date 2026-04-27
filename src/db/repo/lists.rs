@@ -718,6 +718,11 @@ fn continue_listening_subquery(user_id: i64) -> sea_orm::sea_query::SelectStatem
             )),
         )
         .and_where(entity::scrobbles::Column::UserId.eq(user_id))
+        // Continue-listening entries require a real playback timestamp. Imported
+        // play-count summary rows can have `played_at = NULL`; PostgreSQL sorts
+        // those first for `ORDER BY last_played DESC`, which can otherwise make
+        // paginated pages contain only rows that are later dropped by the API.
+        .and_where(entity::scrobbles::Column::PlayedAt.is_not_null())
         .and_where(entity::music_folders::Column::Enabled.eq(true))
         .and_where(entity::user_library_access::Column::UserId.eq(user_id))
         .and_where(

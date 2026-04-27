@@ -5301,6 +5301,18 @@ fn test_postgres_continue_listening_handler_works() {
         .await
         .expect("postgres smart playlist scrobble insert should succeed");
 
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description, queue_source_type, queue_source_id)
+             VALUES ($1, $2, NULL, TRUE, 1, NULL, $3, $4)",
+        )
+        .bind(user.id)
+        .bind(&song_1)
+        .bind("playlist")
+        .bind("pl-null-played-at")
+        .execute(pool)
+        .await
+        .expect("postgres null played_at scrobble insert should succeed");
+
         let state = Arc::new(AppState {
             database: database.clone(),
             config: postgres_test_app_config(config.clone()),
