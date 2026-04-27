@@ -56,6 +56,7 @@ export function SessionEventHandler() {
   const setVolume = useSetAtom(volumeAtom);
   const setIsMuted = useSetAtom(isMutedAtom);
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
+  const ownerClientId = useAtomValue(ownerClientIdAtom);
   const setConnectedClients = useSetAtom(connectedClientsAtom);
   const setOwnerClientId = useSetAtom(ownerClientIdAtom);
   const setOwnerClientName = useSetAtom(ownerClientNameAtom);
@@ -203,11 +204,30 @@ export function SessionEventHandler() {
       }
       case "ownerChanged": {
         // Ownership changed — could be transferred to another client or cleared
-        setOwnerClientId(event.ownerClientId ?? null);
+        const nextOwnerClientId = event.ownerClientId ?? null;
+        const isCurrentClientOwner =
+          clientId !== "" && nextOwnerClientId === clientId;
+        const isSameOwnerAnnouncement =
+          isCurrentClientOwner &&
+          (isAudioOwner ||
+            ownerClientId === clientId ||
+            selfTakeoverPending.value);
+
+        setOwnerClientId(nextOwnerClientId);
         setOwnerClientName(event.ownerClientName ?? null);
 
-        if (event.ownerClientId) {
-          if (event.ownerClientId === clientId) {
+        if (nextOwnerClientId) {
+          if (isCurrentClientOwner) {
+            // The SSE stream sends an initial ownership snapshot every time it
+            // reconnects. If it says we are still the owner, do not refetch the
+            // queue in restore mode — that reloads the active audio element and
+            // pauses playback when switching browser tabs.
+            if (isSameOwnerAnnouncement) {
+              setIsAudioOwner(true);
+              setRemotePlaybackState(null);
+              break;
+            }
+
             // We became the owner.
             // Don't clear selfTakeoverPending here — the PlaybackCommand
             // {takeOver} handler needs to read it to prevent the echo

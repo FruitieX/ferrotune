@@ -505,9 +505,9 @@ export async function waitForPlayerReady(page: Page, timeout = 5000) {
 }
 
 /**
- * Helper to play the first song from the Test Album.
+ * Helper to play a song from the Test Album by zero-based track index.
  */
-export async function playFirstSong(page: Page) {
+export async function playTestAlbumSong(page: Page, trackIndex: number) {
   await gotoAppPath(page, "/library");
   await page.waitForLoadState("domcontentloaded");
 
@@ -533,8 +533,15 @@ export async function playFirstSong(page: Page) {
   await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
   await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
-  const firstTrack = page.locator('[data-testid="song-row"]').first();
-  await firstTrack.dblclick();
+  const track = page.locator('[data-testid="song-row"]').nth(trackIndex);
+  await track.dblclick();
+}
+
+/**
+ * Helper to play the first song from the Test Album.
+ */
+export async function playFirstSong(page: Page) {
+  await playTestAlbumSong(page, 0);
 }
 
 /**

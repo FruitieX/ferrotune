@@ -2,13 +2,55 @@
  * Playback tests - Player controls and queue behavior
  */
 
+import type { Page } from "@playwright/test";
 import {
   test,
   expect,
   playFirstSong,
+  playTestAlbumSong,
   waitForPlayerReady,
   resetState,
 } from "./fixtures";
+
+interface AudioPlaybackSnapshot {
+  isPlaying: boolean;
+  maxCurrentTime: number;
+  visibilityState: DocumentVisibilityState;
+}
+
+async function getAudioPlaybackSnapshot(
+  page: Page,
+): Promise<AudioPlaybackSnapshot> {
+  return page.evaluate(() => {
+    const loadedAudioElements = Array.from(
+      document.querySelectorAll("audio"),
+    ).filter((audio) => audio.currentSrc !== "" || audio.src !== "");
+
+    return {
+      isPlaying: loadedAudioElements.some(
+        (audio) => !audio.paused && !audio.ended,
+      ),
+      maxCurrentTime: loadedAudioElements.reduce(
+        (maxTime, audio) => Math.max(maxTime, audio.currentTime),
+        0,
+      ),
+      visibilityState: document.visibilityState,
+    };
+  });
+}
+
+async function setDocumentVisibility(
+  page: Page,
+  visibilityState: DocumentVisibilityState,
+): Promise<void> {
+  await page.evaluate((nextVisibilityState) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => nextVisibilityState,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visibilityState);
+}
 
 test.describe("Playback", () => {
   // Reset all server state before each test for isolation
@@ -62,6 +104,62 @@ test.describe("Playback", () => {
     // Skip previous
     await playerBar.getByRole("button", { name: /previous/i }).click();
     await expect(playerBar).toContainText("Second Song");
+  });
+
+  test("keeps playing after switching to another browser tab and back", async ({
+    authenticatedPage: page,
+  }) => {
+    await test.step("Start a longer track", async () => {
+      await playTestAlbumSong(page, 2);
+      await waitForPlayerReady(page);
+
+      const playerBar = page.getByTestId("player-bar");
+      await expect(playerBar).toContainText("Third Song");
+      await expect(
+        playerBar.getByRole("button", { name: "Pause" }).first(),
+      ).toBeVisible({ timeout: 10000 });
+      await expect
+        .poll(async () => (await getAudioPlaybackSnapshot(page)).isPlaying)
+        .toBe(true);
+    });
+
+    await test.step("Simulate background and restore visibility", async () => {
+      await setDocumentVisibility(page, "hidden");
+      await expect
+        .poll(
+          async () => (await getAudioPlaybackSnapshot(page)).visibilityState,
+        )
+        .toBe("hidden");
+
+      await setDocumentVisibility(page, "visible");
+      await expect
+        .poll(
+          async () => (await getAudioPlaybackSnapshot(page)).visibilityState,
+        )
+        .toBe("visible");
+    });
+
+    await test.step("Verify playback is still advancing", async () => {
+      const timeAfterRestore = (await getAudioPlaybackSnapshot(page))
+        .maxCurrentTime;
+
+      await expect
+        .poll(async () => {
+          const snapshot = await getAudioPlaybackSnapshot(page);
+          return (
+            snapshot.isPlaying &&
+            snapshot.maxCurrentTime > timeAfterRestore + 0.25
+          );
+        })
+        .toBe(true);
+
+      await expect(
+        page
+          .getByTestId("player-bar")
+          .getByRole("button", { name: "Pause" })
+          .first(),
+      ).toBeVisible();
+    });
   });
 
   test("queue end shows 'Not playing' and can restart", async ({
