@@ -2,27 +2,53 @@
  * Starring and ratings tests - Favorites functionality
  */
 
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
+
+async function openTestAlbumDetails(page: Page) {
+  await page.goto("/library/albums");
+
+  const gridViewButton = page.getByRole("button", { name: /grid view/i });
+  await expect(gridViewButton).toBeVisible();
+  await gridViewButton.click();
+
+  const testAlbum = page
+    .locator('[data-testid="media-card"]')
+    .filter({ hasText: "Test Album" });
+  await expect(testAlbum).toBeVisible();
+  await testAlbum.click();
+
+  await expect(page).toHaveURL(/\/library\/albums\/details/);
+  await expect(page.locator('[data-testid="song-row"]').first()).toBeVisible();
+}
+
+async function showFavoritedColumn(page: Page) {
+  const listViewButton = page.getByRole("button", { name: /list view/i });
+  if ((await listViewButton.getAttribute("aria-pressed")) !== "true") {
+    await listViewButton.click();
+  }
+
+  await page.getByRole("button", { name: /toggle columns/i }).click();
+
+  const columnMenu = page.locator('[data-slot="dropdown-menu-content"]');
+  await expect(columnMenu).toBeVisible();
+
+  const favoritedColumn = columnMenu.getByRole("menuitemcheckbox", {
+    name: "Favorited",
+  });
+  await expect(favoritedColumn).toBeVisible();
+
+  if ((await favoritedColumn.getAttribute("aria-checked")) !== "true") {
+    await favoritedColumn.click();
+  }
+
+  await page.keyboard.press("Escape");
+  await expect(columnMenu).not.toBeVisible();
+}
 
 test.describe("Starring and Ratings", () => {
   test("can star and unstar a song", async ({ authenticatedPage: page }) => {
-    // Navigate directly to library albums
-    await page.goto("/library/albums");
-
-    // Switch to grid view
-    const gridViewButton = page.getByRole("button", { name: /grid view/i });
-    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
-    await gridViewButton.click();
-
-    // Wait for media cards and click Test Album
-    const testAlbum = page
-      .locator('[data-testid="media-card"]')
-      .filter({ hasText: "Test Album" });
-    await expect(testAlbum).toBeVisible({ timeout: 10000 });
-    await testAlbum.click();
-
-    await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
-    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    await openTestAlbumDetails(page);
 
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
 
@@ -51,24 +77,45 @@ test.describe("Starring and Ratings", () => {
     await expect(contextMenu).not.toBeVisible({ timeout: 5000 });
   });
 
+  test("favorited column heart button toggles a song", async ({
+    authenticatedPage: page,
+  }) => {
+    await openTestAlbumDetails(page);
+    await showFavoritedColumn(page);
+
+    const firstSongRow = page.locator('[data-testid="song-row"]').first();
+    const addFavoriteButton = firstSongRow.getByRole("button", {
+      name: /add .* to favorites/i,
+    });
+    await expect(addFavoriteButton).toBeVisible();
+    await expect(addFavoriteButton).toHaveAttribute("title", "Not favorited");
+
+    await addFavoriteButton.click();
+
+    await expect(
+      page
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: /added to favorites/i }),
+    ).toBeVisible();
+
+    const removeFavoriteButton = firstSongRow.getByRole("button", {
+      name: /remove .* from favorites/i,
+    });
+    await expect(removeFavoriteButton).toBeVisible();
+    await expect(removeFavoriteButton).toHaveAttribute("title", /Favorited/);
+
+    await removeFavoriteButton.click();
+
+    await expect(
+      page
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: /removed from favorites/i }),
+    ).toBeVisible();
+    await expect(addFavoriteButton).toHaveAttribute("title", "Not favorited");
+  });
+
   test("can rate song from menu", async ({ authenticatedPage: page }) => {
-    // Navigate directly to library albums
-    await page.goto("/library/albums");
-
-    // Switch to grid view
-    const gridViewButton = page.getByRole("button", { name: /grid view/i });
-    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
-    await gridViewButton.click();
-
-    // Wait for media cards and click Test Album
-    const testAlbum = page
-      .locator('[data-testid="media-card"]')
-      .filter({ hasText: "Test Album" });
-    await expect(testAlbum).toBeVisible({ timeout: 10000 });
-    await testAlbum.click();
-
-    await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
-    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    await openTestAlbumDetails(page);
 
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
     await firstSongRow.click({ button: "right" });

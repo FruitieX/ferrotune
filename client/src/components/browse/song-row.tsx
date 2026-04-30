@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Check, Shuffle, Ban, Music } from "lucide-react";
+import { Check, Shuffle, Ban, Music, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -29,6 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
@@ -308,6 +309,15 @@ export function SongRow({
     toggleStar();
   };
 
+  const starredTooltip = isStarred
+    ? song.starred
+      ? `Favorited ${formatDate(song.starred)}`
+      : "Favorited"
+    : "Not favorited";
+  const starredButtonLabel = isStarred
+    ? `Remove ${song.title} from favorites`
+    : `Add ${song.title} to favorites`;
+
   // Build subtitle with clickable links
   const subtitle = (
     <div className="flex items-center gap-1 text-xs text-muted-foreground truncate">
@@ -444,8 +454,28 @@ export function SongRow({
                 </Tooltip>
               )}
               {showStarred && (
-                <span className="w-24 text-right">
-                  {song.starred ? formatDate(song.starred) : "—"}
+                <span className="w-24 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className={cn(
+                      "h-7 w-7 text-muted-foreground hover:text-red-500",
+                      isStarred && "text-red-500",
+                    )}
+                    aria-label={starredButtonLabel}
+                    title={starredTooltip}
+                    data-testid="song-favorite-column-button"
+                    onClick={handleStar}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <Heart
+                      className={cn(
+                        "w-4 h-4",
+                        isStarred && "fill-red-500 text-red-500",
+                      )}
+                    />
+                  </Button>
                 </span>
               )}
               {showRating && (
