@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -11,11 +11,13 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
+  applySearchTermsToQueueAtom,
   genreDetailViewModeAtom,
   genreDetailSortAtom,
   genreDetailColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import {
@@ -56,6 +58,7 @@ function GenreDetailContent() {
   const debouncedFilter = useDebounce(filter, 300);
 
   // View settings
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
   const [viewMode, setViewMode] = useAtom(genreDetailViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(genreDetailSortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(
@@ -175,13 +178,12 @@ function GenreDetailContent() {
   const totalSongsCount = songsData?.pages[0]?.total ?? displaySongs.length;
 
   // Queue source for genre songs - server materializes with same sort/filter
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
   const genreQueueSource = {
     type: "genre" as QueueSourceType,
     id: genreName,
     name: genreName ?? "Genre",
-    filters: debouncedFilter.trim()
-      ? { filter: debouncedFilter.trim() }
-      : undefined,
+    filters: queueFilter,
     sort:
       sortConfig.field !== "custom"
         ? {
@@ -202,9 +204,7 @@ function GenreDetailContent() {
       sourceId: genreName,
       sourceName: genreName,
       startIndex: 0,
-      filters: debouncedFilter.trim()
-        ? { filter: debouncedFilter.trim() }
-        : undefined,
+      filters: queueFilter,
       sort:
         sortConfig.field !== "custom"
           ? {
@@ -223,9 +223,7 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: true,
-      filters: debouncedFilter.trim()
-        ? { filter: debouncedFilter.trim() }
-        : undefined,
+      filters: queueFilter,
       sort:
         sortConfig.field !== "custom"
           ? {

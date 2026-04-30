@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Heart, Play, Shuffle, Upload } from "lucide-react";
 import type {
   SongResponse,
@@ -25,6 +25,7 @@ import {
   type QueueSourceType,
 } from "@/lib/store/server-queue";
 import {
+  applySearchTermsToQueueAtom,
   playlistViewModeAtom,
   favoriteSongsSortAtom,
   playlistColumnVisibilityAtom,
@@ -36,6 +37,7 @@ import {
   favoritesArtistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -81,6 +83,7 @@ export default function FavoritesPage() {
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
   const [activeTab, setActiveTab] = useState<TabValue>("songs");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -293,9 +296,14 @@ export default function FavoritesPage() {
   );
 
   // Queue source for favorites songs - server materializes with same sort
+  const songQueueFilter = queueTextFilter(
+    debouncedSongSearch,
+    applySearchTermsToQueue,
+  );
   const favoritesQueueSource = {
     type: "favorites" as QueueSourceType,
     name: "Favorites",
+    filters: songQueueFilter,
     sort:
       songSortConfig.field !== "custom"
         ? {
@@ -505,6 +513,7 @@ export default function FavoritesPage() {
         sourceName: "Favorites",
         startIndex: 0,
         shuffle: false,
+        filters: songQueueFilter,
         // Pass sort config so server materializes queue in same order as displayed
         sort:
           songSortConfig.field !== "custom"
@@ -524,6 +533,7 @@ export default function FavoritesPage() {
         sourceName: "Favorites",
         startIndex: 0,
         shuffle: true,
+        filters: songQueueFilter,
         // Pass sort config for consistent ordering before shuffle
         sort:
           songSortConfig.field !== "custom"

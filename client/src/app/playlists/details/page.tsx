@@ -20,6 +20,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { usePlaylistSparsePagination } from "@/lib/hooks/use-playlist-sparse-pagination";
 import {
+  applySearchTermsToQueueAtom,
   playlistViewModeAtom,
   playlistSortAtom,
   playlistColumnVisibilityAtom,
@@ -90,6 +91,7 @@ import {
   formatTotalDuration,
 } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import type { Song } from "@/lib/api/types";
 import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
 import type { MissingEntryDataResponse } from "@/lib/api/generated/MissingEntryDataResponse";
@@ -125,6 +127,7 @@ function PlaylistDetailContent() {
   const startQueue = useSetAtom(startQueueAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const currentSourceEntryId = useAtomValue(currentSourceEntryIdAtom);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
   const queryClient = useQueryClient();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -549,13 +552,12 @@ function PlaylistDetailContent() {
   };
 
   // Queue source for playlist - server materializes with same sort/filter
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
   const playlistQueueSource = {
     type: "playlist" as const,
     id: playlistId,
     name: playlist?.name ?? "Playlist",
-    filters: debouncedFilter.trim()
-      ? { filter: debouncedFilter.trim() }
-      : undefined,
+    filters: queueFilter,
     sort:
       sortConfig.field !== "custom"
         ? {
@@ -836,9 +838,7 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         shuffle: false,
-        filters: debouncedFilter.trim()
-          ? { filter: debouncedFilter.trim() }
-          : undefined,
+        filters: queueFilter,
         sort:
           sortConfig.field !== "custom"
             ? {
@@ -857,9 +857,7 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         shuffle: true,
-        filters: debouncedFilter.trim()
-          ? { filter: debouncedFilter.trim() }
-          : undefined,
+        filters: queueFilter,
         sort:
           sortConfig.field !== "custom"
             ? {

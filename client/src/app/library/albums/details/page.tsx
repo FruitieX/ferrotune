@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -12,11 +12,13 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
+  applySearchTermsToQueueAtom,
   albumDetailViewModeAtom,
   albumDetailSortAtom,
   albumDetailColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -57,6 +59,7 @@ function AlbumDetailContent() {
   // Filter state
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
 
   // View settings
   const [viewMode, setViewMode] = useAtom(albumDetailViewModeAtom);
@@ -115,13 +118,12 @@ function AlbumDetailContent() {
   const selection = useTrackSelection(displaySongs);
 
   // Queue source for album songs - server materializes with same sort/filter
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
   const albumQueueSource = {
     type: "album" as QueueSourceType,
     id: id,
     name: albumData?.name ?? "Album",
-    filters: debouncedFilter.trim()
-      ? { filter: debouncedFilter.trim() }
-      : undefined,
+    filters: queueFilter,
     sort:
       sortConfig.field !== "custom"
         ? {
@@ -152,9 +154,7 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: false,
-        filters: debouncedFilter.trim()
-          ? { filter: debouncedFilter.trim() }
-          : undefined,
+        filters: queueFilter,
         sort:
           sortConfig.field !== "custom"
             ? {
@@ -174,9 +174,7 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: true,
-        filters: debouncedFilter.trim()
-          ? { filter: debouncedFilter.trim() }
-          : undefined,
+        filters: queueFilter,
         sort:
           sortConfig.field !== "custom"
             ? {

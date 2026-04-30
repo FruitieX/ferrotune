@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Heart, MoreHorizontal } from "lucide-react";
@@ -12,12 +12,14 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
+  applySearchTermsToQueueAtom,
   artistDetailViewModeAtom,
   artistDetailSortAtom,
   artistDetailColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { useStarredArtist } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
@@ -60,6 +62,7 @@ function ArtistDetailContent() {
   // Filter state
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
 
   // View settings
   const [viewMode, setViewMode] = useAtom(artistDetailViewModeAtom);
@@ -118,13 +121,12 @@ function ArtistDetailContent() {
   const displaySongs = artistData?.song ?? [];
 
   // Queue source for artist songs - server materializes with same sort/filter
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
   const artistQueueSource = {
     type: "artist" as QueueSourceType,
     id: id,
     name: artistData?.name ?? "Artist",
-    filters: debouncedFilter.trim()
-      ? { filter: debouncedFilter.trim() }
-      : undefined,
+    filters: queueFilter,
     sort:
       sortConfig.field !== "custom"
         ? {
@@ -153,9 +155,7 @@ function ArtistDetailContent() {
         sourceName: artistData?.name,
         startIndex: 0,
         shuffle: false,
-        filters: debouncedFilter.trim()
-          ? { filter: debouncedFilter.trim() }
-          : undefined,
+        filters: queueFilter,
         sort:
           sortConfig.field !== "custom"
             ? {
@@ -175,9 +175,7 @@ function ArtistDetailContent() {
         sourceName: artistData?.name,
         startIndex: 0,
         shuffle: true,
-        filters: debouncedFilter.trim()
-          ? { filter: debouncedFilter.trim() }
-          : undefined,
+        filters: queueFilter,
         sort:
           sortConfig.field !== "custom"
             ? {

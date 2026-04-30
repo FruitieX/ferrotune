@@ -53,6 +53,47 @@ export async function gotoAppPath(page: Page, path: string): Promise<void> {
   await page.goto(targetUrl);
 }
 
+export async function setServerPreference(
+  page: Page,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await page.evaluate(
+    async ({ preferenceKey, nextValue }) => {
+      const connection = JSON.parse(
+        localStorage.getItem("ferrotune-connection") || "null",
+      );
+
+      if (
+        !connection?.serverUrl ||
+        !connection.username ||
+        !connection.password
+      ) {
+        throw new Error("Missing authenticated connection in localStorage");
+      }
+
+      const response = await fetch(
+        `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/preferences/${encodeURIComponent(preferenceKey)}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          },
+          body: JSON.stringify({ value: nextValue }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to update '${preferenceKey}' preference: ${response.status}`,
+        );
+      }
+    },
+    { preferenceKey: key, nextValue: value },
+  );
+}
+
 export function toAndroidEmulatorUrl(serverUrl: string): string {
   const url = new URL(serverUrl);
 

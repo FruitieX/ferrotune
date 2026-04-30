@@ -10,6 +10,7 @@ import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   albumViewModeAtom,
+  applySearchTermsToQueueAtom,
   libraryFilterAtom,
   librarySortAtom,
   columnVisibilityAtom,
@@ -23,6 +24,10 @@ import {
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import { getCurrentQueuePositionMatch } from "@/lib/queue/current-position";
+import {
+  isSearchTermExcludedFromQueue,
+  queueQueryValue,
+} from "@/lib/queue/source-filters";
 import {
   SongRow,
   SongRowSkeleton,
@@ -49,6 +54,7 @@ export default function SongsPage() {
   const setSortConfig = useSetAtom(librarySortAtom);
   const columnVisibility = useAtomValue(columnVisibilityAtom);
   const advancedFilters = useAtomValue(advancedFiltersAtom);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
@@ -105,11 +111,12 @@ export default function SongsPage() {
   const isLoadingData = isLoading;
 
   // Build queue source with filters and sort for server-side materialization
+  const queueQuery = queueQueryValue(debouncedFilter, applySearchTermsToQueue);
   const queueSource = {
-    type: (debouncedFilter ? "search" : "library") as QueueSourceType,
-    name: debouncedFilter ? `Search: ${debouncedFilter}` : "Library",
+    type: (queueQuery !== "*" ? "search" : "library") as QueueSourceType,
+    name: queueQuery !== "*" ? `Search: ${queueQuery}` : "Library",
     filters: {
-      query: debouncedFilter || "*",
+      query: queueQuery,
       ...advancedFilters,
     },
     sort: {
@@ -119,6 +126,12 @@ export default function SongsPage() {
   };
 
   const getIsCurrentQueuePosition = (index: number): boolean | undefined => {
+    if (
+      isSearchTermExcludedFromQueue(debouncedFilter, applySearchTermsToQueue)
+    ) {
+      return undefined;
+    }
+
     return getCurrentQueuePositionMatch({
       queueState,
       expectedSource: {

@@ -11,6 +11,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
+  applySearchTermsToQueueAtom,
   playlistViewModeAtom,
   playlistSortAtom,
   playlistColumnVisibilityAtom,
@@ -65,6 +66,11 @@ import {
   getPlaylistDisplayName,
 } from "@/components/shared/playlist-breadcrumb";
 import { formatTotalDuration } from "@/lib/utils/format";
+import { queueSourceMatchesView } from "@/lib/queue/current-position";
+import {
+  isSearchTermExcludedFromQueue,
+  queueTextFilter,
+} from "@/lib/queue/source-filters";
 import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
@@ -78,6 +84,7 @@ function SmartPlaylistPageContent() {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
 
   // UI state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -157,11 +164,12 @@ function SmartPlaylistPageContent() {
     queueState?.source?.id === id;
 
   // Queue source for song cards/rows - extracted to avoid recreating on every render
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
   const smartPlaylistQueueSource = {
     type: "smartPlaylist" as const,
     id: id!,
     name: smartPlaylist?.name ?? "Smart Playlist",
-    filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+    filters: queueFilter,
     sort:
       sortConfig.field !== "custom"
         ? {
@@ -176,6 +184,23 @@ function SmartPlaylistPageContent() {
   // This ensures the correct track is highlighted even when shuffle reorders the queue
   const getIsCurrentQueuePosition = (index: number): boolean | undefined => {
     if (!queueState || !isSmartPlaylistInQueue) return undefined;
+
+    if (
+      isSearchTermExcludedFromQueue(debouncedFilter, applySearchTermsToQueue)
+    ) {
+      return undefined;
+    }
+
+    if (
+      !queueSourceMatchesView(queueState, {
+        type: smartPlaylistQueueSource.type,
+        id: smartPlaylistQueueSource.id,
+        filters: smartPlaylistQueueSource.filters,
+        sort: smartPlaylistQueueSource.sort,
+      })
+    ) {
+      return undefined;
+    }
 
     // When queue is shuffled, positions don't match - fall back to song ID
     if (queueState.isShuffled) return undefined;
@@ -208,7 +233,7 @@ function SmartPlaylistPageContent() {
       sourceName: smartPlaylist?.name,
       shuffle: false,
       // Pass filter and sort options so server materializes with same order as displayed
-      filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+      filters: queueFilter,
       sort:
         sortConfig.field !== "custom"
           ? {
@@ -227,7 +252,7 @@ function SmartPlaylistPageContent() {
       sourceName: smartPlaylist?.name,
       shuffle: true,
       // Pass filter and sort options
-      filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+      filters: queueFilter,
       sort:
         sortConfig.field !== "custom"
           ? {

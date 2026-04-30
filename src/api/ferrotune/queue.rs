@@ -1843,6 +1843,7 @@ async fn materialize_queue_songs(
                 user_id,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
+                text_filter,
             )
             .await
         }
@@ -2031,6 +2032,7 @@ async fn materialize_queue_songs(
                             database,
                             &item.source_id,
                             user_id,
+                            None,
                             None,
                             None,
                         )

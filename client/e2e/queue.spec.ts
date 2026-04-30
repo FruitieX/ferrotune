@@ -9,7 +9,44 @@ import {
   waitForPlayerReady,
   resetState,
 } from "./fixtures";
+import { setServerPreference } from "./app-helpers";
 import { openQueuePanel } from "./queue-helpers";
+import type { Page } from "@playwright/test";
+
+async function playFilteredFlacTrack(page: Page, trackName = "FLAC Track One") {
+  await page.goto("/library/songs");
+
+  const listViewButton = page.getByRole("button", { name: /list view/i });
+  await expect(listViewButton).toBeVisible({ timeout: 10000 });
+  await listViewButton.click();
+
+  const filterInput = page.getByLabel("Filter library items");
+  await expect(filterInput).toBeVisible({ timeout: 10000 });
+  await filterInput.fill("FLAC");
+  await expect(
+    page.locator('[data-testid="song-row"]').filter({ hasText: "First Song" }),
+  ).toHaveCount(0, { timeout: 10000 });
+
+  const flacRow = page
+    .locator('[data-testid="song-row"]')
+    .filter({ hasText: trackName })
+    .first();
+  await expect(flacRow).toBeVisible({ timeout: 10000 });
+  const startQueueResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/ferrotune/queue/start") &&
+      response.request().method() === "POST" &&
+      response.status() === 200,
+    { timeout: 10000 },
+  );
+  await flacRow.hover();
+  await flacRow.getByRole("button", { name: /^play$/i }).click({ force: true });
+  await startQueueResponse;
+  await waitForPlayerReady(page);
+  await expect(page.getByTestId("player-bar")).toContainText(trackName, {
+    timeout: 10000,
+  });
+}
 
 test.describe.serial("Queue Management", () => {
   // Reset all server state before each test for isolation
@@ -116,6 +153,37 @@ test.describe.serial("Queue Management", () => {
     await expect(flacCard).toHaveAttribute("data-current-track", "true", {
       timeout: 10000,
     });
+  });
+
+  test("search terms can be excluded from queue materialization", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "apply-search-terms-to-queue", true);
+    await page.reload();
+
+    await playFilteredFlacTrack(page);
+
+    let queuePanel = await openQueuePanel(page);
+    await expect(queuePanel.getByText("FLAC Track One")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(
+      queuePanel
+        .locator('[data-testid="queue-item"]')
+        .filter({ hasText: "First Song" }),
+    ).toHaveCount(0);
+
+    await setServerPreference(page, "apply-search-terms-to-queue", false);
+    await page.reload();
+
+    await playFilteredFlacTrack(page, "FLAC Track Two");
+
+    queuePanel = await openQueuePanel(page);
+    await expect(
+      queuePanel
+        .locator('[data-testid="queue-item"]')
+        .filter({ hasText: "First Song" }),
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test("removing an earlier queue item keeps the same current track", async ({

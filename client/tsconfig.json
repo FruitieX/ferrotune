@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "es2022"
-    ],
+    "lib": ["dom", "dom.iterable", "es2022"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -18,18 +14,10 @@
     "jsx": "react-jsx",
     "incremental": true,
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "next/image": [
-        "./src/lib/next-compat/image.tsx"
-      ],
-      "next/link": [
-        "./src/lib/next-compat/link.tsx"
-      ],
-      "next/navigation": [
-        "./src/lib/next-compat/navigation.ts"
-      ]
+      "@/*": ["./src/*"],
+      "next/image": ["./src/lib/next-compat/image.tsx"],
+      "next/link": ["./src/lib/next-compat/link.tsx"],
+      "next/navigation": ["./src/lib/next-compat/navigation.ts"]
     },
     "types": [
       "node",
@@ -39,11 +27,7 @@
       "chromecast-caf-sender"
     ]
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.mts"
-  ],
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
   "exclude": [
     "node_modules",
     "src-tauri",

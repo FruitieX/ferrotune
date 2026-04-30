@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { History } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -11,11 +11,13 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
+  applySearchTermsToQueueAtom,
   playlistViewModeAtom,
   historySortAtom,
   playlistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
@@ -43,6 +45,7 @@ export default function HistoryPage() {
   });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
 
   // Filter and view settings
   const [filter, setFilter] = useState("");
@@ -91,9 +94,11 @@ export default function HistoryPage() {
   );
 
   // Queue source for history - server materializes with same sort
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
   const historyQueueSource = {
     type: "history" as QueueSourceType,
     name: "Recently Played",
+    filters: queueFilter,
     sort:
       sortConfig.field !== "custom"
         ? {
@@ -134,6 +139,7 @@ export default function HistoryPage() {
         sourceType: "history",
         sourceName: "Recently Played",
         startIndex: 0,
+        filters: queueFilter,
         sort: historyQueueSource.sort,
       });
     }
@@ -146,6 +152,7 @@ export default function HistoryPage() {
         sourceName: "Recently Played",
         startIndex: 0,
         shuffle: true,
+        filters: queueFilter,
         sort: historyQueueSource.sort,
       });
     }

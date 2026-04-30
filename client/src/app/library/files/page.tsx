@@ -26,12 +26,14 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { isConnectedAtom } from "@/lib/store/auth";
 import {
+  applySearchTermsToQueueAtom,
   libraryFilterAtom,
   filesSortAtom,
   filesColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
+import { queueTextFilter } from "@/lib/queue/source-filters";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -118,6 +120,7 @@ function FilesPageContent() {
   // Use shared atoms from layout header
   const libraryFilter = useAtomValue(libraryFilterAtom);
   const debouncedFilter = useDebounce(libraryFilter, 300);
+  const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
   const sortConfig = useAtomValue(filesSortAtom);
   const visibleColumns = useAtomValue(filesColumnVisibilityAtom);
 
@@ -191,6 +194,8 @@ function FilesPageContent() {
 
   // Get selected songs (files only)
   const selectedSongs = songs.filter((s) => selectedIds.has(s.id));
+
+  const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
 
   // Get selected directories
   const selectedDirectories = allItems.filter(
@@ -291,6 +296,7 @@ function FilesPageContent() {
       sourceId: `${libraryId}:${relativePath}`,
       sourceName: directoryInfo?.name ?? "Folder",
       startIndex: 0,
+      filters: queueFilter,
     });
   };
 
@@ -303,6 +309,7 @@ function FilesPageContent() {
       sourceName: directoryInfo?.name ?? "Folder",
       startIndex: 0,
       shuffle: true,
+      filters: queueFilter,
     });
   };
 
@@ -329,7 +336,7 @@ function FilesPageContent() {
       startIndex: index,
       startSongId: song.id,
       sort: { field: sortConfig.field, direction: sortConfig.direction },
-      filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+      filters: queueFilter,
     });
   };
 
@@ -446,7 +453,7 @@ function FilesPageContent() {
           {librariesLoading ? (
             <div className="space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
+                <Skeleton key={i} className="h-14 w-full rounded-lg" />
               ))}
             </div>
           ) : filteredLibraries.length === 0 ? (
@@ -683,7 +690,7 @@ function LibraryCard({ library }: LibraryCardProps) {
     <Link href={`/library/files?libraryId=${library.id}`} prefetch={false}>
       <div
         className={cn(
-          "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
+          "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
           "hover:bg-muted/50 transition-colors cursor-pointer group",
         )}
       >
@@ -886,7 +893,7 @@ function DirectoryRow({
         <Link href={dirUrl} onClick={handleClick} prefetch={false}>
           <div
             className={cn(
-              "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
+              "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
               "hover:bg-muted/50 transition-colors cursor-pointer group",
               isSelected && "bg-primary/10 hover:bg-primary/15",
             )}
@@ -1097,7 +1104,7 @@ function FileRow({
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
           className={cn(
-            "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
+            "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
             "hover:bg-muted/50 transition-colors cursor-pointer group",
             isSelected && "bg-primary/10 hover:bg-primary/15",
           )}
@@ -1232,15 +1239,15 @@ function FileRow({
 // Skeleton for directory/file rows - matches actual row structure
 function FileRowSkeleton() {
   return (
-    <div className="flex items-center gap-3 px-3 py-2 h-[56px]">
+    <div className="flex items-center gap-3 px-3 py-2 h-14">
       {/* Checkbox placeholder - same size as actual checkbox */}
       <div className="w-5 h-5 shrink-0 rounded bg-muted/30" />
       {/* Cover art skeleton - matches CoverImage size="sm" (40px) */}
       <Skeleton className="w-10 h-10 rounded shrink-0" />
       {/* Text content - two lines like actual content */}
       <div className="flex-1 min-w-0 space-y-1">
-        <Skeleton className="h-4 w-[45%] max-w-[180px]" />
-        <Skeleton className="h-3 w-[30%] max-w-[120px]" />
+        <Skeleton className="h-4 w-[45%] max-w-45" />
+        <Skeleton className="h-3 w-[30%] max-w-30" />
       </div>
       {/* Right side columns - duration/size */}
       <div className="flex items-center gap-4 shrink-0">

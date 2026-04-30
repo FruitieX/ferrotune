@@ -50,6 +50,7 @@ import { getClient } from "@/lib/api/client";
 import {
   ACCENT_PRESETS,
   type AccentColor,
+  applySearchTermsToQueueAtom,
   progressBarStyleAtom,
   sidebarItemSizeAtom,
   type SidebarItemSize,
@@ -90,6 +91,9 @@ export default function SettingsPage() {
   const [connection] = useAtom(serverConnectionAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [sidebarItemSize, setSidebarItemSize] = useAtom(sidebarItemSizeAtom);
+  const [applySearchTermsToQueue, setApplySearchTermsToQueue] = useAtom(
+    applySearchTermsToQueueAtom,
+  );
   const [replayGainMode, setReplayGainMode] = useAtom(replayGainModeAtom);
   const [replayGainOffset, setReplayGainOffset] = useAtom(replayGainOffsetAtom);
   const [clippingDetectionEnabled, setClippingDetectionEnabled] = useAtom(
@@ -460,6 +464,26 @@ export default function SettingsPage() {
               <CardDescription>Audio playback preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Queue search behavior */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 font-medium">
+                    <ListMusic className="w-4 h-4" />
+                    Apply search terms to queues
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Queue only matching songs from filtered views. Turn off to
+                    search for a starting track while queueing the full view.
+                  </p>
+                </div>
+                <Switch
+                  checked={applySearchTermsToQueue}
+                  onCheckedChange={setApplySearchTermsToQueue}
+                />
+              </div>
+
+              <Separator />
+
               {/* Transcoding */}
               <div className="flex items-center justify-between">
                 <div className="space-y-1">

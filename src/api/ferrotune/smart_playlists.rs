@@ -1199,13 +1199,16 @@ async fn materialize_smart_playlist_songs_filtered(
 /// Public helper to get songs from a smart playlist by ID.
 /// Used by queue materialization to support smartPlaylist source type.
 /// Accepts optional sort_field_override and sort_direction_override to allow
-/// the client to override the playlist's default sort when playing.
+/// the client to override the playlist's default sort when playing. The
+/// optional filter applies the same title/artist/album search used by the
+/// paged smart playlist endpoint.
 pub async fn get_smart_playlist_songs_by_id(
     database: &Database,
     playlist_id: &str,
     user_id: i64,
     sort_field_override: Option<&str>,
     sort_direction_override: Option<&str>,
+    filter: Option<&str>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     let playlist: SmartPlaylist = get_owned_smart_playlist_for_user(database, playlist_id, user_id)
         .await?
@@ -1220,7 +1223,7 @@ pub async fn get_smart_playlist_songs_by_id(
     let sort_direction = sort_direction_override.or(playlist.sort_direction.as_deref());
 
     // Materialize songs (no pagination - get all for queue)
-    materialize_smart_playlist_songs(
+    materialize_smart_playlist_songs_filtered(
         database,
         &rules,
         user_id,
@@ -1229,6 +1232,7 @@ pub async fn get_smart_playlist_songs_by_id(
         playlist.max_songs,
         None, // No pagination offset
         None, // No pagination limit
+        filter,
     )
     .await
 }

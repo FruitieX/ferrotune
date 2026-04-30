@@ -683,7 +683,8 @@ pub async fn get_continue_listening_logic(
             for row in rows {
                 let id = row.id;
                 let songs =
-                    get_smart_playlist_songs_by_id(database, &id, user_id, None, None).await?;
+                    get_smart_playlist_songs_by_id(database, &id, user_id, None, None, None)
+                        .await?;
                 let duration = songs.iter().map(|song| song.duration).sum();
                 map.insert(
                     id.clone(),

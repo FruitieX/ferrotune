@@ -27,6 +27,12 @@ export const queuePanelOpenAtom = atomWithClientAccountStorage<boolean>(
   false,
 );
 
+// Queue behavior preferences
+export const applySearchTermsToQueueAtom = atomWithServerStorage<boolean>(
+  "apply-search-terms-to-queue",
+  true,
+);
+
 // Fullscreen player state
 export const fullscreenPlayerOpenAtom = atom<boolean>(false);
 
