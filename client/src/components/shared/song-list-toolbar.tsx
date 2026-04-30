@@ -91,6 +91,25 @@ const columnOptions: { key: keyof ColumnVisibility; label: string }[] = [
   { key: "rating", label: "Rating" },
 ];
 
+interface SortOptionVisibility {
+  showCustomSort?: boolean;
+  showTrackNumber?: boolean;
+  showAddedToPlaylist?: boolean;
+}
+
+function getVisibleSortOptions({
+  showCustomSort = false,
+  showTrackNumber = false,
+  showAddedToPlaylist = false,
+}: SortOptionVisibility) {
+  return sortOptions.filter(
+    (option) =>
+      (showCustomSort || option.value !== "custom") &&
+      (showTrackNumber || option.value !== "trackNumber") &&
+      (showAddedToPlaylist || option.value !== "addedToPlaylist"),
+  );
+}
+
 interface SongListToolbarProps {
   // Filter
   filter: string;
@@ -214,28 +233,25 @@ export function SongListToolbar({
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Sort by</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {sortOptions
-                .filter(
-                  (option) =>
-                    (showCustomSort || option.value !== "custom") &&
-                    (showTrackNumber || option.value !== "trackNumber") &&
-                    (showAddedToPlaylist || option.value !== "addedToPlaylist"),
-                )
-                .map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    onClick={() => handleSort(option.value)}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{option.label}</span>
-                    {sortConfig.field === option.value &&
-                      (option.value === "custom" ? (
-                        <Check className="w-4 h-4 text-primary" />
-                      ) : (
-                        <SortIcon className="w-4 h-4 text-primary" />
-                      ))}
-                  </DropdownMenuItem>
-                ))}
+              {getVisibleSortOptions({
+                showCustomSort,
+                showTrackNumber,
+                showAddedToPlaylist,
+              }).map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={() => handleSort(option.value)}
+                  className="flex items-center justify-between"
+                >
+                  <span>{option.label}</span>
+                  {sortConfig.field === option.value &&
+                    (option.value === "custom" ? (
+                      <Check className="w-4 h-4 text-primary" />
+                    ) : (
+                      <SortIcon className="w-4 h-4 text-primary" />
+                    ))}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -325,6 +341,7 @@ interface SongListMobileMenuProps {
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
   showCustomSort?: boolean;
+  showTrackNumber?: boolean;
   showAddedToPlaylist?: boolean;
 
   // View mode
@@ -347,6 +364,7 @@ export function SongListMobileMenu({
   sortConfig,
   onSortChange,
   showCustomSort = false,
+  showTrackNumber = false,
   showAddedToPlaylist = false,
   viewMode,
   onViewModeChange,
@@ -447,26 +465,24 @@ export function SongListMobileMenu({
             Sort
           </DrawerMenuCollapsibleTrigger>
           <DrawerMenuCollapsibleContent>
-            {sortOptions
-              .filter(
-                (option) =>
-                  (showCustomSort || option.value !== "custom") &&
-                  (showAddedToPlaylist || option.value !== "addedToPlaylist"),
-              )
-              .map((option) => (
-                <DrawerMenuItem
-                  key={option.value}
-                  onClick={() => handleSort(option.value)}
-                >
-                  <span className="flex-1">{option.label}</span>
-                  {sortConfig.field === option.value &&
-                    (option.value === "custom" ? (
-                      <Check className="w-4 h-4 text-primary" />
-                    ) : (
-                      <SortIcon className="w-4 h-4 text-primary" />
-                    ))}
-                </DrawerMenuItem>
-              ))}
+            {getVisibleSortOptions({
+              showCustomSort,
+              showTrackNumber,
+              showAddedToPlaylist,
+            }).map((option) => (
+              <DrawerMenuItem
+                key={option.value}
+                onClick={() => handleSort(option.value)}
+              >
+                <span className="flex-1">{option.label}</span>
+                {sortConfig.field === option.value &&
+                  (option.value === "custom" ? (
+                    <Check className="w-4 h-4 text-primary" />
+                  ) : (
+                    <SortIcon className="w-4 h-4 text-primary" />
+                  ))}
+              </DrawerMenuItem>
+            ))}
           </DrawerMenuCollapsibleContent>
         </DrawerMenuCollapsible>
 
@@ -632,24 +648,17 @@ export function AlbumDetailMobileMenu({
             Sort
           </DrawerMenuCollapsibleTrigger>
           <DrawerMenuCollapsibleContent>
-            {sortOptions
-              .filter(
-                (option) =>
-                  (showTrackNumber || option.value !== "trackNumber") &&
-                  option.value !== "custom" &&
-                  option.value !== "addedToPlaylist",
-              )
-              .map((option) => (
-                <DrawerMenuItem
-                  key={option.value}
-                  onClick={() => handleSort(option.value)}
-                >
-                  <span className="flex-1">{option.label}</span>
-                  {sortConfig.field === option.value && (
-                    <SortIcon className="w-4 h-4 text-primary" />
-                  )}
-                </DrawerMenuItem>
-              ))}
+            {getVisibleSortOptions({ showTrackNumber }).map((option) => (
+              <DrawerMenuItem
+                key={option.value}
+                onClick={() => handleSort(option.value)}
+              >
+                <span className="flex-1">{option.label}</span>
+                {sortConfig.field === option.value && (
+                  <SortIcon className="w-4 h-4 text-primary" />
+                )}
+              </DrawerMenuItem>
+            ))}
           </DrawerMenuCollapsibleContent>
         </DrawerMenuCollapsible>
 
@@ -759,24 +768,21 @@ export function AlbumDetailDrawerMenuItems({
           Sort
         </DrawerMenuCollapsibleTrigger>
         <DrawerMenuCollapsibleContent>
-          {sortOptions
-            .filter(
-              (option) =>
-                (showTrackNumber || option.value !== "trackNumber") &&
-                (showCustomSort || option.value !== "custom") &&
-                (showAddedToPlaylist || option.value !== "addedToPlaylist"),
-            )
-            .map((option) => (
-              <DrawerMenuItem
-                key={option.value}
-                onClick={() => handleSort(option.value)}
-              >
-                <span>{option.label}</span>
-                {sortConfig.field === option.value && (
-                  <SortIcon className="w-4 h-4 ml-auto text-primary!" />
-                )}
-              </DrawerMenuItem>
-            ))}
+          {getVisibleSortOptions({
+            showCustomSort,
+            showTrackNumber,
+            showAddedToPlaylist,
+          }).map((option) => (
+            <DrawerMenuItem
+              key={option.value}
+              onClick={() => handleSort(option.value)}
+            >
+              <span>{option.label}</span>
+              {sortConfig.field === option.value && (
+                <SortIcon className="w-4 h-4 ml-auto text-primary!" />
+              )}
+            </DrawerMenuItem>
+          ))}
         </DrawerMenuCollapsibleContent>
       </DrawerMenuCollapsible>
 

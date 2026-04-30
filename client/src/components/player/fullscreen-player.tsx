@@ -663,10 +663,16 @@ export function FullscreenPlayer() {
             }
             style={
               useOpenGestureBackdrop
-                ? { opacity: openBackdropOpacity }
+                ? {
+                    opacity: openBackdropOpacity,
+                    pointerEvents: isClosingViaGesture ? "none" : "auto",
+                  }
                 : useDragBackdrop
-                  ? { opacity: closeBackdropOpacity }
-                  : undefined
+                  ? {
+                      opacity: closeBackdropOpacity,
+                      pointerEvents: isClosingViaGesture ? "none" : "auto",
+                    }
+                  : { pointerEvents: isClosingViaGesture ? "none" : "auto" }
             }
             className="fixed inset-0 z-50 bg-black/60"
           />
@@ -691,15 +697,18 @@ export function FullscreenPlayer() {
                 ? {
                     y: openGestureY,
                     touchAction: isSmallScreen ? "none" : "auto",
+                    pointerEvents: isClosingViaGesture ? "none" : "auto",
                   }
                 : isSmallScreen
                   ? {
                       // Always use dragY on small screens - framer-motion's drag will sync it
                       y: dragY,
                       touchAction: "none",
+                      pointerEvents: isClosingViaGesture ? "none" : "auto",
                     }
                   : {
                       touchAction: "auto",
+                      pointerEvents: isClosingViaGesture ? "none" : "auto",
                     }
             }
             drag={isSmallScreen ? "y" : false}

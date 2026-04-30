@@ -12,7 +12,7 @@ import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
   playlistViewModeAtom,
-  playlistSortAtom,
+  historySortAtom,
   playlistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
@@ -48,7 +48,7 @@ export default function HistoryPage() {
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
   const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
-  const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
+  const [sortConfig, setSortConfig] = useAtom(historySortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(
     playlistColumnVisibilityAtom,
   );
@@ -158,7 +158,7 @@ export default function HistoryPage() {
       <div className="min-h-dvh">
         {/* Header skeleton */}
         <div className="relative">
-          <div className="absolute inset-0 h-[300px] bg-linear-to-b from-purple-500/20 to-background" />
+          <div className="absolute inset-0 h-75 bg-linear-to-b from-purple-500/20 to-background" />
           <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
             <div className="flex items-center gap-6">
               <Skeleton className="w-48 h-48 rounded-lg" />

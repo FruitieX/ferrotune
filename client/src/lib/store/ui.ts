@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import { motionValue, type MotionValue } from "framer-motion";
+import { atomWithClientAccountStorage } from "./client-storage";
 import { atomWithServerStorage } from "./server-storage";
 import { oklchToRgbString } from "@/lib/utils/color";
 
@@ -21,7 +22,7 @@ export const sidebarItemSizeAtom = atomWithServerStorage<SidebarItemSize>(
 export const mobileMenuOpenAtom = atom<boolean>(false);
 
 // Queue panel state - persisted so sidebar stays open on reload
-export const queuePanelOpenAtom = atomWithServerStorage<boolean>(
+export const queuePanelOpenAtom = atomWithClientAccountStorage<boolean>(
   "queue-panel-open",
   false,
 );
@@ -126,9 +127,8 @@ export interface ColumnVisibility {
   rating: boolean;
 }
 
-export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>(
-  "column-visibility",
-  {
+export const columnVisibilityAtom =
+  atomWithClientAccountStorage<ColumnVisibility>("column-visibility", {
     trackNumber: true,
     artist: true,
     album: true,
@@ -142,8 +142,7 @@ export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>(
     bitRate: false,
     format: false,
     rating: false,
-  },
-);
+  });
 
 // Files browser sort options
 export type FilesSortField =
@@ -177,7 +176,7 @@ export interface FilesColumnVisibility {
 }
 
 export const filesColumnVisibilityAtom =
-  atomWithServerStorage<FilesColumnVisibility>("files-columns", {
+  atomWithClientAccountStorage<FilesColumnVisibility>("files-columns", {
     size: true,
     duration: true,
     artist: true,
@@ -196,8 +195,22 @@ export const playlistSortAtom = atomWithServerStorage<SortConfig>(
     direction: "asc",
   },
 );
+export const favoriteSongsSortAtom = atomWithServerStorage<SortConfig>(
+  "favorite-songs-sort",
+  {
+    field: "starred",
+    direction: "desc",
+  },
+);
+export const historySortAtom = atomWithServerStorage<SortConfig>(
+  "history-sort",
+  {
+    field: "lastPlayed",
+    direction: "desc",
+  },
+);
 export const playlistColumnVisibilityAtom =
-  atomWithServerStorage<ColumnVisibility>("playlist-columns", {
+  atomWithClientAccountStorage<ColumnVisibility>("playlist-columns", {
     trackNumber: true,
     artist: true,
     album: true,
@@ -219,10 +232,10 @@ export const favoritesAlbumViewModeAtom = atomWithServerStorage<ViewMode>(
   "grid",
 );
 export const favoritesAlbumSortAtom = atomWithServerStorage<SortConfig>(
-  "favorites-album-sort",
+  "favorites-album-sort-v2",
   {
-    field: "name",
-    direction: "asc",
+    field: "starred",
+    direction: "desc",
   },
 );
 
@@ -240,17 +253,20 @@ export interface AlbumColumnVisibility {
 }
 
 export const favoritesAlbumColumnVisibilityAtom =
-  atomWithServerStorage<AlbumColumnVisibility>("favorites-album-columns", {
-    showIndex: true,
-    artist: true,
-    year: true,
-    songCount: true,
-    duration: true,
-    genre: false,
-    starred: false,
-    rating: false,
-    dateAdded: false,
-  });
+  atomWithClientAccountStorage<AlbumColumnVisibility>(
+    "favorites-album-columns",
+    {
+      showIndex: true,
+      artist: true,
+      year: true,
+      songCount: true,
+      duration: true,
+      genre: false,
+      starred: false,
+      rating: false,
+      dateAdded: false,
+    },
+  );
 
 // Favorites artists view settings
 export const favoritesArtistViewModeAtom = atomWithServerStorage<ViewMode>(
@@ -258,10 +274,10 @@ export const favoritesArtistViewModeAtom = atomWithServerStorage<ViewMode>(
   "grid",
 );
 export const favoritesArtistSortAtom = atomWithServerStorage<SortConfig>(
-  "favorites-artist-sort",
+  "favorites-artist-sort-v2",
   {
-    field: "name",
-    direction: "asc",
+    field: "starred",
+    direction: "desc",
   },
 );
 
@@ -275,17 +291,20 @@ export interface ArtistColumnVisibility {
 }
 
 export const favoritesArtistColumnVisibilityAtom =
-  atomWithServerStorage<ArtistColumnVisibility>("favorites-artist-columns", {
-    showIndex: true,
-    albumCount: true,
-    songCount: false,
-    starred: false,
-    rating: false,
-  });
+  atomWithClientAccountStorage<ArtistColumnVisibility>(
+    "favorites-artist-columns",
+    {
+      showIndex: true,
+      albumCount: true,
+      songCount: false,
+      starred: false,
+      rating: false,
+    },
+  );
 
 // Library album column visibility (for albums list view)
 export const libraryAlbumColumnVisibilityAtom =
-  atomWithServerStorage<AlbumColumnVisibility>("library-album-columns", {
+  atomWithClientAccountStorage<AlbumColumnVisibility>("library-album-columns", {
     showIndex: true,
     artist: true,
     year: true,
@@ -299,13 +318,16 @@ export const libraryAlbumColumnVisibilityAtom =
 
 // Library artist column visibility (for artists list view)
 export const libraryArtistColumnVisibilityAtom =
-  atomWithServerStorage<ArtistColumnVisibility>("library-artist-columns", {
-    showIndex: true,
-    albumCount: true,
-    songCount: false,
-    starred: false,
-    rating: false,
-  });
+  atomWithClientAccountStorage<ArtistColumnVisibility>(
+    "library-artist-columns",
+    {
+      showIndex: true,
+      albumCount: true,
+      songCount: false,
+      starred: false,
+      rating: false,
+    },
+  );
 
 // Genre column visibility (for genres list view)
 export interface GenreColumnVisibility {
@@ -313,7 +335,7 @@ export interface GenreColumnVisibility {
 }
 
 export const libraryGenreColumnVisibilityAtom =
-  atomWithServerStorage<GenreColumnVisibility>("library-genre-columns", {
+  atomWithClientAccountStorage<GenreColumnVisibility>("library-genre-columns", {
     showIndex: true,
   });
 
@@ -330,7 +352,7 @@ export const albumDetailSortAtom = atomWithServerStorage<SortConfig>(
   },
 );
 export const albumDetailColumnVisibilityAtom =
-  atomWithServerStorage<ColumnVisibility>("album-detail-columns", {
+  atomWithClientAccountStorage<ColumnVisibility>("album-detail-columns", {
     trackNumber: true,
     artist: false, // Album typically has same artist
     album: false, // Already on album page
@@ -359,7 +381,7 @@ export const artistDetailSortAtom = atomWithServerStorage<SortConfig>(
   },
 );
 export const artistDetailColumnVisibilityAtom =
-  atomWithServerStorage<ColumnVisibility>("artist-detail-columns", {
+  atomWithClientAccountStorage<ColumnVisibility>("artist-detail-columns", {
     trackNumber: true,
     artist: false, // Already on artist page
     album: true,
@@ -388,7 +410,7 @@ export const genreDetailSortAtom = atomWithServerStorage<SortConfig>(
   },
 );
 export const genreDetailColumnVisibilityAtom =
-  atomWithServerStorage<ColumnVisibility>("genre-detail-columns", {
+  atomWithClientAccountStorage<ColumnVisibility>("genre-detail-columns", {
     trackNumber: true,
     artist: true,
     album: true,
@@ -427,7 +449,7 @@ export interface PlaylistColumnVisibility {
 }
 
 export const playlistsColumnVisibilityAtom =
-  atomWithServerStorage<PlaylistColumnVisibility>("playlists-columns", {
+  atomWithClientAccountStorage<PlaylistColumnVisibility>("playlists-columns", {
     showIndex: true,
     songCount: true,
     duration: true,

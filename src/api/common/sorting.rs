@@ -7,6 +7,25 @@
 use crate::db::models::Song;
 use serde::Deserialize;
 
+fn compare_option_nulls_last<T: Ord>(
+    a: &Option<T>,
+    b: &Option<T>,
+    descending: bool,
+) -> std::cmp::Ordering {
+    match (a, b) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(a_value), Some(b_value)) => {
+            if descending {
+                b_value.cmp(a_value)
+            } else {
+                a_value.cmp(b_value)
+            }
+        }
+    }
+}
+
 /// Sort configuration passed from client
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +70,7 @@ pub struct SortFilterParams {
 pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&str>) -> Vec<Song> {
     let field = sort.unwrap_or("custom");
     let direction = sort_dir.unwrap_or("asc");
+    let descending = direction == "desc";
 
     // "custom" means preserve original order (no sorting)
     if field == "custom" {
@@ -127,12 +147,7 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             "year" => a.year.unwrap_or(0).cmp(&b.year.unwrap_or(0)),
             "dateAdded" | "created" => a.created_at.cmp(&b.created_at),
             "playCount" => a.play_count.unwrap_or(0).cmp(&b.play_count.unwrap_or(0)),
-            "lastPlayed" => match (&a.last_played, &b.last_played) {
-                (None, None) => std::cmp::Ordering::Equal,
-                (None, Some(_)) => std::cmp::Ordering::Greater, // NULLs last
-                (Some(_), None) => std::cmp::Ordering::Less,    // NULLs last
-                (Some(a_lp), Some(b_lp)) => a_lp.cmp(b_lp),
-            },
+            "lastPlayed" => compare_option_nulls_last(&a.last_played, &b.last_played, descending),
             "duration" => a.duration.cmp(&b.duration),
             "size" => a.file_size.cmp(&b.file_size),
             "genre" => {
@@ -145,12 +160,7 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
                 .file_format
                 .to_lowercase()
                 .cmp(&b.file_format.to_lowercase()),
-            "starred" => match (&a.starred_at, &b.starred_at) {
-                (None, None) => std::cmp::Ordering::Equal,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (Some(a_s), Some(b_s)) => a_s.cmp(b_s),
-            },
+            "starred" => compare_option_nulls_last(&a.starred_at, &b.starred_at, descending),
             "rating" => {
                 // Rating uses user_rating which is not on the Song model directly.
                 // Songs without ratings sort last.
@@ -169,12 +179,12 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             }
             _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
         };
-        cmp
+        if descending && !matches!(field, "lastPlayed" | "starred") {
+            cmp.reverse()
+        } else {
+            cmp
+        }
     });
-
-    if direction == "desc" {
-        songs.reverse();
-    }
 
     songs
 }
@@ -313,6 +323,78 @@ mod tests {
         assert_eq!(sorted[0].year, Some(2023));
         assert_eq!(sorted[1].year, Some(2021));
         assert_eq!(sorted[2].year, Some(2020));
+    }
+
+    #[test]
+    fn test_sort_by_last_played_desc_keeps_never_played_last() {
+        let now = Utc::now();
+        let mut older = make_song("1", "Older", "Artist", "Album", None);
+        older.last_played = Some(now - chrono::Duration::days(2));
+        let never_played = make_song("2", "Never", "Artist", "Album", None);
+        let mut newer = make_song("3", "Newer", "Artist", "Album", None);
+        newer.last_played = Some(now);
+
+        let sorted = sort_songs(
+            vec![older, never_played, newer],
+            Some("lastPlayed"),
+            Some("desc"),
+        );
+
+        assert_eq!(sorted[0].title, "Newer");
+        assert_eq!(sorted[1].title, "Older");
+        assert_eq!(sorted[2].title, "Never");
+    }
+
+    #[test]
+    fn test_sort_by_last_played_asc_keeps_never_played_last() {
+        let now = Utc::now();
+        let mut older = make_song("1", "Older", "Artist", "Album", None);
+        older.last_played = Some(now - chrono::Duration::days(2));
+        let never_played = make_song("2", "Never", "Artist", "Album", None);
+        let mut newer = make_song("3", "Newer", "Artist", "Album", None);
+        newer.last_played = Some(now);
+
+        let sorted = sort_songs(
+            vec![newer, never_played, older],
+            Some("lastPlayed"),
+            Some("asc"),
+        );
+
+        assert_eq!(sorted[0].title, "Older");
+        assert_eq!(sorted[1].title, "Newer");
+        assert_eq!(sorted[2].title, "Never");
+    }
+
+    #[test]
+    fn test_sort_by_starred_desc_keeps_unstarred_last() {
+        let now = Utc::now();
+        let mut older = make_song("1", "Older", "Artist", "Album", None);
+        older.starred_at = Some(now - chrono::Duration::days(2));
+        let unstarred = make_song("2", "Unstarred", "Artist", "Album", None);
+        let mut newer = make_song("3", "Newer", "Artist", "Album", None);
+        newer.starred_at = Some(now);
+
+        let sorted = sort_songs(vec![older, unstarred, newer], Some("starred"), Some("desc"));
+
+        assert_eq!(sorted[0].title, "Newer");
+        assert_eq!(sorted[1].title, "Older");
+        assert_eq!(sorted[2].title, "Unstarred");
+    }
+
+    #[test]
+    fn test_sort_by_starred_asc_keeps_unstarred_last() {
+        let now = Utc::now();
+        let mut older = make_song("1", "Older", "Artist", "Album", None);
+        older.starred_at = Some(now - chrono::Duration::days(2));
+        let unstarred = make_song("2", "Unstarred", "Artist", "Album", None);
+        let mut newer = make_song("3", "Newer", "Artist", "Album", None);
+        newer.starred_at = Some(now);
+
+        let sorted = sort_songs(vec![newer, unstarred, older], Some("starred"), Some("asc"));
+
+        assert_eq!(sorted[0].title, "Older");
+        assert_eq!(sorted[1].title, "Newer");
+        assert_eq!(sorted[2].title, "Unstarred");
     }
 
     #[test]

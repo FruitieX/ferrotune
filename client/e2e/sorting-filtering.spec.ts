@@ -3,6 +3,35 @@
  */
 
 import { test, expect, waitForPageReady, resetState } from "./fixtures";
+import type { Page } from "@playwright/test";
+
+async function openAlbumDetails(page: Page) {
+  await page.goto("/library/albums");
+  await waitForPageReady(page);
+
+  const testAlbum = page
+    .locator('[data-testid="media-card"]')
+    .filter({ hasText: "Test Album" })
+    .first();
+  await expect(testAlbum).toBeVisible({ timeout: 10000 });
+  await testAlbum.click();
+
+  await expect(page).toHaveURL(/\/library\/albums\/details/);
+}
+
+async function openArtistDetails(page: Page) {
+  await page.goto("/library/artists");
+  await waitForPageReady(page);
+
+  const testArtist = page
+    .locator('[data-testid="media-card"]')
+    .filter({ hasText: "Test Artist" })
+    .first();
+  await expect(testArtist).toBeVisible({ timeout: 10000 });
+  await testArtist.click();
+
+  await expect(page).toHaveURL(/\/library\/artists\/details/);
+}
 
 test.describe("Sorting and Filtering", () => {
   // Reset all server state before each test for isolation
@@ -141,5 +170,57 @@ test.describe("Sorting and Filtering", () => {
 
     const mediaCards = page.locator('[data-testid="media-card"]');
     await expect(mediaCards.first()).toBeVisible({ timeout: 3000 });
+  });
+
+  test("favorites defaults to newest favorited sorting", async ({
+    authenticatedPage: page,
+  }) => {
+    const searchResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/ferrotune/search" &&
+        url.searchParams.get("starredOnly") === "true" &&
+        url.searchParams.get("songSort") === "starred" &&
+        url.searchParams.get("songSortDir") === "desc"
+      );
+    });
+
+    await page.goto("/favorites");
+    await searchResponse;
+  });
+
+  test("history defaults to newest last played sorting", async ({
+    authenticatedPage: page,
+  }) => {
+    const historyResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/ferrotune/history" &&
+        url.searchParams.get("sort") === "lastPlayed" &&
+        url.searchParams.get("sortDir") === "desc"
+      );
+    });
+
+    await page.goto("/history");
+    await historyResponse;
+  });
+
+  test("album and artist detail views can sort by last played", async ({
+    authenticatedPage: page,
+  }) => {
+    await openAlbumDetails(page);
+
+    await page.getByRole("button", { name: /sort options/i }).click();
+    await expect(
+      page.getByRole("menuitem", { name: /last played/i }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await openArtistDetails(page);
+
+    await page.getByRole("button", { name: /sort options/i }).click();
+    await expect(
+      page.getByRole("menuitem", { name: /last played/i }),
+    ).toBeVisible();
   });
 });

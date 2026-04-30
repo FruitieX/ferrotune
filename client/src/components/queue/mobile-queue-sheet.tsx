@@ -33,11 +33,8 @@ import {
   cleanUpHistoryState,
   isHistoryCleanup,
 } from "@/lib/hooks/use-back-button-close";
-import {
-  queuePanelOpenAtom,
-  fullscreenPlayerOpenAtom,
-  preferencesLoadedAtom,
-} from "@/lib/store/ui";
+import { queuePanelOpenAtom, fullscreenPlayerOpenAtom } from "@/lib/store/ui";
+import { useIsDesktop } from "@/lib/hooks/use-media-query";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import {
   serverQueueStateAtom,
@@ -142,14 +139,14 @@ export function MobileQueueSheet() {
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
-  const prefsLoaded = useAtomValue(preferencesLoadedAtom);
   const currentAccountKey = connection ? accountKey(connection) : null;
+  const isDesktop = useIsDesktop();
 
   // On mobile, the queue sheet should never auto-open from persisted state.
   // Close it before paint on the first mount and whenever the active account changes.
   const prevAccountKeyRef = useRef<string | null | undefined>(undefined);
   useLayoutEffect(() => {
-    if (typeof window === "undefined" || window.innerWidth >= 1280) {
+    if (isDesktop) {
       prevAccountKeyRef.current = currentAccountKey;
       return;
     }
@@ -168,25 +165,13 @@ export function MobileQueueSheet() {
         setIsOpen(false);
       }
     }
-  }, [currentAccountKey, isOpen, setIsOpen]);
-
-  // Also close after server preference hydration in case a stored open state
-  // slips through before the mobile mount guard above runs.
-  const prevPrefsLoadedRef = useRef(prefsLoaded);
-  useLayoutEffect(() => {
-    if (
-      !prevPrefsLoadedRef.current &&
-      prefsLoaded &&
-      isOpen &&
-      window.innerWidth < 1280
-    ) {
-      setIsOpen(false);
-    }
-    prevPrefsLoadedRef.current = prefsLoaded;
-  }, [prefsLoaded, isOpen, setIsOpen]);
+  }, [currentAccountKey, isDesktop, isOpen, setIsOpen]);
 
   // Track if we're in the middle of a gesture-based close animation
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);
+  // Keep the sheet mounted while gesture-close visuals finish after isOpen is false.
+  const [keepGestureCloseRendered, setKeepGestureCloseRendered] =
+    useState(false);
   // Track if we're currently dragging (to control backdrop opacity source)
   const [isDragging, setIsDragging] = useState(false);
 
@@ -203,9 +188,11 @@ export function MobileQueueSheet() {
   useEffect(() => {
     if (!isOpen) {
       hasScrolledRef.current = false;
-      dragX.set(0);
+      if (!isClosingViaGesture && !keepGestureCloseRendered) {
+        dragX.set(0);
+      }
     }
-  }, [isOpen, dragX]);
+  }, [isOpen, isClosingViaGesture, keepGestureCloseRendered, dragX]);
 
   // Auto-scroll to current song when queue panel opens (only once per open)
   useEffect(() => {
@@ -302,22 +289,20 @@ export function MobileQueueSheet() {
     if (shouldClose) {
       // Mark that we're closing via gesture so exit animation is skipped
       setIsClosingViaGesture(true);
+      setKeepGestureCloseRendered(true);
+      // Persist the closed state immediately so this layer becomes
+      // non-interactive during the visual close animation.
+      setIsOpen(false);
       // Animate off-screen then close - use window width to ensure fully offscreen
       const targetX =
         typeof window !== "undefined" ? window.innerWidth : SHEET_WIDTH;
-      const animDuration = 500; // ms
       animate(dragX, targetX, {
         type: "tween",
-        duration: animDuration / 1000,
+        duration: 0.5,
         ease: [0.32, 0.72, 0, 1],
+      }).then(() => {
+        setKeepGestureCloseRendered(false);
       });
-      // Schedule the close after animation completes
-      // This ensures the drag gesture is fully complete before unmounting
-      setTimeout(() => {
-        setIsOpen(false);
-        setIsClosingViaGesture(false);
-        dragX.set(0);
-      }, animDuration + 50); // Add buffer to ensure gesture is fully complete
     } else {
       // Snap back to origin
       animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 });
@@ -328,20 +313,23 @@ export function MobileQueueSheet() {
     setIsDragging(true);
   };
 
-  const shouldRender = isOpen || isClosingViaGesture;
+  const shouldRender = isOpen || keepGestureCloseRendered;
+
+  const handleExitComplete = () => {
+    if (!isClosingViaGesture) return;
+    setIsClosingViaGesture(false);
+    setKeepGestureCloseRendered(false);
+    dragX.set(0);
+  };
 
   // Only render on mobile (when fullscreen is open and queue is requested)
   // The desktop version is handled by QueueSidebar
-  if (
-    !isFullscreen &&
-    typeof window !== "undefined" &&
-    window.innerWidth >= 1280
-  ) {
+  if (!isFullscreen && isDesktop) {
     return null;
   }
 
   return (
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={handleExitComplete}>
       {shouldRender && (
         <>
           {/* Backdrop */}
@@ -358,18 +346,16 @@ export function MobileQueueSheet() {
               // Only use motion value during drag, otherwise let framer handle opacity
               opacity:
                 isDragging || isClosingViaGesture ? backdropOpacity : undefined,
-              // Only the post-close exit render should be click-through.
-              // While a swipe-close animation is still running, keep this layer
-              // interactive so the gesture cannot leak into the fullscreen view.
-              pointerEvents: isOpen ? "auto" : "none",
+              pointerEvents: isOpen && !isClosingViaGesture ? "auto" : "none",
             }}
-            className="fixed inset-0 z-[60] bg-black/50"
+            className="fixed inset-0 z-60 bg-black/50"
             onClick={() => setIsOpen(false)}
           />
 
           {/* Sheet */}
           <motion.div
             data-queue-panel="open"
+            data-gesture-closing={isClosingViaGesture ? "true" : undefined}
             role="dialog"
             aria-label="Queue"
             aria-modal="true"
@@ -392,7 +378,7 @@ export function MobileQueueSheet() {
               // to avoid NaN from percentage-based initial values interacting with useTransform.
               opacity:
                 isDragging || isClosingViaGesture ? sheetOpacity : undefined,
-              pointerEvents: isOpen ? "auto" : "none",
+              pointerEvents: isOpen && !isClosingViaGesture ? "auto" : "none",
             }}
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
@@ -401,7 +387,7 @@ export function MobileQueueSheet() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             className={cn(
-              "fixed top-0 right-0 bottom-0 z-[60] w-full sm:w-[400px] bg-background border-l border-border flex flex-col",
+              "fixed top-0 right-0 bottom-0 z-60 w-full sm:w-100 bg-background border-l border-border flex flex-col",
               // Disable text selection during swipe
               "select-none",
               // Allow vertical scroll gestures to pass through, horizontal gestures control sheet

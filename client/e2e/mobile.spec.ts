@@ -19,38 +19,45 @@ import {
 } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
-async function setQueuePanelPreference(page: Page, value: boolean) {
-  await page.evaluate(async (nextValue) => {
-    const connection = JSON.parse(
-      localStorage.getItem("ferrotune-connection") || "null",
-    );
-
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
-    ) {
-      throw new Error("Missing authenticated connection in localStorage");
-    }
-
-    const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/preferences/queue-panel-open`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
-        },
-        body: JSON.stringify({ value: nextValue }),
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to update queue panel preference: ${response.status}`,
+async function setServerPreference(page: Page, key: string, value: unknown) {
+  await page.evaluate(
+    async ({ preferenceKey, nextValue }) => {
+      const connection = JSON.parse(
+        localStorage.getItem("ferrotune-connection") || "null",
       );
-    }
-  }, value);
+
+      if (
+        !connection?.serverUrl ||
+        !connection.username ||
+        !connection.password
+      ) {
+        throw new Error("Missing authenticated connection in localStorage");
+      }
+
+      const response = await fetch(
+        `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/preferences/${encodeURIComponent(preferenceKey)}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          },
+          body: JSON.stringify({ value: nextValue }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to update '${preferenceKey}' preference: ${response.status}`,
+        );
+      }
+    },
+    { preferenceKey: key, nextValue: value },
+  );
+}
+
+async function setQueuePanelPreference(page: Page, value: boolean) {
+  await setServerPreference(page, "queue-panel-open", value);
 }
 
 async function addSecondarySavedAccount(page: Page) {
@@ -255,12 +262,50 @@ test.describe("Mobile Tests", () => {
     await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
   });
 
+  test("tap reaches fullscreen player while queue gesture close animates", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+
+    const closeButton = fullscreenPlayer.locator("button").first();
+    const closeButtonBox = await closeButton.boundingBox();
+    if (!closeButtonBox) {
+      throw new Error("Fullscreen close button bounding box was not available");
+    }
+
+    await fullscreenPlayer.getByRole("button", { name: /^queue$/i }).click();
+
+    const queueSheet = page.getByRole("dialog", { name: /queue/i });
+    await expect(queueSheet).toBeVisible({ timeout: 10000 });
+
+    await swipeQueueSheetClosed(page, queueSheet);
+    await expect(queueSheet).toHaveAttribute("data-gesture-closing", "true");
+
+    await page.mouse.click(
+      closeButtonBox.x + closeButtonBox.width / 2,
+      closeButtonBox.y + closeButtonBox.height / 2,
+    );
+
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+  });
+
   test("account switch keeps queue sheet hidden on mobile mount", async ({
     authenticatedPage: page,
   }) => {
     await addSecondarySavedAccount(page);
     await setQueuePanelPreference(page, true);
     await page.reload();
+
+    await expect(page.getByRole("dialog", { name: /queue/i })).not.toBeVisible({
+      timeout: 10000,
+    });
 
     await openMobileAccountMenu(page);
     await page.getByText("Secondary account", { exact: true }).click();
@@ -281,6 +326,44 @@ test.describe("Mobile Tests", () => {
     });
 
     await setQueuePanelPreference(page, false);
+  });
+
+  test("server column preferences do not override mobile column defaults", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "column-visibility", {
+      trackNumber: true,
+      artist: true,
+      album: true,
+      duration: true,
+      playCount: true,
+      dateAdded: true,
+      lastPlayed: true,
+      year: true,
+      starred: true,
+      genre: true,
+      bitRate: true,
+      format: true,
+      rating: true,
+    });
+
+    await page.goto("/library/songs");
+
+    const moreOptionsButton = page.getByRole("button", {
+      name: /view options/i,
+    });
+    await moreOptionsButton.click();
+
+    await page.getByRole("button", { name: /^list$/i }).click();
+
+    await moreOptionsButton.click();
+    await page.getByRole("button", { name: /^columns$/i }).click();
+
+    const playCountColumn = page.getByRole("button", {
+      name: /^play count$/i,
+    });
+    await expect(playCountColumn).toBeVisible();
+    await expect(playCountColumn.locator("svg")).toHaveCount(0);
   });
 
   test("search page is accessible", async ({ authenticatedPage: page }) => {

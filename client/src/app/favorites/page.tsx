@@ -26,7 +26,7 @@ import {
 } from "@/lib/store/server-queue";
 import {
   playlistViewModeAtom,
-  playlistSortAtom,
+  favoriteSongsSortAtom,
   playlistColumnVisibilityAtom,
   favoritesAlbumViewModeAtom,
   favoritesAlbumSortAtom,
@@ -95,7 +95,7 @@ export default function FavoritesPage() {
 
   // View settings for songs tab
   const [songViewMode, setSongViewMode] = useAtom(playlistViewModeAtom);
-  const [songSortConfig, setSongSortConfig] = useAtom(playlistSortAtom);
+  const [songSortConfig, setSongSortConfig] = useAtom(favoriteSongsSortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(
     playlistColumnVisibilityAtom,
   );

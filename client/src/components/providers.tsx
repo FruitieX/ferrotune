@@ -38,6 +38,7 @@ import {
   customAccentHueAtom,
   customAccentLightnessAtom,
   customAccentChromaAtom,
+  fullscreenPlayerOpenAtom,
   queuePanelOpenAtom,
 } from "@/lib/store/ui";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
@@ -140,6 +141,8 @@ function AccountSwitchStateResetter() {
   const setStarredItems = useSetAtom(starredItemsAtom);
   const setWaveformCache = useSetAtom(waveformCacheAtom);
   const setIsCacheRestored = useSetAtom(isCacheRestoredAtom);
+  const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
+  const setFullscreenPlayerOpen = useSetAtom(fullscreenPlayerOpenAtom);
 
   useEffect(() => {
     if (previousAccountKeyRef.current === undefined) {
@@ -157,6 +160,8 @@ function AccountSwitchStateResetter() {
     setStarredItems(new Map());
     setWaveformCache(new Map());
     setIsCacheRestored(false);
+    setQueuePanelOpen(false);
+    setFullscreenPlayerOpen(false);
 
     // Reset and reload server-stored preferences for the new account
     resetServerPreferences();
@@ -166,6 +171,8 @@ function AccountSwitchStateResetter() {
     setStarredItems,
     setWaveformCache,
     setIsCacheRestored,
+    setQueuePanelOpen,
+    setFullscreenPlayerOpen,
   ]);
 
   return null;
