@@ -91,10 +91,22 @@ pub struct ConnectedClient {
     pub connected_at: Instant,
 }
 
+/// Internal connection state for a logical client.
+///
+/// A single logical client can open more than one SSE stream. Android does this
+/// intentionally: the foreground WebView keeps UI state current while the
+/// native PlaybackService keeps background media controls alive. Track the
+/// number of live streams so dropping one stream does not make the whole device
+/// look disconnected.
+struct ConnectedClientState {
+    client: ConnectedClient,
+    connection_count: usize,
+}
+
 /// Per-session state: broadcast channel + connected clients.
 struct SessionState {
     sender: broadcast::Sender<SessionEvent>,
-    clients: HashMap<String, ConnectedClient>,
+    clients: HashMap<String, ConnectedClientState>,
 }
 
 /// Manages per-session broadcast channels and connected clients for real-time SSE updates.
@@ -179,23 +191,45 @@ impl SessionManager {
         let _ = self.get_or_create_sender(session_id).await;
         let mut sessions = self.sessions.write().await;
         if let Some(state) = sessions.get_mut(session_id) {
+            if let Some(existing) = state.clients.get_mut(client_id) {
+                existing.connection_count += 1;
+                existing.client.client_name = client_name.to_string();
+                return;
+            }
+
             state.clients.insert(
                 client_id.to_string(),
-                ConnectedClient {
-                    client_id: client_id.to_string(),
-                    client_name: client_name.to_string(),
-                    connected_at: Instant::now(),
+                ConnectedClientState {
+                    client: ConnectedClient {
+                        client_id: client_id.to_string(),
+                        client_name: client_name.to_string(),
+                        connected_at: Instant::now(),
+                    },
+                    connection_count: 1,
                 },
             );
         }
     }
 
     /// Unregister a client from a session.
-    pub async fn unregister_client(&self, session_id: &str, client_id: &str) {
+    ///
+    /// Returns true only when the logical client was fully removed. Duplicate
+    /// connections for the same client_id are reference-counted and return
+    /// false until the final stream disconnects.
+    pub async fn unregister_client(&self, session_id: &str, client_id: &str) -> bool {
         let mut sessions = self.sessions.write().await;
         if let Some(state) = sessions.get_mut(session_id) {
-            state.clients.remove(client_id);
+            if let Some(existing) = state.clients.get_mut(client_id) {
+                if existing.connection_count > 1 {
+                    existing.connection_count -= 1;
+                    return false;
+                } else {
+                    state.clients.remove(client_id);
+                    return true;
+                }
+            }
         }
+        false
     }
 
     /// Get all connected clients for a session.
@@ -203,7 +237,13 @@ impl SessionManager {
         let sessions = self.sessions.read().await;
         sessions
             .get(session_id)
-            .map(|state| state.clients.values().cloned().collect())
+            .map(|state| {
+                state
+                    .clients
+                    .values()
+                    .map(|state| state.client.clone())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -214,6 +254,52 @@ impl SessionManager {
             .get(session_id)
             .map(|state| state.clients.contains_key(client_id))
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionManager;
+
+    #[tokio::test]
+    async fn duplicate_logical_client_connections_are_ref_counted() {
+        let manager = SessionManager::new();
+
+        manager
+            .register_client("session-1", "client-1", "ferrotune-web")
+            .await;
+        manager
+            .register_client("session-1", "client-1", "ferrotune-mobile")
+            .await;
+
+        assert!(manager.is_client_connected("session-1", "client-1").await);
+        let clients = manager.get_clients("session-1").await;
+        assert_eq!(clients.len(), 1);
+        assert_eq!(clients[0].client_id, "client-1");
+        assert_eq!(clients[0].client_name, "ferrotune-mobile");
+
+        assert!(!manager.unregister_client("session-1", "client-1").await);
+
+        assert!(manager.is_client_connected("session-1", "client-1").await);
+        assert_eq!(manager.get_clients("session-1").await.len(), 1);
+
+        assert!(manager.unregister_client("session-1", "client-1").await);
+
+        assert!(!manager.is_client_connected("session-1", "client-1").await);
+        assert!(manager.get_clients("session-1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unregistering_unknown_client_is_noop() {
+        let manager = SessionManager::new();
+
+        manager
+            .register_client("session-1", "client-1", "ferrotune-web")
+            .await;
+        assert!(!manager.unregister_client("session-1", "missing").await);
+
+        assert!(manager.is_client_connected("session-1", "client-1").await);
+        assert_eq!(manager.get_clients("session-1").await.len(), 1);
     }
 }
 

@@ -1985,6 +1985,7 @@ export class FerrotuneClient {
   async sessionHeartbeat(
     sessionId: string,
     params: {
+      clientId?: string;
       isPlaying?: boolean;
       currentIndex?: number;
       positionMs?: number;

@@ -11,6 +11,7 @@ import {
   waitForPlayerReady,
   resetState,
 } from "./fixtures";
+import { setDocumentVisibility } from "./page-visibility";
 
 interface AudioPlaybackSnapshot {
   isPlaying: boolean;
@@ -37,19 +38,6 @@ async function getAudioPlaybackSnapshot(
       visibilityState: document.visibilityState,
     };
   });
-}
-
-async function setDocumentVisibility(
-  page: Page,
-  visibilityState: DocumentVisibilityState,
-): Promise<void> {
-  await page.evaluate((nextVisibilityState) => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => nextVisibilityState,
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  }, visibilityState);
 }
 
 test.describe("Playback", () => {

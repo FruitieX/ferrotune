@@ -33,6 +33,7 @@ export interface SeekControlDeps {
   queueState: { currentIndex: number } | null;
   playbackState: PlaybackState;
   currentSessionId: string | null;
+  clientId: string;
   isRemoteControlling: boolean;
   usingNativeAudio: boolean;
   setCurrentTime: (t: number) => void;
@@ -123,6 +124,7 @@ export function useSeekControl(deps: SeekControlDeps) {
         : 0);
     client
       .sessionHeartbeat(deps.currentSessionId, {
+        clientId: deps.clientId || undefined,
         positionMs: posMs,
         isPlaying: overrides?.isPlaying ?? deps.playbackState === "playing",
         currentIndex: deps.queueState.currentIndex,

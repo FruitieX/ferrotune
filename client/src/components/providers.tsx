@@ -22,6 +22,7 @@ import { useAppResumeRepaint } from "@/lib/hooks/use-app-resume-repaint";
 import { useAppResumeRefresh } from "@/lib/hooks/use-app-resume-refresh";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { useSessionInit } from "@/lib/hooks/use-session-init";
+import { useSessionOwnershipRecovery } from "@/lib/hooks/use-session-owner-state";
 import { useCastInit } from "@/lib/hooks/use-cast";
 import { SessionEventHandler } from "@/components/session-event-handler";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
@@ -71,6 +72,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   usePreferencesSync(); // Load and sync user preferences from server
   useScanProgressStream(); // Monitor scan progress in background
   useSessionInit(); // Initialize playback session + heartbeat
+  useSessionOwnershipRecovery(); // Refresh stale tab ownership on foreground
   useBackButtonClose(); // Handle Android back button to close menus
   useAppResumeRepaint(); // Force Android WebView redraws after resume
   useAppResumeRefresh(); // Invalidate queries after Android resume

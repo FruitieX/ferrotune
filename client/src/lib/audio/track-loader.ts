@@ -433,6 +433,7 @@ export function loadTrackWeb(
     if (sessionId && queueState) {
       getClient()
         ?.sessionHeartbeat(sessionId, {
+          clientId: refs.stateRef.current.clientId || undefined,
           positionMs: 0,
           isPlaying: true,
           currentIndex: queueState.currentIndex,
@@ -619,6 +620,7 @@ export function loadTrackWeb(
     if (sessionId && queueState) {
       getClient()
         ?.sessionHeartbeat(sessionId, {
+          clientId: refs.stateRef.current.clientId || undefined,
           positionMs: Math.round(resumePositionSec * 1000),
           isPlaying: true,
           currentIndex: queueState.currentIndex,

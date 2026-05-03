@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   useSessionEvents,
@@ -12,13 +12,11 @@ import {
   isRemoteControllingAtom,
   remotePlaybackStateAtom,
   connectedClientsAtom,
-  ownerClientIdAtom,
-  ownerClientNameAtom,
-  clientIdAtom,
   selfTakeoverPending,
+  ownerClientIdAtom,
+  clientIdAtom,
 } from "@/lib/store/session";
 import {
-  fetchQueueAndRestoreAtom,
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
@@ -32,6 +30,7 @@ import {
   isMutedAtom,
 } from "@/lib/store/player";
 import { getClient } from "@/lib/api/client";
+import { useSessionOwnerState } from "@/lib/hooks/use-session-owner-state";
 
 /**
  * Receives SSE events for the current session and dispatches
@@ -43,10 +42,10 @@ import { getClient } from "@/lib/api/client";
 export function SessionEventHandler() {
   const isAudioOwner = useAtomValue(isAudioOwnerAtom);
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
-  const currentSong = useAtomValue(currentSongAtom);
+  const ownerClientId = useAtomValue(ownerClientIdAtom);
   const clientId = useAtomValue(clientIdAtom);
+  const currentSong = useAtomValue(currentSongAtom);
   const { play, pause, next, previous, seek } = useAudioEngine();
-  const fetchQueueAndRestore = useSetAtom(fetchQueueAndRestoreAtom);
   const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
   const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
@@ -56,10 +55,13 @@ export function SessionEventHandler() {
   const setVolume = useSetAtom(volumeAtom);
   const setIsMuted = useSetAtom(isMutedAtom);
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
-  const ownerClientId = useAtomValue(ownerClientIdAtom);
   const setConnectedClients = useSetAtom(connectedClientsAtom);
-  const setOwnerClientId = useSetAtom(ownerClientIdAtom);
-  const setOwnerClientName = useSetAtom(ownerClientNameAtom);
+  const { applyOwnerSnapshot } = useSessionOwnerState();
+  const ownerClientIdRef = useRef(ownerClientId);
+
+  useEffect(() => {
+    ownerClientIdRef.current = ownerClientId;
+  }, [ownerClientId]);
 
   // Update duration from current song when remote controlling
   useEffect(() => {
@@ -101,7 +103,10 @@ export function SessionEventHandler() {
         // Skip if we just initiated the takeover ourselves (the broadcast
         // echoes back to us and would incorrectly pause our own playback).
         if (event.action === "takeOver") {
-          if (selfTakeoverPending.value) {
+          if (
+            selfTakeoverPending.value ||
+            ownerClientIdRef.current === clientId
+          ) {
             selfTakeoverPending.value = false;
             return;
           }
@@ -203,60 +208,12 @@ export function SessionEventHandler() {
         break;
       }
       case "ownerChanged": {
-        // Ownership changed — could be transferred to another client or cleared
-        const nextOwnerClientId = event.ownerClientId ?? null;
-        const isCurrentClientOwner =
-          clientId !== "" && nextOwnerClientId === clientId;
-        const isSameOwnerAnnouncement =
-          isCurrentClientOwner &&
-          (isAudioOwner ||
-            ownerClientId === clientId ||
-            selfTakeoverPending.value);
-
-        setOwnerClientId(nextOwnerClientId);
-        setOwnerClientName(event.ownerClientName ?? null);
-
-        if (nextOwnerClientId) {
-          if (isCurrentClientOwner) {
-            // The SSE stream sends an initial ownership snapshot every time it
-            // reconnects. If it says we are still the owner, do not refetch the
-            // queue in restore mode — that reloads the active audio element and
-            // pauses playback when switching browser tabs.
-            if (isSameOwnerAnnouncement) {
-              setIsAudioOwner(true);
-              setRemotePlaybackState(null);
-              break;
-            }
-
-            // We became the owner.
-            // Don't clear selfTakeoverPending here — the PlaybackCommand
-            // {takeOver} handler needs to read it to prevent the echo
-            // (OwnerChanged is broadcast BEFORE PlaybackCommand by the server).
-            setIsAudioOwner(true);
-            setRemotePlaybackState(null);
-
-            // Only explicit takeover requests are allowed to auto-resume.
-            if (event.resumePlayback === true) {
-              fetchQueueAndPlay();
-            } else {
-              fetchQueueAndRestore();
-            }
-          } else if (isAudioOwner) {
-            // We were the owner but someone else took over
-            pause();
-            setIsAudioOwner(false);
-          }
-        } else {
-          // Ownership cleared by the server (inactivity timeout) — there is
-          // no remote owner to follow anymore, so restore the queue locally in
-          // a paused state without implicitly starting playback.
-          if (isAudioOwner) {
-            pause();
-            setIsAudioOwner(false);
-          }
-          setRemotePlaybackState(null);
-          fetchQueueAndRestore();
-        }
+        ownerClientIdRef.current = event.ownerClientId ?? null;
+        applyOwnerSnapshot({
+          ownerClientId: event.ownerClientId,
+          ownerClientName: event.ownerClientName,
+          resumePlayback: event.resumePlayback,
+        });
         break;
       }
       case "volumeChange":

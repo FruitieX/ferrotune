@@ -123,6 +123,8 @@ class FerrotuneApiClient {
 
     fun hasSessionConfig(): Boolean = sessionConfig != null
 
+    fun getClientId(): String? = sessionConfig?.clientId
+
     fun updateSessionId(sessionId: String) {
         val config = sessionConfig
         if (config != null) {
@@ -361,6 +363,7 @@ class FerrotuneApiClient {
         val config = getConfig()
         val sessionId = config.sessionId ?: return
         val json = JSONObject().apply {
+            config.clientId?.let { put("clientId", it) }
             put("isPlaying", isPlaying)
             if (currentIndex != null) put("currentIndex", currentIndex)
             if (positionMs != null) put("positionMs", positionMs)
@@ -565,6 +568,8 @@ class FerrotuneApiClient {
             "ownerChanged" -> SessionEvent.OwnerChanged(
                 ownerClientId = json.optString("ownerClientId").ifEmpty { null },
                 ownerClientName = json.optString("ownerClientName").ifEmpty { null },
+                resumePlayback = if (json.has("resumePlayback") && !json.isNull("resumePlayback"))
+                    json.getBoolean("resumePlayback") else false,
             )
             "volumeChange" -> SessionEvent.VolumeChange(
                 volume = json.getDouble("volume").toFloat(),
@@ -592,7 +597,11 @@ sealed class SessionEvent {
         val currentSongId: String?,
     ) : SessionEvent()
     object ClientListChanged : SessionEvent()
-    data class OwnerChanged(val ownerClientId: String?, val ownerClientName: String?) : SessionEvent()
+    data class OwnerChanged(
+        val ownerClientId: String?,
+        val ownerClientName: String?,
+        val resumePlayback: Boolean,
+    ) : SessionEvent()
     data class VolumeChange(val volume: Float, val isMuted: Boolean) : SessionEvent()
 }
 

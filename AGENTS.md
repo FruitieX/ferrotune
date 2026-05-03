@@ -333,6 +333,7 @@ if (options?.sort) params.set("sort", options.sort);
 | `use-album-actions.ts` | Album playback/queue/starring actions |
 | `use-artist-actions.ts` | Artist playback/queue/starring actions |
 | `use-song-actions.ts` | Song playback/queue/starring/rating actions |
+| `use-session-owner-state.ts` | Shared session ownership snapshot handling and foreground recovery |
 | `use-star.ts` | Generic starring state management |
 
 ### Frontend Queue Helpers (`client/src/lib/queue/`)

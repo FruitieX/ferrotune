@@ -35,6 +35,7 @@ export interface EngineStateSnapshot {
   starredItems: Map<string, boolean>;
   serverConnection: ServerConnection | null;
   currentSessionId: string | null;
+  clientId: string;
 }
 
 /** Setter functions, kept in sync via ref for use in callbacks. */

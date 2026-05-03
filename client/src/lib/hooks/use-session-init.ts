@@ -90,7 +90,10 @@ export function useSessionInit() {
     // the session alive, but don't report track data
     if (!isAudioOwnerRef.current) {
       try {
-        await client.sessionHeartbeat(sid, { isPlaying: false });
+        await client.sessionHeartbeat(sid, {
+          clientId: clientIdRef.current || undefined,
+          isPlaying: false,
+        });
       } catch {
         // Silently ignore heartbeat failures
       }
@@ -104,6 +107,7 @@ export function useSessionInit() {
 
     try {
       await client.sessionHeartbeat(sid, {
+        clientId: clientIdRef.current || undefined,
         isPlaying: pbState === "playing",
         currentIndex: state?.currentIndex,
         positionMs: Math.round(currentTimeSec * 1000),
@@ -140,7 +144,9 @@ export function useSessionInit() {
         const response = await client.connectSession(getClientName(), clientId);
         setSessionId(response.id);
         setOwnerClientId(response.ownerClientId);
-        setOwnerClientName(response.ownerClientName);
+        setOwnerClientName(
+          response.ownerClientId ? response.ownerClientName : null,
+        );
 
         // Determine ownership: if this client is the owner, or new session
         if (response.isNewSession || response.ownerClientId === clientId) {
@@ -149,7 +155,7 @@ export function useSessionInit() {
           // No owner (e.g., previous owner was disowned due to inactivity).
           // Treat this as locally controllable instead of follower mode so
           // play/pause doesn't route through remote-control code paths.
-          setIsAudioOwner(false);
+          setIsAudioOwner(true);
         } else {
           // Existing session owned by another client — join as follower
           setIsAudioOwner(false);

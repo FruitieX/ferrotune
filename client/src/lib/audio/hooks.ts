@@ -141,6 +141,7 @@ export function useAudioEngineInit() {
 
   const serverConnection = useAtomValue(serverConnectionAtom);
   const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const clientId = useAtomValue(clientIdAtom);
 
   // --- Shared refs (single source of truth for callbacks & sub-hooks) ---
 
@@ -201,6 +202,7 @@ export function useAudioEngineInit() {
     starredItems,
     serverConnection,
     currentSessionId,
+    clientId,
   });
 
   useEffect(() => {
@@ -221,6 +223,7 @@ export function useAudioEngineInit() {
       starredItems,
       serverConnection,
       currentSessionId,
+      clientId,
     };
   });
 
@@ -442,6 +445,7 @@ export function useAudioEngine() {
     queueState,
     playbackState,
     currentSessionId,
+    clientId,
     isRemoteControlling,
     usingNativeAudio: isNativePlatform,
     setCurrentTime,

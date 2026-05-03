@@ -198,6 +198,10 @@ class PlaybackService : MediaSessionService() {
     private var sseConnected = false
     private var sseReconnectRunnable: Runnable? = null
     private val SSE_RECONNECT_DELAY_MS = 3000L
+    // Whether native playback is currently allowed to own and mutate the
+    // server-backed session. Starts permissive so a fresh local play can claim
+    // ownership before the first OwnerChanged snapshot arrives.
+    private var nativeOwnsSession = true
 
     // Whether the service is actively managing playback
     // (has session config for API calls and has loaded media)
@@ -303,7 +307,7 @@ class PlaybackService : MediaSessionService() {
     // Periodic position sync to server
     private val positionSyncRunnable = object : Runnable {
         override fun run() {
-            if (isActive && player.isPlaying) {
+            if (nativeOwnsSession && isActive && player.isPlaying) {
                 syncPositionToServer()
                 // Also send heartbeat to keep the session alive (JS timer may
                 // be suspended when the WebView is backgrounded)
@@ -636,6 +640,7 @@ class PlaybackService : MediaSessionService() {
 
     fun play() {
         Log.d(TAG, "play()")
+        nativeOwnsSession = true
         clearAudioOutputLossPause("explicit play()")
         if (player.mediaItemCount == 0 && apiClient.hasSessionConfig()) {
             Log.d(TAG, "play(): no media loaded, bootstrapping from server queue")
@@ -792,6 +797,17 @@ class PlaybackService : MediaSessionService() {
         when (event) {
             is SessionEvent.PlaybackCommand -> {
                 Log.d(TAG, "SSE PlaybackCommand: action=${event.action}, positionMs=${event.positionMs}")
+                if (event.action == "takeOver") {
+                    // OwnerChanged is the authoritative ownership signal. The
+                    // takeOver playback command is only kept for older web
+                    // handlers to pause the previous owner, and would otherwise
+                    // double-process self echoes on Android.
+                    return
+                }
+                if (!nativeOwnsSession) {
+                    Log.d(TAG, "Ignoring playback command while not session owner")
+                    return
+                }
                 when (event.action) {
                     "play" -> {
                         clearAudioOutputLossPause("SSE play command")
@@ -810,6 +826,10 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             is SessionEvent.QueueChanged -> {
+                if (!nativeOwnsSession) {
+                    Log.d(TAG, "Ignoring QueueChanged while not session owner")
+                    return
+                }
                 Log.d(TAG, "SSE QueueChanged: refetching queue")
                 apiExecutor.execute {
                     try {
@@ -837,6 +857,10 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             is SessionEvent.QueueUpdated -> {
+                if (!nativeOwnsSession) {
+                    Log.d(TAG, "Ignoring QueueUpdated while not session owner")
+                    return
+                }
                 val versionAtStart = invalidateVersion
                 apiExecutor.execute {
                     try {
@@ -881,6 +905,10 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             is SessionEvent.VolumeChange -> {
+                if (!nativeOwnsSession) {
+                    Log.d(TAG, "Ignoring VolumeChange while not session owner")
+                    return
+                }
                 Log.d(TAG, "SSE VolumeChange: volume=${event.volume}, muted=${event.isMuted}")
                 userVolume = event.volume
                 applyVolume()
@@ -893,7 +921,75 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "SSE ClientListChanged: ignoring on Android")
             }
             is SessionEvent.OwnerChanged -> {
-                Log.d(TAG, "SSE OwnerChanged: owner=${event.ownerClientId}")
+                handleOwnerChanged(event)
+            }
+        }
+    }
+
+    private fun handleOwnerChanged(event: SessionEvent.OwnerChanged) {
+        val myClientId = apiClient.getClientId()
+        val isCurrentClientOwner = myClientId != null && event.ownerClientId == myClientId
+        val wasOwner = nativeOwnsSession
+
+        Log.d(
+            TAG,
+            "SSE OwnerChanged: owner=${event.ownerClientId}, myClientId=$myClientId, " +
+                "resume=${event.resumePlayback}"
+        )
+
+        nativeOwnsSession = isCurrentClientOwner
+
+        if (isCurrentClientOwner) {
+            if (event.resumePlayback && (!wasOwner || !player.playWhenReady)) {
+                loadCurrentQueueFromServer(playWhenReady = true, reason = "ownerChanged resume")
+            }
+            return
+        }
+
+        if (wasOwner || player.playWhenReady || player.isPlaying) {
+            Log.d(TAG, "Lost session ownership; pausing native playback")
+            clearPendingNetworkRetry("ownership lost")
+            handler.removeCallbacks(positionSyncRunnable)
+            handler.removeCallbacks(preApplyGainRunnable)
+            player.pause()
+            emitStateChange()
+        }
+    }
+
+    private fun loadCurrentQueueFromServer(playWhenReady: Boolean, reason: String) {
+        if (!isNetworkAvailable()) return
+        apiExecutor.execute {
+            try {
+                val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
+                handler.post {
+                    response.sourceType?.let { queueSourceType = it }
+                    response.sourceId?.let { queueSourceId = it }
+
+                    if (isCurrentTrackAtTarget(response, response.currentIndex)) {
+                        Log.d(TAG, "$reason: target track already loaded, syncing without restart")
+                        syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
+                        if (playWhenReady && !player.playWhenReady) {
+                            player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                                true,
+                                reason
+                            )
+                        }
+                    } else {
+                        handleQueueWindowResponse(
+                            response,
+                            response.currentIndex,
+                            response.positionMs,
+                            playWhenReady,
+                        )
+                    }
+
+                    if (playWhenReady) {
+                        handler.removeCallbacks(positionSyncRunnable)
+                        handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "$reason: failed to fetch queue window", e)
             }
         }
     }
@@ -929,6 +1025,7 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "startPlayback(total=$totalCount, index=$currentIndex, " +
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
             "sourceType=$sourceType, sourceId=$sourceId)")
+        nativeOwnsSession = true
         clearPendingNetworkRetry("startPlayback")
 
         if (playWhenReady) {
@@ -1608,6 +1705,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun syncPositionToServer() {
+        if (!nativeOwnsSession) return
         if (!isActive) return
         if (!isNetworkAvailable()) return
         val posMs = getAbsolutePlaybackPositionMs()
@@ -1625,6 +1723,7 @@ class PlaybackService : MediaSessionService() {
      * is_playing state without waiting for the JS heartbeat interval (30s).
      */
     private fun sendPlaybackStateHeartbeat(isPlaying: Boolean) {
+        if (!nativeOwnsSession) return
         if (!isNetworkAvailable()) return
         val track = currentTrack
         val posMs = getAbsolutePlaybackPositionMs()
@@ -2378,6 +2477,12 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: ${playWhenReadyChangeReasonName(reason)}")
+            if (playWhenReady && !nativeOwnsSession) {
+                Log.d(TAG, "Suppressing playWhenReady while not session owner")
+                player.playWhenReady = false
+                emitStateChange()
+                return
+            }
             if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) {
                 pausedForAudioOutputLoss = true
                 Log.i(TAG, "ExoPlayer paused playback because audio is becoming noisy")

@@ -77,6 +77,7 @@ pub struct ClientListResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HeartbeatRequest {
+    pub client_id: Option<String>,
     #[serde(default)]
     pub is_playing: bool,
     pub current_index: Option<usize>,
@@ -210,6 +211,21 @@ pub async fn connect_session(
             &request.client_name,
         )
         .await?;
+
+        if !is_new {
+            state
+                .session_manager
+                .broadcast(
+                    &session.id,
+                    SessionEvent::OwnerChanged {
+                        owner_client_id: Some(client_id.clone()),
+                        owner_client_name: Some(request.client_name.clone()),
+                        resume_playback: None,
+                    },
+                )
+                .await;
+        }
+
         (Some(client_id.clone()), request.client_name.clone())
     } else {
         (session.owner_client_id, session.owner_client_name)
@@ -263,16 +279,25 @@ pub async fn session_heartbeat(
     Json(request): Json<HeartbeatRequest>,
 ) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
     // Verify session belongs to user
-    queries::get_session(&state.database, &session_id, user.user_id)
+    let session = queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
     // Distinguish owner heartbeats (include song info or position) from
     // follower keepalive heartbeats (only { isPlaying: false }).
     // Only owner heartbeats should update playback state and broadcast.
-    let is_owner_heartbeat = request.current_index.is_some() || request.current_song_id.is_some();
+    let is_owner_heartbeat = request.current_index.is_some()
+        || request.position_ms.is_some()
+        || request.current_song_id.is_some()
+        || request.current_song_title.is_some()
+        || request.current_song_artist.is_some();
 
-    if is_owner_heartbeat {
+    let is_current_owner = request
+        .client_id
+        .as_deref()
+        .is_some_and(|client_id| session.owner_client_id.as_deref() == Some(client_id));
+
+    if is_owner_heartbeat && is_current_owner {
         queries::update_session_heartbeat_with_position(
             &state.database,
             &session_id,
@@ -301,7 +326,10 @@ pub async fn session_heartbeat(
             )
             .await;
     } else {
-        // Follower keepalive: only update the heartbeat timestamp
+        // Follower keepalive or stale owner heartbeat: only update the
+        // heartbeat timestamp. Stale owners can otherwise keep overwriting the
+        // real owner's queue position after a handover if their hidden tab or
+        // native service wakes up late.
         queries::update_session_heartbeat_timestamp(&state.database, &session_id).await?;
     }
 
@@ -311,6 +339,7 @@ pub async fn session_heartbeat(
 /// Guard that unregisters a client when the SSE stream is dropped.
 struct ClientCleanupGuard {
     session_id: String,
+    user_id: i64,
     client_id: Option<String>,
     state: Arc<AppState>,
 }
@@ -318,14 +347,62 @@ struct ClientCleanupGuard {
 impl Drop for ClientCleanupGuard {
     fn drop(&mut self) {
         let session_id = self.session_id.clone();
+        let user_id = self.user_id;
         let client_id = self.client_id.clone();
         let state = self.state.clone();
         tokio::spawn(async move {
             if let Some(ref cid) = client_id {
-                state
+                let removed = state
                     .session_manager
                     .unregister_client(&session_id, cid)
                     .await;
+
+                let disconnected_owner_disconnected = 'owner_lookup: {
+                    if !removed {
+                        break 'owner_lookup false;
+                    }
+
+                    let session =
+                        match queries::get_session(&state.database, &session_id, user_id).await {
+                            Ok(Some(session)) => session,
+                            _ => break 'owner_lookup false,
+                        };
+
+                    if session.owner_client_id.as_deref() != Some(cid.as_str()) {
+                        break 'owner_lookup false;
+                    }
+
+                    true
+                };
+
+                let owner_cleared = 'owner_clear: {
+                    if !disconnected_owner_disconnected {
+                        break 'owner_clear false;
+                    }
+                    if queries::clear_session_owner(&state.database, &session_id)
+                        .await
+                        .is_err()
+                    {
+                        break 'owner_clear false;
+                    }
+
+                    true
+                };
+
+                if owner_cleared {
+                    state
+                        .session_manager
+                        .broadcast(
+                            &session_id,
+                            SessionEvent::OwnerChanged {
+                                owner_client_id: None,
+                                owner_client_name: None,
+                                resume_playback: None,
+                            },
+                        )
+                        .await;
+                }
+
                 // Notify other clients that the client list changed
                 state
                     .session_manager
@@ -388,8 +465,11 @@ pub async fn session_events(
     // isAudioOwner state (e.g. after the background inactivity timeout cleared
     // ownership while the client's SSE was disconnected).
     let owner_event = SessionEvent::OwnerChanged {
+        owner_client_name: session
+            .owner_client_id
+            .as_ref()
+            .map(|_| session.owner_client_name),
         owner_client_id: session.owner_client_id,
-        owner_client_name: Some(session.owner_client_name),
         resume_playback: None,
     };
 
@@ -397,6 +477,7 @@ pub async fn session_events(
     // disconnect, the guard's Drop impl unregisters the client.
     let _cleanup_guard = ClientCleanupGuard {
         session_id: session.id.clone(),
+        user_id: user.user_id,
         client_id: query.client_id.clone(),
         state: state.clone(),
     };

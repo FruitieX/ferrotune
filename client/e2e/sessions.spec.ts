@@ -9,14 +9,9 @@
  */
 
 import { expect, Page, BrowserContext } from "@playwright/test";
-import {
-  test,
-  playFirstSong,
-  waitForPlayerReady,
-  resetState,
-  ServerInfo,
-} from "./fixtures";
+import { test, waitForPlayerReady, resetState, ServerInfo } from "./fixtures";
 import { gotoAppPath, waitForAuthenticatedHome } from "./app-helpers";
+import { setDocumentVisibility } from "./page-visibility";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,6 +120,106 @@ async function sendTakeoverCommand(
   }, options ?? {});
 }
 
+async function sendSessionHeartbeat(
+  page: Page,
+  options: { isPlaying: boolean },
+): Promise<void> {
+  await page.evaluate(async ({ isPlaying }) => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+    const sessionId = JSON.parse(
+      sessionStorage.getItem("ferrotune-session-id") || "null",
+    );
+    const clientId = JSON.parse(
+      sessionStorage.getItem("ferrotune-client-id") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      throw new Error("Missing authenticated connection in localStorage");
+    }
+
+    if (!sessionId || !clientId) {
+      throw new Error("Missing session or client id in sessionStorage");
+    }
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        },
+        body: JSON.stringify({
+          clientId,
+          isPlaying,
+          currentIndex: 0,
+          positionMs: 0,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Heartbeat failed: ${response.status}`);
+    }
+  }, options);
+}
+
+async function getStoredAudioOwnership(page: Page): Promise<boolean> {
+  return page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem("ferrotune-is-audio-owner") || "true"),
+  );
+}
+
+async function allAudioElementsPaused(page: Page): Promise<boolean> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll("audio")).every(
+      (audio) => audio.paused,
+    ),
+  );
+}
+
+async function playFirstAlbumSong(page: Page): Promise<void> {
+  await gotoAppPath(page, "/library");
+  await page.waitForLoadState("domcontentloaded");
+
+  const testAlbum = page
+    .locator("a")
+    .filter({ hasText: /^Test Album/ })
+    .first();
+  await expect(testAlbum).toBeVisible({ timeout: 10000 });
+  await testAlbum.click();
+
+  await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
+  const firstTrack = page.locator('[data-testid="song-row"]').first();
+  await expect(firstTrack).toBeVisible({ timeout: 10000 });
+  await firstTrack.getByRole("button", { name: "Play" }).first().click();
+}
+
+async function pauseCurrentPlayback(page: Page): Promise<void> {
+  const playerBar = page.getByTestId("player-bar");
+  const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
+  const playBtn = playerBar.getByRole("button", { name: "Play" }).first();
+
+  await expect(pauseBtn).toBeVisible({ timeout: 10000 });
+  await pauseBtn.click();
+  await expect(playBtn).toBeVisible({ timeout: 10000 });
+}
+
+async function playFirstSongAndPause(page: Page): Promise<void> {
+  await playFirstAlbumSong(page);
+  await waitForPlayerReady(page);
+  await expect(page.getByTestId("player-bar")).toContainText(/Song/, {
+    timeout: 10000,
+  });
+  await pauseCurrentPlayback(page);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -156,18 +251,11 @@ test.describe.serial("Multi-Session Playback", () => {
     authenticatedPage: page,
   }) => {
     // Start playback on the owner tab
-    await playFirstSong(page);
-    await waitForPlayerReady(page);
+    await playFirstSongAndPause(page);
 
     const playerBar = page.getByTestId("player-bar");
-
-    // Wait for playback to start, then IMMEDIATELY pause to freeze position
-    const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
-    await expect(pauseBtn).toBeVisible({ timeout: 10000 });
-    await pauseBtn.click();
-
     const playBtn = playerBar.getByRole("button", { name: "Play" }).first();
-    await expect(playBtn).toBeVisible({ timeout: 5000 });
+    const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
 
     // Capture time while paused
     const timeBeforeShuffle = await getDisplayedCurrentTime(page);
@@ -202,18 +290,12 @@ test.describe.serial("Multi-Session Playback", () => {
   }) => {
     // Start playback on owner and immediately pause to avoid short test songs
     // from finishing before follower is ready
-    await playFirstSong(ownerPage);
-    await waitForPlayerReady(ownerPage);
+    await playFirstSongAndPause(ownerPage);
 
     const ownerBar = ownerPage.getByTestId("player-bar");
     const ownerPauseBtn = ownerBar
       .getByRole("button", { name: "Pause" })
       .first();
-    await expect(ownerPauseBtn).toBeVisible({ timeout: 10000 });
-    await ownerPauseBtn.click();
-    await expect(
-      ownerBar.getByRole("button", { name: "Play" }).first(),
-    ).toBeVisible({ timeout: 5000 });
 
     // Create a second tab (follower)
     const baseURL =
@@ -264,8 +346,8 @@ test.describe.serial("Multi-Session Playback", () => {
     server,
     browser,
   }) => {
-    await playFirstSong(ownerPage);
-    await waitForPlayerReady(ownerPage);
+    await playFirstSongAndPause(ownerPage);
+    await expect.poll(() => getStoredAudioOwnership(ownerPage)).toBe(true);
 
     const ownerBar = ownerPage.getByTestId("player-bar");
     const baseURL =
@@ -280,6 +362,8 @@ test.describe.serial("Multi-Session Playback", () => {
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
 
+      await sendSessionHeartbeat(ownerPage, { isPlaying: true });
+
       const followerPauseBtn = followerBar
         .getByRole("button", { name: "Pause" })
         .first();
@@ -288,39 +372,6 @@ test.describe.serial("Multi-Session Playback", () => {
       // Give the follower tab a user gesture so a later unexpected play()
       // call is not hidden by autoplay policy.
       await followerBar.click({ position: { x: 10, y: 10 } });
-
-      let blockedPauseHeartbeat = false;
-      await ownerPage.route(
-        "**/ferrotune/sessions/**/heartbeat*",
-        async (route) => {
-          const request = route.request();
-          let payload: unknown;
-
-          try {
-            payload = request.postDataJSON();
-          } catch {
-            payload = null;
-          }
-
-          if (
-            !blockedPauseHeartbeat &&
-            request.method() === "POST" &&
-            payload &&
-            typeof payload === "object" &&
-            "isPlaying" in payload &&
-            (payload as { isPlaying?: boolean }).isPlaying === false
-          ) {
-            blockedPauseHeartbeat = true;
-            await route.abort();
-            return;
-          }
-
-          await route.continue();
-        },
-      );
-
-      await ownerBar.getByRole("button", { name: "Pause" }).first().click();
-      await expect.poll(() => blockedPauseHeartbeat).toBe(true);
       await expect(
         ownerBar.getByRole("button", { name: "Play" }).first(),
       ).toBeVisible({ timeout: 10000 });
@@ -347,20 +398,64 @@ test.describe.serial("Multi-Session Playback", () => {
     }
   });
 
+  test("hidden tab refreshes ownership when foregrounded after takeover", async ({
+    authenticatedPage: ownerPage,
+    server,
+    browser,
+  }) => {
+    await playFirstSongAndPause(ownerPage);
+
+    const ownerBar = ownerPage.getByTestId("player-bar");
+
+    const baseURL =
+      ownerPage.url().split("/")[0] + "//" + ownerPage.url().split("/")[2];
+    const { context: followerCtx, page: followerPage } = await createSecondTab(
+      browser,
+      server,
+      baseURL,
+    );
+
+    try {
+      const followerBar = followerPage.getByTestId("player-bar");
+      await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
+
+      // Give the follower a user gesture so the explicit resume handoff is not
+      // hidden by autoplay policy.
+      await followerBar.click({ position: { x: 10, y: 10 } });
+
+      await setDocumentVisibility(ownerPage, "hidden");
+      await expect
+        .poll(() => ownerPage.evaluate(() => document.visibilityState))
+        .toBe("hidden");
+
+      await sendTakeoverCommand(followerPage, { resumePlayback: true });
+      await expect.poll(() => getStoredAudioOwnership(followerPage)).toBe(true);
+      await sendSessionHeartbeat(followerPage, { isPlaying: true });
+
+      await setDocumentVisibility(ownerPage, "visible");
+      await expect
+        .poll(() => ownerPage.evaluate(() => document.visibilityState))
+        .toBe("visible");
+
+      await expect.poll(() => getStoredAudioOwnership(ownerPage)).toBe(false);
+      await expect(
+        ownerBar.getByRole("button", { name: "Pause" }).first(),
+      ).toBeVisible({ timeout: 10000 });
+      await expect.poll(() => allAudioElementsPaused(ownerPage)).toBe(true);
+    } finally {
+      await followerCtx.close();
+    }
+  });
+
   test("follower shuffle/repeat do not restart owner playback", async ({
     authenticatedPage: ownerPage,
     server,
     browser,
   }) => {
     // Start playback on owner and immediately pause to avoid songs finishing
-    await playFirstSong(ownerPage);
-    await waitForPlayerReady(ownerPage);
+    await playFirstSongAndPause(ownerPage);
 
     const ownerBar = ownerPage.getByTestId("player-bar");
-    await ownerBar.getByRole("button", { name: "Pause" }).first().click();
-    await expect(
-      ownerBar.getByRole("button", { name: "Play" }).first(),
-    ).toBeVisible({ timeout: 5000 });
 
     // Capture time while paused
     const ownerTimeBefore = await getDisplayedCurrentTime(ownerPage);
@@ -412,14 +507,9 @@ test.describe.serial("Multi-Session Playback", () => {
     browser,
   }) => {
     // Start playback on owner and immediately pause
-    await playFirstSong(ownerPage);
-    await waitForPlayerReady(ownerPage);
+    await playFirstSongAndPause(ownerPage);
 
     const ownerBar = ownerPage.getByTestId("player-bar");
-    await ownerBar.getByRole("button", { name: "Pause" }).first().click();
-    await expect(
-      ownerBar.getByRole("button", { name: "Play" }).first(),
-    ).toBeVisible({ timeout: 5000 });
 
     // Create follower
     const baseURL =
@@ -465,16 +555,11 @@ test.describe.serial("Multi-Session Playback", () => {
     authenticatedPage: page,
   }) => {
     // Start playback and pause immediately to freeze position
-    await playFirstSong(page);
-    await waitForPlayerReady(page);
+    await playFirstSongAndPause(page);
 
     const playerBar = page.getByTestId("player-bar");
-    const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
-    await expect(pauseBtn).toBeVisible({ timeout: 10000 });
-    await pauseBtn.click();
-
     const playBtn = playerBar.getByRole("button", { name: "Play" }).first();
-    await expect(playBtn).toBeVisible({ timeout: 5000 });
+    const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
 
     const timeBeforeAdd = await getDisplayedCurrentTime(page);
 
