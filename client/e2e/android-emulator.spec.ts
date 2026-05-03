@@ -434,11 +434,11 @@ test.describe.serial("Android Emulator Smoke", () => {
 
       await expect
         .poll(async () => getDisplayedCurrentTime(page!), {
-          timeout: 15000,
+          timeout: 20000,
           message:
             "Expected Android playback time to advance before queue removal",
         })
-        .toBeGreaterThan(1);
+        .toBeGreaterThan(5);
 
       const timeBeforeRemove = await getDisplayedCurrentTime(page);
 
@@ -471,6 +471,9 @@ test.describe.serial("Android Emulator Smoke", () => {
           .locator('[data-testid="queue-item"]')
           .filter({ hasText: "First Song" }),
       ).toHaveCount(0);
+
+      const timeAfterRemove = await getDisplayedCurrentTime(page);
+      expect(timeAfterRemove).toBeGreaterThanOrEqual(timeBeforeRemove - 1);
 
       await expect
         .poll(async () => getDisplayedCurrentTime(page!), {

@@ -1516,8 +1516,8 @@ class PlaybackService : MediaSessionService() {
         queue = tracks
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
-    currentTrack = tracks.getOrNull(targetExoIndex) ?: currentTrack
-    // Don't emit track change — the same track is still playing.
+        currentTrack = tracks.getOrNull(targetExoIndex) ?: currentTrack
+        // Don't emit track change — the same track is still playing.
         // Don't emit queue-state-changed here: the JS toggleShuffleAtom updates both
         // serverQueueStateAtom and queueWindowAtom atomically after nativeToggleShuffle
         // resolves. Emitting the event here would cause a transient mismatch where
@@ -2529,6 +2529,16 @@ class PlaybackService : MediaSessionService() {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason, exoIndex: ${player.currentMediaItemIndex}")
             clearPendingNetworkRetry("media item transition")
+
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED &&
+                mediaItem?.mediaId != null &&
+                mediaItem.mediaId == currentTrack?.id
+            ) {
+                Log.d(TAG, "Ignoring playlist-only transition for unchanged media item: ${mediaItem.mediaId}")
+                emitStateChange()
+                emitProgressEvent()
+                return
+            }
 
             // Reset network retry counter on track change
             networkRetryCount = 0

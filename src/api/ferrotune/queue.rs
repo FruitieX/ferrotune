@@ -398,6 +398,22 @@ fn shifted_current_index_after_insert(
     }
 }
 
+fn shifted_current_index_after_remove(
+    current_display_index: usize,
+    removed_display_position: usize,
+    new_len: usize,
+) -> usize {
+    if new_len == 0 {
+        return 0;
+    }
+
+    if removed_display_position < current_display_index {
+        current_display_index - 1
+    } else {
+        current_display_index.min(new_len - 1)
+    }
+}
+
 fn insert_shuffle_indices(
     existing_indices: &[usize],
     display_insert_position: usize,
@@ -1241,6 +1257,9 @@ pub async fn remove_from_queue(
     // In shuffled mode, position is in display order and must be mapped back
     // to the original queue position before mutating stored entries.
     let original_position = resolve_original_queue_position(&queue, position)?;
+    let current_len = queries::get_queue_length_by_session(&state.database, session_id)
+        .await?
+        .max(0) as usize;
 
     let removed = queries::remove_from_queue_by_session(
         &state.database,
@@ -1255,17 +1274,16 @@ pub async fn remove_from_queue(
         )));
     }
 
-    // Update current index if needed
-    let mut new_current_index = queue.current_index;
-    if (original_position as i64) < queue.current_index {
-        new_current_index -= 1;
-    } else if (original_position as i64) == queue.current_index {
-        // Current track was removed, stay at same position (next song slides in)
-        let new_len = queries::get_queue_length_by_session(&state.database, session_id).await?;
-        if new_current_index >= new_len {
-            new_current_index = new_len.saturating_sub(1);
-        }
-    }
+    // current_index is always in display order, including shuffled queues.
+    // Preserve the same playing item when removing a non-current entry.
+    let new_len = current_len.saturating_sub(1);
+    let current_display_index = if queue.current_index < 0 {
+        0
+    } else {
+        (queue.current_index as usize).min(current_len.saturating_sub(1))
+    };
+    let new_current_index =
+        shifted_current_index_after_remove(current_display_index, position, new_len);
 
     // Update shuffle indices if shuffled
     if queue.is_shuffled {
@@ -1281,13 +1299,6 @@ pub async fn remove_from_queue(
             }
         }
 
-        // Find new shuffled current index
-        let shuffled_current = if position < indices.len() {
-            position as i64
-        } else {
-            (indices.len().saturating_sub(1)) as i64
-        };
-
         let indices_json = serde_json::to_string(&indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
         let updated = queries::update_queue_shuffle_by_session(
@@ -1296,7 +1307,7 @@ pub async fn remove_from_queue(
             true,
             queue.shuffle_seed,
             Some(&indices_json),
-            shuffled_current,
+            new_current_index as i64,
             queue.position_ms,
             Some(queue.version),
         )
@@ -1313,20 +1324,18 @@ pub async fn remove_from_queue(
         queries::update_queue_position_by_session(
             &state.database,
             session_id,
-            new_current_index,
+            new_current_index as i64,
             queue.position_ms,
         )
         .await?;
     }
 
-    let new_len = queries::get_queue_length_by_session(&state.database, session_id).await?;
-
     broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
-        new_index: Some(new_current_index as usize),
-        total_count: Some(new_len as usize),
+        new_index: Some(new_current_index),
+        total_count: Some(new_len),
         added_count: None,
     }))
 }
@@ -2695,4 +2704,34 @@ async fn build_lazy_queue_window(
         offset,
         songs: queue_songs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shifted_current_index_after_remove;
+
+    #[test]
+    fn remove_after_current_keeps_current_index() {
+        assert_eq!(shifted_current_index_after_remove(3, 5, 7), 3);
+    }
+
+    #[test]
+    fn remove_before_current_shifts_current_index_back() {
+        assert_eq!(shifted_current_index_after_remove(3, 1, 7), 2);
+    }
+
+    #[test]
+    fn remove_current_keeps_position_when_next_song_exists() {
+        assert_eq!(shifted_current_index_after_remove(3, 3, 7), 3);
+    }
+
+    #[test]
+    fn remove_current_last_song_clamps_to_new_end() {
+        assert_eq!(shifted_current_index_after_remove(7, 7, 7), 6);
+    }
+
+    #[test]
+    fn remove_only_song_resets_current_index() {
+        assert_eq!(shifted_current_index_after_remove(0, 0, 0), 0);
+    }
 }
