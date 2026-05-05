@@ -13,7 +13,7 @@ songSort: string | null,
  */
 songSortDir: string | null, 
 /**
- * Ferrotune extension: sort field for albums (name, artist, year, dateAdded)
+ * Ferrotune extension: sort field for albums (name, artist, year, dateAdded, lastPlayed)
  */
 albumSort: string | null, 
 /**
@@ -21,7 +21,7 @@ albumSort: string | null,
  */
 albumSortDir: string | null, 
 /**
- * Ferrotune extension: sort field for artists (name, albumCount, songCount, recommended)
+ * Ferrotune extension: sort field for artists (name, albumCount, songCount, lastPlayed, recommended)
  */
 artistSort: string | null, 
 /**

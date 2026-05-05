@@ -5537,7 +5537,7 @@ fn test_postgres_execute_search_works() {
         let database = db::create_pool(&config)
             .await
             .expect("postgres database pool should connect");
-        let (user, _artist_id, _album_id, song_1, song_2) =
+        let (user, artist_id, album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
         let params = ferrotune::api::common::search::SearchParams {
@@ -5697,6 +5697,15 @@ fn test_postgres_execute_search_works() {
         .await
         .expect("postgres newer starred song insert should succeed");
         sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+             VALUES ($1, $2, NOW() - INTERVAL '2 days', TRUE, 1, NULL)",
+        )
+        .bind(user.id)
+        .bind(newer_song_id)
+        .execute(pool)
+        .await
+        .expect("postgres older last-played scrobble insert should succeed");
+        sqlx::query(
             "INSERT INTO starred (user_id, item_type, item_id, starred_at)
              VALUES
                 ($1, 'artist', $2, NOW() + INTERVAL '1 hour'),
@@ -5772,6 +5781,34 @@ fn test_postgres_execute_search_works() {
         assert!(starred_results.artist_responses[0].starred.is_some());
         assert!(starred_results.album_responses[0].starred.is_some());
         assert!(starred_results.song_responses[0].starred.is_some());
+
+        let last_played_params = ferrotune::api::common::search::SearchParams {
+            song_sort: Some("name".to_string()),
+            song_sort_dir: Some("asc".to_string()),
+            album_sort: Some("lastPlayed".to_string()),
+            album_sort_dir: Some("desc".to_string()),
+            artist_sort: Some("lastPlayed".to_string()),
+            artist_sort_dir: Some("desc".to_string()),
+            starred_only: None,
+            ..starred_params
+        };
+        let last_played_results = ferrotune::api::common::search_utils::execute_search(
+            &database,
+            user.id,
+            &last_played_params.query,
+            &last_played_params,
+            5,
+            0,
+            5,
+            0,
+            5,
+            0,
+            None,
+        )
+        .await
+        .expect("postgres last-played sorted search should succeed");
+        assert_eq!(last_played_results.artist_responses[0].id, artist_id);
+        assert_eq!(last_played_results.album_responses[0].id, album_id);
     });
 }
 

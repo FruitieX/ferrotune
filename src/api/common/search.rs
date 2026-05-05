@@ -309,6 +309,30 @@ fn is_starred_sort(sort: Option<&String>) -> bool {
     matches!(sort.map(|value| value.as_str()), Some("starred"))
 }
 
+fn is_last_played_sort(sort: Option<&String>) -> bool {
+    matches!(sort.map(|value| value.as_str()), Some("lastPlayed"))
+}
+
+fn append_extra_join_with_user_binds(
+    sql: &mut String,
+    binds: &mut Vec<Value>,
+    extra_join: &str,
+    user_ids: &[i64],
+    pg: bool,
+) {
+    sql.push(' ');
+
+    let mut remaining = extra_join;
+    for uid in user_ids {
+        if let Some(pos) = remaining.find('?') {
+            sql.push_str(&remaining[..pos]);
+            push_bind(sql, binds, *uid, pg);
+            remaining = &remaining[pos + 1..];
+        }
+    }
+    sql.push_str(remaining);
+}
+
 async fn search_songs_unified(
     database: &Database,
     user_id: i64,
@@ -519,11 +543,11 @@ pub struct SearchParams {
     pub song_sort: Option<String>,
     /// Ferrotune extension: sort direction (asc, desc)
     pub song_sort_dir: Option<String>,
-    /// Ferrotune extension: sort field for albums (name, artist, year, dateAdded)
+    /// Ferrotune extension: sort field for albums (name, artist, year, dateAdded, lastPlayed)
     pub album_sort: Option<String>,
     /// Ferrotune extension: sort direction for albums (asc, desc)
     pub album_sort_dir: Option<String>,
-    /// Ferrotune extension: sort field for artists (name, albumCount, songCount, recommended)
+    /// Ferrotune extension: sort field for artists (name, albumCount, songCount, lastPlayed, recommended)
     pub artist_sort: Option<String>,
     /// Ferrotune extension: sort direction for artists (asc, desc)
     pub artist_sort_dir: Option<String>,
@@ -679,6 +703,25 @@ pub fn get_album_order_clause(
             extra_join: None,
             extra_join_user_ids: vec![],
         },
+        Some("lastPlayed") => {
+            let uid = user_id.unwrap_or(0);
+            let extra_join = "LEFT JOIN (\
+                    SELECT si.album_id, MAX(sc.played_at) AS last_album_play \
+                    FROM scrobbles sc \
+                    JOIN songs si ON sc.song_id = si.id \
+                    WHERE sc.user_id = ? AND sc.submission \
+                    GROUP BY si.album_id\
+                ) _album_last_play ON _album_last_play.album_id = a.id"
+                .to_string();
+
+            AlbumOrderClause {
+                order_by: format!(
+                    "_album_last_play.last_album_play {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"
+                ),
+                extra_join: Some(extra_join),
+                extra_join_user_ids: vec![uid],
+            }
+        }
         Some("starred") => AlbumOrderClause {
             order_by: format!("st.starred_at {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"),
             extra_join: None,
@@ -721,24 +764,62 @@ pub fn get_album_order_clause(
 
 /// Get ORDER BY clause for artist sorting.
 /// `user_id` is required for the "recommended" sort (personalized scoring).
+pub struct ArtistOrderClause {
+    pub order_by: String,
+    /// Extra JOIN clause to prepend (for pre-aggregated stats).
+    pub extra_join: Option<String>,
+    /// User IDs to bind for the extra JOIN (in order).
+    pub extra_join_user_ids: Vec<i64>,
+}
+
 pub fn get_artist_order_clause(
     sort: Option<&String>,
     sort_dir: Option<&String>,
     user_id: i64,
-) -> String {
+) -> ArtistOrderClause {
     let dir = match sort_dir.map(|s| s.as_str()) {
         Some("desc") => "DESC",
         _ => "ASC",
     };
 
     match sort.map(|s| s.as_str()) {
-        Some("albumCount") => format!("a.album_count {dir}, a.name COLLATE NOCASE {dir}"),
-        Some("songCount") => format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
-        Some("starred") => format!("st.starred_at {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"),
+        Some("albumCount") => ArtistOrderClause {
+            order_by: format!("a.album_count {dir}, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
+        Some("songCount") => ArtistOrderClause {
+            order_by: format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
+        Some("lastPlayed") => {
+            let extra_join = "LEFT JOIN (\
+                    SELECT si.artist_id, MAX(sc.played_at) AS last_artist_play \
+                    FROM scrobbles sc \
+                    JOIN songs si ON sc.song_id = si.id \
+                    WHERE sc.user_id = ? AND sc.submission \
+                    GROUP BY si.artist_id\
+                ) _artist_last_play ON _artist_last_play.artist_id = a.id"
+                .to_string();
+
+            ArtistOrderClause {
+                order_by: format!(
+                    "_artist_last_play.last_artist_play {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"
+                ),
+                extra_join: Some(extra_join),
+                extra_join_user_ids: vec![user_id],
+            }
+        }
+        Some("starred") => ArtistOrderClause {
+            order_by: format!("st.starred_at {dir} NULLS LAST, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
         Some("recommended") => {
             let seed = hour_seed();
             // Score: recent plays of artist songs (0-40) + total plays (0-25) + random (0-20)
-            format!(
+            let order_by = format!(
                 "(COALESCE((SELECT MAX(0.0, (30.0 - (julianday('now') - julianday(MAX(sc.played_at)))) / 30.0) * 40 \
                             FROM scrobbles sc JOIN songs si ON sc.song_id = si.id \
                             WHERE si.artist_id = a.id AND sc.user_id = {user_id} AND sc.submission = 1), 0) \
@@ -746,9 +827,18 @@ pub fn get_artist_order_clause(
                                  FROM scrobbles sc2 JOIN songs si2 ON sc2.song_id = si2.id \
                                  WHERE si2.artist_id = a.id AND sc2.user_id = {user_id} AND sc2.submission = 1), 0) * 2, 25) \
                  + (ABS(a.id * {seed}) % 200) * 0.1) DESC"
-            )
+            );
+            ArtistOrderClause {
+                order_by,
+                extra_join: None,
+                extra_join_user_ids: vec![],
+            }
         }
-        _ => format!("a.name COLLATE NOCASE {dir}"), // default: name
+        _ => ArtistOrderClause {
+            order_by: format!("a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
     }
 }
 
@@ -1067,11 +1157,12 @@ pub async fn search_artists(
         artist_join_user_ids.push(user_id);
     }
 
-    let artist_order = get_artist_order_clause(
+    let artist_order_clause = get_artist_order_clause(
         params.artist_sort.as_ref(),
         params.artist_sort_dir.as_ref(),
         user_id,
     );
+    let artist_order = &artist_order_clause.order_by;
 
     // Returns SQL+binds for the primary query (when `count_only` = false)
     // or its COUNT(*) equivalent.
@@ -1084,6 +1175,18 @@ pub async fn search_artists(
             sql.push_str("SELECT COUNT(*) AS count FROM artists a");
         } else {
             sql.push_str("SELECT a.* FROM artists a");
+        }
+
+        if !count_only {
+            if let Some(ref extra_join) = artist_order_clause.extra_join {
+                append_extra_join_with_user_binds(
+                    &mut sql,
+                    &mut binds,
+                    extra_join,
+                    &artist_order_clause.extra_join_user_ids,
+                    pg,
+                );
+            }
         }
 
         if artist_has_rating_filter {
@@ -1143,9 +1246,9 @@ pub async fn search_artists(
         if !count_only {
             sql.push_str(" ORDER BY ");
             if pg {
-                sql.push_str(&sqlite_case_insensitive_sql_to_postgres(&artist_order));
+                sql.push_str(&sqlite_case_insensitive_sql_to_postgres(artist_order));
             } else {
-                sql.push_str(&artist_order);
+                sql.push_str(artist_order);
             }
             sql.push_str(" LIMIT ");
             push_bind(&mut sql, &mut binds, limit, pg);
@@ -1165,6 +1268,15 @@ pub async fn search_artists(
         let mut sql = String::new();
         let mut binds: Vec<Value> = Vec::new();
         sql.push_str("SELECT a.* FROM artists a");
+        if let Some(ref extra_join) = artist_order_clause.extra_join {
+            append_extra_join_with_user_binds(
+                &mut sql,
+                &mut binds,
+                extra_join,
+                &artist_order_clause.extra_join_user_ids,
+                pg,
+            );
+        }
         if artist_has_rating_filter {
             sql.push_str(" LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'artist' AND r.user_id = ");
             push_bind(&mut sql, &mut binds, user_id, pg);
@@ -1192,14 +1304,16 @@ pub async fn search_artists(
             sql.push_str(&sqlite_case_insensitive_sql_to_postgres(condition));
         }
 
-        if is_starred_sort(params.artist_sort.as_ref()) {
+        let should_order_in_sql = is_starred_sort(params.artist_sort.as_ref())
+            || is_last_played_sort(params.artist_sort.as_ref());
+        if should_order_in_sql {
             sql.push_str(" ORDER BY ");
-            sql.push_str(&sqlite_case_insensitive_sql_to_postgres(&artist_order));
+            sql.push_str(&sqlite_case_insensitive_sql_to_postgres(artist_order));
         }
 
         let artists =
             query_all_for_backend::<crate::db::models::Artist>(database, &sql, binds).await?;
-        let artists = if is_starred_sort(params.artist_sort.as_ref()) {
+        let artists = if should_order_in_sql {
             artists
         } else {
             sort_artists_for_search(
@@ -1310,21 +1424,17 @@ pub async fn search_albums(
             sql.push_str("SELECT a.*, ar.name AS artist_name FROM albums a INNER JOIN artists ar ON a.artist_id = ar.id");
         }
 
-        // Recommended-sort stats join (SQLite only — the clause itself uses `julianday`
-        // which is SQLite-specific).
-        if !pg && !count_only {
+        // Recommended uses SQLite-only scoring; lastPlayed ordering needs the
+        // aggregate join on both backends.
+        if !count_only && (!pg || is_last_played_sort(params.album_sort.as_ref())) {
             if let Some(ref extra_join) = album_order_clause.extra_join {
-                sql.push(' ');
-                // The extra_join has one `?` placeholder per user_id.
-                let mut remaining = extra_join.as_str();
-                for uid in &album_order_clause.extra_join_user_ids {
-                    if let Some(pos) = remaining.find('?') {
-                        sql.push_str(&remaining[..pos]);
-                        push_bind(&mut sql, &mut binds, *uid, false);
-                        remaining = &remaining[pos + 1..];
-                    }
-                }
-                sql.push_str(remaining);
+                append_extra_join_with_user_binds(
+                    &mut sql,
+                    &mut binds,
+                    extra_join,
+                    &album_order_clause.extra_join_user_ids,
+                    pg,
+                );
             }
         }
 
@@ -1380,7 +1490,9 @@ pub async fn search_albums(
             }
         }
 
-        let should_order_in_sql = !pg || is_starred_sort(params.album_sort.as_ref());
+        let should_order_in_sql = !pg
+            || is_starred_sort(params.album_sort.as_ref())
+            || is_last_played_sort(params.album_sort.as_ref());
         if !count_only && should_order_in_sql {
             sql.push_str(" ORDER BY ");
             if pg {
@@ -1400,7 +1512,9 @@ pub async fn search_albums(
         let (sql, binds) = build_query(false);
         let albums =
             query_all_for_backend::<crate::db::models::Album>(database, &sql, binds).await?;
-        let albums = if is_starred_sort(params.album_sort.as_ref()) {
+        let albums = if is_starred_sort(params.album_sort.as_ref())
+            || is_last_played_sort(params.album_sort.as_ref())
+        {
             albums
         } else {
             sort_albums_for_search(
