@@ -13,7 +13,12 @@
  */
 
 import { atom } from "jotai";
-import type { Song, QueueSourceInfo, QueueWindow } from "@/lib/api/types";
+import type {
+  Song,
+  QueueSourceInfo,
+  QueueWindow,
+  GetQueueResponse,
+} from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
@@ -32,6 +37,7 @@ import {
   ownerClientIdAtom,
   selfTakeoverPending,
 } from "./session";
+import { playbackStateAtom } from "./player";
 
 // Module-level signal: position in milliseconds to seek to when starting
 // playback (e.g. after session takeover). Read and consumed by the audio
@@ -78,6 +84,33 @@ export interface ServerQueueState {
   isShuffled: boolean;
   repeatMode: RepeatMode;
   source: QueueSourceInfo;
+}
+
+function getWindowSongIdAtPosition(
+  window: QueueWindow,
+  position: number,
+): string | null {
+  return (
+    window.songs.find((entry) => entry.position === position)?.song.id ?? null
+  );
+}
+
+function canRefreshQueueWithoutRestart(
+  response: GetQueueResponse,
+  currentSong: Song | null,
+  playbackState: string,
+): boolean {
+  const targetSongId = getWindowSongIdAtPosition(
+    response.window,
+    response.currentIndex,
+  );
+  return (
+    targetSongId !== null &&
+    targetSongId === currentSong?.id &&
+    (playbackState === "playing" ||
+      playbackState === "paused" ||
+      playbackState === "loading")
+  );
 }
 
 // ============================================================================
@@ -457,20 +490,34 @@ export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, null);
       set(queueWindowAtom, null);
     } else {
+      const currentSong = get(currentSongAtom);
+      const currentQueueState = get(serverQueueStateAtom);
+      const canKeepPlayback = canRefreshQueueWithoutRestart(
+        response,
+        currentSong,
+        get(playbackStateAtom),
+      );
+
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         currentIndex: response.currentIndex,
-        positionMs: Number(response.positionMs),
+        positionMs: canKeepPlayback
+          ? (currentQueueState?.positionMs ?? Number(response.positionMs))
+          : Number(response.positionMs),
         isShuffled: response.isShuffled,
         repeatMode: response.repeatMode as RepeatMode,
         source: response.source,
       });
       set(queueWindowAtom, response.window);
-      // Signal the audio engine to load and play the new track,
-      // resuming from the server-reported position (e.g. session takeover)
-      pendingPlaybackPositionMs.value = Number(response.positionMs);
-      set(isRestoringQueueAtom, false);
-      set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+      if (canKeepPlayback) {
+        pendingPlaybackPositionMs.value = 0;
+      } else {
+        // Signal the audio engine to load and play the new track,
+        // resuming from the server-reported position (e.g. session takeover)
+        pendingPlaybackPositionMs.value = Number(response.positionMs);
+        set(isRestoringQueueAtom, false);
+        set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+      }
     }
   } catch (error) {
     console.error("Failed to fetch queue for playback:", error);
