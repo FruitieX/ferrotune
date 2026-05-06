@@ -18,24 +18,38 @@ import { serverConnectionAtom } from "./auth";
 // Debounce delay for server writes (ms)
 const DEBOUNCE_DELAY = 500;
 
-// Track pending writes and debounce timers
-const pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
+interface ServerStorageState {
+  pendingWrites: Map<string, ReturnType<typeof setTimeout>>;
+  valueCache: Map<string, unknown>;
+  defaultValues: Map<string, unknown>;
+  isLoadingFromServer: boolean;
+  hasLoadedOnce: boolean;
+  cacheVersion: number;
+}
 
-// In-memory cache of current values (single source of truth)
-const valueCache = new Map<string, unknown>();
+type ServerStorageGlobal = typeof globalThis & {
+  __ferrotuneServerStorageState?: ServerStorageState;
+};
 
-// Store default values for keys
-const defaultValues = new Map<string, unknown>();
+function getServerStorageState(): ServerStorageState {
+  const storageGlobal = globalThis as ServerStorageGlobal;
+
+  storageGlobal.__ferrotuneServerStorageState ??= {
+    pendingWrites: new Map(),
+    valueCache: new Map(),
+    defaultValues: new Map(),
+    isLoadingFromServer: false,
+    hasLoadedOnce: false,
+    cacheVersion: 0,
+  };
+
+  return storageGlobal.__ferrotuneServerStorageState;
+}
 
 // Atom to track when all preferences have been loaded from server
 export const serverPreferencesLoadedAtom = atom(false);
 
-// Flag to prevent duplicate loads
-let isLoadingFromServer = false;
-let hasLoadedOnce = false;
-
 // Counter to trigger re-renders when cache changes
-let cacheVersion = 0;
 const cacheVersionAtom = atom(0);
 
 /**
@@ -71,6 +85,8 @@ function writeToServer<T>(key: string, value: T): void {
   const client = getClient();
   if (!client) return;
 
+  const { pendingWrites } = getServerStorageState();
+
   // Clear any pending write for this key
   const existing = pendingWrites.get(key);
   if (existing) {
@@ -102,12 +118,14 @@ export function atomWithServerStorage<T>(
   key: string,
   initialValue: T,
 ): WritableAtom<T, [T | ((prev: T) => T)], void> {
+  const state = getServerStorageState();
+
   // Store default value
-  defaultValues.set(key, initialValue);
+  state.defaultValues.set(key, initialValue);
 
   // Initialize cache with default if not set
-  if (!valueCache.has(key)) {
-    valueCache.set(key, initialValue);
+  if (!state.valueCache.has(key)) {
+    state.valueCache.set(key, initialValue);
   }
 
   // Create a simple atom backed by the cache
@@ -119,21 +137,22 @@ export function atomWithServerStorage<T>(
       get(cacheVersionAtom);
 
       // Return cached value (or default)
-      return (valueCache.get(key) ?? initialValue) as T;
+      return (getServerStorageState().valueCache.get(key) ?? initialValue) as T;
     },
     (get, set, update: T | ((prev: T) => T)) => {
-      const currentValue = (valueCache.get(key) ?? initialValue) as T;
+      const state = getServerStorageState();
+      const currentValue = (state.valueCache.get(key) ?? initialValue) as T;
       const newValue =
         typeof update === "function"
           ? (update as (prev: T) => T)(currentValue)
           : update;
 
       // Update cache immediately (this is the single source of truth)
-      valueCache.set(key, newValue);
+      state.valueCache.set(key, newValue);
 
       // Trigger re-render by incrementing cache version
-      cacheVersion++;
-      set(cacheVersionAtom, cacheVersion);
+      state.cacheVersion++;
+      set(cacheVersionAtom, state.cacheVersion);
 
       // Queue server write (debounced)
       const connection = get(serverConnectionAtom);
@@ -153,22 +172,23 @@ export function atomWithServerStorage<T>(
 export async function loadServerPreferences(
   triggerRerender?: () => void,
 ): Promise<void> {
-  if (isLoadingFromServer || hasLoadedOnce) return;
+  const state = getServerStorageState();
+  if (state.isLoadingFromServer || state.hasLoadedOnce) return;
 
   const client = getClient();
   if (!client) return;
 
-  isLoadingFromServer = true;
+  state.isLoadingFromServer = true;
 
   try {
     const serverPrefs = await loadAllPreferencesFromServer();
 
     // Update cache with server values
     for (const [key, value] of serverPrefs) {
-      valueCache.set(key, value);
+      state.valueCache.set(key, value);
     }
 
-    hasLoadedOnce = true;
+    state.hasLoadedOnce = true;
 
     // Trigger re-render if callback provided
     if (triggerRerender) {
@@ -177,7 +197,7 @@ export async function loadServerPreferences(
   } catch (error) {
     console.warn("Failed to load server preferences:", error);
   } finally {
-    isLoadingFromServer = false;
+    state.isLoadingFromServer = false;
   }
 }
 
@@ -187,7 +207,7 @@ export async function loadServerPreferences(
 export async function refreshServerPreferences(
   triggerRerender?: () => void,
 ): Promise<void> {
-  hasLoadedOnce = false;
+  getServerStorageState().hasLoadedOnce = false;
   await loadServerPreferences(triggerRerender);
 }
 
@@ -195,19 +215,20 @@ export async function refreshServerPreferences(
  * Reset preferences state (call on logout)
  */
 export function resetServerPreferences(): void {
-  hasLoadedOnce = false;
-  valueCache.clear();
+  const state = getServerStorageState();
+  state.hasLoadedOnce = false;
+  state.valueCache.clear();
 
   // Restore defaults
-  for (const [key, defaultValue] of defaultValues) {
-    valueCache.set(key, defaultValue);
+  for (const [key, defaultValue] of state.defaultValues) {
+    state.valueCache.set(key, defaultValue);
   }
 
   // Clear pending writes
-  for (const timer of pendingWrites.values()) {
+  for (const timer of state.pendingWrites.values()) {
     clearTimeout(timer);
   }
-  pendingWrites.clear();
+  state.pendingWrites.clear();
 }
 
 /**
@@ -218,6 +239,7 @@ export async function flushPendingWrites(): Promise<void> {
   const client = getClient();
   if (!client) return;
 
+  const { pendingWrites, valueCache } = getServerStorageState();
   const writes: Promise<unknown>[] = [];
 
   for (const [key, timer] of pendingWrites) {
@@ -236,5 +258,5 @@ export async function flushPendingWrites(): Promise<void> {
  * Check if preferences have been loaded from server
  */
 export function hasLoadedPreferences(): boolean {
-  return hasLoadedOnce;
+  return getServerStorageState().hasLoadedOnce;
 }

@@ -140,7 +140,12 @@ export const effectiveSessionIdAtom = atom<string | null>((get) => {
  */
 export const isRemoteControllingAtom = atom<boolean>((get) => {
   const ownerClientId = get(ownerClientIdAtom);
-  return ownerClientId !== null && !get(isAudioOwnerAtom);
+  const clientId = get(clientIdAtom);
+  return (
+    ownerClientId !== null &&
+    ownerClientId !== clientId &&
+    !get(isAudioOwnerAtom)
+  );
 });
 
 /**

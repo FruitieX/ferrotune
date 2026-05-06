@@ -47,7 +47,7 @@ import {
   playAtIndexAtom,
 } from "@/lib/store/server-queue";
 import { serverConnectionAtom } from "@/lib/store/auth";
-import { getClient } from "@/lib/api/client";
+import { getClient, getClientName } from "@/lib/api/client";
 import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
 import { starredItemsAtom } from "@/lib/store/starred";
 import {
@@ -64,8 +64,10 @@ import {
   currentSessionIdAtom,
   effectiveSessionIdAtom,
   ownerClientIdAtom,
+  ownerClientNameAtom,
   clientIdAtom,
   markSelfTakeoverAtom,
+  selfTakeoverPending,
 } from "@/lib/store/session";
 import { hasNativeAudio } from "@/lib/tauri";
 import { logListeningTimeAndReset } from "@/lib/audio/listening";
@@ -271,8 +273,10 @@ export function useAudioEngine() {
   // Remote control awareness
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
   const ownerClientId = useAtomValue(ownerClientIdAtom);
+  const setOwnerClientId = useSetAtom(ownerClientIdAtom);
+  const setOwnerClientName = useSetAtom(ownerClientNameAtom);
   const clientId = useAtomValue(clientIdAtom);
-  const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
+  const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
   const currentSessionId = useAtomValue(currentSessionIdAtom);
   const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
@@ -336,13 +340,22 @@ export function useAudioEngine() {
   };
 
   const claimOwnershipIfNeeded = async () => {
-    if (ownerClientId || isAudioOwner) return;
+    if (!clientId) return;
+
+    if (ownerClientId === clientId) {
+      setIsAudioOwner(true);
+      return;
+    }
+
+    if (ownerClientId) return;
 
     const targetSessionId = effectiveSessionId;
     const client = getClient();
     if (!targetSessionId || !client) return;
 
     setIsAudioOwner(true);
+    setOwnerClientId(clientId);
+    setOwnerClientName(getClientName());
     markSelfTakeover();
 
     try {
@@ -352,12 +365,15 @@ export function useAudioEngine() {
         undefined,
         undefined,
         undefined,
-        undefined,
-        clientId || undefined,
+        getClientName(),
+        clientId,
       );
     } catch (error) {
       console.error("Failed to claim playback ownership:", error);
+      selfTakeoverPending.value = false;
       setIsAudioOwner(false);
+      setOwnerClientId(null);
+      setOwnerClientName(null);
     }
   };
 

@@ -11,7 +11,7 @@
  * so that subsequent persists write the latest queue state to IndexedDB.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -20,6 +20,7 @@ import {
   isRestoringQueueAtom,
   type ServerQueueState,
 } from "@/lib/store/server-queue";
+import { playbackStateAtom } from "@/lib/store/player";
 import type { QueueWindow } from "@/lib/api/types";
 
 const QUEUE_STATE_KEY = ["queue", "state"] as const;
@@ -33,9 +34,15 @@ export function useQueueCacheSync(isCacheRestored: boolean) {
   const queryClient = useQueryClient();
   const queueState = useAtomValue(serverQueueStateAtom);
   const queueWindow = useAtomValue(queueWindowAtom);
+  const playbackState = useAtomValue(playbackStateAtom);
+  const playbackStateRef = useRef(playbackState);
   const setServerQueueState = useSetAtom(serverQueueStateAtom);
   const setQueueWindow = useSetAtom(queueWindowAtom);
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
+
+  useEffect(() => {
+    playbackStateRef.current = playbackState;
+  }, [playbackState]);
 
   // Restore: cache → atoms (once, when IndexedDB cache is restored)
   useEffect(() => {
@@ -58,8 +65,16 @@ export function useQueueCacheSync(isCacheRestored: boolean) {
         if (current !== null) return current;
         return cachedWindow;
       });
-      // Prevent autoplay from cached data
-      setIsRestoring(true);
+
+      const currentPlaybackState = playbackStateRef.current;
+      if (
+        currentPlaybackState !== "loading" &&
+        currentPlaybackState !== "playing"
+      ) {
+        // Prevent autoplay from cached data, but never let late cache hydration
+        // override an explicit playback request that already reached the audio engine.
+        setIsRestoring(true);
+      }
     }
   }, [
     isCacheRestored,

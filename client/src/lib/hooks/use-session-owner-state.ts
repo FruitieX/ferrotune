@@ -60,6 +60,26 @@ export function useSessionOwnerState() {
       isCurrentClientOwner &&
       (isAudioOwner || ownerClientId === clientId || selfTakeoverPending.value);
 
+    if (!nextOwnerClientId) {
+      selfTakeoverPending.value = false;
+      setOwnerClientId(null);
+      setOwnerClientName(null);
+
+      if (isAudioOwner) {
+        setRemotePlaybackState(null);
+        return;
+      }
+
+      // Ownership was cleared by the server. Restore locally in a paused,
+      // controllable state without implicit playback so this tab can claim
+      // ownership on the next play action instead of routing commands to a
+      // stale/disconnected owner.
+      setIsAudioOwner(true);
+      setRemotePlaybackState(null);
+      fetchQueueAndRestore();
+      return;
+    }
+
     setOwnerClientId(nextOwnerClientId);
     setOwnerClientName(
       nextOwnerClientId ? (snapshot.ownerClientName ?? null) : null,
@@ -70,6 +90,7 @@ export function useSessionOwnerState() {
         // SSE sends an initial ownership snapshot on every reconnect. If it
         // says we are still the owner, avoid reloading the active audio element.
         if (isSameOwnerAnnouncement) {
+          selfTakeoverPending.value = false;
           setIsAudioOwner(true);
           setRemotePlaybackState(null);
           return;
@@ -88,23 +109,13 @@ export function useSessionOwnerState() {
         return;
       }
 
+      selfTakeoverPending.value = false;
       if (isAudioOwner) {
         pause();
         setIsAudioOwner(false);
       }
       return;
     }
-
-    // Ownership was cleared by the server. Restore locally in a paused,
-    // controllable state without implicit playback so this tab can claim
-    // ownership on the next play action instead of routing commands to a
-    // stale/disconnected owner.
-    if (isAudioOwner) {
-      pause();
-    }
-    setIsAudioOwner(true);
-    setRemotePlaybackState(null);
-    fetchQueueAndRestore();
   };
 
   return { applyOwnerSnapshot };

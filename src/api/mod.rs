@@ -47,6 +47,8 @@ pub enum SessionEvent {
     PlaybackCommand {
         action: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        client_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         position_ms: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         volume: Option<f64>,

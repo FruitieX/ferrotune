@@ -23,6 +23,7 @@ export interface SessionEvent {
     | "clientListChanged"
     | "ownerChanged";
   action?: string;
+  clientId?: string;
   positionMs?: number;
   currentIndex?: number;
   isPlaying?: boolean;

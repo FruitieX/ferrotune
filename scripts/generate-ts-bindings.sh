@@ -12,9 +12,9 @@ echo "🔨 Generating TypeScript bindings..."
 rm -rf "$GENERATED_DIR"
 mkdir -p "$GENERATED_DIR"
 
-# Run cargo test to trigger ts-rs exports
+# Run library tests to trigger ts-rs exports without compiling unrelated test targets.
 # The tests with #[ts(export)] will generate .ts files
-cargo test export_bindings
+cargo test --lib export_bindings
 
 # Check if any .ts files were generated
 if [ -z "$(ls -A "$GENERATED_DIR"/*.ts 2>/dev/null)" ]; then

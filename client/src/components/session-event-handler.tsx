@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   useSessionEvents,
@@ -13,7 +13,6 @@ import {
   remotePlaybackStateAtom,
   connectedClientsAtom,
   selfTakeoverPending,
-  ownerClientIdAtom,
   clientIdAtom,
 } from "@/lib/store/session";
 import {
@@ -42,7 +41,6 @@ import { useSessionOwnerState } from "@/lib/hooks/use-session-owner-state";
 export function SessionEventHandler() {
   const isAudioOwner = useAtomValue(isAudioOwnerAtom);
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
-  const ownerClientId = useAtomValue(ownerClientIdAtom);
   const clientId = useAtomValue(clientIdAtom);
   const currentSong = useAtomValue(currentSongAtom);
   const { play, pause, next, previous, seek } = useAudioEngine();
@@ -57,11 +55,6 @@ export function SessionEventHandler() {
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setConnectedClients = useSetAtom(connectedClientsAtom);
   const { applyOwnerSnapshot } = useSessionOwnerState();
-  const ownerClientIdRef = useRef(ownerClientId);
-
-  useEffect(() => {
-    ownerClientIdRef.current = ownerClientId;
-  }, [ownerClientId]);
 
   // Update duration from current song when remote controlling
   useEffect(() => {
@@ -103,11 +96,7 @@ export function SessionEventHandler() {
         // Skip if we just initiated the takeover ourselves (the broadcast
         // echoes back to us and would incorrectly pause our own playback).
         if (event.action === "takeOver") {
-          if (
-            selfTakeoverPending.value ||
-            ownerClientIdRef.current === clientId
-          ) {
-            selfTakeoverPending.value = false;
+          if (event.clientId === clientId || selfTakeoverPending.value) {
             return;
           }
           pause();
@@ -208,7 +197,6 @@ export function SessionEventHandler() {
         break;
       }
       case "ownerChanged": {
-        ownerClientIdRef.current = event.ownerClientId ?? null;
         applyOwnerSnapshot({
           ownerClientId: event.ownerClientId,
           ownerClientName: event.ownerClientName,

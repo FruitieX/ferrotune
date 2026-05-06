@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -6,35 +7,42 @@ import {
   Routes,
 } from "react-router-dom";
 import RootLayout from "@/app/layout";
-import HomePage from "@/app/page";
-import AdminPage from "@/app/admin/page";
-import RecycleBinPage from "@/app/admin/recycle-bin/page";
-import FavoritesPage from "@/app/favorites/page";
-import HistoryPage from "@/app/history/page";
-import HistoryManagePage from "@/app/history/manage/page";
-import ImportPage from "@/app/import/page";
-import LibraryLayout from "@/app/library/layout";
-import LibraryPage from "@/app/library/page";
-import AlbumsPage from "@/app/library/albums/page";
-import AlbumDetailsPage from "@/app/library/albums/details/page";
-import ArtistsPage from "@/app/library/artists/page";
-import ArtistDetailsPage from "@/app/library/artists/details/page";
-import FilesPage from "@/app/library/files/page";
-import GenresPage from "@/app/library/genres/page";
-import GenreDetailsPage from "@/app/library/genres/details/page";
-import SongsPage from "@/app/library/songs/page";
-import LoginPage from "@/app/login/page";
-import PlaylistsPage from "@/app/playlists/page";
-import PlaylistDetailsPage from "@/app/playlists/details/page";
-import SmartPlaylistPage from "@/app/playlists/smart/page";
-import ProfilePage from "@/app/profile/page";
-import SongRadioPage from "@/app/radio/song/page";
-import ReviewPage from "@/app/review/page";
-import SearchPage from "@/app/search/page";
-import SettingsPage from "@/app/settings/page";
-import SetupLayout from "@/app/setup/layout";
-import SetupPage from "@/app/setup/page";
-import TaggerPage from "@/app/tagger/page";
+
+const HomePage = lazy(() => import("@/app/page"));
+const AdminPage = lazy(() => import("@/app/admin/page"));
+const RecycleBinPage = lazy(() => import("@/app/admin/recycle-bin/page"));
+const FavoritesPage = lazy(() => import("@/app/favorites/page"));
+const HistoryPage = lazy(() => import("@/app/history/page"));
+const HistoryManagePage = lazy(() => import("@/app/history/manage/page"));
+const ImportPage = lazy(() => import("@/app/import/page"));
+const LibraryLayout = lazy(() => import("@/app/library/layout"));
+const LibraryPage = lazy(() => import("@/app/library/page"));
+const AlbumsPage = lazy(() => import("@/app/library/albums/page"));
+const AlbumDetailsPage = lazy(
+  () => import("@/app/library/albums/details/page"),
+);
+const ArtistsPage = lazy(() => import("@/app/library/artists/page"));
+const ArtistDetailsPage = lazy(
+  () => import("@/app/library/artists/details/page"),
+);
+const FilesPage = lazy(() => import("@/app/library/files/page"));
+const GenresPage = lazy(() => import("@/app/library/genres/page"));
+const GenreDetailsPage = lazy(
+  () => import("@/app/library/genres/details/page"),
+);
+const SongsPage = lazy(() => import("@/app/library/songs/page"));
+const LoginPage = lazy(() => import("@/app/login/page"));
+const PlaylistsPage = lazy(() => import("@/app/playlists/page"));
+const PlaylistDetailsPage = lazy(() => import("@/app/playlists/details/page"));
+const SmartPlaylistPage = lazy(() => import("@/app/playlists/smart/page"));
+const ProfilePage = lazy(() => import("@/app/profile/page"));
+const SongRadioPage = lazy(() => import("@/app/radio/song/page"));
+const ReviewPage = lazy(() => import("@/app/review/page"));
+const SearchPage = lazy(() => import("@/app/search/page"));
+const SettingsPage = lazy(() => import("@/app/settings/page"));
+const SetupLayout = lazy(() => import("@/app/setup/layout"));
+const SetupPage = lazy(() => import("@/app/setup/page"));
+const TaggerPage = lazy(() => import("@/app/tagger/page"));
 
 function RootShell() {
   return (

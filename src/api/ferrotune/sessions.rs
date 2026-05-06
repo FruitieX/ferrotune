@@ -597,6 +597,7 @@ pub async fn session_command(
             // Already handled above — also send playback command to pause old owner
             SessionEvent::PlaybackCommand {
                 action: "takeOver".to_string(),
+                client_id: request.client_id.clone(),
                 position_ms: request.position_ms,
                 volume: request.volume,
                 is_muted: request.is_muted,
@@ -604,6 +605,7 @@ pub async fn session_command(
         }
         _ => SessionEvent::PlaybackCommand {
             action: request.action,
+            client_id: request.client_id,
             position_ms: request.position_ms,
             volume: request.volume,
             is_muted: request.is_muted,

@@ -10,6 +10,7 @@ import {
   connectedClientsAtom,
   ownerClientIdAtom,
   ownerClientNameAtom,
+  selfTakeoverPending,
 } from "@/lib/store/session";
 import {
   isClientInitializedAtom,
@@ -23,6 +24,13 @@ import {
 import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const INITIAL_OWNERSHIP_CLAIM_WINDOW_MS = 5_000;
+
+interface PendingOwnershipClaim {
+  sessionId: string;
+  clientId: string;
+  expiresAt: number;
+}
 
 /**
  * Initializes the single playback session on mount, sends periodic heartbeats,
@@ -36,6 +44,8 @@ export function useSessionInit() {
   const [sessionId, setSessionId] = useAtom(currentSessionIdAtom);
   const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const clientId = useAtomValue(clientIdAtom);
+  const connectedClients = useAtomValue(connectedClientsAtom);
+  const ownerClientId = useAtomValue(ownerClientIdAtom);
   const setConnectedClients = useSetAtom(connectedClientsAtom);
   const setOwnerClientId = useSetAtom(ownerClientIdAtom);
   const setOwnerClientName = useSetAtom(ownerClientNameAtom);
@@ -49,6 +59,7 @@ export function useSessionInit() {
   );
   const hasInitializedRef = useRef(false);
   const previousAccountKeyRef = useRef<string | null>(null);
+  const pendingOwnershipClaimRef = useRef<PendingOwnershipClaim | null>(null);
 
   // Use refs for heartbeat data to avoid restarting the interval
   const currentSongRef = useRef(currentSong);
@@ -148,6 +159,17 @@ export function useSessionInit() {
           response.ownerClientId ? response.ownerClientName : null,
         );
 
+        if (
+          clientId &&
+          (!response.ownerClientId || response.ownerClientId === clientId)
+        ) {
+          pendingOwnershipClaimRef.current = {
+            sessionId: response.id,
+            clientId,
+            expiresAt: Date.now() + INITIAL_OWNERSHIP_CLAIM_WINDOW_MS,
+          };
+        }
+
         // Determine ownership: if this client is the owner, or new session
         if (response.isNewSession || response.ownerClientId === clientId) {
           setIsAudioOwner(true);
@@ -175,6 +197,77 @@ export function useSessionInit() {
     clientId,
     setSessionId,
     setIsAudioOwner,
+    setOwnerClientId,
+    setOwnerClientName,
+  ]);
+
+  useEffect(() => {
+    const pending = pendingOwnershipClaimRef.current;
+    if (!pending) return;
+
+    if (pending.sessionId !== sessionId || pending.clientId !== clientId) {
+      pendingOwnershipClaimRef.current = null;
+      return;
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      pendingOwnershipClaimRef.current = null;
+      return;
+    }
+
+    if (ownerClientId) {
+      if (ownerClientId !== clientId) {
+        pendingOwnershipClaimRef.current = null;
+      }
+      return;
+    }
+
+    if (!isAudioOwner) {
+      return;
+    }
+
+    const isConnectedClient = connectedClients.some(
+      (client) => client.clientId === clientId,
+    );
+    if (!isConnectedClient) {
+      return;
+    }
+
+    const client = getClient();
+    if (!client) return;
+
+    pendingOwnershipClaimRef.current = null;
+    selfTakeoverPending.value = true;
+    setOwnerClientId(clientId);
+    setOwnerClientName(getClientName());
+
+    const claimOwnership = async () => {
+      try {
+        await client.sendSessionCommand(
+          sessionId,
+          "takeOver",
+          undefined,
+          undefined,
+          undefined,
+          getClientName(),
+          clientId,
+          false,
+        );
+      } catch (error) {
+        console.error("Failed to claim initial playback ownership:", error);
+        selfTakeoverPending.value = false;
+        setOwnerClientId(null);
+        setOwnerClientName(null);
+      }
+    };
+
+    claimOwnership();
+  }, [
+    sessionId,
+    clientId,
+    ownerClientId,
+    isAudioOwner,
+    connectedClients,
     setOwnerClientId,
     setOwnerClientName,
   ]);

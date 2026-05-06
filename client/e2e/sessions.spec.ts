@@ -176,12 +176,140 @@ async function getStoredAudioOwnership(page: Page): Promise<boolean> {
   );
 }
 
+async function getStoredClientId(page: Page): Promise<string | null> {
+  return page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem("ferrotune-client-id") || "null"),
+  );
+}
+
+async function getThisClientServerOwnership(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+    const clientId = JSON.parse(
+      sessionStorage.getItem("ferrotune-client-id") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password ||
+      !clientId
+    ) {
+      return false;
+    }
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/clients`,
+      {
+        headers: {
+          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        },
+      },
+    );
+    if (!response.ok) return false;
+
+    const data: {
+      clients: Array<{ clientId: string; isOwner: boolean }>;
+    } = await response.json();
+    return data.clients.some(
+      (client) => client.clientId === clientId && client.isOwner,
+    );
+  });
+}
+
 async function allAudioElementsPaused(page: Page): Promise<boolean> {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll("audio")).every(
       (audio) => audio.paused,
     ),
   );
+}
+
+interface BrowserAudioPlaybackSnapshot {
+  isPlaying: boolean;
+  maxCurrentTime: number;
+}
+
+async function getBrowserAudioPlaybackSnapshot(
+  page: Page,
+): Promise<BrowserAudioPlaybackSnapshot> {
+  return page.evaluate(() => {
+    const audioElements = Array.from(document.querySelectorAll("audio"));
+
+    return {
+      isPlaying: audioElements.some((audio) => !audio.paused && !audio.ended),
+      maxCurrentTime: audioElements.reduce(
+        (maxTime, audio) => Math.max(maxTime, audio.currentTime),
+        0,
+      ),
+    };
+  });
+}
+
+async function installAudioPauseProbe(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    interface AudioPauseProbeEvent {
+      at: number;
+      currentTime: number;
+      readyState: number;
+      wasPaused: boolean;
+    }
+
+    type ProbeWindow = typeof window & {
+      __ferrotuneAudioPauseEvents?: AudioPauseProbeEvent[];
+      __ferrotuneAudioPauseProbeInstalled?: boolean;
+    };
+
+    const probeWindow = window as ProbeWindow;
+    if (probeWindow.__ferrotuneAudioPauseProbeInstalled) return;
+
+    probeWindow.__ferrotuneAudioPauseEvents = [];
+    probeWindow.__ferrotuneAudioPauseProbeInstalled = true;
+
+    const originalPause = HTMLMediaElement.prototype.pause;
+    HTMLMediaElement.prototype.pause = function patchedPause(
+      this: HTMLMediaElement,
+    ) {
+      probeWindow.__ferrotuneAudioPauseEvents?.push({
+        at: performance.now(),
+        currentTime: this.currentTime,
+        readyState: this.readyState,
+        wasPaused: this.paused,
+      });
+      return originalPause.call(this);
+    };
+  });
+}
+
+async function resetAudioPauseProbe(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    type ProbeWindow = typeof window & {
+      __ferrotuneAudioPauseEvents?: number[];
+    };
+
+    (window as ProbeWindow).__ferrotuneAudioPauseEvents = [];
+  });
+}
+
+async function getAudioPauseProbeCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    interface AudioPauseProbeEvent {
+      currentTime: number;
+      wasPaused: boolean;
+    }
+
+    type ProbeWindow = typeof window & {
+      __ferrotuneAudioPauseEvents?: AudioPauseProbeEvent[];
+    };
+
+    return (
+      (window as ProbeWindow).__ferrotuneAudioPauseEvents?.filter(
+        (event) => !event.wasPaused && event.currentTime > 0.5,
+      ).length ?? 0
+    );
+  });
 }
 
 async function playFirstAlbumSong(page: Page): Promise<void> {
@@ -245,6 +373,50 @@ test.describe.serial("Multi-Session Playback", () => {
       },
     );
     await page.reload();
+  });
+
+  test("refresh keeps this web tab marked as session owner", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSongAndPause(page);
+    const clientIdBeforeReload = await getStoredClientId(page);
+    expect(clientIdBeforeReload).not.toBeNull();
+
+    await expect
+      .poll(() => getThisClientServerOwnership(page), { timeout: 10000 })
+      .toBe(true);
+
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    await expect.poll(() => getStoredClientId(page)).toBe(clientIdBeforeReload);
+    await expect
+      .poll(() => getThisClientServerOwnership(page), { timeout: 10000 })
+      .toBe(true);
+  });
+
+  test("play after reload keeps browser audio running", async ({
+    authenticatedPage: page,
+  }) => {
+    await installAudioPauseProbe(page);
+    await playFirstSongAndPause(page);
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    const playerBar = page.getByTestId("player-bar");
+    const playButton = playerBar.getByRole("button", { name: "Play" }).first();
+    await expect(playButton).toBeVisible({ timeout: 10000 });
+
+    await resetAudioPauseProbe(page);
+    await playButton.click();
+
+    await expect
+      .poll(async () => {
+        const snapshot = await getBrowserAudioPlaybackSnapshot(page);
+        return snapshot.isPlaying && snapshot.maxCurrentTime > 1.5;
+      })
+      .toBe(true);
+
+    await expect.poll(() => getAudioPauseProbeCount(page)).toBe(0);
   });
 
   test("queue metadata changes (shuffle, repeat) do not restart playback on owner", async ({
