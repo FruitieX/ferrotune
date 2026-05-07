@@ -117,6 +117,15 @@ const engineState: NativeEngineState = {
   callbacks: null,
 };
 
+let nativeStopPromise: Promise<void> | null = null;
+
+async function waitForNativeStop(): Promise<void> {
+  const stopPromise = nativeStopPromise;
+  if (stopPromise) {
+    await stopPromise;
+  }
+}
+
 /**
  * Initialize the native audio engine.
  * Sets up a global callback function that the Kotlin side calls via
@@ -292,6 +301,7 @@ export interface NativeStreamOptions {
  */
 export async function nativePlay(): Promise<void> {
   console.log("[NativeAudio] nativePlay() called");
+  await waitForNativeStop();
   const api = await getNativeApi();
   await api.play();
 }
@@ -310,8 +320,19 @@ export async function nativePause(): Promise<void> {
  */
 export async function nativeStop(): Promise<void> {
   console.log("[NativeAudio] nativeStop() called");
-  const api = await getNativeApi();
-  await api.stop();
+  const stopPromise = (async () => {
+    const api = await getNativeApi();
+    await api.stop();
+  })();
+
+  nativeStopPromise = stopPromise;
+  try {
+    await stopPromise;
+  } finally {
+    if (nativeStopPromise === stopPromise) {
+      nativeStopPromise = null;
+    }
+  }
 }
 
 /**
@@ -337,6 +358,7 @@ export async function nativeNextTrack(): Promise<void> {
 export async function nativePlayAtIndex(index: number): Promise<void> {
   console.log("[NativeAudio] nativePlayAtIndex() called:", index);
   try {
+    await waitForNativeStop();
     const api = await getNativeApi();
     await api.playAtIndex(index);
     console.log("[NativeAudio] nativePlayAtIndex() SUCCEEDED");
@@ -473,6 +495,7 @@ export async function nativeStartPlayback(params: {
 }): Promise<void> {
   console.log("[NativeAudio] nativeStartPlayback() called", params);
   try {
+    await waitForNativeStop();
     const api = await getNativeApi();
     await api.startPlayback(params);
     console.log("[NativeAudio] nativeStartPlayback() SUCCEEDED");

@@ -329,6 +329,36 @@ async function playFirstAlbumSong(page: Page): Promise<void> {
   await firstTrack.getByRole("button", { name: "Play" }).first().click();
 }
 
+async function playAlbumTrackAndPause(
+  page: Page,
+  albumName: string,
+  trackName: string,
+): Promise<void> {
+  await gotoAppPath(page, "/library");
+  await page.waitForLoadState("domcontentloaded");
+
+  const album = page
+    .locator("a")
+    .filter({ hasText: new RegExp(`^${albumName}`) })
+    .first();
+  await expect(album).toBeVisible({ timeout: 10000 });
+  await album.click();
+
+  await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
+  const track = page
+    .locator('[data-testid="song-row"]')
+    .filter({ hasText: trackName })
+    .first();
+  await expect(track).toBeVisible({ timeout: 10000 });
+  await track.getByRole("button", { name: "Play" }).first().click();
+
+  await waitForPlayerReady(page);
+  await expect(page.getByTestId("player-bar")).toContainText(trackName, {
+    timeout: 10000,
+  });
+  await pauseCurrentPlayback(page);
+}
+
 async function pauseCurrentPlayback(page: Page): Promise<void> {
   const playerBar = page.getByTestId("player-bar");
   const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
@@ -346,6 +376,85 @@ async function playFirstSongAndPause(page: Page): Promise<void> {
     timeout: 10000,
   });
   await pauseCurrentPlayback(page);
+}
+
+async function createSecondaryUser(
+  page: Page,
+  server: ServerInfo,
+): Promise<{ username: string; password: string; label: string }> {
+  const username = `secondary${Date.now()}`;
+  const password = "secondarypass";
+  const response = await page.request.post(`${server.url}/ferrotune/users`, {
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`,
+    },
+    data: {
+      username,
+      password,
+      email: null,
+      isAdmin: false,
+      libraryAccess: [],
+    },
+  });
+
+  if (!response.ok()) {
+    throw new Error(
+      `Failed to create secondary user: ${response.status()} ${await response.text()}`,
+    );
+  }
+
+  return { username, password, label: "Secondary account" };
+}
+
+async function addSecondarySavedAccount(
+  page: Page,
+  server: ServerInfo,
+  secondary: { username: string; password: string; label: string },
+): Promise<void> {
+  await page.evaluate(
+    ({ serverUrl, adminUsername, adminPassword, secondaryUser }) => {
+      localStorage.setItem(
+        "ferrotune-saved-accounts",
+        JSON.stringify([
+          { serverUrl, username: adminUsername, password: adminPassword },
+          {
+            serverUrl,
+            username: secondaryUser.username,
+            password: secondaryUser.password,
+            label: secondaryUser.label,
+          },
+        ]),
+      );
+    },
+    {
+      serverUrl: server.url,
+      adminUsername: server.username,
+      adminPassword: server.password,
+      secondaryUser: secondary,
+    },
+  );
+}
+
+async function switchToSavedAccount(
+  page: Page,
+  currentButtonName: RegExp,
+  targetMenuItemName: string | RegExp,
+  expectedUsername: string,
+): Promise<void> {
+  await page.getByRole("button", { name: currentButtonName }).click();
+  await page.getByRole("menuitem", { name: targetMenuItemName }).click();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const connection = JSON.parse(
+          localStorage.getItem("ferrotune-connection") || "null",
+        );
+        return connection?.username ?? "";
+      }),
+    )
+    .toBe(expectedUsername);
+  await waitForAuthenticatedHome(page);
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +526,53 @@ test.describe.serial("Multi-Session Playback", () => {
       .toBe(true);
 
     await expect.poll(() => getAudioPauseProbeCount(page)).toBe(0);
+  });
+
+  test("switching accounts restores each user's loaded queue", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const secondary = await createSecondaryUser(page, server);
+    await addSecondarySavedAccount(page, server, secondary);
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    await playAlbumTrackAndPause(page, "Test Album", "First Song");
+
+    await switchToSavedAccount(
+      page,
+      /testadmin@/i,
+      secondary.label,
+      secondary.username,
+    );
+    await playAlbumTrackAndPause(page, "Another Album", "FLAC Track One");
+
+    await switchToSavedAccount(
+      page,
+      new RegExp(`${secondary.username}@`, "i"),
+      /testadmin@/i,
+      server.username,
+    );
+    await expect(page.getByTestId("player-bar")).toContainText("First Song", {
+      timeout: 15000,
+    });
+    await expect(
+      page
+        .getByTestId("player-bar")
+        .getByRole("button", { name: "Play" })
+        .first(),
+    ).toBeVisible({ timeout: 10000 });
+
+    await switchToSavedAccount(
+      page,
+      /testadmin@/i,
+      secondary.label,
+      secondary.username,
+    );
+    await expect(page.getByTestId("player-bar")).toContainText(
+      "FLAC Track One",
+      { timeout: 15000 },
+    );
   });
 
   test("queue metadata changes (shuffle, repeat) do not restart playback on owner", async ({

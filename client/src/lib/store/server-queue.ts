@@ -354,6 +354,13 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
 
+    if (get(effectiveSessionIdAtom) !== sessionId) {
+      console.log(
+        "fetchQueueAtom: discarding stale response (session changed during fetch)",
+      );
+      return;
+    }
+
     // If a user operation changed the queue state while we were fetching,
     // discard this stale response to avoid overwriting the user's intent.
     const stateAfter = get(serverQueueStateAtom);
@@ -405,6 +412,10 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
 
+    if (get(effectiveSessionIdAtom) !== sessionId) {
+      return;
+    }
+
     if (response.totalCount === 0) {
       set(serverQueueStateAtom, null);
       set(queueWindowAtom, null);
@@ -442,6 +453,13 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
 
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    if (get(effectiveSessionIdAtom) !== sessionId) {
+      console.log(
+        "fetchQueueSilentAtom: discarding stale response (session changed during fetch)",
+      );
+      return;
+    }
 
     // Discard stale response if a user operation changed state during fetch
     const stateAfter = get(serverQueueStateAtom);
@@ -485,6 +503,10 @@ export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
 
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    if (get(effectiveSessionIdAtom) !== sessionId) {
+      return;
+    }
 
     if (response.totalCount === 0) {
       set(serverQueueStateAtom, null);
@@ -544,6 +566,10 @@ export const fetchQueueRangeAtom = atom(
         signal: params.signal,
         sessionId,
       });
+
+      if ((get(effectiveSessionIdAtom) ?? undefined) !== sessionId) {
+        return null;
+      }
 
       // Merge the new window into existing state
       const currentWindow = get(queueWindowAtom);

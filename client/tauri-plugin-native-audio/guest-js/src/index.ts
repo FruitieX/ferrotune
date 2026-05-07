@@ -111,6 +111,7 @@ export async function initSession(config: {
   password?: string;
   apiKey?: string;
   sessionId?: string;
+  clientId?: string;
 }): Promise<void> {
   await invoke("plugin:native-audio|init_session", {
     serverUrl: config.serverUrl,
@@ -118,6 +119,7 @@ export async function initSession(config: {
     password: config.password,
     apiKey: config.apiKey,
     sessionId: config.sessionId,
+    clientId: config.clientId,
   });
 }
 

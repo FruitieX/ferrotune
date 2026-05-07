@@ -56,7 +56,14 @@ export function createNativeCallbacks({
   stateRef,
   settersRef,
 }: NativeCallbackDeps): NativeAudioCallbacks {
+  const hasCurrentSessionQueue = () =>
+    !!stateRef.current.currentSessionId && !!stateRef.current.queueState;
+
   const onStateChange = (state: PlaybackState) => {
+    if (!hasCurrentSessionQueue()) {
+      return;
+    }
+
     // Handle "ended" state: Kotlin handles repeat-all wrap-around and
     // auto-advance. This only fires when it's truly the end of queue.
     if (state === "ended") {
@@ -102,6 +109,10 @@ export function createNativeCallbacks({
     duration: number,
     buffered: number,
   ) => {
+    if (!hasCurrentSessionQueue()) {
+      return;
+    }
+
     settersRef.current.setCurrentTime(currentTime);
     settersRef.current.setDuration(duration);
     settersRef.current.setBuffered(buffered);
@@ -114,6 +125,10 @@ export function createNativeCallbacks({
   };
 
   const onError = (message: string, trackId?: string) => {
+    if (!hasCurrentSessionQueue()) {
+      return;
+    }
+
     console.error("[NativeAudio] Error:", message, trackId);
     settersRef.current.setPlaybackError({
       message,
@@ -141,6 +156,25 @@ export function createNativeCallbacks({
       track?.id,
     );
 
+    const sessionId = stateRef.current.currentSessionId;
+    const queueState = stateRef.current.queueState;
+    if (!sessionId || !queueState) {
+      console.log(
+        "[NativeAudio] Ignoring track-change without an active session queue",
+      );
+      return;
+    }
+
+    const window = stateRef.current.queueWindow;
+    const entry = window?.songs.find((s) => s.position === queueIndex);
+    if (track?.id && entry?.song && entry.song.id !== track.id) {
+      console.log(
+        "[NativeAudio] Ignoring stale track-change that does not match the active queue",
+        { queueIndex, trackId: track.id, expectedTrackId: entry.song.id },
+      );
+      return;
+    }
+
     // Log listening time for the track we're leaving
     if (
       currentLoadedTrackId &&
@@ -166,8 +200,6 @@ export function createNativeCallbacks({
     );
 
     // Find the song in the queue window for duration info
-    const window = stateRef.current.queueWindow;
-    const entry = window?.songs.find((s) => s.position === queueIndex);
     if (entry?.song) {
       settersRef.current.setDuration(entry.song.duration || 0);
     }
@@ -176,12 +208,11 @@ export function createNativeCallbacks({
     const client = getClient();
     if (client) {
       client
-        .getQueueCurrentWindow(
-          20,
-          "small",
-          stateRef.current.currentSessionId ?? undefined,
-        )
+        .getQueueCurrentWindow(20, "small", sessionId)
         .then((response) => {
+          if (stateRef.current.currentSessionId !== sessionId) {
+            return;
+          }
           settersRef.current.setQueueWindow(response.window);
         })
         .catch(console.error);

@@ -19,6 +19,7 @@ import {
 import {
   serverQueueStateAtom,
   fetchQueueAtom,
+  isRestoringQueueAtom,
   queueWindowAtom,
 } from "@/lib/store/server-queue";
 import {
@@ -26,7 +27,7 @@ import {
   isHydratedAtom,
   accountKey,
 } from "@/lib/store/auth";
-import { currentSessionIdAtom } from "@/lib/store/session";
+import { effectiveSessionIdAtom } from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
 import { nativeStop, nativeGetState } from "@/lib/audio/native-engine";
 import {
@@ -37,8 +38,9 @@ import { getActiveAudio } from "@/lib/audio/web-audio";
 import {
   usingNativeAudio,
   setIsIntentionalStop,
-  resetEngineState,
+  resetPlaybackRuntimeState,
 } from "@/lib/audio/engine-state";
+import { hasNativeAudio } from "@/lib/tauri";
 import type { EngineSetters } from "./engine-types";
 
 interface LifecycleDeps {
@@ -52,7 +54,7 @@ export function useAudioLifecycle({
 }: LifecycleDeps) {
   const serverConnection = useAtomValue(serverConnectionAtom);
   const isHydrated = useAtomValue(isHydratedAtom);
-  const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const fetchQueue = useSetAtom(fetchQueueAtom);
 
   // Ref to avoid stale closure in event listeners
@@ -69,19 +71,21 @@ export function useAudioLifecycle({
   const setHasScrobbled = useSetAtom(hasScrobbledAtom);
   const setServerQueueState = useSetAtom(serverQueueStateAtom);
   const setQueueWindow = useSetAtom(queueWindowAtom);
+  const setIsRestoringQueue = useSetAtom(isRestoringQueueAtom);
 
-  // Track if we've fetched the initial queue
-  const hasInitialFetchRef = useRef(false);
+  // Track which account/session pair has had its initial queue restored.
+  const initialQueueFetchKeyRef = useRef<string | null>(null);
 
   // Fetch initial queue on mount - wait for hydration and client to be ready
   useEffect(() => {
     if (!isHydrated) return;
     if (!serverConnection) return;
     if (!currentSessionId) return;
-    if (hasInitialFetchRef.current) return;
+    const initialFetchKey = `${accountKey(serverConnection)}:${currentSessionId}`;
+    if (initialQueueFetchKeyRef.current === initialFetchKey) return;
     const client = getClient();
     if (!client) return;
-    hasInitialFetchRef.current = true;
+    initialQueueFetchKeyRef.current = initialFetchKey;
     fetchQueue();
   }, [isHydrated, serverConnection, currentSessionId, fetchQueue]);
 
@@ -159,9 +163,15 @@ export function useAudioLifecycle({
     }
 
     previousAccountKeyRef.current = currentKey;
+    initialQueueFetchKeyRef.current = null;
 
-    // Stop playback and reset all audio state
-    if (usingNativeAudio) {
+    // Reset playback identity immediately; the native bridge itself remains
+    // initialized and will receive fresh credentials for the new session.
+    resetPlaybackRuntimeState();
+    lastProcessedSignalRef.current = -1;
+
+    // Stop playback and clear media from the old account.
+    if (hasNativeAudio() || usingNativeAudio) {
       nativeStop().catch(console.error);
     } else {
       const audio = getActiveAudio();
@@ -173,31 +183,23 @@ export function useAudioLifecycle({
       }
     }
 
-    // Reset module-level state
-    resetEngineState();
-    lastProcessedSignalRef.current = -1;
-
     // Reset atoms
     setPlaybackState("idle");
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
     setHasScrobbled(false);
+    setIsRestoringQueue(true);
     setServerQueueState(null);
     setQueueWindow(null);
-
-    // Re-fetch queue for new user
-    if (currentKey) {
-      fetchQueue();
-    }
   }, [
     serverConnection,
-    fetchQueue,
     setPlaybackState,
     setCurrentTime,
     setDuration,
     setBuffered,
     setHasScrobbled,
+    setIsRestoringQueue,
     setServerQueueState,
     setQueueWindow,
     lastProcessedSignalRef,

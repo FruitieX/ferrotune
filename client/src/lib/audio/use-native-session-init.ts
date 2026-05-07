@@ -10,7 +10,7 @@
 import { useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { serverConnectionAtom } from "@/lib/store/auth";
-import { currentSessionIdAtom, clientIdAtom } from "@/lib/store/session";
+import { effectiveSessionIdAtom, clientIdAtom } from "@/lib/store/session";
 import {
   nativeInitSession,
   nativeUpdateSettings,
@@ -31,7 +31,7 @@ interface NativeSessionInitDeps {
 
 export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
   const serverConnection = useAtomValue(serverConnectionAtom);
-  const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
   const isNativePlatform = hasNativeAudio() || usingNativeAudio;
 
@@ -42,7 +42,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
 
     let cancelled = false;
 
-    // resetEngineState() clears the readiness gate on account changes, but the
+    // Account switches clear the readiness gate, but the
     // one-time audio init effect does not rerun. Recreate the gate here so
     // restored queue loads keep waiting for fresh native credentials.
     if (!nativeSessionReady) {

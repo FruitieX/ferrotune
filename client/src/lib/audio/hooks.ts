@@ -61,7 +61,6 @@ import {
   isAudioOwnerAtom,
   isRemoteControllingAtom,
   remotePlaybackStateAtom,
-  currentSessionIdAtom,
   effectiveSessionIdAtom,
   ownerClientIdAtom,
   ownerClientNameAtom,
@@ -142,7 +141,7 @@ export function useAudioEngineInit() {
   const goToPrevious = useSetAtom(goToPreviousAtom);
 
   const serverConnection = useAtomValue(serverConnectionAtom);
-  const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
 
   // --- Shared refs (single source of truth for callbacks & sub-hooks) ---
@@ -278,8 +277,8 @@ export function useAudioEngine() {
   const clientId = useAtomValue(clientIdAtom);
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
-  const currentSessionId = useAtomValue(currentSessionIdAtom);
-  const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
+  const effectiveSessionId = currentSessionId;
   const remotePlaybackState = useAtomValue(remotePlaybackStateAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
   const isNativePlatform = hasNativeAudio() || usingNativeAudio;
@@ -439,9 +438,11 @@ export function useAudioEngine() {
       }
       return;
     }
+
+    if (playbackState === "loading") return;
     if (!isNativePlatform && !getActiveAudio()) return;
 
-    if (playbackState === "playing" || playbackState === "loading") {
+    if (playbackState === "playing") {
       pause();
     } else if (playbackState === "ended") {
       restartQueue();

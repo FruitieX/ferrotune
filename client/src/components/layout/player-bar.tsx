@@ -650,6 +650,8 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
   const isPlaying = playbackState === "playing";
   const isLoading = playbackState === "loading";
   const RepeatIcon = repeatMode === "one" ? Repeat1 : Repeat;
+  const playPauseLabel = isLoading ? "Loading" : isPlaying ? "Pause" : "Play";
+  const playPauseDisabled = playbackState === "idle" || isLoading;
 
   return (
     <div className="flex items-center gap-1 md:gap-2">
@@ -685,8 +687,8 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         size="icon"
         className="flex md:hidden h-9 w-9 rounded-full"
         onClick={togglePlayPause}
-        disabled={playbackState === "idle"}
-        aria-label={isPlaying ? "Pause" : "Play"}
+        disabled={playPauseDisabled}
+        aria-label={playPauseLabel}
       >
         {isLoading ? (
           <motion.div
@@ -705,8 +707,8 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         size="icon"
         className="hidden md:flex h-10 w-10 rounded-full"
         onClick={togglePlayPause}
-        disabled={playbackState === "idle"}
-        aria-label={isPlaying ? "Pause" : "Play"}
+        disabled={playPauseDisabled}
+        aria-label={playPauseLabel}
       >
         {isLoading ? (
           <motion.div

@@ -3,6 +3,7 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { ClientResponse } from "@/lib/api/generated/ClientResponse";
+import { accountKey, serverConnectionAtom } from "./auth";
 
 // ============================================================================
 // Persistent atoms (sessionStorage — per tab)
@@ -15,6 +16,28 @@ import type { ClientResponse } from "@/lib/api/generated/ClientResponse";
  */
 export const currentSessionIdAtom = atomWithStorage<string | null>(
   "ferrotune-session-id",
+  null,
+  typeof window !== "undefined"
+    ? {
+        getItem: (key) => {
+          const v = sessionStorage.getItem(key);
+          return v ? JSON.parse(v) : null;
+        },
+        setItem: (key, value) =>
+          sessionStorage.setItem(key, JSON.stringify(value)),
+        removeItem: (key) => sessionStorage.removeItem(key),
+      }
+    : undefined,
+  { getOnInit: true },
+);
+
+/**
+ * Account key for the stored session ID. Session storage is per tab but not
+ * per account, so this prevents a freshly selected account from briefly using
+ * the previous account's session ID while reconnecting.
+ */
+export const currentSessionAccountKeyAtom = atomWithStorage<string | null>(
+  "ferrotune-session-account-key",
   null,
   typeof window !== "undefined"
     ? {
@@ -132,7 +155,20 @@ export const ownerClientNameAtom = atom<string | null>(null);
  * Effective session ID — always the user's single session.
  */
 export const effectiveSessionIdAtom = atom<string | null>((get) => {
-  return get(currentSessionIdAtom);
+  const sessionId = get(currentSessionIdAtom);
+  const sessionAccountKey = get(currentSessionAccountKeyAtom);
+  const connection = get(serverConnectionAtom);
+  const currentAccountKey = connection ? accountKey(connection) : null;
+
+  if (
+    !sessionId ||
+    !sessionAccountKey ||
+    sessionAccountKey !== currentAccountKey
+  ) {
+    return null;
+  }
+
+  return sessionId;
 });
 
 /**

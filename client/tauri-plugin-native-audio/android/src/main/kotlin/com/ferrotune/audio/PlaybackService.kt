@@ -202,6 +202,10 @@ class PlaybackService : MediaSessionService() {
     // server-backed session. Starts permissive so a fresh local play can claim
     // ownership before the first OwnerChanged snapshot arrives.
     private var nativeOwnsSession = true
+    // Invalidates asynchronous queue fetches when a newer account/session or
+    // playback command supersedes them.
+    private var queueLoadGeneration = 0
+    private var activeSessionIdentity: String? = null
 
     // Whether the service is actively managing playback
     // (has session config for API calls and has loaded media)
@@ -645,10 +649,12 @@ class PlaybackService : MediaSessionService() {
         if (player.mediaItemCount == 0 && apiClient.hasSessionConfig()) {
             Log.d(TAG, "play(): no media loaded, bootstrapping from server queue")
             handler.removeCallbacks(inactivityTimeoutRunnable)
+            val generation = nextQueueLoadGeneration("play bootstrap")
             apiExecutor.execute {
                 try {
                     val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
+                        if (!isQueueLoadGenerationCurrent(generation, "play bootstrap")) return@post
                         if (response.totalCount == 0 || response.window.songs.isEmpty()) {
                             Log.w(TAG, "play(): server queue is empty, nothing to play")
                             emitStateChange()
@@ -690,6 +696,7 @@ class PlaybackService : MediaSessionService() {
 
     fun stop() {
         Log.d(TAG, "stop()")
+        nextQueueLoadGeneration("stop")
         clearPendingNetworkRetry("stop")
         player.stop()
         player.clearMediaItems()
@@ -754,6 +761,14 @@ class PlaybackService : MediaSessionService() {
      */
     @OptIn(UnstableApi::class)
     fun initSession(config: SessionConfig) {
+        val sessionIdentity = sessionIdentity(config)
+        if (activeSessionIdentity != null && activeSessionIdentity != sessionIdentity) {
+            Log.d(TAG, "initSession: session identity changed; clearing loaded media")
+            stop()
+        } else {
+            nextQueueLoadGeneration("initSession")
+        }
+        activeSessionIdentity = sessionIdentity
         apiClient.setSessionConfig(config)
         // Set auth headers on ExoPlayer's HTTP data source so streaming
         // and cover art requests use headers instead of URL query params.
@@ -831,10 +846,12 @@ class PlaybackService : MediaSessionService() {
                     return
                 }
                 Log.d(TAG, "SSE QueueChanged: refetching queue")
+                val generation = nextQueueLoadGeneration("SSE QueueChanged")
                 apiExecutor.execute {
                     try {
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
+                            if (!isQueueLoadGenerationCurrent(generation, "SSE QueueChanged")) return@post
                             // Update source info from the new queue
                             response.sourceType?.let { queueSourceType = it }
                             response.sourceId?.let { queueSourceId = it }
@@ -862,10 +879,12 @@ class PlaybackService : MediaSessionService() {
                     return
                 }
                 val versionAtStart = invalidateVersion
+                val generation = nextQueueLoadGeneration("SSE QueueUpdated")
                 apiExecutor.execute {
                     try {
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
+                            if (!isQueueLoadGenerationCurrent(generation, "SSE QueueUpdated")) return@post
                             serverQueueIndex = response.currentIndex
 
                             // Check if the currently playing track is still the track
@@ -958,10 +977,12 @@ class PlaybackService : MediaSessionService() {
 
     private fun loadCurrentQueueFromServer(playWhenReady: Boolean, reason: String) {
         if (!isNetworkAvailable()) return
+        val generation = nextQueueLoadGeneration(reason)
         apiExecutor.execute {
             try {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, reason)) return@post
                     response.sourceType?.let { queueSourceType = it }
                     response.sourceId?.let { queueSourceId = it }
 
@@ -1047,12 +1068,14 @@ class PlaybackService : MediaSessionService() {
         resetScrobbleState()
 
         handler.removeCallbacks(inactivityTimeoutRunnable)
+        val generation = nextQueueLoadGeneration("startPlayback")
 
         // Fetch initial window and start playback
         apiExecutor.execute {
             try {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, "startPlayback")) return@post
                     // Preserve playWhenReady if already true (e.g. invalidateQueue
                     // started playback before this handler.post ran)
                     val effectivePlay = playWhenReady || player.playWhenReady
@@ -1088,10 +1111,32 @@ class PlaybackService : MediaSessionService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch initial queue window", e)
                 handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, "startPlayback error")) return@post
                     emitError("Failed to load queue: ${e.message}", null)
                 }
             }
         }
+    }
+
+    private fun sessionIdentity(config: SessionConfig): String {
+        return listOf(
+            config.serverUrl,
+            config.username ?: "",
+            config.sessionId ?: "",
+            config.clientId ?: "",
+        ).joinToString("\u0000")
+    }
+
+    private fun nextQueueLoadGeneration(reason: String): Int {
+        queueLoadGeneration += 1
+        Log.d(TAG, "queue generation $queueLoadGeneration: $reason")
+        return queueLoadGeneration
+    }
+
+    private fun isQueueLoadGenerationCurrent(generation: Int, reason: String): Boolean {
+        if (generation == queueLoadGeneration) return true
+        Log.d(TAG, "Ignoring stale queue response for $reason: generation=$generation current=$queueLoadGeneration")
+        return false
     }
 
     /**
@@ -1201,11 +1246,18 @@ class PlaybackService : MediaSessionService() {
         isFetching = true
         Log.d(TAG, "Prefetching: ahead=$needsMoreAhead, behind=$needsMoreBehind, " +
             "serverPos=$serverPos, loaded=$loadedRangeStart..${loadedRangeEnd - 1}")
+        val generation = queueLoadGeneration
 
         apiExecutor.execute {
             try {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
-                handler.post { handlePrefetchResponse(response) }
+                handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, "prefetch")) {
+                        isFetching = false
+                        return@post
+                    }
+                    handlePrefetchResponse(response)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Prefetch failed", e)
                 handler.post { isFetching = false }
@@ -1280,11 +1332,13 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "Repeat-all wrap: back to 0, reshuffle=$isShuffled")
                 serverQueueIndex = 0
                 resetScrobbleState()
+                val generation = nextQueueLoadGeneration("skip next wrap")
                 apiExecutor.execute {
                     try {
                         apiClient.updatePosition(0, 0, reshuffle = isShuffled)
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
+                            if (!isQueueLoadGenerationCurrent(generation, "skip next wrap")) return@post
                             handleQueueWindowResponse(response, 0, 0, continuePlayback)
                         }
                     } catch (e: Exception) {
@@ -1308,6 +1362,7 @@ class PlaybackService : MediaSessionService() {
         // Check if the next track is already loaded in ExoPlayer
         val exoIndex = exoIndexToServerPosition.indexOf(nextIndex)
         if (exoIndex >= 0) {
+            nextQueueLoadGeneration("skip next loaded")
             player.playWhenReady = continuePlayback
             player.seekTo(exoIndex, 0)
             // Track-boundary errors can leave ExoPlayer idle before we advance.
@@ -1322,11 +1377,13 @@ class PlaybackService : MediaSessionService() {
         } else {
             // Not loaded, fetch a new window
             Log.d(TAG, "Next track not loaded, fetching window for position $nextIndex")
+            val generation = nextQueueLoadGeneration("skip next fetch")
             apiExecutor.execute {
                 try {
                     apiClient.updatePosition(nextIndex, 0)
                     val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
+                        if (!isQueueLoadGenerationCurrent(generation, "skip next fetch")) return@post
                         handleQueueWindowResponse(response, nextIndex, 0, continuePlayback)
                     }
                 } catch (e: Exception) {
@@ -1363,11 +1420,13 @@ class PlaybackService : MediaSessionService() {
             if (repeatMode == "all") {
                 serverQueueIndex = serverTotalCount - 1
                 resetScrobbleState()
+                val generation = nextQueueLoadGeneration("skip previous wrap")
                 apiExecutor.execute {
                     try {
                         apiClient.updatePosition(serverTotalCount - 1, 0)
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
+                            if (!isQueueLoadGenerationCurrent(generation, "skip previous wrap")) return@post
                             handleQueueWindowResponse(response, serverTotalCount - 1, 0, continuePlayback)
                         }
                     } catch (e: Exception) {
@@ -1385,15 +1444,18 @@ class PlaybackService : MediaSessionService() {
 
         val exoIndex = exoIndexToServerPosition.indexOf(prevIndex)
         if (exoIndex >= 0) {
+            nextQueueLoadGeneration("skip previous loaded")
             player.playWhenReady = continuePlayback
             player.seekTo(exoIndex, 0)
             maybePrefetchMore()
         } else {
+            val generation = nextQueueLoadGeneration("skip previous fetch")
             apiExecutor.execute {
                 try {
                     apiClient.updatePosition(prevIndex, 0)
                     val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
+                        if (!isQueueLoadGenerationCurrent(generation, "skip previous fetch")) return@post
                         handleQueueWindowResponse(response, prevIndex, 0, continuePlayback)
                     }
                 } catch (e: Exception) {
@@ -1411,6 +1473,7 @@ class PlaybackService : MediaSessionService() {
         val deferred = CompletableDeferred<Unit>()
         Log.d(TAG, "autonomousToggleShuffle($enabled)")
         val currentPositionMs = player.currentPosition
+        val generation = nextQueueLoadGeneration("toggle shuffle")
         apiExecutor.execute {
             try {
                 val shuffleResponse = apiClient.toggleShuffle(enabled)
@@ -1419,6 +1482,10 @@ class PlaybackService : MediaSessionService() {
                 apiClient.updatePosition(newIndex, currentPositionMs)
                 val queueResponse = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, "toggle shuffle")) {
+                        deferred.complete(Unit)
+                        return@post
+                    }
                     isShuffled = enabled
                     serverQueueIndex = newIndex
                     handleShuffleQueueUpdate(queueResponse, newIndex)
@@ -1598,10 +1665,12 @@ class PlaybackService : MediaSessionService() {
     fun invalidateQueue() {
         invalidateVersion++
         Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex (version=$invalidateVersion)")
+        val generation = nextQueueLoadGeneration("invalidateQueue")
         apiExecutor.execute {
             try {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, "invalidateQueue")) return@post
                     val shouldPlay = player.playWhenReady
 
                     // Check if the currently playing track is still the track
@@ -1918,6 +1987,7 @@ class PlaybackService : MediaSessionService() {
         seekTimeOffsetMs = 0
         serverQueueIndex = index
         resetScrobbleState()
+        val generation = nextQueueLoadGeneration("playAtIndex")
 
         // Check if the target track is already loaded in ExoPlayer
         val exoIndex = exoIndexToServerPosition.indexOf(index)
@@ -1945,6 +2015,7 @@ class PlaybackService : MediaSessionService() {
                     apiClient.updatePosition(index, 0)
                     val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
+                        if (!isQueueLoadGenerationCurrent(generation, "playAtIndex")) return@post
                         handleQueueWindowResponse(response, response.currentIndex, 0, true)
                     }
                 } catch (e: Exception) {

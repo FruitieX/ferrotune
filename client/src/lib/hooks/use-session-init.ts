@@ -5,11 +5,14 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { getClient, getClientName } from "@/lib/api/client";
 import {
   currentSessionIdAtom,
+  currentSessionAccountKeyAtom,
+  effectiveSessionIdAtom,
   isAudioOwnerAtom,
   clientIdAtom,
   connectedClientsAtom,
   ownerClientIdAtom,
   ownerClientNameAtom,
+  remotePlaybackStateAtom,
   selfTakeoverPending,
 } from "@/lib/store/session";
 import {
@@ -41,7 +44,9 @@ interface PendingOwnershipClaim {
 export function useSessionInit() {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const serverConnection = useAtomValue(serverConnectionAtom);
-  const [sessionId, setSessionId] = useAtom(currentSessionIdAtom);
+  const [, setSessionId] = useAtom(currentSessionIdAtom);
+  const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
+  const setSessionAccountKey = useSetAtom(currentSessionAccountKeyAtom);
   const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const clientId = useAtomValue(clientIdAtom);
   const connectedClients = useAtomValue(connectedClientsAtom);
@@ -49,6 +54,7 @@ export function useSessionInit() {
   const setConnectedClients = useSetAtom(connectedClientsAtom);
   const setOwnerClientId = useSetAtom(ownerClientIdAtom);
   const setOwnerClientName = useSetAtom(ownerClientNameAtom);
+  const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
   const currentSong = useAtomValue(currentSongAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const playbackState = useAtomValue(playbackStateAtom);
@@ -58,7 +64,7 @@ export function useSessionInit() {
     null,
   );
   const hasInitializedRef = useRef(false);
-  const previousAccountKeyRef = useRef<string | null>(null);
+  const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
   const pendingOwnershipClaimRef = useRef<PendingOwnershipClaim | null>(null);
 
   // Use refs for heartbeat data to avoid restarting the interval
@@ -66,7 +72,7 @@ export function useSessionInit() {
   const queueStateRef = useRef(queueState);
   const playbackStateRef = useRef(playbackState);
   const currentTimeRef = useRef(currentTime);
-  const sessionIdRef = useRef(sessionId);
+  const sessionIdRef = useRef(effectiveSessionId);
   const isAudioOwnerRef = useRef(isAudioOwner);
   const clientIdRef = useRef(clientId);
   useEffect(() => {
@@ -74,7 +80,7 @@ export function useSessionInit() {
     queueStateRef.current = queueState;
     playbackStateRef.current = playbackState;
     currentTimeRef.current = currentTime;
-    sessionIdRef.current = sessionId;
+    sessionIdRef.current = effectiveSessionId;
     isAudioOwnerRef.current = isAudioOwner;
     clientIdRef.current = clientId;
   });
@@ -133,14 +139,23 @@ export function useSessionInit() {
 
   // Initialize session when client becomes ready
   useEffect(() => {
-    if (!isClientInitialized || !serverConnection) return;
+    if (!isClientInitialized || !serverConnection || !clientId) return;
 
     const currentKey = accountKey(serverConnection);
 
-    // Reset on account switch
-    if (previousAccountKeyRef.current !== currentKey) {
-      hasInitializedRef.current = false;
+    if (previousAccountKeyRef.current === undefined) {
       previousAccountKeyRef.current = currentKey;
+    } else if (previousAccountKeyRef.current !== currentKey) {
+      hasInitializedRef.current = false;
+      pendingOwnershipClaimRef.current = null;
+      selfTakeoverPending.value = false;
+      previousAccountKeyRef.current = currentKey;
+      setSessionAccountKey(null);
+      setSessionId(null);
+      setConnectedClients([]);
+      setOwnerClientId(null);
+      setOwnerClientName(null);
+      setRemotePlaybackState(null);
     }
 
     if (hasInitializedRef.current) return;
@@ -153,6 +168,7 @@ export function useSessionInit() {
       try {
         // Connect to (or create) the user's single session
         const response = await client.connectSession(getClientName(), clientId);
+        setSessionAccountKey(currentKey);
         setSessionId(response.id);
         setOwnerClientId(response.ownerClientId);
         setOwnerClientName(
@@ -196,16 +212,22 @@ export function useSessionInit() {
     serverConnection,
     clientId,
     setSessionId,
+    setSessionAccountKey,
+    setConnectedClients,
     setIsAudioOwner,
     setOwnerClientId,
     setOwnerClientName,
+    setRemotePlaybackState,
   ]);
 
   useEffect(() => {
     const pending = pendingOwnershipClaimRef.current;
     if (!pending) return;
 
-    if (pending.sessionId !== sessionId || pending.clientId !== clientId) {
+    if (
+      pending.sessionId !== effectiveSessionId ||
+      pending.clientId !== clientId
+    ) {
       pendingOwnershipClaimRef.current = null;
       return;
     }
@@ -244,7 +266,7 @@ export function useSessionInit() {
     const claimOwnership = async () => {
       try {
         await client.sendSessionCommand(
-          sessionId,
+          effectiveSessionId,
           "takeOver",
           undefined,
           undefined,
@@ -263,7 +285,7 @@ export function useSessionInit() {
 
     claimOwnership();
   }, [
-    sessionId,
+    effectiveSessionId,
     clientId,
     ownerClientId,
     isAudioOwner,
@@ -280,7 +302,7 @@ export function useSessionInit() {
   // becomes visible again, or playback starts, we immediately send a heartbeat
   // and resume the interval.
   useEffect(() => {
-    if (!sessionId || !isClientInitialized) {
+    if (!effectiveSessionId || !isClientInitialized) {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = null;
@@ -335,7 +357,7 @@ export function useSessionInit() {
         );
       }
     };
-  }, [sessionId, isClientInitialized, playbackState]);
+  }, [effectiveSessionId, isClientInitialized, playbackState]);
 
   // Periodically refresh connected clients list (every 60s).
   // Skip entirely while the document is hidden; refresh on the next

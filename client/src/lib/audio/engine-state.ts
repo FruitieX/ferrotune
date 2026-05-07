@@ -121,3 +121,21 @@ export function resetEngineState() {
   lastNativeTranscodingEnabled = false;
   lastNativeTranscodingBitrate = 0;
 }
+
+/**
+ * Reset only playback identity/dedup state while preserving the native bridge
+ * lifecycle. Account switches keep the Android service and callbacks alive but
+ * must forget which track/queue the previous account had loaded.
+ */
+export function resetPlaybackRuntimeState() {
+  nativeSessionReady = null;
+  nativeSessionReadyResolve = null;
+  currentLoadedTrackId = null;
+  isEndingQueue = false;
+  isLoadingNewTrack = false;
+  isIntentionalStop = false;
+  isGaplessHandoff = false;
+  gaplessHandoffExpectedTrackId = null;
+  lastNativeTranscodingEnabled = false;
+  lastNativeTranscodingBitrate = 0;
+}
