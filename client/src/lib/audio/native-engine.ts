@@ -336,6 +336,26 @@ export async function nativeStop(): Promise<void> {
 }
 
 /**
+ * Reset native session/account state without relying on playback stop semantics.
+ */
+export async function nativeResetSession(): Promise<void> {
+  console.log("[NativeAudio] nativeResetSession() called");
+  const stopPromise = (async () => {
+    const api = await getNativeApi();
+    await api.resetSession();
+  })();
+
+  nativeStopPromise = stopPromise;
+  try {
+    await stopPromise;
+  } finally {
+    if (nativeStopPromise === stopPromise) {
+      nativeStopPromise = null;
+    }
+  }
+}
+
+/**
  * Seek to a position in seconds
  */
 export async function nativeSeek(positionSeconds: number): Promise<void> {

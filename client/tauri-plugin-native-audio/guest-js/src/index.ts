@@ -26,6 +26,13 @@ export async function stop(): Promise<void> {
 }
 
 /**
+ * Clear native playback/session state for an account or session boundary.
+ */
+export async function resetSession(): Promise<void> {
+  await invoke("plugin:native-audio|reset_session");
+}
+
+/**
  * Seek to a specific position
  * @param positionMs Position in milliseconds
  */

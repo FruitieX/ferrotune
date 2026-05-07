@@ -92,6 +92,7 @@ pub struct HeartbeatRequest {
 pub struct SessionCommandRequest {
     pub action: String,
     pub position_ms: Option<i64>,
+    pub current_index: Option<usize>,
     pub volume: Option<f64>,
     pub is_muted: Option<bool>,
     pub client_name: Option<String>,
@@ -536,6 +537,7 @@ pub async fn session_command(
         "pause",
         "next",
         "previous",
+        "playAtIndex",
         "seek",
         "stop",
         "queueChanged",
@@ -554,10 +556,23 @@ pub async fn session_command(
     // On takeOver, update the session's owner to the requesting client
     if request.action == "takeOver" {
         let new_client_name = request.client_name.as_deref().unwrap_or("ferrotune-web");
-        let new_client_id = request.client_id.as_deref();
+        let new_client_id = request
+            .client_id
+            .as_deref()
+            .filter(|client_id| !client_id.is_empty())
+            .ok_or_else(|| {
+                FerrotuneApiError(Error::InvalidRequest(
+                    "clientId is required for takeOver".to_string(),
+                ))
+            })?;
 
-        queries::update_session_owner(&state.database, &session_id, new_client_id, new_client_name)
-            .await?;
+        queries::update_session_owner(
+            &state.database,
+            &session_id,
+            Some(new_client_id),
+            new_client_name,
+        )
+        .await?;
 
         // Update queue position if provided (avoids stale position from heartbeat lag)
         if let Some(position_ms) = request.position_ms {
@@ -570,19 +585,17 @@ pub async fn session_command(
         }
 
         // Broadcast owner changed event
-        if let Some(ref cid) = request.client_id {
-            state
-                .session_manager
-                .broadcast(
-                    &session_id,
-                    SessionEvent::OwnerChanged {
-                        owner_client_id: Some(cid.clone()),
-                        owner_client_name: Some(new_client_name.to_string()),
-                        resume_playback: request.resume_playback.filter(|resume| *resume),
-                    },
-                )
-                .await;
-        }
+        state
+            .session_manager
+            .broadcast(
+                &session_id,
+                SessionEvent::OwnerChanged {
+                    owner_client_id: Some(new_client_id.to_string()),
+                    owner_client_name: Some(new_client_name.to_string()),
+                    resume_playback: request.resume_playback.filter(|resume| *resume),
+                },
+            )
+            .await;
     }
 
     // Broadcast the appropriate event type
@@ -599,6 +612,7 @@ pub async fn session_command(
                 action: "takeOver".to_string(),
                 client_id: request.client_id.clone(),
                 position_ms: request.position_ms,
+                current_index: request.current_index,
                 volume: request.volume,
                 is_muted: request.is_muted,
             }
@@ -607,6 +621,7 @@ pub async fn session_command(
             action: request.action,
             client_id: request.client_id,
             position_ms: request.position_ms,
+            current_index: request.current_index,
             volume: request.volume,
             is_muted: request.is_muted,
         },

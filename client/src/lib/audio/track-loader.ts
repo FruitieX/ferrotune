@@ -49,6 +49,7 @@ import {
   setIsIntentionalStop,
   setIsEndingQueue,
   setIsLoadingNewTrack,
+  getPlaybackRuntimeGeneration,
 } from "@/lib/audio/engine-state";
 import type { EngineStateSnapshot, EngineSetters } from "./engine-types";
 import { getNativeStreamOptions } from "./engine-types";
@@ -86,6 +87,17 @@ interface DirectSetters {
   setCurrentTime: (time: number) => void;
   setBuffered: (buffered: number) => void;
   setDuration: (duration: number) => void;
+}
+
+function queueRuntimeKey(queueState: ServerQueueState | null): string {
+  if (!queueState) return "none";
+  return [
+    queueState.source?.instanceId ?? "",
+    queueState.source?.type ?? "",
+    queueState.source?.id ?? "",
+    queueState.currentIndex,
+    queueState.totalCount,
+  ].join("\u0000");
 }
 
 // ============================================================================
@@ -162,6 +174,17 @@ export function loadTrackNative(
   }
   refs.lastProcessedSignalRef.current = trackChangeSignal;
 
+  const sessionIdAtStart = refs.stateRef.current.currentSessionId;
+  const queueStateAtStart =
+    params.queueState ?? refs.stateRef.current.queueState;
+  const queueKeyAtStart = queueRuntimeKey(queueStateAtStart);
+  const runtimeGenerationAtStart = getPlaybackRuntimeGeneration();
+  const loadStillCurrent = () =>
+    getPlaybackRuntimeGeneration() === runtimeGenerationAtStart &&
+    refs.stateRef.current.currentSessionId === sessionIdAtStart &&
+    refs.stateRef.current.currentSong?.id === currentSong.id &&
+    queueRuntimeKey(refs.stateRef.current.queueState) === queueKeyAtStart;
+
   // Log listening time for the track we're leaving
   if (currentLoadedTrackId && currentSong.id !== currentLoadedTrackId) {
     logListeningTimeAndReset();
@@ -190,11 +213,13 @@ export function loadTrackNative(
     if (nativeAudioReady) {
       await nativeAudioReady;
     }
+    if (!loadStillCurrent()) return;
 
     // Wait for session init (API credentials) before making any API calls
     if (nativeSessionReady) {
       await nativeSessionReady;
     }
+    if (!loadStillCurrent()) return;
 
     // Kotlin manages the queue itself — tell it to fetch & play
     const qs = params.queueState ?? refs.stateRef.current.queueState;
@@ -214,6 +239,7 @@ export function loadTrackNative(
       transcodingEnabled: s.transcodingEnabled,
       transcodingBitrate: s.transcodingBitrate,
     });
+    if (!loadStillCurrent()) return;
 
     // If only transcoding settings changed (not a new queue), just
     // invalidate so Kotlin refetches with new stream URLs
@@ -226,6 +252,7 @@ export function loadTrackNative(
     if (isRestoringQueue) {
       try {
         const nativeState = await nativeGetState();
+        if (!loadStillCurrent()) return;
         if (
           nativeState.trackId === currentSong.id &&
           (nativeState.state === "playing" ||
@@ -245,37 +272,6 @@ export function loadTrackNative(
           await nativeUpdateStarredState(isStarred);
           return;
         }
-
-        // Safety net: if native is actively playing a *different* track than
-        // what the frontend thinks is current (e.g. server returned a stale
-        // currentIndex after app resume), trust the native player instead of
-        // restarting playback at the wrong position.
-        if (
-          nativeState.trackId &&
-          nativeState.trackId !== currentSong.id &&
-          (nativeState.state === "playing" ||
-            nativeState.state === "paused" ||
-            nativeState.state === "loading")
-        ) {
-          console.log(
-            "[NativeAudio] Native player has different track than frontend expects " +
-              `(native: ${nativeState.trackId}, frontend: ${currentSong.id}). ` +
-              "Trusting native player — updating frontend state to match.",
-          );
-          refs.settersRef.current.setServerQueueState((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  currentIndex: nativeState.queueIndex,
-                  positionMs: nativeState.positionSeconds * 1000,
-                }
-              : prev,
-          );
-          refs.settersRef.current.setPlaybackState(nativeState.state);
-          refs.settersRef.current.setCurrentTime(nativeState.positionSeconds);
-          refs.settersRef.current.setDuration(nativeState.durationSeconds);
-          return;
-        }
       } catch (err) {
         console.warn(
           "[NativeAudio] Failed to check native state, proceeding with queue send:",
@@ -288,6 +284,8 @@ export function loadTrackNative(
     setters.setCurrentTime(isRestoringQueue ? qs.positionMs / 1000 : 0);
     setters.setDuration(currentSong.duration || 0);
 
+    if (!loadStillCurrent()) return;
+
     await nativeStartPlayback({
       totalCount: qs.totalCount,
       currentIndex: qs.currentIndex,
@@ -299,6 +297,8 @@ export function loadTrackNative(
       sourceType: qs.source?.type,
       sourceId: qs.source?.id ?? undefined,
     });
+
+    if (!loadStillCurrent()) return;
 
     setCurrentLoadedTrackId(currentSong.id);
 
@@ -314,6 +314,7 @@ export function loadTrackNative(
   };
 
   doNativeLoad().catch((err) => {
+    if (!loadStillCurrent()) return;
     console.error("[Audio] Failed to load/play native track:", err);
     setters.setPlaybackState("paused");
   });
@@ -388,6 +389,16 @@ export function loadTrackWeb(
     }
     return;
   }
+
+  const sessionIdAtStart = refs.stateRef.current.currentSessionId;
+  const queueStateAtStart = queueState ?? refs.stateRef.current.queueState;
+  const queueKeyAtStart = queueRuntimeKey(queueStateAtStart);
+  const runtimeGenerationAtStart = getPlaybackRuntimeGeneration();
+  const loadStillCurrent = () =>
+    getPlaybackRuntimeGeneration() === runtimeGenerationAtStart &&
+    refs.stateRef.current.currentSessionId === sessionIdAtStart &&
+    refs.stateRef.current.currentSong?.id === currentSong.id &&
+    queueRuntimeKey(refs.stateRef.current.queueState) === queueKeyAtStart;
 
   // Build the stream URL with current transcoding settings
   const streamUrl = client.getStreamUrl(currentSong.id, {
@@ -557,6 +568,7 @@ export function loadTrackWeb(
       audio.src = streamUrl;
       const handleCanPlayForRestore = () => {
         audio.removeEventListener("canplay", handleCanPlayForRestore);
+        if (!loadStillCurrent()) return;
         audio.currentTime = resumePositionSec;
       };
       audio.addEventListener("canplay", handleCanPlayForRestore);
@@ -575,6 +587,8 @@ export function loadTrackWeb(
     const handleCanPlayForSeek = () => {
       audio.removeEventListener("canplay", handleCanPlayForSeek);
 
+      if (!loadStillCurrent()) return;
+
       if (transcodingEnabled && savedPosition > 0) {
         setCurrentStreamTimeOffset(savedPosition);
         const offsetUrl = getClient()?.getStreamUrl(currentSong.id, {
@@ -587,6 +601,7 @@ export function loadTrackWeb(
           setters.setCurrentTime(savedPosition);
           if (wasPlaying) {
             resumeAudioContext().then(() => {
+              if (!loadStillCurrent()) return;
               audio.play().catch(console.error);
             });
           }
@@ -596,6 +611,7 @@ export function loadTrackWeb(
         setters.setCurrentTime(savedPosition);
         if (wasPlaying) {
           resumeAudioContext().then(() => {
+            if (!loadStillCurrent()) return;
             audio.play().catch(console.error);
           });
         }
@@ -647,6 +663,8 @@ export function loadTrackWeb(
     }
 
     resumeAudioContext().then((contextRunning) => {
+      if (!loadStillCurrent()) return;
+
       if (!contextRunning) {
         console.warn(
           "[Audio] Autoplay blocked — user gesture required to start playback",
@@ -654,6 +672,7 @@ export function loadTrackWeb(
         if (resumePositionSec > 0 && !transcodingEnabled) {
           const handleCanPlayForPosition = () => {
             audio.removeEventListener("canplay", handleCanPlayForPosition);
+            if (!loadStillCurrent()) return;
             audio.currentTime = resumePositionSec;
           };
           audio.addEventListener("canplay", handleCanPlayForPosition);
@@ -669,8 +688,10 @@ export function loadTrackWeb(
       if (resumePositionSec > 0 && !transcodingEnabled) {
         const handleCanPlayForResume = () => {
           audio.removeEventListener("canplay", handleCanPlayForResume);
+          if (!loadStillCurrent()) return;
           audio.currentTime = resumePositionSec;
           audio.play().catch((err) => {
+            if (!loadStillCurrent()) return;
             console.error("Failed to play:", err);
             setIsLoadingNewTrack(false);
             setters.setPlaybackState("paused");
@@ -680,6 +701,7 @@ export function loadTrackWeb(
         audio.load();
       } else {
         audio.play().catch((err) => {
+          if (!loadStillCurrent()) return;
           console.error("Failed to play:", err);
           setIsLoadingNewTrack(false);
           setters.setPlaybackState("paused");

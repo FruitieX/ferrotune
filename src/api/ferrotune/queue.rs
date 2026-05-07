@@ -74,6 +74,8 @@ pub struct StartQueueRequest {
     pub inline_images: Option<String>,
     /// Client ID of the requesting client (used for auto-claiming ownership)
     pub client_id: Option<String>,
+    /// Client name of the requesting client (used for auto-claiming ownership)
+    pub client_name: Option<String>,
     /// When true, the server broadcasts QueueUpdated instead of QueueChanged,
     /// so other clients update their queue UI without restarting playback.
     /// Used when the queue is swapped but the current song should keep playing
@@ -292,6 +294,8 @@ pub struct ShuffleRequest {
 pub struct UpdatePositionRequest {
     /// Playback session ID
     pub session_id: Option<String>,
+    /// Client ID of the audio owner applying this position update
+    pub client_id: Option<String>,
     /// New current index
     pub current_index: usize,
     /// Playback position in milliseconds
@@ -884,7 +888,11 @@ pub async fn start_queue(
             .await?
             .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
         if session.owner_client_id.is_none() {
-            let client_name = session.client_name.clone();
+            let client_name = request
+                .client_name
+                .as_deref()
+                .unwrap_or("ferrotune-web")
+                .to_string();
             queries::update_session_owner(
                 &state.database,
                 session_id,
@@ -1618,6 +1626,26 @@ pub async fn update_position(
     Json(request): Json<UpdatePositionRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
+    let request_client_id = request
+        .client_id
+        .as_deref()
+        .filter(|client_id| !client_id.is_empty())
+        .ok_or_else(|| {
+            FerrotuneApiError(Error::InvalidRequest(
+                "clientId is required to update queue position".to_string(),
+            ))
+        })?;
+
+    let session = queries::get_session(&state.database, session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+
+    if session.owner_client_id.as_deref() != Some(request_client_id) {
+        return Err(FerrotuneApiError(Error::Forbidden(
+            "Only the session owner can update queue position".to_string(),
+        )));
+    }
+
     let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;

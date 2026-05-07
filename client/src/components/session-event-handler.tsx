@@ -19,6 +19,7 @@ import {
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
+  playAtIndexAtom,
 } from "@/lib/store/server-queue";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
@@ -46,6 +47,7 @@ export function SessionEventHandler() {
   const { play, pause, next, previous, seek } = useAudioEngine();
   const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
   const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
+  const playAtIndex = useSetAtom(playAtIndexAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
   const setPlaybackState = useSetAtom(playbackStateAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
@@ -121,6 +123,11 @@ export function SessionEventHandler() {
             break;
           case "previous":
             previous();
+            break;
+          case "playAtIndex":
+            if (event.currentIndex !== undefined) {
+              playAtIndex(event.currentIndex);
+            }
             break;
           case "seek":
             if (event.positionMs !== undefined) {

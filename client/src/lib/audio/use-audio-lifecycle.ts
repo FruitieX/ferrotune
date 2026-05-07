@@ -27,9 +27,13 @@ import {
   isHydratedAtom,
   accountKey,
 } from "@/lib/store/auth";
-import { effectiveSessionIdAtom } from "@/lib/store/session";
+import { clientIdAtom, effectiveSessionIdAtom } from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
-import { nativeStop, nativeGetState } from "@/lib/audio/native-engine";
+import {
+  nativeStop,
+  nativeGetState,
+  nativeResetSession,
+} from "@/lib/audio/native-engine";
 import {
   appResumeRepaintEvent,
   isAndroidTauriWebView,
@@ -55,12 +59,18 @@ export function useAudioLifecycle({
   const serverConnection = useAtomValue(serverConnectionAtom);
   const isHydrated = useAtomValue(isHydratedAtom);
   const currentSessionId = useAtomValue(effectiveSessionIdAtom);
+  const clientId = useAtomValue(clientIdAtom);
+  const queueWindow = useAtomValue(queueWindowAtom);
   const fetchQueue = useSetAtom(fetchQueueAtom);
 
   // Ref to avoid stale closure in event listeners
   const currentSessionIdRef = useRef(currentSessionId);
+  const clientIdRef = useRef(clientId);
+  const queueWindowRef = useRef(queueWindow);
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
+    clientIdRef.current = clientId;
+    queueWindowRef.current = queueWindow;
   });
 
   // Direct atom setters for account-change reset
@@ -94,9 +104,34 @@ export function useAudioLifecycle({
     if (!isAndroidTauriWebView()) return;
 
     const handleResume = async () => {
+      const sessionIdAtResumeStart = currentSessionIdRef.current;
       if (usingNativeAudio) {
         try {
           const nativeState = await nativeGetState();
+          if (currentSessionIdRef.current !== sessionIdAtResumeStart) {
+            return;
+          }
+
+          const entry = queueWindowRef.current?.songs.find(
+            (song) => song.position === nativeState.queueIndex,
+          );
+          const nativeStateMatchesCurrentQueue =
+            nativeState.state === "idle" ||
+            (!!nativeState.trackId && entry?.song.id === nativeState.trackId);
+
+          if (!nativeStateMatchesCurrentQueue) {
+            console.warn(
+              "[Audio] Ignoring native resume state that does not match the active queue",
+              {
+                nativeTrackId: nativeState.trackId,
+                nativeQueueIndex: nativeState.queueIndex,
+                expectedTrackId: entry?.song.id,
+              },
+            );
+            fetchQueue();
+            return;
+          }
+
           settersRef.current.setPlaybackState(nativeState.state);
           settersRef.current.setCurrentTime(nativeState.positionSeconds);
           settersRef.current.setDuration(nativeState.durationSeconds);
@@ -117,13 +152,15 @@ export function useAudioLifecycle({
           if (nativeState.state !== "idle") {
             const client = getClient();
             const sessionId = currentSessionIdRef.current;
-            if (client && sessionId) {
+            const ownerClientId = clientIdRef.current || undefined;
+            if (client && sessionId && ownerClientId) {
               try {
                 await client.updateServerQueuePosition(
                   nativeState.queueIndex,
                   Math.round(nativeState.positionSeconds * 1000),
                   false,
                   sessionId,
+                  ownerClientId,
                 );
               } catch (e) {
                 console.warn(
@@ -170,9 +207,9 @@ export function useAudioLifecycle({
     resetPlaybackRuntimeState();
     lastProcessedSignalRef.current = -1;
 
-    // Stop playback and clear media from the old account.
+    // Stop playback and clear native session state from the old account.
     if (hasNativeAudio() || usingNativeAudio) {
-      nativeStop().catch(console.error);
+      nativeResetSession().catch(() => nativeStop().catch(console.error));
     } else {
       const audio = getActiveAudio();
       if (audio) {

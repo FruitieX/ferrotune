@@ -401,6 +401,25 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
+    fun resetSession(invoke: Invoke) {
+        scope.launch {
+            try {
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "resetSession() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.resetSession()
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in resetSession()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
     fun seek(invoke: Invoke) {
         Log.d(TAG, "seek command received")
         scope.launch {

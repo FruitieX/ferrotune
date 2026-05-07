@@ -51,6 +51,8 @@ pub enum SessionEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         position_ms: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        current_index: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         volume: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_muted: Option<bool>,

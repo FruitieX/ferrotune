@@ -23,7 +23,7 @@ import {
   connectionStatusAtom,
 } from "@/lib/store/auth";
 import {
-  currentSessionIdAtom,
+  effectiveSessionIdAtom,
   connectedClientsAtom,
   clientIdAtom,
   isAudioOwnerAtom,
@@ -55,7 +55,7 @@ export function AccountMenuItems({
   const currentKey = connection ? accountKey(connection) : null;
   const hasMultipleAccounts = savedAccounts.length > 1;
 
-  const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const connectedClients = useAtomValue(connectedClientsAtom);
   const myClientId = useAtomValue(clientIdAtom);
   const ownerClientId = useAtomValue(ownerClientIdAtom);

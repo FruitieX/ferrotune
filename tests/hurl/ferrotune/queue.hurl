@@ -31,11 +31,22 @@ POST {{base_url}}/ferrotune/sessions
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
-  "clientName": "hurl-test"
+  "clientName": "hurl-test",
+  "clientId": "hurl-owner"
 }
 HTTP 200
 [Captures]
 test_session_id: jsonpath "$.id"
+
+# Test: takeOver requires a clientId so it cannot clear ownership accidentally
+POST {{base_url}}/ferrotune/sessions/{{test_session_id}}/command
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "action": "takeOver",
+  "clientName": "hurl-test"
+}
+HTTP 400
 
 # ============================================================================
 # START QUEUE - Create queue from album source
@@ -113,12 +124,25 @@ Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
   "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
   "currentIndex": 0,
   "positionMs": 5000
 }
 HTTP 200
 [Asserts]
 jsonpath "$.success" == true
+
+# Test: Stale/non-owner clients cannot overwrite queue position
+POST {{base_url}}/ferrotune/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-stale-owner",
+  "currentIndex": 0,
+  "positionMs": 2500
+}
+HTTP 403
 
 # ============================================================================
 # ADD TO QUEUE - Add songs at different positions
@@ -544,6 +568,7 @@ Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
   "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
   "currentIndex": 99999,
   "positionMs": 0
 }

@@ -12,14 +12,14 @@
  * for virtualized rendering.
  */
 
-import { atom } from "jotai";
+import { atom, type Atom } from "jotai";
 import type {
   Song,
   QueueSourceInfo,
   QueueWindow,
   GetQueueResponse,
 } from "@/lib/api/types";
-import { getClient } from "@/lib/api/client";
+import { getClient, getClientName } from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
   nativeNextTrack,
@@ -111,6 +111,19 @@ function canRefreshQueueWithoutRestart(
       playbackState === "paused" ||
       playbackState === "loading")
   );
+}
+
+type QueueGetter = <Value>(atom: Atom<Value>) => Value;
+
+function isCurrentSession(
+  get: QueueGetter,
+  sessionId: string | undefined,
+): boolean {
+  return (get(effectiveSessionIdAtom) ?? undefined) === sessionId;
+}
+
+function getRequestClientId(get: QueueGetter): string | undefined {
+  return get(clientIdAtom) || undefined;
 }
 
 // ============================================================================
@@ -277,7 +290,7 @@ export const startQueueAtom = atom(
         params.shuffle ?? get(serverQueueStateAtom)?.isShuffled ?? false;
 
       const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-      const clientId = get(clientIdAtom) || undefined;
+      const clientId = getRequestClientId(get);
 
       const response = await client.startQueue({
         sourceType: params.sourceType,
@@ -292,7 +305,12 @@ export const startQueueAtom = atom(
         inlineImages: "small", // Always request small thumbnails for queue
         sessionId,
         clientId,
+        clientName: getClientName(),
       });
+
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
 
       if (isSeamlessSwap) {
         // Seamless swap: update queue state but preserve the current
@@ -341,6 +359,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   if (!client) return;
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   if (!sessionId) return; // Session not initialized yet
 
   set(isQueueLoadingAtom, true);
@@ -633,11 +652,13 @@ export const goToNextAtom = atom(null, async (get, set) => {
     }
   }
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  const clientId = getRequestClientId(get);
+  if (!sessionId || !clientId) return;
+
   set(isQueueOperationPendingAtom, true);
 
   try {
-    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-
     // When wrapping around with shuffle + repeat-all, request a reshuffle
     // so the next cycle has a fresh random order
     const shouldReshuffle = isWrapping && state.isShuffled;
@@ -646,7 +667,12 @@ export const goToNextAtom = atom(null, async (get, set) => {
       0,
       shouldReshuffle,
       sessionId,
+      clientId,
     );
+
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
 
     const newIndex = response.newIndex ?? nextIndex;
 
@@ -669,6 +695,9 @@ export const goToNextAtom = atom(null, async (get, set) => {
         "small",
         sessionId,
       );
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
       set(queueWindowAtom, queueResponse.window);
     }
   } catch (error) {
@@ -706,12 +735,24 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
     }
   }
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  const clientId = getRequestClientId(get);
+  if (!sessionId || !clientId) return;
+
   set(isQueueOperationPendingAtom, true);
 
-  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-
   try {
-    await client.updateServerQueuePosition(prevIndex, 0, false, sessionId);
+    await client.updateServerQueuePosition(
+      prevIndex,
+      0,
+      false,
+      sessionId,
+      clientId,
+    );
+
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
 
     set(serverQueueStateAtom, {
       ...state,
@@ -729,6 +770,9 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
           "small",
           sessionId,
         );
+        if (!isCurrentSession(get, sessionId)) {
+          return;
+        }
         set(queueWindowAtom, response.window);
       }
     }
@@ -772,7 +816,7 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
               undefined,
               undefined,
               undefined,
-              undefined,
+              getClientName(),
               clientId,
             )
             .catch(() => {
@@ -791,6 +835,28 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
       }
       return;
     }
+  }
+
+  if (get(isRemoteControllingAtom) && sessionId) {
+    set(isQueueOperationPendingAtom, true);
+    try {
+      await client.sendSessionCommand(
+        sessionId,
+        "playAtIndex",
+        undefined,
+        undefined,
+        undefined,
+        getClientName(),
+        getRequestClientId(get),
+        undefined,
+        index,
+      );
+    } catch (error) {
+      console.error("Failed to send remote playAtIndex command:", error);
+    } finally {
+      set(isQueueOperationPendingAtom, false);
+    }
+    return;
   }
 
   set(isQueueOperationPendingAtom, true);
@@ -813,7 +879,7 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
           undefined,
           undefined,
           undefined,
-          undefined,
+          getClientName(),
           clientId,
         )
         .catch(() => {
@@ -821,19 +887,30 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
         });
     }
 
-    await client.updateServerQueuePosition(index, 0, false, sessionId);
+    const clientId = getRequestClientId(get);
+    if (!sessionId || !clientId) return;
+
+    await client.updateServerQueuePosition(
+      index,
+      0,
+      false,
+      sessionId,
+      clientId,
+    );
+
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
 
     set(serverQueueStateAtom, { ...state, currentIndex: index, positionMs: 0 });
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
 
     // Fetch new window centered on the new position
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
-    set(queueWindowAtom, response.window);
-
-    // Notify the session owner via SSE when remote controlling
-    if (get(isRemoteControllingAtom) && sessionId) {
-      client.sendSessionCommand(sessionId, "queueChanged").catch(console.error);
+    if (!isCurrentSession(get, sessionId)) {
+      return;
     }
+    set(queueWindowAtom, response.window);
   } catch (error) {
     console.error("Failed to play at index:", error);
   } finally {
@@ -867,6 +944,9 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
           "small",
           sessionId,
         );
+        if (!isCurrentSession(get, sessionId)) {
+          return;
+        }
         set(serverQueueStateAtom, {
           ...state,
           isShuffled: queueResponse.isShuffled,
@@ -894,6 +974,9 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
       newShuffleState,
       sessionId,
     );
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
 
     // Fetch new window since order has changed
     const queueResponse = await client.getQueueCurrentWindow(
@@ -901,6 +984,9 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
       "small",
       sessionId,
     );
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
 
     // Update state and window atomically to avoid a transient mismatch
     // where currentIndex points to a different song in the old window
@@ -929,10 +1015,15 @@ export const setRepeatModeAtom = atom(
     const state = get(serverQueueStateAtom);
     if (!state) return;
 
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
     // Kotlin handles repeat mode + ExoPlayer update
     if (hasNativeAudio() && get(isAudioOwnerAtom)) {
       try {
         await nativeSetRepeatMode(mode);
+        if (!isCurrentSession(get, sessionId)) {
+          return;
+        }
         set(serverQueueStateAtom, { ...state, repeatMode: mode });
       } catch (error) {
         console.error("Failed to set repeat mode (native):", error);
@@ -943,10 +1034,11 @@ export const setRepeatModeAtom = atom(
     const client = getClient();
     if (!client) return;
 
-    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-
     try {
       await client.updateServerRepeatMode(mode, sessionId);
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
       set(serverQueueStateAtom, { ...state, repeatMode: mode });
 
       // Notify the session owner via SSE when remote controlling
@@ -994,7 +1086,13 @@ export const addToQueueAtom = atom(
           startIndex: 0,
           inlineImages: "small",
           sessionId,
+          clientId: getRequestClientId(get),
+          clientName: getClientName(),
         });
+
+        if (!isCurrentSession(get, sessionId)) {
+          return { success: false, addedCount: 0 };
+        }
 
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
@@ -1020,6 +1118,10 @@ export const addToQueueAtom = atom(
         sessionId,
       });
 
+      if (!isCurrentSession(get, sessionId)) {
+        return { success: false, addedCount: 0 };
+      }
+
       // Update total count
       if (
         state &&
@@ -1038,6 +1140,10 @@ export const addToQueueAtom = atom(
         "small",
         sessionId,
       );
+
+      if (!isCurrentSession(get, sessionId)) {
+        return { success: false, addedCount: 0 };
+      }
 
       // Pull the authoritative queue metadata from the same response so local
       // state stays aligned with the server after queue mutations.
@@ -1085,6 +1191,10 @@ export const removeFromQueueAtom = atom(
     try {
       const response = await client.removeFromServerQueue(position, sessionId);
 
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
+
       // Optimistically update BOTH window and state synchronously to prevent
       // a transient mismatch where currentSongAtom resolves against a stale
       // window, triggering track-loader to clear/reload audio.
@@ -1113,6 +1223,9 @@ export const removeFromQueueAtom = atom(
         "small",
         sessionId,
       );
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
       set(queueWindowAtom, queueResponse.window);
 
       // Native PlaybackService already receives the server-broadcast
@@ -1215,6 +1328,10 @@ export const moveInQueueAtom = atom(
         sessionId,
       );
 
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
+
       // Update current index from server response (authoritative)
       if (
         currentState &&
@@ -1233,6 +1350,9 @@ export const moveInQueueAtom = atom(
         "small",
         sessionId,
       );
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
       set(queueWindowAtom, queueResponse.window);
 
       // Native PlaybackService already receives the server-broadcast
@@ -1255,6 +1375,9 @@ export const moveInQueueAtom = atom(
           "small",
           sessionId,
         );
+        if (!isCurrentSession(get, sessionId)) {
+          return;
+        }
         set(queueWindowAtom, queueResponse.window);
       } catch {
         // Ignore refetch errors
@@ -1276,6 +1399,9 @@ export const clearQueueAtom = atom(null, async (get, set) => {
 
   try {
     await client.clearServerQueue(sessionId);
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
     set(serverQueueStateAtom, null);
     set(queueWindowAtom, null);
   } catch (error) {
@@ -1294,6 +1420,9 @@ export const stopPlaybackAtom = atom(null, async (get, set) => {
 
   try {
     await client.clearServerQueue(sessionId);
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
     set(serverQueueStateAtom, null);
     set(queueWindowAtom, null);
   } catch (error) {
@@ -1320,7 +1449,13 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
       startIndex: 0,
       inlineImages: "small",
       sessionId,
+      clientId: getRequestClientId(get),
+      clientName: getClientName(),
     });
+
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
 
     set(serverQueueStateAtom, {
       totalCount: response.totalCount,

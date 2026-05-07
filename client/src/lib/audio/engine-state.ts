@@ -42,6 +42,18 @@ export function resolveNativeSessionReadyPromise(): void {
   }
 }
 
+/** Monotonic identity for async playback work; reset boundaries advance it. */
+let playbackRuntimeGeneration = 0;
+
+export function getPlaybackRuntimeGeneration(): number {
+  return playbackRuntimeGeneration;
+}
+
+export function advancePlaybackRuntimeGeneration(): number {
+  playbackRuntimeGeneration += 1;
+  return playbackRuntimeGeneration;
+}
+
 // ============================================================================
 // WEB AUDIO PLAYBACK STATE
 // ============================================================================
@@ -108,6 +120,7 @@ export function setLastNativeTranscodingBitrate(v: number) {
 
 /** Reset all module-level engine state to initial values. */
 export function resetEngineState() {
+  advancePlaybackRuntimeGeneration();
   usingNativeAudio = false;
   nativeAudioReady = null;
   nativeSessionReady = null;
@@ -128,6 +141,7 @@ export function resetEngineState() {
  * must forget which track/queue the previous account had loaded.
  */
 export function resetPlaybackRuntimeState() {
+  advancePlaybackRuntimeGeneration();
   nativeSessionReady = null;
   nativeSessionReadyResolve = null;
   currentLoadedTrackId = null;

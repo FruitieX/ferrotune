@@ -718,6 +718,47 @@ class PlaybackService : MediaSessionService() {
         emitStateChange()
     }
 
+    fun resetSession() {
+        resetSessionBoundary("explicit session reset", clearConfig = true)
+    }
+
+    private fun resetSessionBoundary(reason: String, clearConfig: Boolean) {
+        Log.d(TAG, "resetSessionBoundary: $reason")
+        nextQueueLoadGeneration(reason)
+        clearPendingNetworkRetry(reason)
+        nativeOwnsSession = false
+        sseConnected = false
+        sseReconnectRunnable?.let { handler.removeCallbacks(it) }
+        sseReconnectRunnable = null
+        apiClient.disconnectSSE()
+        if (clearConfig) {
+            apiClient.clearSessionConfig()
+            activeSessionIdentity = null
+        }
+        handler.removeCallbacks(positionSyncRunnable)
+        handler.removeCallbacks(preApplyGainRunnable)
+        handler.removeCallbacks(inactivityTimeoutRunnable)
+        player.stop()
+        player.clearMediaItems()
+        currentTrack = null
+        seekTimeOffsetMs = 0
+        lastKnownGoodPositionMs = 0
+        serverTotalCount = 0
+        serverQueueIndex = 0
+        queue = emptyList()
+        queueIndex = -1
+        queueSourceType = null
+        queueSourceId = null
+        exoIndexToServerPosition.clear()
+        exoIndexToQueueSong.clear()
+        loadedRangeStart = 0
+        loadedRangeEnd = 0
+        isFetching = false
+        resetScrobbleState()
+        replayGainProcessor.clearPendingGain()
+        emitStateChange()
+    }
+
     fun seek(positionMs: Long) {
         Log.d(TAG, "seek($positionMs) transcoding=${playbackSettings.transcodingEnabled}")
         clearPendingNetworkRetry("seek")
@@ -764,7 +805,7 @@ class PlaybackService : MediaSessionService() {
         val sessionIdentity = sessionIdentity(config)
         if (activeSessionIdentity != null && activeSessionIdentity != sessionIdentity) {
             Log.d(TAG, "initSession: session identity changed; clearing loaded media")
-            stop()
+            resetSessionBoundary("initSession identity changed", clearConfig = false)
         } else {
             nextQueueLoadGeneration("initSession")
         }
@@ -799,7 +840,7 @@ class PlaybackService : MediaSessionService() {
                 handler.post {
                     sseConnected = false
                     // Auto-reconnect after delay if playback is active
-                    if (isActive) {
+                    if (nativeOwnsSession && isActive && apiClient.hasSessionConfig()) {
                         sseReconnectRunnable = Runnable { connectSessionSSE() }
                         handler.postDelayed(sseReconnectRunnable!!, SSE_RECONNECT_DELAY_MS)
                     }
@@ -836,6 +877,10 @@ class PlaybackService : MediaSessionService() {
                     "previous" -> {
                         clearAudioOutputLossPause("SSE previous command")
                         autonomousSkipPrevious()
+                    }
+                    "playAtIndex" -> event.currentIndex?.let {
+                        clearAudioOutputLossPause("SSE playAtIndex command")
+                        playAtIndex(it)
                     }
                     "seek" -> event.positionMs?.let { seek(it) }
                 }
@@ -1181,9 +1226,8 @@ class PlaybackService : MediaSessionService() {
         queue = tracks
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
+        serverQueueIndex = targetIndex
         currentTrack = tracks.getOrNull(exoStartIndex)
-
-        applyTrackReplayGain(currentTrack)
 
         val mediaItems = tracks.map { createMediaItem(it) }.toMutableList()
 
@@ -1202,6 +1246,7 @@ class PlaybackService : MediaSessionService() {
 
             player.playWhenReady = effectivePlayWhenReady
             player.setMediaItems(mediaItems, exoStartIndex, 0)
+            applyTrackReplayGain(currentTrack, exoStartIndex)
             player.prepare()
 
             Log.d(TAG, "Loaded ${tracks.size} tracks with seek-by-reload: offset=${timeOffsetSeconds}s, " +
@@ -1212,6 +1257,7 @@ class PlaybackService : MediaSessionService() {
 
             player.playWhenReady = effectivePlayWhenReady
             player.setMediaItems(mediaItems, exoStartIndex, startPositionMs)
+            applyTrackReplayGain(currentTrack, exoStartIndex)
             player.prepare()
 
             Log.d(TAG, "Loaded ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
@@ -2087,11 +2133,11 @@ class PlaybackService : MediaSessionService() {
      * before the current track ends. Uses Handler.postDelayed based on the player's
      * current position and the track's duration for accurate scheduling.
      */
-    private fun scheduleReplayGainPreApply() {
+    private fun scheduleReplayGainPreApply(currentExoIndex: Int = player.currentMediaItemIndex) {
         handler.removeCallbacks(preApplyGainRunnable)
         val track = currentTrack ?: return
         if (track.durationMs <= 0) return
-        if (player.currentMediaItemIndex + 1 >= player.mediaItemCount) return
+        if (currentExoIndex + 1 >= player.mediaItemCount) return
 
         val currentPos = player.currentPosition + seekTimeOffsetMs
         val remaining = track.durationMs - currentPos
@@ -2105,14 +2151,14 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun applyTrackReplayGain(track: TrackInfo?) {
+    private fun applyTrackReplayGain(track: TrackInfo?, exoIndexOverride: Int? = null) {
         // Reset pre-apply flag so it can trigger again for the next transition
         hasPreAppliedNextGain = false
         // Clear any pending gain from a previous pre-apply (e.g., manual skip)
         replayGainProcessor.clearPendingGain()
         // In autonomous mode, recompute gain fresh from QueueSong + current playbackSettings
         // instead of relying on the stale TrackInfo.replayGainDb baked at queue-creation time.
-        val exoIndex = player.currentMediaItemIndex
+        val exoIndex = exoIndexOverride ?: player.currentMediaItemIndex
         val queueSong = exoIndexToQueueSong.getOrNull(exoIndex)
         val gainDb = if (queueSong != null) {
             apiClient.computeReplayGainDb(queueSong, playbackSettings) ?: 0f
@@ -2129,7 +2175,7 @@ class PlaybackService : MediaSessionService() {
         replayGainProcessor.setGainDb(gainDb)
         replayGainProcessor.resetPeakTracker()
         // Schedule pre-application of next track's gain before this track ends
-        scheduleReplayGainPreApply()
+        scheduleReplayGainPreApply(exoIndex)
     }
 
     /**

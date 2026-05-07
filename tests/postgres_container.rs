@@ -4738,6 +4738,7 @@ fn test_postgres_playlist_start_queue_handler_works() {
                 song_ids: None,
                 inline_images: None,
                 client_id: None,
+                client_name: None,
                 keep_playing: false,
             }),
         )
@@ -4874,6 +4875,7 @@ fn test_postgres_smart_playlist_start_queue_handler_works() {
                 song_ids: None,
                 inline_images: None,
                 client_id: None,
+                client_name: None,
                 keep_playing: false,
             }),
         )
@@ -5423,6 +5425,7 @@ fn test_postgres_continue_listening_start_queue_handler_works() {
                 song_ids: None,
                 inline_images: None,
                 client_id: None,
+                client_name: None,
                 keep_playing: false,
             }),
         )

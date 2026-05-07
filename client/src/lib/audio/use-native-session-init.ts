@@ -21,6 +21,7 @@ import {
   nativeSessionReady,
   createNativeSessionReadyPromise,
   resolveNativeSessionReadyPromise,
+  getPlaybackRuntimeGeneration,
 } from "@/lib/audio/engine-state";
 import { hasNativeAudio } from "@/lib/tauri";
 import type { EngineStateSnapshot } from "./engine-types";
@@ -49,11 +50,18 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
       createNativeSessionReadyPromise();
     }
 
+    const runtimeGeneration = getPlaybackRuntimeGeneration();
+    const isCurrentInit = () =>
+      !cancelled &&
+      getPlaybackRuntimeGeneration() === runtimeGeneration &&
+      stateRef.current.currentSessionId === currentSessionId &&
+      stateRef.current.clientId === clientId;
+
     const init = async () => {
       if (nativeAudioReady) {
         await nativeAudioReady;
       }
-      if (cancelled) return;
+      if (!isCurrentInit()) return;
 
       await nativeInitSession({
         serverUrl: serverConnection.serverUrl,
@@ -63,7 +71,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
         sessionId: currentSessionId,
         clientId: clientId || undefined,
       });
-      if (cancelled) return;
+      if (!isCurrentInit()) return;
 
       await nativeUpdateSettings({
         replayGainMode: stateRef.current.replayGainMode,
@@ -72,7 +80,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
         transcodingEnabled: stateRef.current.transcodingEnabled,
         transcodingBitrate: stateRef.current.transcodingBitrate,
       });
-      if (cancelled) return;
+      if (!isCurrentInit()) return;
 
       // Signal readiness only after both session config and playback settings
       // have reached Kotlin, so startup preloading uses the correct URLs/gain.
@@ -81,6 +89,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
 
     init().catch((err) => {
       console.error(`[NativeAudio] session init: FAILED: ${String(err)}`);
+      if (!isCurrentInit()) return;
       // Unblock pending loads so the failure surfaces as a command error
       // instead of hanging forever on an unresolved readiness promise.
       resolveNativeSessionReadyPromise();

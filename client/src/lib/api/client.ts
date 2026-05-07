@@ -1540,6 +1540,8 @@ export class FerrotuneClient {
     sessionId?: string;
     /** Client ID for auto-claiming ownership when no owner exists */
     clientId?: string;
+    /** Client name for auto-claiming ownership when no owner exists */
+    clientName?: string;
   }): Promise<StartQueueResponse> {
     return this.request("/ferrotune/queue/start", {
       method: "POST",
@@ -1665,6 +1667,7 @@ export class FerrotuneClient {
     positionMs: number = 0,
     reshuffle: boolean = false,
     sessionId?: string,
+    clientId?: string,
   ): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/position", {
       method: "POST",
@@ -1673,6 +1676,7 @@ export class FerrotuneClient {
         positionMs,
         ...(reshuffle && { reshuffle: true }),
         sessionId,
+        clientId,
       }),
     });
   }
@@ -2016,6 +2020,7 @@ export class FerrotuneClient {
     clientName?: string,
     clientId?: string,
     resumePlayback?: boolean,
+    currentIndex?: number,
   ): Promise<SessionSuccessResponse> {
     return this.request(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
@@ -2029,6 +2034,7 @@ export class FerrotuneClient {
           clientName,
           clientId,
           resumePlayback,
+          currentIndex,
         }),
       },
       true, // Silent — session errors are recovered automatically

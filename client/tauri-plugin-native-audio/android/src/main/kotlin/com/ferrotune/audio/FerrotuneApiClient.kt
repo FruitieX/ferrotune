@@ -121,6 +121,10 @@ class FerrotuneApiClient {
         sessionConfig = config
     }
 
+    fun clearSessionConfig() {
+        sessionConfig = null
+    }
+
     fun hasSessionConfig(): Boolean = sessionConfig != null
 
     fun getClientId(): String? = sessionConfig?.clientId
@@ -249,7 +253,9 @@ class FerrotuneApiClient {
             put("currentIndex", currentIndex)
             put("positionMs", positionMs)
             put("reshuffle", reshuffle)
-            getConfig().sessionId?.let { put("sessionId", it) }
+            val config = getConfig()
+            config.sessionId?.let { put("sessionId", it) }
+            config.clientId?.let { put("clientId", it) }
         }
         val url = buildApiUrl("/ferrotune/queue/position")
         val request = Request.Builder()
@@ -555,6 +561,8 @@ class FerrotuneApiClient {
                 action = json.getString("action"),
                 positionMs = if (json.has("positionMs") && !json.isNull("positionMs"))
                     json.getLong("positionMs") else null,
+                currentIndex = if (json.has("currentIndex") && !json.isNull("currentIndex"))
+                    json.getInt("currentIndex") else null,
             )
             "positionUpdate" -> SessionEvent.PositionUpdate(
                 currentIndex = json.getInt("currentIndex"),
@@ -589,7 +597,11 @@ class FerrotuneApiClient {
 sealed class SessionEvent {
     object QueueChanged : SessionEvent()
     object QueueUpdated : SessionEvent()
-    data class PlaybackCommand(val action: String, val positionMs: Long?) : SessionEvent()
+    data class PlaybackCommand(
+        val action: String,
+        val positionMs: Long?,
+        val currentIndex: Int?,
+    ) : SessionEvent()
     data class PositionUpdate(
         val currentIndex: Int,
         val positionMs: Long,
