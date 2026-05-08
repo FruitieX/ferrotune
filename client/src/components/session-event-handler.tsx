@@ -12,14 +12,15 @@ import {
   isRemoteControllingAtom,
   remotePlaybackStateAtom,
   connectedClientsAtom,
-  selfTakeoverPending,
   clientIdAtom,
+  effectiveSessionIdAtom,
 } from "@/lib/store/session";
 import {
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
   playAtIndexAtom,
+  serverQueueStateAtom,
 } from "@/lib/store/server-queue";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
@@ -43,13 +44,17 @@ export function SessionEventHandler() {
   const isAudioOwner = useAtomValue(isAudioOwnerAtom);
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
   const clientId = useAtomValue(clientIdAtom);
+  const sessionId = useAtomValue(effectiveSessionIdAtom);
   const currentSong = useAtomValue(currentSongAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   const { play, pause, next, previous, seek } = useAudioEngine();
   const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
   const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
   const playAtIndex = useSetAtom(playAtIndexAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
+  const playbackState = useAtomValue(playbackStateAtom);
   const setPlaybackState = useSetAtom(playbackStateAtom);
+  const currentTime = useAtomValue(currentTimeAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
   const setDuration = useSetAtom(durationAtom);
   const setVolume = useSetAtom(volumeAtom);
@@ -57,6 +62,21 @@ export function SessionEventHandler() {
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setConnectedClients = useSetAtom(connectedClientsAtom);
   const { applyOwnerSnapshot } = useSessionOwnerState();
+
+  const syncQueueForPosition = (event: SessionEvent) => {
+    if (event.currentIndex === undefined) return;
+
+    const needsQueueRefresh =
+      !queueState ||
+      !currentSong ||
+      queueState.currentIndex !== event.currentIndex ||
+      (event.currentSongId !== undefined &&
+        currentSong.id !== event.currentSongId);
+
+    if (needsQueueRefresh) {
+      fetchQueueSilent();
+    }
+  };
 
   // Update duration from current song when remote controlling
   useEffect(() => {
@@ -98,7 +118,7 @@ export function SessionEventHandler() {
         // Skip if we just initiated the takeover ourselves (the broadcast
         // echoes back to us and would incorrectly pause our own playback).
         if (event.action === "takeOver") {
-          if (event.clientId === clientId || selfTakeoverPending.value) {
+          if (event.clientId === clientId) {
             return;
           }
           pause();
@@ -184,6 +204,8 @@ export function SessionEventHandler() {
           currentSongArtist: event.currentSongArtist,
         });
 
+        syncQueueForPosition(event);
+
         // When remote controlling (or not the audio owner), drive the
         // player bar atoms from SSE so follower UI stays in sync
         if (isRemoteControlling || !isAudioOwner) {
@@ -200,6 +222,27 @@ export function SessionEventHandler() {
             .listClients()
             .then((response) => setConnectedClients(response.clients))
             .catch(() => {});
+
+          if (
+            isAudioOwner &&
+            !isRemoteControlling &&
+            !hasNativeAudio() &&
+            sessionId &&
+            currentSong &&
+            queueState
+          ) {
+            client
+              .sessionHeartbeat(sessionId, {
+                clientId: clientId || undefined,
+                isPlaying: playbackState === "playing",
+                currentIndex: queueState.currentIndex,
+                positionMs: Math.round(currentTime * 1000),
+                currentSongId: currentSong.id,
+                currentSongTitle: currentSong.title,
+                currentSongArtist: currentSong.artist,
+              })
+              .catch(() => {});
+          }
         }
         break;
       }

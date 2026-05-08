@@ -272,10 +272,11 @@ export function useAudioEngine() {
   // Remote control awareness
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
   const ownerClientId = useAtomValue(ownerClientIdAtom);
+  const ownerClientName = useAtomValue(ownerClientNameAtom);
   const setOwnerClientId = useSetAtom(ownerClientIdAtom);
   const setOwnerClientName = useSetAtom(ownerClientNameAtom);
   const clientId = useAtomValue(clientIdAtom);
-  const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
+  const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
   const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const effectiveSessionId = currentSessionId;
@@ -346,8 +347,6 @@ export function useAudioEngine() {
       return;
     }
 
-    if (ownerClientId) return;
-
     const targetSessionId = effectiveSessionId;
     const client = getClient();
     if (!targetSessionId || !client) return;
@@ -370,9 +369,9 @@ export function useAudioEngine() {
     } catch (error) {
       console.error("Failed to claim playback ownership:", error);
       selfTakeoverPending.value = false;
-      setIsAudioOwner(false);
-      setOwnerClientId(null);
-      setOwnerClientName(null);
+      setIsAudioOwner(isAudioOwner);
+      setOwnerClientId(ownerClientId);
+      setOwnerClientName(ownerClientName);
     }
   };
 

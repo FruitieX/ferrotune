@@ -38,6 +38,19 @@ HTTP 200
 [Captures]
 test_session_id: jsonpath "$.id"
 
+# Test: Passive connect from another tab must not steal or clear ownership
+POST {{base_url}}/ferrotune/sessions
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "clientName": "hurl-follower",
+  "clientId": "hurl-follower"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.id" == "{{test_session_id}}"
+jsonpath "$.ownerClientId" == "hurl-owner"
+
 # Test: takeOver requires a clientId so it cannot clear ownership accidentally
 POST {{base_url}}/ferrotune/sessions/{{test_session_id}}/command
 Authorization: Basic {{auth_basic}}
@@ -143,6 +156,56 @@ Content-Type: application/json
   "positionMs": 2500
 }
 HTTP 403
+
+# Test: Starting a queue with a real clientId reclaims a disconnected owner
+POST {{base_url}}/ferrotune/sessions/{{test_session_id}}/command
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "action": "takeOver",
+  "clientName": "stale-hurl-owner",
+  "clientId": "hurl-stale-owner"
+}
+HTTP 200
+
+POST {{base_url}}/ferrotune/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 0,
+  "positionMs": 3000
+}
+HTTP 403
+
+POST {{base_url}}/ferrotune/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "album",
+  "sourceId": "{{test_album_id}}",
+  "sourceName": "{{test_album_name}}",
+  "startIndex": 0,
+  "shuffle": false,
+  "clientId": "hurl-owner",
+  "clientName": "hurl-test"
+}
+HTTP 200
+
+POST {{base_url}}/ferrotune/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 0,
+  "positionMs": 3500
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
 
 # ============================================================================
 # ADD TO QUEUE - Add songs at different positions

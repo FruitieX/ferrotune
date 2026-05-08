@@ -1,10 +1,22 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useAtom, useAtomValue } from "jotai";
-import { waveformCacheAtom, loadingWaveformIdAtom } from "@/lib/store/waveform";
+import { useQuery } from "@tanstack/react-query";
+import { useAtomValue } from "jotai";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
+import { isClientInitializedAtom } from "@/lib/store/auth";
+
+const WAVEFORM_DEBUG_STORAGE_KEY = "ferrotune-debug-waveform";
+
+function debugWaveform(message: string, details?: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  if (window.localStorage.getItem(WAVEFORM_DEBUG_STORAGE_KEY) !== "true") {
+    return;
+  }
+
+  console.debug(`[Waveform] ${message}`, details ?? {});
+}
 
 /**
  * Hook to manage waveform data for the current track.
@@ -14,75 +26,68 @@ import { getClient } from "@/lib/api/client";
  */
 export function useWaveform() {
   const currentTrack = useAtomValue(currentSongAtom);
-  const [waveformCache, setWaveformCache] = useAtom(waveformCacheAtom);
-  const [loadingId, setLoadingId] = useAtom(loadingWaveformIdAtom);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const isClientInitialized = useAtomValue(isClientInitializedAtom);
+  const lastLoggedTrackIdRef = useRef<string | null>(null);
 
   const trackId = currentTrack?.id ?? null;
+  const trackTitle = currentTrack?.title ?? null;
 
   useEffect(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
+    if (!trackId || isClientInitialized) return;
+    if (lastLoggedTrackIdRef.current === trackId) return;
+    lastLoggedTrackIdRef.current = trackId;
+    debugWaveform("waiting for API client", { trackId, trackTitle });
+  }, [trackId, trackTitle, isClientInitialized]);
 
-    if (!trackId) return;
-
-    const cached = waveformCache.get(trackId);
-    if (cached) return;
-
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    setLoadingId(trackId);
-
-    const fetchWaveform = async () => {
-      const client = getClient();
-      if (!client) return;
-
-      try {
-        const response = await client.getWaveform(trackId);
-        if (abortController.signal.aborted) return;
-
-        if (response?.heights && response.heights.length > 0) {
-          setWaveformCache((prev) => {
-            const next = new Map(prev);
-            next.set(trackId, {
-              heights: response.heights,
-              isLoaded: true,
-            });
-            return next;
-          });
-        } else {
-          setWaveformCache((prev) => {
-            const next = new Map(prev);
-            next.set(trackId, { heights: [], isLoaded: false });
-            return next;
-          });
-        }
-      } catch {
-        if (!abortController.signal.aborted) {
-          setWaveformCache((prev) => {
-            const next = new Map(prev);
-            next.set(trackId, { heights: [], isLoaded: false });
-            return next;
-          });
-        }
-      } finally {
-        if (!abortController.signal.aborted) {
-          setLoadingId(null);
-        }
+  const waveformQuery = useQuery({
+    queryKey: ["waveform", trackId],
+    enabled: isClientInitialized && trackId !== null,
+    retry: 3,
+    retryDelay: 500,
+    queryFn: async () => {
+      if (!trackId) {
+        throw new Error("No current track");
       }
-    };
 
-    fetchWaveform();
-    return () => {
-      abortController.abort();
-    };
-  }, [trackId, waveformCache, setWaveformCache, setLoadingId]);
+      const client = getClient();
+      if (!client) {
+        throw new Error("API client is not initialized");
+      }
 
-  const waveformData = trackId ? waveformCache.get(trackId) : null;
-  const isLoading = loadingId === trackId && !waveformData;
-  const isAvailable = waveformData?.isLoaded === true;
+      debugWaveform("fetch start", { trackId, trackTitle });
+      const response = await client.getWaveform(trackId);
+
+      if (response?.heights && response.heights.length > 0) {
+        debugWaveform("fetch success", {
+          trackId,
+          trackTitle,
+          heights: response.heights.length,
+        });
+      } else {
+        debugWaveform("no waveform data", { trackId, trackTitle });
+      }
+
+      return response;
+    },
+  });
+
+  useEffect(() => {
+    if (!trackId || !waveformQuery.error) return;
+    debugWaveform("fetch failed", {
+      trackId,
+      trackTitle,
+      error: waveformQuery.error.message,
+    });
+  }, [trackId, trackTitle, waveformQuery.error]);
+
+  const waveformData = waveformQuery.data ?? null;
+  const isAvailable =
+    !!waveformData?.heights && waveformData.heights.length > 0;
+  const isLoading =
+    isClientInitialized &&
+    trackId !== null &&
+    waveformQuery.isFetching &&
+    !waveformData;
   const heights = isAvailable ? waveformData.heights : [];
 
   return {

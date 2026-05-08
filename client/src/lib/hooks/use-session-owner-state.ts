@@ -59,6 +59,9 @@ export function useSessionOwnerState() {
     const isSameOwnerAnnouncement =
       isCurrentClientOwner &&
       (isAudioOwner || ownerClientId === clientId || selfTakeoverPending.value);
+    const shouldForceLocalLoad =
+      snapshot.resumePlayback === true &&
+      (!isAudioOwner || selfTakeoverPending.value);
 
     if (!nextOwnerClientId) {
       selfTakeoverPending.value = false;
@@ -89,20 +92,19 @@ export function useSessionOwnerState() {
       if (isCurrentClientOwner) {
         // SSE sends an initial ownership snapshot on every reconnect. If it
         // says we are still the owner, avoid reloading the active audio element.
-        if (isSameOwnerAnnouncement) {
+        if (isSameOwnerAnnouncement && !shouldForceLocalLoad) {
           selfTakeoverPending.value = false;
           setIsAudioOwner(true);
           setRemotePlaybackState(null);
           return;
         }
 
-        // We became the owner. Do not clear selfTakeoverPending here; the
-        // PlaybackCommand { takeOver } echo handler consumes it.
         setIsAudioOwner(true);
         setRemotePlaybackState(null);
+        selfTakeoverPending.value = false;
 
         if (snapshot.resumePlayback === true) {
-          fetchQueueAndPlay();
+          fetchQueueAndPlay({ forceReload: shouldForceLocalLoad });
         } else {
           fetchQueueAndRestore();
         }
@@ -122,9 +124,9 @@ export function useSessionOwnerState() {
 }
 
 /**
- * Read-only foreground recovery for tabs whose SSE stream was closed while
- * hidden. This refreshes ownership/client list without calling connectSession(),
- * because connectSession() may intentionally mutate ownership for stale owners.
+ * Read-only foreground recovery for tabs whose SSE stream was temporarily
+ * unavailable. This refreshes ownership/client list without creating a new
+ * playback intent.
  */
 export function useSessionOwnershipRecovery() {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
@@ -160,11 +162,16 @@ export function useSessionOwnershipRecovery() {
         return;
       }
 
-      applyOwnerSnapshotRef.current({
-        ownerClientId: session.ownerClientId,
-        ownerClientName: session.ownerClientId ? session.ownerClientName : null,
-      });
       setConnectedClients(clients.clients);
+      const ownerClientId = clients.clients.some(
+        (client) => client.clientId === session.ownerClientId,
+      )
+        ? session.ownerClientId
+        : null;
+      applyOwnerSnapshotRef.current({
+        ownerClientId,
+        ownerClientName: ownerClientId ? session.ownerClientName : null,
+      });
       recoveringRef.current = false;
     };
 

@@ -118,6 +118,7 @@ import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsR
 // TaggerPendingEditData import removed - now using individual track sync
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
 import type { ConnectSessionResponse } from "./generated/ConnectSessionResponse";
+import type { WaveformResponse } from "./generated/WaveformResponse";
 import type { SessionResponse } from "./generated/SessionResponse";
 import type { ClientListResponse } from "./generated/ClientListResponse";
 import type { SessionSuccessResponse } from "./generated/SessionSuccessResponse";
@@ -1412,15 +1413,19 @@ export class FerrotuneClient {
 
   // Get pre-computed waveform data for a song.
   // Returns normalized heights array, or null if no waveform data is available.
-  async getWaveform(songId: string): Promise<{ heights: number[] } | null> {
+  async getWaveform(songId: string): Promise<WaveformResponse | null> {
     try {
-      return await this.request<{ heights: number[] }>(
+      return await this.request<WaveformResponse>(
         `/ferrotune/songs/${encodeURIComponent(songId)}/waveform`,
         {},
         true,
       );
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof FerrotuneApiError && error.status === 404) {
+        return null;
+      }
+
+      throw error;
     }
   }
 

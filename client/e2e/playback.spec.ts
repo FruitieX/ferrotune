@@ -40,6 +40,20 @@ async function getAudioPlaybackSnapshot(
   });
 }
 
+async function getDisplayedCurrentTime(page: Page): Promise<number> {
+  const timeText = await page
+    .getByTestId("player-bar")
+    .locator("span.tabular-nums")
+    .first()
+    .textContent();
+  if (!timeText) return 0;
+
+  const parts = timeText.trim().split(":");
+  if (parts.length !== 2) return 0;
+
+  return Number(parts[0]) * 60 + Number(parts[1]);
+}
+
 test.describe("Playback", () => {
   // Reset all server state before each test for isolation
   test.beforeEach(async ({ authenticatedPage: page, server }) => {
@@ -159,8 +173,14 @@ test.describe("Playback", () => {
     const playerBar = page.getByTestId("player-bar");
 
     // Skip through all tracks
+    await expect(playerBar).toContainText("First Song");
     await playerBar.getByRole("button", { name: /next/i }).click();
+    await expect(playerBar).toContainText("Second Song");
     await playerBar.getByRole("button", { name: /next/i }).click();
+    await expect(playerBar).toContainText("Third Song");
+    await expect
+      .poll(() => getDisplayedCurrentTime(page), { timeout: 10000 })
+      .toBeGreaterThan(0);
     await playerBar.getByRole("button", { name: /next/i }).click();
 
     // Queue ended

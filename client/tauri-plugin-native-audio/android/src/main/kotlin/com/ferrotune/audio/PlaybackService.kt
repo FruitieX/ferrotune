@@ -855,9 +855,9 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "SSE PlaybackCommand: action=${event.action}, positionMs=${event.positionMs}")
                 if (event.action == "takeOver") {
                     // OwnerChanged is the authoritative ownership signal. The
-                    // takeOver playback command is only kept for older web
-                    // handlers to pause the previous owner, and would otherwise
-                    // double-process self echoes on Android.
+                    // takeOver playback command lets web owners pause after
+                    // handoff, and would otherwise double-process self echoes
+                    // on Android.
                     return
                 }
                 if (!nativeOwnsSession) {

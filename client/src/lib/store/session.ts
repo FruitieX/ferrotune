@@ -5,6 +5,171 @@ import { atomWithStorage } from "jotai/utils";
 import type { ClientResponse } from "@/lib/api/generated/ClientResponse";
 import { accountKey, serverConnectionAtom } from "./auth";
 
+const CLIENT_ID_STORAGE_KEY = "ferrotune-client-id";
+const CLIENT_TAB_INSTANCE_STORAGE_KEY = "ferrotune-client-tab-instance-id";
+const ACTIVE_CLIENT_TAB_STORAGE_PREFIX = "ferrotune-active-client-tab:";
+const ACTIVE_CLIENT_TAB_REFRESH_MS = 5_000;
+
+interface ActiveClientTabMarker {
+  clientId: string;
+  pageInstanceId: string;
+  updatedAt: number;
+}
+
+const pageInstanceId =
+  typeof crypto !== "undefined"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+
+let activeClientTab: { tabInstanceId: string; clientId: string } | null = null;
+let activeClientTabRefreshInterval: ReturnType<typeof setInterval> | null =
+  null;
+let activeClientTabListenersInstalled = false;
+
+function parseStoredString(value: string | null): string | null {
+  if (!value || value === '""' || value === "null") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSessionString(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return parseStoredString(window.sessionStorage.getItem(key));
+}
+
+function writeSessionString(key: string, value: string): void {
+  window.sessionStorage.setItem(key, JSON.stringify(value));
+}
+
+function parseActiveClientTabMarker(
+  value: string | null,
+): ActiveClientTabMarker | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const marker = parsed as Partial<ActiveClientTabMarker>;
+    if (
+      typeof marker.clientId !== "string" ||
+      typeof marker.pageInstanceId !== "string" ||
+      typeof marker.updatedAt !== "number"
+    ) {
+      return null;
+    }
+    return {
+      clientId: marker.clientId,
+      pageInstanceId: marker.pageInstanceId,
+      updatedAt: marker.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function activeClientTabStorageKey(tabInstanceId: string): string {
+  return `${ACTIVE_CLIENT_TAB_STORAGE_PREFIX}${tabInstanceId}`;
+}
+
+function readActiveClientTabMarker(
+  tabInstanceId: string,
+): ActiveClientTabMarker | null {
+  if (typeof window === "undefined") return null;
+  return parseActiveClientTabMarker(
+    window.localStorage.getItem(activeClientTabStorageKey(tabInstanceId)),
+  );
+}
+
+function isPageReload(): boolean {
+  if (typeof window === "undefined") return false;
+  const navigationEntry = performance.getEntriesByType("navigation")[0];
+  return (
+    navigationEntry instanceof PerformanceNavigationTiming &&
+    navigationEntry.type === "reload"
+  );
+}
+
+function refreshActiveClientTabMarker(): void {
+  if (typeof window === "undefined" || !activeClientTab) return;
+  window.localStorage.setItem(
+    activeClientTabStorageKey(activeClientTab.tabInstanceId),
+    JSON.stringify({
+      clientId: activeClientTab.clientId,
+      pageInstanceId,
+      updatedAt: Date.now(),
+    } satisfies ActiveClientTabMarker),
+  );
+}
+
+function clearActiveClientTabMarker(): void {
+  if (typeof window === "undefined" || !activeClientTab) return;
+  const key = activeClientTabStorageKey(activeClientTab.tabInstanceId);
+  const marker = parseActiveClientTabMarker(window.localStorage.getItem(key));
+  if (marker?.pageInstanceId === pageInstanceId) {
+    window.localStorage.removeItem(key);
+  }
+}
+
+function installActiveClientTabLifecycle(): void {
+  if (typeof window === "undefined" || activeClientTabListenersInstalled) {
+    return;
+  }
+  activeClientTabListenersInstalled = true;
+  window.addEventListener("pagehide", clearActiveClientTabMarker);
+  window.addEventListener("beforeunload", clearActiveClientTabMarker);
+}
+
+function markActiveClientTab(tabInstanceId: string, clientId: string): void {
+  activeClientTab = { tabInstanceId, clientId };
+  refreshActiveClientTabMarker();
+  installActiveClientTabLifecycle();
+  if (!activeClientTabRefreshInterval) {
+    activeClientTabRefreshInterval = setInterval(
+      refreshActiveClientTabMarker,
+      ACTIVE_CLIENT_TAB_REFRESH_MS,
+    );
+  }
+}
+
+function getOrCreateTabClientId(): string {
+  if (typeof window === "undefined") return "";
+
+  let tabInstanceId = readSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY);
+  let clientId = readSessionString(CLIENT_ID_STORAGE_KEY);
+  const activeMarker = tabInstanceId
+    ? readActiveClientTabMarker(tabInstanceId)
+    : null;
+
+  if (
+    activeMarker &&
+    activeMarker.pageInstanceId !== pageInstanceId &&
+    !isPageReload()
+  ) {
+    tabInstanceId = null;
+    clientId = null;
+    window.sessionStorage.setItem(
+      "ferrotune-is-audio-owner",
+      JSON.stringify(false),
+    );
+  }
+
+  if (!tabInstanceId) {
+    tabInstanceId = crypto.randomUUID();
+    writeSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY, tabInstanceId);
+  }
+
+  if (!clientId) {
+    clientId = crypto.randomUUID();
+    writeSessionString(CLIENT_ID_STORAGE_KEY, clientId);
+  }
+
+  markActiveClientTab(tabInstanceId, clientId);
+  return clientId;
+}
+
 // ============================================================================
 // Persistent atoms (sessionStorage — per tab)
 // ============================================================================
@@ -78,21 +243,24 @@ export const isAudioOwnerAtom = atomWithStorage<boolean>(
  * Unique client ID for this tab. Generated once and stored in sessionStorage.
  */
 export const clientIdAtom = atomWithStorage<string>(
-  "ferrotune-client-id",
+  CLIENT_ID_STORAGE_KEY,
   "",
   typeof window !== "undefined"
     ? {
-        getItem: (key) => {
-          let v = sessionStorage.getItem(key);
-          if (!v || v === '""' || v === "null") {
-            v = JSON.stringify(crypto.randomUUID());
-            sessionStorage.setItem(key, v);
-          }
-          return JSON.parse(v);
+        getItem: () => getOrCreateTabClientId(),
+        setItem: (key, value) => {
+          const tabInstanceId =
+            readSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY) ??
+            crypto.randomUUID();
+          writeSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY, tabInstanceId);
+          sessionStorage.setItem(key, JSON.stringify(value));
+          markActiveClientTab(tabInstanceId, value);
         },
-        setItem: (key, value) =>
-          sessionStorage.setItem(key, JSON.stringify(value)),
-        removeItem: (key) => sessionStorage.removeItem(key),
+        removeItem: (key) => {
+          clearActiveClientTabMarker();
+          sessionStorage.removeItem(key);
+          sessionStorage.removeItem(CLIENT_TAB_INSTANCE_STORAGE_KEY);
+        },
       }
     : undefined,
   { getOnInit: true },
@@ -104,9 +272,9 @@ export const clientIdAtom = atomWithStorage<string>(
 
 /**
  * Set when this client initiates a self-takeover (transferToClient targeting
- * itself). Prevents the SSE PlaybackCommand(takeOver) echo and the
- * ownerChanged handler from triggering a redundant fetchQueueAndPlay.
- * Read synchronously by the SSE event handler.
+ * itself). Lets the ownerChanged handler distinguish a deliberate local
+ * takeover from a passive reconnect snapshot.
+ * Read synchronously by ownership and queue-control code.
  */
 let _selfTakeoverPending = false;
 export const selfTakeoverPending = {

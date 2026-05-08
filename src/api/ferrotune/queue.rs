@@ -879,15 +879,24 @@ pub async fn start_queue(
         .await?
         .ok_or_else(|| Error::NotFound("Queue not found after creation".to_string()))?;
 
-    // Auto-claim ownership if the session has no owner and a client_id was provided.
-    // This handles the case where an inactive owner was disowned by the background
-    // task, and a new client starts playback. The OwnerChanged event must be sent
-    // before QueueChanged so clients know who the owner is when processing the queue.
+    // Explicit playback may claim ownership when there is no live owner. The
+    // OwnerChanged event must be sent before QueueChanged so clients know who
+    // the owner is when processing the queue.
     if let Some(ref client_id) = request.client_id {
         let session = queries::get_session(&state.database, session_id, user.user_id)
             .await?
             .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
-        if session.owner_client_id.is_none() {
+        let owner_is_disconnected = match session.owner_client_id.as_deref() {
+            Some(owner_id) => {
+                !state
+                    .session_manager
+                    .is_client_connected(session_id, owner_id)
+                    .await
+            }
+            None => true,
+        };
+
+        if owner_is_disconnected {
             let client_name = request
                 .client_name
                 .as_deref()
@@ -1641,9 +1650,50 @@ pub async fn update_position(
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
     if session.owner_client_id.as_deref() != Some(request_client_id) {
-        return Err(FerrotuneApiError(Error::Forbidden(
-            "Only the session owner can update queue position".to_string(),
-        )));
+        let owner_is_disconnected = match session.owner_client_id.as_deref() {
+            Some(owner_id) => {
+                !state
+                    .session_manager
+                    .is_client_connected(session_id, owner_id)
+                    .await
+            }
+            None => true,
+        };
+
+        let request_client_name = state
+            .session_manager
+            .get_client_name(session_id, request_client_id)
+            .await;
+
+        if owner_is_disconnected {
+            let Some(client_name) = request_client_name else {
+                return Err(FerrotuneApiError(Error::Forbidden(
+                    "Only the session owner can update queue position".to_string(),
+                )));
+            };
+            queries::update_session_owner(
+                &state.database,
+                session_id,
+                Some(request_client_id),
+                &client_name,
+            )
+            .await?;
+            state
+                .session_manager
+                .broadcast(
+                    session_id,
+                    SessionEvent::OwnerChanged {
+                        owner_client_id: Some(request_client_id.to_string()),
+                        owner_client_name: Some(client_name),
+                        resume_playback: None,
+                    },
+                )
+                .await;
+        } else {
+            return Err(FerrotuneApiError(Error::Forbidden(
+                "Only the session owner can update queue position".to_string(),
+            )));
+        }
     }
 
     let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)

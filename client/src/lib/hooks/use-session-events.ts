@@ -3,15 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { getClient, getClientName } from "@/lib/api/client";
-import {
-  effectiveSessionIdAtom,
-  clientIdAtom,
-  isAudioOwnerAtom,
-} from "@/lib/store/session";
+import { effectiveSessionIdAtom, clientIdAtom } from "@/lib/store/session";
 import { isClientInitializedAtom } from "@/lib/store/auth";
-import { playbackStateAtom } from "@/lib/store/player";
-import { usingNativeAudio } from "@/lib/audio/engine-state";
-import { hasNativeAudio } from "@/lib/tauri";
 
 export interface SessionEvent {
   type:
@@ -46,17 +39,10 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const sessionId = useAtomValue(effectiveSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
-  const isAudioOwner = useAtomValue(isAudioOwnerAtom);
-  const playbackState = useAtomValue(playbackStateAtom);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onEventRef = useRef(onEvent);
-  const isAudioOwnerRef = useRef(isAudioOwner);
-  const playbackStateRef = useRef(playbackState);
-  const reevaluateConnectionRef = useRef(() => {});
   useEffect(() => {
     onEventRef.current = onEvent;
-    isAudioOwnerRef.current = isAudioOwner;
-    playbackStateRef.current = playbackState;
   });
 
   useEffect(() => {
@@ -71,83 +57,27 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
       getClientName(),
     );
 
-    const open = () => {
-      if (eventSourceRef.current) return;
-      const eventSource = new EventSource(url);
-      eventSourceRef.current = eventSource;
+    const eventSource = new EventSource(url);
+    eventSourceRef.current = eventSource;
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data: SessionEvent = JSON.parse(event.data);
-          onEventRef.current?.(data);
-        } catch {
-          // Ignore parse errors (e.g., heartbeat/keepalive messages)
-        }
-      };
-
-      eventSource.onerror = () => {
-        // Connection lost - will auto-reconnect via EventSource spec
-      };
+    eventSource.onmessage = (event) => {
+      try {
+        const data: SessionEvent = JSON.parse(event.data);
+        onEventRef.current?.(data);
+      } catch {
+        // Ignore parse errors (e.g., heartbeat/keepalive messages)
+      }
     };
 
-    const close = () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+    eventSource.onerror = () => {
+      // Connection lost - will auto-reconnect via EventSource spec
+    };
+
+    return () => {
+      eventSource.close();
+      if (eventSourceRef.current === eventSource) {
         eventSourceRef.current = null;
       }
     };
-
-    const isVisible = () =>
-      typeof document === "undefined" || document.visibilityState === "visible";
-
-    const shouldKeepOpen = () => {
-      const isNativePlatform = hasNativeAudio() || usingNativeAudio;
-      const hasActiveWebOwnerPlayback =
-        !isNativePlatform &&
-        isAudioOwnerRef.current &&
-        (playbackStateRef.current === "playing" ||
-          playbackStateRef.current === "loading");
-
-      return isVisible() || hasActiveWebOwnerPlayback;
-    };
-
-    const reevaluateConnection = () => {
-      if (shouldKeepOpen()) {
-        open();
-      } else {
-        close();
-      }
-    };
-
-    reevaluateConnectionRef.current = reevaluateConnection;
-
-    // Keep the SSE connection open while visible. For browser audio owners,
-    // also keep it open while hidden playback is active so transfer/takeover
-    // commands are received immediately. Native Android keeps its own service
-    // SSE in the background, so the WebView can still close its hidden stream.
-    reevaluateConnection();
-
-    const handleVisibilityChange = () => {
-      reevaluateConnection();
-    };
-
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
-
-    return () => {
-      close();
-      reevaluateConnectionRef.current = () => {};
-      if (typeof document !== "undefined") {
-        document.removeEventListener(
-          "visibilitychange",
-          handleVisibilityChange,
-        );
-      }
-    };
   }, [isClientInitialized, sessionId, clientId]);
-
-  useEffect(() => {
-    reevaluateConnectionRef.current();
-  }, [isAudioOwner, playbackState]);
 }

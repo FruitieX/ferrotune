@@ -12,14 +12,18 @@
  * for virtualized rendering.
  */
 
-import { atom, type Atom } from "jotai";
+import { atom, type Atom, type Getter, type Setter } from "jotai";
 import type {
   Song,
   QueueSourceInfo,
   QueueWindow,
   GetQueueResponse,
 } from "@/lib/api/types";
-import { getClient, getClientName } from "@/lib/api/client";
+import {
+  getClient,
+  getClientName,
+  type FerrotuneClient,
+} from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
   nativeNextTrack,
@@ -35,6 +39,7 @@ import {
   isRemoteControllingAtom,
   clientIdAtom,
   ownerClientIdAtom,
+  ownerClientNameAtom,
   selfTakeoverPending,
 } from "./session";
 import { playbackStateAtom } from "./player";
@@ -124,6 +129,50 @@ function isCurrentSession(
 
 function getRequestClientId(get: QueueGetter): string | undefined {
   return get(clientIdAtom) || undefined;
+}
+
+async function ensureLocalPositionOwner(
+  get: Getter,
+  set: Setter,
+  client: FerrotuneClient,
+  sessionId: string,
+): Promise<string | null> {
+  const clientId = getRequestClientId(get);
+  if (!clientId) return null;
+
+  if (get(ownerClientIdAtom) === clientId) {
+    return clientId;
+  }
+
+  const previousOwnerClientId = get(ownerClientIdAtom);
+  const previousOwnerClientName = get(ownerClientNameAtom);
+  const wasAudioOwner = get(isAudioOwnerAtom);
+
+  selfTakeoverPending.value = true;
+  set(isAudioOwnerAtom, true);
+  set(ownerClientIdAtom, clientId);
+  set(ownerClientNameAtom, getClientName());
+
+  try {
+    await client.sendSessionCommand(
+      sessionId,
+      "takeOver",
+      undefined,
+      undefined,
+      undefined,
+      getClientName(),
+      clientId,
+      false,
+    );
+    return clientId;
+  } catch (error) {
+    selfTakeoverPending.value = false;
+    set(isAudioOwnerAtom, wasAudioOwner);
+    set(ownerClientIdAtom, previousOwnerClientId);
+    set(ownerClientNameAtom, previousOwnerClientName);
+    console.error("Failed to claim queue position ownership:", error);
+    return null;
+  }
 }
 
 // ============================================================================
@@ -290,7 +339,13 @@ export const startQueueAtom = atom(
         params.shuffle ?? get(serverQueueStateAtom)?.isShuffled ?? false;
 
       const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-      const clientId = getRequestClientId(get);
+      let clientId = getRequestClientId(get);
+      if (shouldPlay && sessionId) {
+        clientId =
+          (await ensureLocalPositionOwner(get, set, client, sessionId)) ??
+          undefined;
+        if (!clientId) return;
+      }
 
       const response = await client.startQueue({
         sourceType: params.sourceType,
@@ -513,57 +568,66 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
  * Unlike fetchQueueAtom, this marks the queue as ready to play rather than
  * restoring, so the audio engine will auto-play the current track.
  */
-export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
-  const client = getClient();
-  if (!client) return;
+export const fetchQueueAndPlayAtom = atom(
+  null,
+  async (get, set, options?: { forceReload?: boolean }) => {
+    const client = getClient();
+    if (!client) return;
 
-  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-  if (!sessionId) return; // Session not initialized yet
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+    if (!sessionId) return; // Session not initialized yet
 
-  try {
-    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
-
-    if (get(effectiveSessionIdAtom) !== sessionId) {
-      return;
-    }
-
-    if (response.totalCount === 0) {
-      set(serverQueueStateAtom, null);
-      set(queueWindowAtom, null);
-    } else {
-      const currentSong = get(currentSongAtom);
-      const currentQueueState = get(serverQueueStateAtom);
-      const canKeepPlayback = canRefreshQueueWithoutRestart(
-        response,
-        currentSong,
-        get(playbackStateAtom),
+    try {
+      const response = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sessionId,
       );
 
-      set(serverQueueStateAtom, {
-        totalCount: response.totalCount,
-        currentIndex: response.currentIndex,
-        positionMs: canKeepPlayback
-          ? (currentQueueState?.positionMs ?? Number(response.positionMs))
-          : Number(response.positionMs),
-        isShuffled: response.isShuffled,
-        repeatMode: response.repeatMode as RepeatMode,
-        source: response.source,
-      });
-      set(queueWindowAtom, response.window);
-      if (canKeepPlayback) {
-        pendingPlaybackPositionMs.value = 0;
-      } else {
-        // Signal the audio engine to load and play the new track,
-        // resuming from the server-reported position (e.g. session takeover)
-        pendingPlaybackPositionMs.value = Number(response.positionMs);
-        set(isRestoringQueueAtom, false);
-        set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+      if (get(effectiveSessionIdAtom) !== sessionId) {
+        return;
       }
+
+      if (response.totalCount === 0) {
+        set(serverQueueStateAtom, null);
+        set(queueWindowAtom, null);
+      } else {
+        const currentSong = get(currentSongAtom);
+        const currentQueueState = get(serverQueueStateAtom);
+        const canKeepPlayback =
+          options?.forceReload !== true &&
+          canRefreshQueueWithoutRestart(
+            response,
+            currentSong,
+            get(playbackStateAtom),
+          );
+
+        set(serverQueueStateAtom, {
+          totalCount: response.totalCount,
+          currentIndex: response.currentIndex,
+          positionMs: canKeepPlayback
+            ? (currentQueueState?.positionMs ?? Number(response.positionMs))
+            : Number(response.positionMs),
+          isShuffled: response.isShuffled,
+          repeatMode: response.repeatMode as RepeatMode,
+          source: response.source,
+        });
+        set(queueWindowAtom, response.window);
+        if (canKeepPlayback) {
+          pendingPlaybackPositionMs.value = 0;
+        } else {
+          // Signal the audio engine to load and play the new track,
+          // resuming from the server-reported position (e.g. session takeover)
+          pendingPlaybackPositionMs.value = Number(response.positionMs);
+          set(isRestoringQueueAtom, false);
+          set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch queue for playback:", error);
     }
-  } catch (error) {
-    console.error("Failed to fetch queue for playback:", error);
-  }
-});
+  },
+);
 
 // Fetch a specific range of the queue
 export const fetchQueueRangeAtom = atom(
@@ -623,6 +687,18 @@ export const fetchQueueRangeAtom = atom(
 export const goToNextAtom = atom(null, async (get, set) => {
   // When native audio owns playback, Kotlin handles skip + server sync + scrobble
   if (hasNativeAudio() && get(isAudioOwnerAtom)) {
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+    const client = getClient();
+    if (!sessionId || !client) return;
+
+    const clientId = await ensureLocalPositionOwner(
+      get,
+      set,
+      client,
+      sessionId,
+    );
+    if (!clientId) return;
+
     try {
       await nativeNextTrack();
     } catch (error) {
@@ -653,7 +729,9 @@ export const goToNextAtom = atom(null, async (get, set) => {
   }
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-  const clientId = getRequestClientId(get);
+  const clientId = sessionId
+    ? await ensureLocalPositionOwner(get, set, client, sessionId)
+    : null;
   if (!sessionId || !clientId) return;
 
   set(isQueueOperationPendingAtom, true);
@@ -711,6 +789,18 @@ export const goToNextAtom = atom(null, async (get, set) => {
 export const goToPreviousAtom = atom(null, async (get, set) => {
   // When native audio owns playback, Kotlin handles skip + server sync
   if (hasNativeAudio() && get(isAudioOwnerAtom)) {
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+    const client = getClient();
+    if (!sessionId || !client) return;
+
+    const clientId = await ensureLocalPositionOwner(
+      get,
+      set,
+      client,
+      sessionId,
+    );
+    if (!clientId) return;
+
     try {
       await nativePreviousTrack();
     } catch (error) {
@@ -736,7 +826,9 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
   }
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
-  const clientId = getRequestClientId(get);
+  const clientId = sessionId
+    ? await ensureLocalPositionOwner(get, set, client, sessionId)
+    : null;
   if (!sessionId || !clientId) return;
 
   set(isQueueOperationPendingAtom, true);
@@ -803,27 +895,10 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
     // Only use native path if we're the owner or there's no owner (we can claim)
     if (isOwner || noOwner) {
-      if (noOwner) {
-        // Claim ownership before starting native playback
-        set(isAudioOwnerAtom, true);
-        if (sessionId) {
-          selfTakeoverPending.value = true;
-          const clientId = get(clientIdAtom) || undefined;
-          await client
-            .sendSessionCommand(
-              sessionId,
-              "takeOver",
-              undefined,
-              undefined,
-              undefined,
-              getClientName(),
-              clientId,
-            )
-            .catch(() => {
-              selfTakeoverPending.value = false;
-            });
-        }
-      }
+      const clientId = sessionId
+        ? await ensureLocalPositionOwner(get, set, client, sessionId)
+        : null;
+      if (!sessionId || !clientId) return;
 
       set(isQueueOperationPendingAtom, true);
       try {
@@ -862,32 +937,10 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false); // User explicitly starting playback
 
-  const noOwner = !get(ownerClientIdAtom);
-  if (noOwner) {
-    set(isAudioOwnerAtom, true);
-  }
-
   try {
-    // If claiming ownership from no-owner state, tell the server first
-    if (noOwner && sessionId) {
-      selfTakeoverPending.value = true;
-      const clientId = get(clientIdAtom) || undefined;
-      await client
-        .sendSessionCommand(
-          sessionId,
-          "takeOver",
-          undefined,
-          undefined,
-          undefined,
-          getClientName(),
-          clientId,
-        )
-        .catch(() => {
-          selfTakeoverPending.value = false;
-        });
-    }
-
-    const clientId = getRequestClientId(get);
+    const clientId = sessionId
+      ? await ensureLocalPositionOwner(get, set, client, sessionId)
+      : null;
     if (!sessionId || !clientId) return;
 
     await client.updateServerQueuePosition(
@@ -996,11 +1049,6 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
       currentIndex: response.newIndex ?? state.currentIndex,
     });
     set(queueWindowAtom, queueResponse.window);
-
-    // Notify the session owner via SSE when remote controlling
-    if (get(isRemoteControllingAtom) && sessionId) {
-      client.sendSessionCommand(sessionId, "queueUpdated").catch(console.error);
-    }
   } catch (error) {
     console.error("Failed to toggle shuffle:", error);
   } finally {
@@ -1040,13 +1088,6 @@ export const setRepeatModeAtom = atom(
         return;
       }
       set(serverQueueStateAtom, { ...state, repeatMode: mode });
-
-      // Notify the session owner via SSE when remote controlling
-      if (get(isRemoteControllingAtom) && sessionId) {
-        client
-          .sendSessionCommand(sessionId, "queueUpdated")
-          .catch(console.error);
-      }
     } catch (error) {
       console.error("Failed to set repeat mode:", error);
     }
@@ -1160,13 +1201,6 @@ export const addToQueueAtom = atom(
       // PlaybackService already receives the server-broadcast QueueUpdated
       // event over SSE, so avoid issuing a second local invalidate here.
 
-      // Notify the session owner via SSE when remote controlling
-      if (get(isRemoteControllingAtom) && sessionId) {
-        client
-          .sendSessionCommand(sessionId, "queueUpdated")
-          .catch(console.error);
-      }
-
       return { success: true, addedCount: response.addedCount ?? 0 };
     } catch (error) {
       console.error("Failed to add to queue:", error);
@@ -1232,13 +1266,6 @@ export const removeFromQueueAtom = atom(
       // QueueUpdated event and applies the change from its own SSE stream.
       // Triggering a second invalidate here can make Android apply the same
       // queue mutation twice and advance playback unnecessarily.
-
-      // Notify the session owner via SSE when remote controlling
-      if (get(isRemoteControllingAtom) && sessionId) {
-        client
-          .sendSessionCommand(sessionId, "queueUpdated")
-          .catch(console.error);
-      }
     } catch (error) {
       console.error("Failed to remove from queue:", error);
     } finally {
@@ -1359,13 +1386,6 @@ export const moveInQueueAtom = atom(
       // QueueUpdated event and applies the change from its own SSE stream.
       // Triggering a second invalidate here can make Android apply the same
       // queue mutation twice and advance playback unnecessarily.
-
-      // Notify the session owner via SSE when remote controlling
-      if (get(isRemoteControllingAtom) && sessionId) {
-        client
-          .sendSessionCommand(sessionId, "queueUpdated")
-          .catch(console.error);
-      }
     } catch (error) {
       console.error("Failed to move in queue:", error);
       // On error, refetch to restore correct state

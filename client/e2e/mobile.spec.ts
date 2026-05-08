@@ -89,19 +89,30 @@ async function openMobileAccountMenu(page: Page) {
 }
 
 async function swipeQueueSheetClosed(page: Page, queueSheet: Locator) {
-  const box = await queueSheet.boundingBox();
-  if (!box) {
-    throw new Error("Queue sheet bounding box was not available");
+  const dragClosed = async () => {
+    const box = await queueSheet.boundingBox();
+    if (!box) {
+      throw new Error("Queue sheet bounding box was not available");
+    }
+
+    const startX = box.x + 32;
+    const endX = box.x + box.width + Math.max(120, box.width / 2);
+    const y = box.y + 56;
+
+    await page.mouse.move(startX, y);
+    await page.mouse.down();
+    await page.mouse.move(endX, y, { steps: 10 });
+    await page.mouse.up();
+  };
+
+  await dragClosed();
+
+  if (
+    (await queueSheet.isVisible().catch(() => false)) &&
+    (await queueSheet.getAttribute("data-gesture-closing")) !== "true"
+  ) {
+    await dragClosed();
   }
-
-  const startX = box.x + 32;
-  const endX = box.x + box.width + 120;
-  const y = box.y + 56;
-
-  await page.mouse.move(startX, y);
-  await page.mouse.down();
-  await page.mouse.move(endX, y, { steps: 6 });
-  await page.mouse.up();
 }
 
 test.describe("Mobile Tests", () => {

@@ -259,6 +259,15 @@ impl SessionManager {
             .map(|state| state.clients.contains_key(client_id))
             .unwrap_or(false)
     }
+
+    /// Get the registered display client name for a connected client.
+    pub async fn get_client_name(&self, session_id: &str, client_id: &str) -> Option<String> {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(session_id)
+            .and_then(|state| state.clients.get(client_id))
+            .map(|state| state.client.client_name.clone())
+    }
 }
 
 #[cfg(test)]
@@ -281,6 +290,13 @@ mod tests {
         assert_eq!(clients.len(), 1);
         assert_eq!(clients[0].client_id, "client-1");
         assert_eq!(clients[0].client_name, "ferrotune-mobile");
+        assert_eq!(
+            manager
+                .get_client_name("session-1", "client-1")
+                .await
+                .as_deref(),
+            Some("ferrotune-mobile"),
+        );
 
         assert!(!manager.unregister_client("session-1", "client-1").await);
 

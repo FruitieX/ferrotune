@@ -181,29 +181,7 @@ pub async fn connect_session(
 
     let session = queries::get_or_create_session(&state.database, user.user_id).await?;
 
-    // Determine if the connecting client should become the owner:
-    // 1. Session is brand new (just created)
-    // 2. Current owner is stale (no longer connected via SSE)
-    // Note: if owner_client_id is None on an existing session, it was cleared
-    // intentionally (inactivity timeout) — don't auto-assign ownership, wait
-    // for the client to explicitly start playback.
-    let should_take_ownership = if request.client_id.is_some() {
-        if is_new {
-            true
-        } else if let Some(ref owner_id) = session.owner_client_id {
-            // Check if the current owner still has an active SSE connection
-            !state
-                .session_manager
-                .is_client_connected(&session.id, owner_id)
-                .await
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-
-    let (owner_client_id, owner_client_name) = if should_take_ownership {
+    let (owner_client_id, owner_client_name) = if is_new && request.client_id.is_some() {
         let client_id = request.client_id.as_ref().unwrap();
         queries::update_session_owner(
             &state.database,
@@ -212,20 +190,6 @@ pub async fn connect_session(
             &request.client_name,
         )
         .await?;
-
-        if !is_new {
-            state
-                .session_manager
-                .broadcast(
-                    &session.id,
-                    SessionEvent::OwnerChanged {
-                        owner_client_id: Some(client_id.clone()),
-                        owner_client_name: Some(request.client_name.clone()),
-                        resume_playback: None,
-                    },
-                )
-                .await;
-        }
 
         (Some(client_id.clone()), request.client_name.clone())
     } else {
@@ -426,7 +390,10 @@ pub async fn session_events(
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
-    // Register client if client_id provided
+    let mut rx = state.session_manager.subscribe(&session.id).await;
+
+    // Register client if client_id provided. Subscribe first so the newly
+    // opened tab also receives the ClientListChanged event for itself.
     if let Some(ref client_id) = query.client_id {
         let client_name = query.client_name.as_deref().unwrap_or("ferrotune-web");
         state
@@ -440,8 +407,6 @@ pub async fn session_events(
             .broadcast(&session.id, SessionEvent::ClientListChanged)
             .await;
     }
-
-    let mut rx = state.session_manager.subscribe(&session.id).await;
 
     // Read current queue position from the database for accurate initial state
     let (current_index, position_ms) = if let Ok(Some(queue)) =
@@ -540,8 +505,6 @@ pub async fn session_command(
         "playAtIndex",
         "seek",
         "stop",
-        "queueChanged",
-        "queueUpdated",
         "takeOver",
         "volumeChange",
         "setVolume",
@@ -600,8 +563,6 @@ pub async fn session_command(
 
     // Broadcast the appropriate event type
     let event = match request.action.as_str() {
-        "queueChanged" => SessionEvent::QueueChanged,
-        "queueUpdated" => SessionEvent::QueueUpdated,
         "volumeChange" => SessionEvent::VolumeChange {
             volume: request.volume.unwrap_or(1.0),
             is_muted: request.is_muted.unwrap_or(false),

@@ -25,12 +25,14 @@ async function createSecondTab(
   browser: import("@playwright/test").Browser,
   server: ServerInfo,
   baseURL: string,
+  preparePage?: (page: Page) => Promise<void>,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     baseURL,
     viewport: { width: 1440, height: 900 },
   });
   const page = await context.newPage();
+  await preparePage?.(page);
 
   // Navigate and inject auth (both connection and saved accounts for dropdown)
   await page.goto("/");
@@ -180,6 +182,105 @@ async function getStoredClientId(page: Page): Promise<string | null> {
   return page.evaluate(() =>
     JSON.parse(sessionStorage.getItem("ferrotune-client-id") || "null"),
   );
+}
+
+async function getConnectedClientCount(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      return 0;
+    }
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/clients`,
+      {
+        headers: {
+          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        },
+      },
+    );
+    if (!response.ok) return 0;
+
+    const data: { clients: Array<{ clientId: string }> } =
+      await response.json();
+    return data.clients.length;
+  });
+}
+
+async function getStoredSessionCloneValues(
+  page: Page,
+): Promise<Record<string, string>> {
+  return page.evaluate(() => {
+    const keys = [
+      "ferrotune-client-id",
+      "ferrotune-client-tab-instance-id",
+      "ferrotune-session-id",
+      "ferrotune-session-account-key",
+      "ferrotune-is-audio-owner",
+    ];
+    return Object.fromEntries(
+      keys.flatMap((key) => {
+        const value = sessionStorage.getItem(key);
+        return value === null ? [] : [[key, value]];
+      }),
+    );
+  });
+}
+
+async function expectConnectedWebClientsInMenu(
+  page: Page,
+  count: number,
+): Promise<void> {
+  await page
+    .getByRole("button", { name: /profile|@/i })
+    .first()
+    .click();
+  await expect(page.getByText("Connected Clients")).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(
+    page.locator('[role="menuitem"]').filter({ hasText: /Web/ }),
+  ).toHaveCount(count, { timeout: 10000 });
+  await page.keyboard.press("Escape");
+}
+
+async function expectWaveformCanvasPainted(page: Page): Promise<void> {
+  const canvas = page.getByTestId("player-bar").locator("canvas").first();
+  await expect(canvas).toBeVisible({ timeout: 10000 });
+  await expect
+    .poll(async () => {
+      return canvas.evaluate((element) => {
+        if (!(element instanceof HTMLCanvasElement)) return false;
+        const waveformCanvas = element;
+        const context = waveformCanvas.getContext("2d");
+        if (
+          !context ||
+          waveformCanvas.width === 0 ||
+          waveformCanvas.height === 0
+        ) {
+          return false;
+        }
+
+        const data = context.getImageData(
+          0,
+          0,
+          waveformCanvas.width,
+          waveformCanvas.height,
+        ).data;
+        for (let index = 3; index < data.length; index += 4) {
+          if (data[index] !== 0) return true;
+        }
+        return false;
+      });
+    })
+    .toBe(true);
 }
 
 async function getThisClientServerOwnership(page: Page): Promise<boolean> {
@@ -504,6 +605,161 @@ test.describe.serial("Multi-Session Playback", () => {
       .toBe(true);
   });
 
+  test("new tab cloned from an owner gets its own client and updates both session lists", async ({
+    authenticatedPage: ownerPage,
+  }) => {
+    await playFirstSongAndPause(ownerPage);
+    const ownerClientId = await getStoredClientId(ownerPage);
+    expect(ownerClientId).not.toBeNull();
+
+    const clonedSessionValues = await getStoredSessionCloneValues(ownerPage);
+    const ownerTabInstanceId = JSON.parse(
+      clonedSessionValues["ferrotune-client-tab-instance-id"] ?? "null",
+    );
+    expect(ownerTabInstanceId).not.toBeNull();
+
+    await expect
+      .poll(() =>
+        ownerPage.evaluate((tabInstanceId) => {
+          return (
+            localStorage.getItem(
+              `ferrotune-active-client-tab:${tabInstanceId}`,
+            ) !== null
+          );
+        }, ownerTabInstanceId),
+      )
+      .toBe(true);
+
+    const clonePage = await ownerPage.context().newPage();
+    await clonePage.addInitScript((values) => {
+      for (const [key, value] of Object.entries(values)) {
+        sessionStorage.setItem(key, value);
+      }
+    }, clonedSessionValues);
+
+    try {
+      await clonePage.goto(ownerPage.url());
+      await waitForAuthenticatedHome(clonePage);
+
+      const cloneClientId = await getStoredClientId(clonePage);
+      expect(cloneClientId).not.toBeNull();
+      expect(cloneClientId).not.toBe(ownerClientId);
+
+      await expect
+        .poll(() => getConnectedClientCount(ownerPage), { timeout: 10000 })
+        .toBe(2);
+      await expect
+        .poll(() => getConnectedClientCount(clonePage), { timeout: 10000 })
+        .toBe(2);
+
+      await expectConnectedWebClientsInMenu(ownerPage, 2);
+      await expectConnectedWebClientsInMenu(clonePage, 2);
+    } finally {
+      await clonePage.close();
+    }
+  });
+
+  test("follower joining mid-song loads the current waveform", async ({
+    authenticatedPage: ownerPage,
+    server,
+    browser,
+  }) => {
+    await playFirstAlbumSong(ownerPage);
+    await waitForPlayerReady(ownerPage);
+    await expect(ownerPage.getByTestId("player-bar")).toContainText(/Song/, {
+      timeout: 10000,
+    });
+    await expect
+      .poll(() => getDisplayedCurrentTime(ownerPage), { timeout: 10000 })
+      .toBeGreaterThan(0);
+
+    const waveformRequests: string[] = [];
+    const waveformHeights = Array.from({ length: 128 }, (_, index) =>
+      index % 2 === 0 ? 0.85 : 0.25,
+    );
+    const baseURL =
+      ownerPage.url().split("/")[0] + "//" + ownerPage.url().split("/")[2];
+    const { context: followerCtx, page: followerPage } = await createSecondTab(
+      browser,
+      server,
+      baseURL,
+      async (page) => {
+        await page.route("**/ferrotune/songs/*/waveform", async (route) => {
+          waveformRequests.push(route.request().url());
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ heights: waveformHeights }),
+          });
+        });
+      },
+    );
+
+    try {
+      const followerBar = followerPage.getByTestId("player-bar");
+      await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
+      await expect
+        .poll(() => waveformRequests.length, { timeout: 10000 })
+        .toBeGreaterThan(0);
+      await expectWaveformCanvasPainted(followerPage);
+    } finally {
+      await followerCtx.close();
+    }
+  });
+
+  test("follower joining a paused owner loads the current waveform", async ({
+    authenticatedPage: ownerPage,
+    server,
+    browser,
+  }) => {
+    await playFirstSongAndPause(ownerPage);
+
+    let waveformRequestCount = 0;
+    const waveformHeights = Array.from({ length: 128 }, (_, index) =>
+      index % 2 === 0 ? 0.75 : 0.35,
+    );
+    const baseURL =
+      ownerPage.url().split("/")[0] + "//" + ownerPage.url().split("/")[2];
+    const { context: followerCtx, page: followerPage } = await createSecondTab(
+      browser,
+      server,
+      baseURL,
+      async (page) => {
+        await page.route("**/ferrotune/songs/*/waveform", async (route) => {
+          waveformRequestCount += 1;
+          if (waveformRequestCount === 1) {
+            await route.fulfill({
+              status: 503,
+              contentType: "application/json",
+              body: JSON.stringify({ error: "temporary waveform failure" }),
+            });
+            return;
+          }
+
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ heights: waveformHeights }),
+          });
+        });
+      },
+    );
+
+    try {
+      const followerBar = followerPage.getByTestId("player-bar");
+      await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
+      await expect(
+        followerBar.getByRole("button", { name: "Play" }).first(),
+      ).toBeVisible({ timeout: 10000 });
+      await expect
+        .poll(() => waveformRequestCount, { timeout: 10000 })
+        .toBeGreaterThan(1);
+      await expectWaveformCanvasPainted(followerPage);
+    } finally {
+      await followerCtx.close();
+    }
+  });
+
   test("play after reload keeps browser audio running", async ({
     authenticatedPage: page,
   }) => {
@@ -721,6 +977,49 @@ test.describe.serial("Multi-Session Playback", () => {
           );
         })
         .toBe(true);
+    } finally {
+      await followerCtx.close();
+    }
+  });
+
+  test("takeover with explicit resume loads and plays on target follower", async ({
+    authenticatedPage: ownerPage,
+    server,
+    browser,
+  }) => {
+    await playFirstSongAndPause(ownerPage);
+
+    const baseURL =
+      ownerPage.url().split("/")[0] + "//" + ownerPage.url().split("/")[2];
+    const { context: followerCtx, page: followerPage } = await createSecondTab(
+      browser,
+      server,
+      baseURL,
+    );
+
+    try {
+      const followerBar = followerPage.getByTestId("player-bar");
+      await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
+
+      // Give the target tab user activation so the assertion checks Ferrotune's
+      // handoff logic instead of browser autoplay policy.
+      await followerBar.click({ position: { x: 10, y: 10 } });
+
+      await sendTakeoverCommand(followerPage, { resumePlayback: true });
+
+      await expect
+        .poll(
+          async () => {
+            const snapshot =
+              await getBrowserAudioPlaybackSnapshot(followerPage);
+            return snapshot.isPlaying;
+          },
+          { timeout: 10000 },
+        )
+        .toBe(true);
+      await expect(
+        followerBar.getByRole("button", { name: "Pause" }).first(),
+      ).toBeVisible({ timeout: 10000 });
     } finally {
       await followerCtx.close();
     }

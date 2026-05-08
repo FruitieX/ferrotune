@@ -44,7 +44,6 @@ import {
 } from "@/lib/store/ui";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import { starredItemsAtom } from "@/lib/store/starred";
-import { waveformCacheAtom } from "@/lib/store/waveform";
 import {
   resetServerPreferences,
   refreshServerPreferences,
@@ -141,7 +140,6 @@ function AccountSwitchStateResetter() {
   const currentAccountKey = connection ? accountKey(connection) : null;
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
   const setStarredItems = useSetAtom(starredItemsAtom);
-  const setWaveformCache = useSetAtom(waveformCacheAtom);
   const setIsCacheRestored = useSetAtom(isCacheRestoredAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const setFullscreenPlayerOpen = useSetAtom(fullscreenPlayerOpenAtom);
@@ -160,7 +158,6 @@ function AccountSwitchStateResetter() {
 
     // Reset user-specific Jotai atoms
     setStarredItems(new Map());
-    setWaveformCache(new Map());
     setIsCacheRestored(false);
     setQueuePanelOpen(false);
     setFullscreenPlayerOpen(false);
@@ -171,7 +168,6 @@ function AccountSwitchStateResetter() {
   }, [
     currentAccountKey,
     setStarredItems,
-    setWaveformCache,
     setIsCacheRestored,
     setQueuePanelOpen,
     setFullscreenPlayerOpen,
