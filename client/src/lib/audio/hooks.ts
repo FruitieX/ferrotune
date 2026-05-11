@@ -49,13 +49,19 @@ import {
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { getClient, getClientName } from "@/lib/api/client";
 import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
-import { starredItemsAtom } from "@/lib/store/starred";
+import {
+  getStarredItemKey,
+  invalidateFavoritesQueries as invalidateFavoriteQueriesForType,
+  starredItemsAtom,
+  type StarType,
+} from "@/lib/store/starred";
 import {
   nativePlay,
   nativePause,
   nativeSeek,
   nativeNextTrack,
   nativePreviousTrack,
+  nativeUpdateStarredState,
 } from "@/lib/audio/native-engine";
 import {
   isAudioOwnerAtom,
@@ -150,6 +156,10 @@ export function useAudioEngineInit() {
     invalidatePlayCounts(queryClient);
   };
 
+  const invalidateFavoriteQueries = (type: StarType) => {
+    invalidateFavoriteQueriesForType(queryClient, type);
+  };
+
   const settersRef = useRef<EngineSetters>({
     setPlaybackState,
     setPlaybackError,
@@ -165,6 +175,7 @@ export function useAudioEngineInit() {
     setServerQueueState,
     setQueueWindow,
     setStarredItems,
+    invalidateFavoritesQueries: invalidateFavoriteQueries,
   });
 
   useEffect(() => {
@@ -183,6 +194,7 @@ export function useAudioEngineInit() {
       setServerQueueState,
       setQueueWindow,
       setStarredItems,
+      invalidateFavoritesQueries: invalidateFavoriteQueries,
     };
   });
 
@@ -227,6 +239,16 @@ export function useAudioEngineInit() {
       clientId,
     };
   });
+
+  useEffect(() => {
+    if (!usingNativeAudio || !currentSong?.id) return;
+
+    const isStarred =
+      starredItems.get(getStarredItemKey("song", currentSong.id)) ??
+      !!currentSong.starred;
+
+    nativeUpdateStarredState(isStarred).catch(console.error);
+  }, [currentSong?.id, currentSong?.starred, starredItems]);
 
   const lastProcessedSignalRef = useRef<number>(-1);
   const lastStreamUrlRef = useRef<string | null>(null);

@@ -16,6 +16,7 @@ import type { ServerQueueState } from "@/lib/store/server-queue";
 import type { QueueWindow } from "@/lib/api/generated/QueueWindow";
 import type { ServerConnection } from "@/lib/api/types";
 import type { NativeStreamOptions } from "@/lib/audio/native-engine";
+import type { StarType } from "@/lib/store/starred";
 
 /** Snapshot of reactive state, kept in sync via ref for use in callbacks. */
 export interface EngineStateSnapshot {
@@ -70,6 +71,7 @@ export interface EngineSetters {
       | Map<string, boolean>
       | ((prev: Map<string, boolean>) => Map<string, boolean>),
   ) => void;
+  invalidateFavoritesQueries: (type: StarType) => void;
 }
 
 /** Build NativeStreamOptions from the current state snapshot. */

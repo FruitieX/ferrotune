@@ -41,8 +41,12 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.WrappingMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -52,6 +56,7 @@ import androidx.media3.session.SessionResult
 import app.tauri.plugin.JSObject
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.pow
@@ -401,7 +406,9 @@ class PlaybackService : MediaSessionService() {
         }
 
         @OptIn(UnstableApi::class)
-        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+        val mediaSourceFactory = KnownDurationMediaSourceFactory(
+            DefaultMediaSourceFactory(cacheDataSourceFactory)
+        )
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
         // Allow ExoPlayer to buffer the full track into the cache in a burst
@@ -451,7 +458,6 @@ class PlaybackService : MediaSessionService() {
             override fun getState(): State {
                 val state = super.getState()
                 val offset = this@PlaybackService.seekTimeOffsetMs
-                val track = this@PlaybackService.currentTrack
                 val builder = state.buildUpon()
                     .setAvailableCommands(
                         state.availableCommands.buildUpon()
@@ -465,31 +471,59 @@ class PlaybackService : MediaSessionService() {
                             .add(COMMAND_SET_REPEAT_MODE)
                             .build()
                     )
+                            .setShuffleModeEnabled(this@PlaybackService.isShuffled)
+                            .setRepeatMode(this@PlaybackService.mediaSessionRepeatMode())
+
+                val currentIdx = state.currentMediaItemIndex
+                val currentItem = state.playlist.getOrNull(currentIdx)
+                val currentSessionTrack = currentItem?.let {
+                    this@PlaybackService.resolveSessionTrack(it, currentIdx)
+                }
+
                 // Adjust position for seek-by-reload offset so notification shows correct time
                 if (offset > 0) {
-                    builder.setContentPositionMs { state.contentPositionMsSupplier.get() + offset }
-                    builder.setContentBufferedPositionMs { state.contentBufferedPositionMsSupplier.get() + offset }
+                    builder.setContentPositionMs {
+                        this@PlaybackService.offsetSessionPositionMs(
+                            state.contentPositionMsSupplier.get(),
+                            offset,
+                            currentSessionTrack,
+                        )
+                    }
+                    builder.setContentBufferedPositionMs {
+                        this@PlaybackService.offsetSessionPositionMs(
+                            state.contentBufferedPositionMsSupplier.get(),
+                            offset,
+                            currentSessionTrack,
+                        )
+                    }
                 }
                 // Override playlist items to set correct duration from metadata.
                 // For transcoded streams, ExoPlayer reports C.TIME_UNSET for duration
                 // which prevents the notification seekbar from being interactive.
-                if (track != null && track.durationMs > 0 && state.playlist.isNotEmpty()) {
-                    val currentIdx = state.currentMediaItemIndex
-                    if (currentIdx in state.playlist.indices) {
-                        val fixedCurrentItem = createSessionMediaItemData(
-                            state.playlist[currentIdx],
-                            track,
-                        )
-                        val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
-                            if (idx == currentIdx) fixedCurrentItem else item
+                if (state.playlist.isNotEmpty()) {
+                    val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
+                        val itemTrack = this@PlaybackService.resolveSessionTrack(item, idx)
+                        if (itemTrack != null && itemTrack.durationMs > 0) {
+                            createSessionMediaItemData(item, itemTrack)
+                        } else {
+                            item
                         }
-                        builder.setPlaylist(fixedPlaylist)
+                    }
+                    builder.setPlaylist(fixedPlaylist)
 
+                    if (currentIdx in fixedPlaylist.indices && currentSessionTrack != null) {
+                        val fixedCurrentItem = fixedPlaylist[currentIdx]
                         val sessionExportLog =
-                            "session export: current=$currentIdx durationMs=${track.durationMs} " +
+                            "session export: current=$currentIdx durationMs=${currentSessionTrack.durationMs} " +
                                 "playlistSize=${fixedPlaylist.size} seekable=${fixedCurrentItem.isSeekable} " +
                                 "placeholder=${fixedCurrentItem.isPlaceholder} " +
-                                "transcoding=${this@PlaybackService.playbackSettings.transcodingEnabled}"
+                                "transcoding=${this@PlaybackService.playbackSettings.transcodingEnabled} " +
+                                "dynamic=${fixedCurrentItem.isDynamic} " +
+                                "live=${fixedCurrentItem.liveConfiguration != null} " +
+                                "positionMs=${state.contentPositionMsSupplier.get()} " +
+                                "bufferedMs=${state.contentBufferedPositionMsSupplier.get()} " +
+                                "canReadCurrentItem=${state.availableCommands.contains(COMMAND_GET_CURRENT_MEDIA_ITEM)} " +
+                                "canSeekCurrent=${state.availableCommands.contains(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)}"
                         if (sessionExportLog != this@PlaybackService.lastSessionExportLog) {
                             Log.d(TAG, sessionExportLog)
                             this@PlaybackService.lastSessionExportLog = sessionExportLog
@@ -524,12 +558,19 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
-                player.shuffleModeEnabled = shuffleModeEnabled
-                return Futures.immediateVoidFuture()
+                return this@PlaybackService.futureFromDeferred(
+                    this@PlaybackService.autonomousToggleShuffle(
+                        shuffleModeEnabled,
+                        emitQueueState = true,
+                    )
+                )
             }
 
             override fun handleSetRepeatMode(repeatMode: Int): ListenableFuture<*> {
-                player.repeatMode = repeatMode
+                this@PlaybackService.setRepeatMode(
+                    this@PlaybackService.repeatModeFromMediaSession(repeatMode),
+                    emitQueueState = true,
+                )
                 return Futures.immediateVoidFuture()
             }
 
@@ -580,9 +621,13 @@ class PlaybackService : MediaSessionService() {
                     if (customCommand.customAction == ACTION_TOGGLE_STAR) {
                         Log.d(TAG, "Toggle star from external controller for track: ${currentTrack?.id}")
                         currentTrack?.id?.let { trackId ->
+                            val previousStarred = isCurrentTrackStarred
+                            isCurrentTrackStarred = !previousStarred
+                            updateMediaButtonPreferences()
+                            invalidateSessionExport()
                             eventEmitter?.invoke(AudioEvents.TOGGLE_STAR, JSObject().apply {
                                 put("trackId", trackId)
-                                put("isStarred", isCurrentTrackStarred)
+                                put("isStarred", previousStarred)
                             })
                         }
                         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -715,6 +760,7 @@ class PlaybackService : MediaSessionService() {
         // after an explicit stop from the JS side.
         handler.removeCallbacks(inactivityTimeoutRunnable)
         handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
+        invalidateSessionExport()
         emitStateChange()
     }
 
@@ -756,6 +802,7 @@ class PlaybackService : MediaSessionService() {
         isFetching = false
         resetScrobbleState()
         replayGainProcessor.clearPendingGain()
+        invalidateSessionExport()
         emitStateChange()
     }
 
@@ -786,6 +833,7 @@ class PlaybackService : MediaSessionService() {
             lastKnownGoodPositionMs = positionMs.coerceAtLeast(0)
             player.seekTo(positionMs)
         }
+        invalidateSessionExport()
         // Reschedule pre-apply since position changed
         hasPreAppliedNextGain = false
         replayGainProcessor.clearPendingGain()
@@ -1070,6 +1118,7 @@ class PlaybackService : MediaSessionService() {
         playbackSettings = settings
         // Re-apply ReplayGain to current track with new settings
         applyTrackReplayGain(currentTrack)
+        invalidateSessionExport()
     }
 
     /**
@@ -1109,6 +1158,8 @@ class PlaybackService : MediaSessionService() {
         serverQueueIndex = currentIndex
         this.isShuffled = isShuffled
         this.repeatMode = repeatMode
+        player.shuffleModeEnabled = false
+        player.repeatMode = exoRepeatMode(repeatMode)
         isFetching = false
         resetScrobbleState()
 
@@ -1201,6 +1252,8 @@ class PlaybackService : MediaSessionService() {
         serverTotalCount = response.totalCount
         this.isShuffled = response.isShuffled
         this.repeatMode = response.repeatMode
+        player.shuffleModeEnabled = false
+        player.repeatMode = exoRepeatMode(response.repeatMode)
 
         val sortedEntries = response.window.songs.sortedBy { it.position }
         if (sortedEntries.isEmpty()) {
@@ -1248,6 +1301,7 @@ class PlaybackService : MediaSessionService() {
             player.setMediaItems(mediaItems, exoStartIndex, 0)
             applyTrackReplayGain(currentTrack, exoStartIndex)
             player.prepare()
+            invalidateSessionExport()
 
             Log.d(TAG, "Loaded ${tracks.size} tracks with seek-by-reload: offset=${timeOffsetSeconds}s, " +
                 "positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
@@ -1259,6 +1313,7 @@ class PlaybackService : MediaSessionService() {
             player.setMediaItems(mediaItems, exoStartIndex, startPositionMs)
             applyTrackReplayGain(currentTrack, exoStartIndex)
             player.prepare()
+            invalidateSessionExport()
 
             Log.d(TAG, "Loaded ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
                 "exoStartIndex=$exoStartIndex, serverIndex=$targetIndex")
@@ -1356,6 +1411,10 @@ class PlaybackService : MediaSessionService() {
 
             Log.d(TAG, "Prepended ${newTracks.size} tracks, range now $loadedRangeStart..${loadedRangeEnd - 1}")
         }
+
+        if (newAheadEntries.isNotEmpty() || newBehindEntries.isNotEmpty()) {
+            invalidateSessionExport()
+        }
     }
 
     /**
@@ -1419,6 +1478,7 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "autonomousSkipNext: re-preparing player from state=${player.playbackState}")
                 player.prepare()
             }
+            invalidateSessionExport()
             maybePrefetchMore()
         } else {
             // Not loaded, fetch a new window
@@ -1493,6 +1553,7 @@ class PlaybackService : MediaSessionService() {
             nextQueueLoadGeneration("skip previous loaded")
             player.playWhenReady = continuePlayback
             player.seekTo(exoIndex, 0)
+            invalidateSessionExport()
             maybePrefetchMore()
         } else {
             val generation = nextQueueLoadGeneration("skip previous fetch")
@@ -1515,9 +1576,21 @@ class PlaybackService : MediaSessionService() {
      * Toggle shuffle.
      * Surgically updates surrounding tracks without interrupting the currently playing track.
      */
-    fun autonomousToggleShuffle(enabled: Boolean): CompletableDeferred<Unit> {
+    fun autonomousToggleShuffle(
+        enabled: Boolean,
+        emitQueueState: Boolean = false,
+    ): CompletableDeferred<Unit> {
         val deferred = CompletableDeferred<Unit>()
-        Log.d(TAG, "autonomousToggleShuffle($enabled)")
+        Log.d(TAG, "autonomousToggleShuffle($enabled, emitQueueState=$emitQueueState)")
+        if (enabled == isShuffled) {
+            updateMediaButtonPreferences()
+            invalidateSessionExport()
+            if (emitQueueState) {
+                emitQueueStateChanged()
+            }
+            deferred.complete(Unit)
+            return deferred
+        }
         val currentPositionMs = player.currentPosition
         val generation = nextQueueLoadGeneration("toggle shuffle")
         apiExecutor.execute {
@@ -1535,9 +1608,12 @@ class PlaybackService : MediaSessionService() {
                     isShuffled = enabled
                     serverQueueIndex = newIndex
                     handleShuffleQueueUpdate(queueResponse, newIndex)
-                    eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
-                        put("enabled", enabled)
-                    })
+                    player.shuffleModeEnabled = false
+                    updateMediaButtonPreferences()
+                    invalidateSessionExport()
+                    if (emitQueueState) {
+                        emitQueueStateChanged()
+                    }
                     deferred.complete(Unit)
                 }
             } catch (e: Exception) {
@@ -1561,6 +1637,8 @@ class PlaybackService : MediaSessionService() {
         serverTotalCount = response.totalCount
         this.isShuffled = response.isShuffled
         this.repeatMode = response.repeatMode
+        player.shuffleModeEnabled = false
+        player.repeatMode = exoRepeatMode(response.repeatMode)
 
         val sortedEntries = response.window.songs.sortedBy { it.position }
         if (sortedEntries.isEmpty()) return
@@ -1630,6 +1708,7 @@ class PlaybackService : MediaSessionService() {
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
         currentTrack = tracks.getOrNull(targetExoIndex) ?: currentTrack
+        invalidateSessionExport()
         // Don't emit track change — the same track is still playing.
         // Don't emit queue-state-changed here: the JS toggleShuffleAtom updates both
         // serverQueueStateAtom and queueWindowAtom atomically after nativeToggleShuffle
@@ -1643,12 +1722,42 @@ class PlaybackService : MediaSessionService() {
     /**
      * Set repeat mode.
      */
-    fun setRepeatMode(mode: String) {
+    private fun mediaSessionRepeatMode(): Int = when (repeatMode) {
+        "one" -> Player.REPEAT_MODE_ONE
+        "all" -> Player.REPEAT_MODE_ALL
+        else -> Player.REPEAT_MODE_OFF
+    }
+
+    private fun exoRepeatMode(mode: String): Int = if (mode == "one") {
+        Player.REPEAT_MODE_ONE
+    } else {
+        Player.REPEAT_MODE_OFF
+    }
+
+    private fun repeatModeFromMediaSession(mode: Int): String = when (mode) {
+        Player.REPEAT_MODE_ONE -> "one"
+        Player.REPEAT_MODE_ALL -> "all"
+        else -> "off"
+    }
+
+    private fun futureFromDeferred(deferred: CompletableDeferred<Unit>): ListenableFuture<Void?> {
+        val future = SettableFuture.create<Void?>()
+        deferred.invokeOnCompletion { error ->
+            if (error != null) {
+                future.setException(error)
+            } else {
+                future.set(null)
+            }
+        }
+        return future
+    }
+
+    fun setRepeatMode(mode: String, emitQueueState: Boolean = false) {
         Log.d(TAG, "setRepeatMode($mode)")
 
         repeatMode = mode
         // Set ExoPlayer repeat mode for repeat-one
-        player.repeatMode = if (mode == "one") Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        player.repeatMode = exoRepeatMode(mode)
 
         apiExecutor.execute {
             try {
@@ -1659,6 +1768,10 @@ class PlaybackService : MediaSessionService() {
         }
 
         updateMediaButtonPreferences()
+        invalidateSessionExport()
+        if (emitQueueState) {
+            emitQueueStateChanged()
+        }
         eventEmitter?.invoke(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
             put("mode", mode)
         })
@@ -1668,6 +1781,7 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "updateStarredState($starred)")
         isCurrentTrackStarred = starred
         updateMediaButtonPreferences()
+        invalidateSessionExport()
     }
 
     @OptIn(UnstableApi::class)
@@ -1682,7 +1796,7 @@ class PlaybackService : MediaSessionService() {
             .setSlots(CommandButton.SLOT_OVERFLOW)
             .build()
 
-        val shuffleIcon = if (player.shuffleModeEnabled)
+        val shuffleIcon = if (isShuffled)
             CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF
         val shuffleButton = CommandButton.Builder(shuffleIcon)
             .setPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE)
@@ -1690,9 +1804,9 @@ class PlaybackService : MediaSessionService() {
             .setSlots(CommandButton.SLOT_OVERFLOW)
             .build()
 
-        val repeatIcon = when (player.repeatMode) {
-            Player.REPEAT_MODE_ONE -> CommandButton.ICON_REPEAT_ONE
-            Player.REPEAT_MODE_ALL -> CommandButton.ICON_REPEAT_ALL
+        val repeatIcon = when (repeatMode) {
+            "one" -> CommandButton.ICON_REPEAT_ONE
+            "all" -> CommandButton.ICON_REPEAT_ALL
             else -> CommandButton.ICON_REPEAT_OFF
         }
         val repeatButton = CommandButton.Builder(repeatIcon)
@@ -1701,6 +1815,10 @@ class PlaybackService : MediaSessionService() {
             .setSlots(CommandButton.SLOT_OVERFLOW)
             .build()
 
+        Log.d(
+            TAG,
+            "media button preferences: starred=$isCurrentTrackStarred shuffled=$isShuffled repeat=$repeatMode"
+        )
         mediaSession.setMediaButtonPreferences(listOf(starButton, shuffleButton, repeatButton))
     }
 
@@ -1762,11 +1880,8 @@ class PlaybackService : MediaSessionService() {
     ) {
         serverQueueIndex = targetIndex
         handleShuffleQueueUpdate(response, targetIndex)
-        player.repeatMode = if (response.repeatMode == "one") {
-            Player.REPEAT_MODE_ONE
-        } else {
-            Player.REPEAT_MODE_OFF
-        }
+        player.shuffleModeEnabled = false
+        player.repeatMode = exoRepeatMode(response.repeatMode)
 
         if (emitQueueState) {
             emitQueueStateChanged()
@@ -1899,6 +2014,145 @@ class PlaybackService : MediaSessionService() {
         return (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
     }
 
+    private fun invalidateSessionExport() {
+        invalidateSessionPlayerState?.invoke()
+    }
+
+    private fun resolveSessionTrack(
+        item: MediaItemData,
+        exoIndex: Int,
+    ): TrackInfo? {
+        val mediaId = item.mediaItem.mediaId
+        val indexedTrack = queue.getOrNull(exoIndex)
+
+        return when {
+            indexedTrack?.id == mediaId -> indexedTrack
+            currentTrack?.id == mediaId -> currentTrack
+            else -> queue.firstOrNull { it.id == mediaId }
+        }
+    }
+
+    private fun offsetSessionPositionMs(
+        basePositionMs: Long,
+        offsetMs: Long,
+        track: TrackInfo?,
+    ): Long {
+        val base = if (basePositionMs == C.TIME_UNSET) 0 else basePositionMs
+        val absolutePosition = (base + offsetMs).coerceAtLeast(0)
+        val durationMs = track?.durationMs ?: 0
+
+        return if (durationMs > 0) {
+            absolutePosition.coerceAtMost(durationMs)
+        } else {
+            absolutePosition
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private class KnownDurationMediaSourceFactory(
+        private val delegate: MediaSource.Factory,
+    ) : MediaSource.Factory {
+        override fun createMediaSource(mediaItem: MediaItem): MediaSource {
+            val mediaSource = delegate.createMediaSource(mediaItem)
+            val durationMs = mediaItem.mediaMetadata.durationMs?.takeIf { it > 0 }
+
+            if (durationMs == null || !isTranscodedMediaItem(mediaItem)) {
+                return mediaSource
+            }
+
+            return KnownDurationMediaSource(mediaSource, durationMs)
+        }
+
+        override fun getSupportedTypes(): IntArray = delegate.supportedTypes
+
+        override fun setDrmSessionManagerProvider(
+            drmSessionManagerProvider: DrmSessionManagerProvider,
+        ): MediaSource.Factory {
+            delegate.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            return this
+        }
+
+        override fun setLoadErrorHandlingPolicy(
+            loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
+        ): MediaSource.Factory {
+            delegate.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            return this
+        }
+
+        private fun isTranscodedMediaItem(mediaItem: MediaItem): Boolean {
+            val uri = mediaItem.localConfiguration?.uri ?: return false
+
+            return uri.getQueryParameter("format") == "opus" ||
+                uri.getQueryParameter("maxBitRate") != null ||
+                uri.getQueryParameter("timeOffset") != null
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private class KnownDurationMediaSource(
+        mediaSource: MediaSource,
+        durationMs: Long,
+    ) : WrappingMediaSource(mediaSource) {
+        private val durationUs = durationMs * 1000L
+
+        override fun getInitialTimeline(): Timeline? {
+            return super.getInitialTimeline()?.let(::wrapTimeline)
+        }
+
+        override fun onChildSourceInfoRefreshed(newTimeline: Timeline) {
+            refreshSourceInfo(wrapTimeline(newTimeline))
+        }
+
+        private fun wrapTimeline(timeline: Timeline): Timeline {
+            return if (timeline.isEmpty) timeline else KnownDurationTimeline(timeline, durationUs)
+        }
+    }
+
+    private class KnownDurationTimeline(
+        private val delegate: Timeline,
+        private val durationUs: Long,
+    ) : Timeline() {
+        override fun getWindowCount(): Int = delegate.windowCount
+
+        override fun getPeriodCount(): Int = delegate.periodCount
+
+        override fun getWindow(
+            windowIndex: Int,
+            window: Window,
+            defaultPositionProjectionUs: Long,
+        ): Window {
+            delegate.getWindow(windowIndex, window, defaultPositionProjectionUs)
+            if (windowIndex == 0) {
+                window.durationUs = durationUs
+                window.isSeekable = true
+                window.isDynamic = false
+                window.isPlaceholder = false
+                window.liveConfiguration = null
+                window.presentationStartTimeMs = C.TIME_UNSET
+                window.windowStartTimeMs = C.TIME_UNSET
+                window.elapsedRealtimeEpochOffsetMs = C.TIME_UNSET
+            }
+            return window
+        }
+
+        override fun getPeriod(
+            periodIndex: Int,
+            period: Period,
+            setIds: Boolean,
+        ): Period {
+            delegate.getPeriod(periodIndex, period, setIds)
+            if (periodIndex == 0) {
+                period.durationUs = durationUs
+                period.isPlaceholder = false
+            }
+            return period
+        }
+
+        override fun getIndexOfPeriod(uid: Any): Int = delegate.getIndexOfPeriod(uid)
+
+        override fun getUidOfPeriod(periodIndex: Int): Any = delegate.getUidOfPeriod(periodIndex)
+    }
+
     private fun updateLastKnownGoodPosition() {
         if (currentTrack == null) return
 
@@ -1989,27 +2243,14 @@ class PlaybackService : MediaSessionService() {
                     seekTimeOffsetMs = retryPositionMs
                     lastKnownGoodPositionMs = retryPositionMs
                     val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
-
-                    val metadataBuilder = MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .setDurationMs(track.durationMs)
-                    if (track.coverArtUrl != null) {
-                        metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
-                    }
-
-                    val newMediaItem = MediaItem.Builder()
-                        .setMediaId(track.id)
-                        .setUri(Uri.parse(newUrl))
-                        .setMediaMetadata(metadataBuilder.build())
-                        .build()
+                    val newMediaItem = createMediaItem(track, newUrl)
 
                     val currentIndex = player.currentMediaItemIndex
                     player.replaceMediaItem(currentIndex, newMediaItem)
                     player.seekTo(currentIndex, 0)
                     player.playWhenReady = retryPlayWhenReady
                     player.prepare()
+                    invalidateSessionExport()
                     Log.d(
                         TAG,
                         "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
@@ -2026,6 +2267,7 @@ class PlaybackService : MediaSessionService() {
                     }
                     player.playWhenReady = retryPlayWhenReady
                     player.prepare()
+                    invalidateSessionExport()
                     Log.d(
                         TAG,
                         "Network retry: re-prepared non-transcoded stream at ${retryPositionMs}ms " +
@@ -2092,6 +2334,7 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "playAtIndex: re-preparing player from STATE_ENDED")
                 player.prepare()
             }
+            invalidateSessionExport()
             // Sync position to server in the background
             apiExecutor.execute {
                 try {
@@ -2425,8 +2668,9 @@ class PlaybackService : MediaSessionService() {
     fun getState(): PlaybackState {
         return PlaybackState(
             status = mapPlaybackState(player.playbackState, player.playWhenReady),
-            positionMs = player.currentPosition.coerceAtLeast(0),
-            durationMs = player.duration.let { if (it == C.TIME_UNSET) 0 else it },
+            positionMs = getAbsolutePlaybackPositionMs(),
+            durationMs = currentTrack?.durationMs?.takeIf { it > 0 }
+                ?: player.duration.let { if (it == C.TIME_UNSET) 0 else it },
             volume = userVolume,
             muted = userVolume == 0f,
             track = currentTrack,
@@ -2473,7 +2717,12 @@ class PlaybackService : MediaSessionService() {
             )
             .setDurationUs(durationUs)
             .setIsSeekable(true)
+            .setIsDynamic(false)
             .setIsPlaceholder(false)
+            .setLiveConfiguration(null)
+            .setPresentationStartTimeMs(C.TIME_UNSET)
+            .setWindowStartTimeMs(C.TIME_UNSET)
+            .setElapsedRealtimeEpochOffsetMs(C.TIME_UNSET)
             .setPeriods(
                 listOf(
                     PeriodData.Builder(periodUid)
@@ -2575,7 +2824,7 @@ class PlaybackService : MediaSessionService() {
                 // notification picks up our duration/placeholder overrides
                 // (important for transcoded streams where ExoPlayer reports
                 // TIME_UNSET until the source is prepared).
-                invalidateSessionPlayerState?.invoke()
+                invalidateSessionExport()
             }
 
             emitStateChange()
@@ -2629,7 +2878,25 @@ class PlaybackService : MediaSessionService() {
                 Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE -> "SOURCE_UPDATE"
                 else -> "UNKNOWN($reason)"
             }
-            Log.d(TAG, "onTimelineChanged: windowCount=${timeline.windowCount}, reason=$reasonStr")
+            val window = Timeline.Window()
+            val currentIndex = player.currentMediaItemIndex
+            val currentWindow = if (currentIndex in 0 until timeline.windowCount) {
+                timeline.getWindow(currentIndex, window)
+            } else {
+                null
+            }
+            val durationMs = currentWindow?.durationUs?.let {
+                if (it == C.TIME_UNSET) C.TIME_UNSET else it / 1000L
+            } ?: C.TIME_UNSET
+
+            Log.d(
+                TAG,
+                "onTimelineChanged: windowCount=${timeline.windowCount}, reason=$reasonStr, " +
+                    "current=$currentIndex, durationMs=$durationMs, " +
+                    "seekable=${currentWindow?.isSeekable}, dynamic=${currentWindow?.isDynamic}, " +
+                    "live=${currentWindow?.liveConfiguration != null}, " +
+                    "placeholder=${currentWindow?.isPlaceholder}"
+            )
         }
 
         override fun onAvailableCommandsChanged(commands: Player.Commands) {
@@ -2637,7 +2904,8 @@ class PlaybackService : MediaSessionService() {
                 "GET_TIMELINE=${commands.contains(Player.COMMAND_GET_TIMELINE)}, " +
                 "SEEK_TO_NEXT=${commands.contains(Player.COMMAND_SEEK_TO_NEXT)}, " +
                 "SEEK_TO_MEDIA_ITEM=${commands.contains(Player.COMMAND_SEEK_TO_MEDIA_ITEM)}, " +
-                "GET_CURRENT_ITEM=${commands.contains(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)}")
+                "GET_CURRENT_ITEM=${commands.contains(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)}, " +
+                "SEEK_IN_CURRENT=${commands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)}")
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -2700,6 +2968,7 @@ class PlaybackService : MediaSessionService() {
                 mediaItem.mediaId == currentTrack?.id
             ) {
                 Log.d(TAG, "Ignoring playlist-only transition for unchanged media item: ${mediaItem.mediaId}")
+                invalidateSessionExport()
                 emitStateChange()
                 emitProgressEvent()
                 return
@@ -2726,6 +2995,7 @@ class PlaybackService : MediaSessionService() {
             currentTrack = queue.getOrNull(exoIndex)
             applyTrackReplayGain(currentTrack)
             resetScrobbleState()
+            invalidateSessionExport()
             emitTrackChange()
             emitStateChange()
 
@@ -2807,6 +3077,7 @@ class PlaybackService : MediaSessionService() {
             reason: Int
         ) {
             Log.d(TAG, "onPositionDiscontinuity: ${newPosition.positionMs}, reason: $reason")
+            invalidateSessionExport()
             emitProgressEvent()
         }
     }

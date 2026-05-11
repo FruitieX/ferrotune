@@ -47,6 +47,10 @@ import {
   getPlaylistDetailsHref,
   getSongRadioHref,
 } from "@/lib/utils/source-links";
+import {
+  getMostPlayedRecentlyFilters,
+  homeSectionHrefs,
+} from "@/lib/utils/home-sections";
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
 import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
@@ -59,12 +63,6 @@ function getPageSize(viewportWidth: number, itemWidth: number, gap: number) {
   const itemsPerScreen = Math.ceil(viewportWidth / (itemWidth + gap));
   // Load ~2 screenfuls per page for smooth scrolling
   return Math.max(6, itemsPerScreen * 2);
-}
-
-function getMostPlayedRecentlyFilters() {
-  const since = new Date();
-  since.setDate(since.getDate() - 30);
-  return { since: since.toISOString() };
 }
 
 function useStickyHomeSection<TPage>(
@@ -150,10 +148,18 @@ function SectionHeader({
   onShuffleAll?: () => void;
   viewAllHref?: string;
 }) {
+  const titleContent = viewAllHref ? (
+    <Link href={viewAllHref} className="hover:text-primary transition-colors">
+      {title}
+    </Link>
+  ) : (
+    title
+  );
+
   return (
     <div className="flex items-center gap-2 px-3 sm:px-4 lg:px-6">
       <Icon className="w-5 h-5 text-primary" />
-      <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
+      <h2 className="text-lg sm:text-xl font-bold">{titleContent}</h2>
       {hasItems && (
         <div className="flex items-center gap-1 ml-auto">
           {onPlayAll && (
@@ -215,6 +221,7 @@ function AlbumSection({
   onPlayAlbum,
   onPlayAll,
   onShuffleAll,
+  viewAllHref,
   itemWidth,
   itemGap,
   paddingX,
@@ -230,6 +237,7 @@ function AlbumSection({
   onPlayAlbum: (album: Album) => void;
   onPlayAll?: () => void;
   onShuffleAll?: () => void;
+  viewAllHref?: string;
   itemWidth: number;
   itemGap: number;
   paddingX: number;
@@ -243,6 +251,7 @@ function AlbumSection({
         isLoading={isLoading}
         onPlayAll={onPlayAll}
         onShuffleAll={onShuffleAll}
+        viewAllHref={viewAllHref}
       />
       <VirtualizedHorizontalScroll<Album>
         items={albums}
@@ -1008,6 +1017,7 @@ export default function HomePage() {
                 shuffle: true,
               })
             }
+            viewAllHref={homeSectionHrefs.continueListening}
           />
           <VirtualizedHorizontalScroll<ContinueListeningEntry>
             items={continueListeningItems}
@@ -1059,6 +1069,7 @@ export default function HomePage() {
                 filters: getMostPlayedRecentlyFilters(),
               })
             }
+            viewAllHref={homeSectionHrefs.mostPlayedRecently}
           />
           <VirtualizedHorizontalScroll<Song>
             items={mostPlayedRecentlySongs}
@@ -1104,6 +1115,7 @@ export default function HomePage() {
           onShuffleAll={() =>
             handleShuffleAllAlbums("newest", "Recently Added")
           }
+          viewAllHref={homeSectionHrefs.recentlyAdded}
           itemWidth={itemWidth}
           itemGap={itemGap}
           paddingX={paddingX}
@@ -1139,6 +1151,7 @@ export default function HomePage() {
                   },
                 })
               }
+              viewAllHref={homeSectionHrefs.forgottenFavorites}
             />
             <VirtualizedHorizontalScroll<Song>
               items={forgottenFavSongs}
@@ -1192,6 +1205,7 @@ export default function HomePage() {
               seed: randomSeed,
             })
           }
+          viewAllHref={homeSectionHrefs.discover}
           itemWidth={itemWidth}
           itemGap={itemGap}
           paddingX={paddingX}

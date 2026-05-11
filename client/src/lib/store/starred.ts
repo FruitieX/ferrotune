@@ -38,12 +38,16 @@ const starredKeyRefCounts = new Map<string, number>();
 type StarType = "song" | "album" | "artist";
 export type { StarType };
 
+export function getStarredItemKey(type: StarType, id: string): string {
+  return `${type}:${id}`;
+}
+
 /**
  * Invalidate all favorites-related queries to ensure the favorites view
  * and other views displaying starred status are updated when items are
  * starred/unstarred elsewhere.
  */
-function invalidateFavoritesQueries(
+export function invalidateFavoritesQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   type: StarType,
 ) {
@@ -114,7 +118,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
   const queryClient = useQueryClient();
 
   // Create a unique key that includes the type to avoid collisions
-  const key = `${type}:${id}`;
+  const key = getStarredItemKey(type, id);
 
   // Get the atom for this specific item
   const itemAtom = starredItemAtomFamily(key);

@@ -53,6 +53,7 @@ import {
 } from "@/lib/audio/engine-state";
 import type { EngineStateSnapshot, EngineSetters } from "./engine-types";
 import { getNativeStreamOptions } from "./engine-types";
+import { getStarredItemKey } from "@/lib/store/starred";
 import type { Song } from "@/lib/api/types";
 import type { ServerQueueState } from "@/lib/store/server-queue";
 import type { FerrotuneClient } from "@/lib/api/client";
@@ -268,7 +269,9 @@ export function loadTrackNative(
           refs.settersRef.current.setDuration(nativeState.durationSeconds);
 
           const isStarred =
-            refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
+            refs.stateRef.current.starredItems.get(
+              getStarredItemKey("song", currentSong.id),
+            ) ?? !!currentSong.starred;
           await nativeUpdateStarredState(isStarred);
           return;
         }
@@ -309,7 +312,9 @@ export function loadTrackNative(
     }
 
     const isStarred =
-      refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
+      refs.stateRef.current.starredItems.get(
+        getStarredItemKey("song", currentSong.id),
+      ) ?? !!currentSong.starred;
     await nativeUpdateStarredState(isStarred);
   };
 

@@ -32,6 +32,7 @@ import {
   currentLoadedTrackId,
   setCurrentLoadedTrackId,
 } from "@/lib/audio/engine-state";
+import { getStarredItemKey } from "@/lib/store/starred";
 import type { EngineStateSnapshot, EngineSetters } from "./engine-types";
 
 export interface NativeCallbackDeps {
@@ -227,7 +228,10 @@ export function createNativeCallbacks({
       startListeningUpdateInterval();
 
       // Sync star state to WearOS button icon
-      const isStarred = stateRef.current.starredItems.get(track.id) ?? false;
+      const isStarred =
+        stateRef.current.starredItems.get(
+          getStarredItemKey("song", track.id),
+        ) ?? !!entry?.song.starred;
       nativeUpdateStarredState(isStarred).catch(console.error);
     }
   };
@@ -237,10 +241,11 @@ export function createNativeCallbacks({
     const client = getClient();
     if (!client) return;
     const newStarred = !isStarred;
+    const starredKey = getStarredItemKey("song", trackId);
     // Optimistically update UI
     settersRef.current.setStarredItems((current) => {
       const updated = new Map(current);
-      updated.set(trackId, newStarred);
+      updated.set(starredKey, newStarred);
       return updated;
     });
     const action = isStarred
@@ -248,6 +253,7 @@ export function createNativeCallbacks({
       : client.star({ id: trackId });
     action
       .then(() => {
+        settersRef.current.invalidateFavoritesQueries("song");
         nativeUpdateStarredState(newStarred).catch(console.error);
       })
       .catch((err) => {
@@ -255,7 +261,7 @@ export function createNativeCallbacks({
         // Revert on failure
         settersRef.current.setStarredItems((current) => {
           const updated = new Map(current);
-          updated.set(trackId, isStarred);
+          updated.set(starredKey, isStarred);
           return updated;
         });
         nativeUpdateStarredState(isStarred).catch(console.error);
@@ -276,6 +282,20 @@ export function createNativeCallbacks({
           }
         : prev,
     );
+
+    const client = getClient();
+    const sessionId = stateRef.current.currentSessionId;
+    if (client && sessionId) {
+      client
+        .getQueueCurrentWindow(20, "small", sessionId)
+        .then((response) => {
+          if (stateRef.current.currentSessionId !== sessionId) {
+            return;
+          }
+          settersRef.current.setQueueWindow(response.window);
+        })
+        .catch(console.error);
+    }
   };
 
   const onScrobble = (trackId: string) => {

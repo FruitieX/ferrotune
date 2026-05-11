@@ -72,6 +72,56 @@ test.describe("Home continue listening", () => {
     await expect(section.getByText(song.artist).first()).toBeVisible();
   });
 
+  test("section headings link to list pages", async ({
+    authenticatedPage: page,
+  }) => {
+    const song = makeSong("recent-section-track", "Recent Section Track");
+
+    await page.route("**/ferrotune/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: { entries: [], total: 0 },
+          mostPlayedRecently: { song: [song], total: 1 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+        },
+      });
+    });
+
+    await page.route(
+      "**/ferrotune/songs/most-played-recently*",
+      async (route) => {
+        await route.fulfill({
+          json: {
+            song: [song],
+            total: 1,
+          },
+        });
+      },
+    );
+
+    await page.goto("/");
+
+    const headingLink = page.getByRole("link", {
+      name: /most played recently/i,
+    });
+    await expect(headingLink).toHaveAttribute(
+      "href",
+      "/home/most-played-recently",
+    );
+
+    await headingLink.click();
+
+    await expect(page).toHaveURL(/\/home\/most-played-recently$/);
+    await expect(
+      page.getByRole("heading", { name: "Most Played Recently" }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("song-row").filter({ hasText: song.title }),
+    ).toBeVisible();
+  });
+
   test("smart playlists and song radio entries navigate to the correct routes", async ({
     authenticatedPage: page,
   }) => {

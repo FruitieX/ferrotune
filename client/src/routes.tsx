@@ -9,6 +9,7 @@ import {
 import RootLayout from "@/app/layout";
 
 const HomePage = lazy(() => import("@/app/page"));
+const HomeSectionPage = lazy(() => import("@/app/home-section/page"));
 const AdminPage = lazy(() => import("@/app/admin/page"));
 const RecycleBinPage = lazy(() => import("@/app/admin/recycle-bin/page"));
 const FavoritesPage = lazy(() => import("@/app/favorites/page"));
@@ -66,6 +67,7 @@ export function AppRouter() {
       <Routes>
         <Route element={<RootShell />}>
           <Route index element={<HomePage />} />
+          <Route path="home/:sectionId" element={<HomeSectionPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="admin/recycle-bin" element={<RecycleBinPage />} />
           <Route path="favorites" element={<FavoritesPage />} />

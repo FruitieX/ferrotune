@@ -34,11 +34,39 @@ interface SessionExportSummary {
   seekable: boolean;
   placeholder: boolean;
   transcoding: boolean;
+  dynamic: boolean;
+  live: boolean;
+  positionMs: number;
+  bufferedMs: number;
+  canReadCurrentItem: boolean;
+  canSeekCurrent: boolean;
+}
+
+interface TimelineSummary {
+  currentIndex: number;
+  durationMs: number;
+  seekable: boolean;
+  dynamic: boolean;
+  live: boolean;
+  placeholder: boolean;
+}
+
+interface PlatformMediaSessionSummary {
+  playbackState: number;
+  positionMs: number;
+  bufferedPositionMs: number;
+  speed: number;
+}
+
+interface MediaButtonSummary {
+  starred: boolean;
+  shuffled: boolean;
+  repeatMode: string;
 }
 
 function extractLatestSessionExport(logs: string): SessionExportSummary | null {
   const pattern =
-    /session export: current=(\d+) durationMs=(\d+) playlistSize=(\d+) seekable=(true|false) placeholder=(true|false) transcoding=(true|false)/g;
+    /session export: current=(\d+) durationMs=(\d+) playlistSize=(\d+) seekable=(true|false) placeholder=(true|false) transcoding=(true|false) dynamic=(true|false) live=(true|false) positionMs=(-?\d+) bufferedMs=(-?\d+) canReadCurrentItem=(true|false) canSeekCurrent=(true|false)/g;
   let latestMatch: RegExpExecArray | null = null;
 
   for (const match of logs.matchAll(pattern)) {
@@ -56,6 +84,94 @@ function extractLatestSessionExport(logs: string): SessionExportSummary | null {
     seekable: latestMatch[4] === "true",
     placeholder: latestMatch[5] === "true",
     transcoding: latestMatch[6] === "true",
+    dynamic: latestMatch[7] === "true",
+    live: latestMatch[8] === "true",
+    positionMs: Number.parseInt(latestMatch[9] ?? "0", 10),
+    bufferedMs: Number.parseInt(latestMatch[10] ?? "0", 10),
+    canReadCurrentItem: latestMatch[11] === "true",
+    canSeekCurrent: latestMatch[12] === "true",
+  };
+}
+
+function extractLatestTimelineSummary(logs: string): TimelineSummary | null {
+  const pattern =
+    /onTimelineChanged: windowCount=\d+, reason=\w+, current=(-?\d+), durationMs=(-?\d+), seekable=(true|false), dynamic=(true|false), live=(true|false), placeholder=(true|false)/g;
+  let latestMatch: RegExpExecArray | null = null;
+
+  for (const match of logs.matchAll(pattern)) {
+    latestMatch = match;
+  }
+
+  if (!latestMatch) {
+    return null;
+  }
+
+  return {
+    currentIndex: Number.parseInt(latestMatch[1] ?? "0", 10),
+    durationMs: Number.parseInt(latestMatch[2] ?? "0", 10),
+    seekable: latestMatch[3] === "true",
+    dynamic: latestMatch[4] === "true",
+    live: latestMatch[5] === "true",
+    placeholder: latestMatch[6] === "true",
+  };
+}
+
+function extractLatestPlatformMediaSession(
+  dumpsys: string,
+): PlatformMediaSessionSummary | null {
+  let latestSummary: PlatformMediaSessionSummary | null = null;
+  let searchStart = 0;
+
+  while (true) {
+    const packageIndex = dumpsys.indexOf(APP_PACKAGE, searchStart);
+    if (packageIndex === -1) {
+      break;
+    }
+
+    const sessionBlock = dumpsys.slice(packageIndex, packageIndex + 5000);
+    const playbackStateMatch = sessionBlock.match(
+      /PlaybackState\s*\{state=([^,]+), position=(-?\d+), buffered position=(-?\d+), speed=([-\d.]+)/,
+    );
+
+    if (playbackStateMatch) {
+      const playbackStateText = playbackStateMatch[1] ?? "";
+      const playbackStateNumberMatch = playbackStateText.match(/\d+/);
+
+      if (playbackStateNumberMatch) {
+        latestSummary = {
+          playbackState: Number.parseInt(playbackStateNumberMatch[0], 10),
+          positionMs: Number.parseInt(playbackStateMatch[2] ?? "0", 10),
+          bufferedPositionMs: Number.parseInt(playbackStateMatch[3] ?? "0", 10),
+          speed: Number.parseFloat(playbackStateMatch[4] ?? "0"),
+        };
+      }
+    }
+
+    searchStart = packageIndex + APP_PACKAGE.length;
+  }
+
+  return latestSummary;
+}
+
+function extractLatestMediaButtonSummary(
+  logs: string,
+): MediaButtonSummary | null {
+  const pattern =
+    /media button preferences: starred=(true|false) shuffled=(true|false) repeat=([^\s]+)/g;
+  let latestMatch: RegExpExecArray | null = null;
+
+  for (const match of logs.matchAll(pattern)) {
+    latestMatch = match;
+  }
+
+  if (!latestMatch) {
+    return null;
+  }
+
+  return {
+    starred: latestMatch[1] === "true",
+    shuffled: latestMatch[2] === "true",
+    repeatMode: latestMatch[3] ?? "off",
   };
 }
 
@@ -67,6 +183,36 @@ async function readLatestSessionExport(
   );
 
   return extractLatestSessionExport(logs);
+}
+
+async function readLatestTimelineSummary(
+  device: AndroidDevice,
+): Promise<TimelineSummary | null> {
+  const logs = (await device.shell("logcat -d -s PlaybackService:V")).toString(
+    "utf-8",
+  );
+
+  return extractLatestTimelineSummary(logs);
+}
+
+async function readLatestPlatformMediaSession(
+  device: AndroidDevice,
+): Promise<PlatformMediaSessionSummary | null> {
+  const dumpsys = (await device.shell("dumpsys media_session")).toString(
+    "utf-8",
+  );
+
+  return extractLatestPlatformMediaSession(dumpsys);
+}
+
+async function readLatestMediaButtonSummary(
+  device: AndroidDevice,
+): Promise<MediaButtonSummary | null> {
+  const logs = (await device.shell("logcat -d -s PlaybackService:V")).toString(
+    "utf-8",
+  );
+
+  return extractLatestMediaButtonSummary(logs);
 }
 
 function pickDevice(devices: AndroidDevice[]): AndroidDevice {
@@ -260,6 +406,18 @@ async function clickPlayNextAction(menu: Locator) {
   }
 
   await menu.getByRole("menuitem", { name: /play next/i }).click();
+}
+
+async function clickAddToFavoritesAction(menu: Locator) {
+  const drawerAction = menu.getByRole("button", {
+    name: /add to favorites/i,
+  });
+  if (await drawerAction.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await drawerAction.click();
+    return;
+  }
+
+  await menu.getByRole("menuitem", { name: /add to favorites/i }).click();
 }
 
 async function getDisplayedCurrentTime(page: Page): Promise<number> {
@@ -512,6 +670,86 @@ test.describe.serial("Android Emulator Smoke", () => {
     }
   });
 
+  test("app favorite and shuffle controls update Android media buttons", async ({
+    server,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+
+    const connectedDevices = await android.devices();
+    test.skip(
+      connectedDevices.length === 0,
+      "No Android emulator or device connected to ADB.",
+    );
+
+    if (!fs.existsSync(DEBUG_APK_PATH)) {
+      throw new Error(
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:test-android-emulator or moon run client:tauri-android-deploy-debug first.`,
+      );
+    }
+
+    const device = pickDevice(connectedDevices);
+    let page: import("@playwright/test").Page | undefined;
+
+    try {
+      page = await prepareAndroidApp(device, server);
+
+      await playFirstSong(page);
+      await waitForPlayerReady(page, 15000);
+
+      const playerBar = page.getByTestId("player-bar");
+      await expect(playerBar).toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      await ensureSongsListView(page);
+      const songMenu = await openSongActionMenu(page, "First Song");
+      await clickAddToFavoritesAction(songMenu);
+
+      await expect
+        .poll(
+          async () => (await readLatestMediaButtonSummary(device))?.starred,
+          {
+            timeout: 15000,
+            message:
+              "Expected Android media favorite button to reflect app favorite changes",
+          },
+        )
+        .toBe(true);
+
+      await playerBar.getByRole("button", { name: /more options/i }).click();
+      await page.getByRole("button", { name: /^shuffle/i }).click();
+
+      await expect
+        .poll(
+          async () => (await readLatestMediaButtonSummary(device))?.shuffled,
+          {
+            timeout: 15000,
+            message:
+              "Expected Android media shuffle button to reflect app shuffle changes",
+          },
+        )
+        .toBe(true);
+    } catch (error) {
+      if (page) {
+        await page
+          .screenshot({
+            path: testInfo.outputPath("android-media-buttons-failure.png"),
+          })
+          .catch(() => undefined);
+      }
+
+      await device
+        .screenshot({
+          path: testInfo.outputPath("android-media-buttons-device-failure.png"),
+        })
+        .catch(() => undefined);
+
+      throw error;
+    } finally {
+      await device.close().catch(() => undefined);
+    }
+  });
+
   test("transcoded session export stays determinate on Android", async ({
     server,
   }, testInfo) => {
@@ -541,7 +779,8 @@ test.describe.serial("Android Emulator Smoke", () => {
 
       await playFirstSong(page);
       await waitForPlayerReady(page, 15000);
-      await expect(page.getByTestId("player-bar")).toBeVisible({
+      const playerBar = page.getByTestId("player-bar");
+      await expect(playerBar).toBeVisible({
         timeout: 15000,
       });
 
@@ -565,6 +804,86 @@ test.describe.serial("Android Emulator Smoke", () => {
       expect(sessionExport.seekable).toBe(true);
       expect(sessionExport.placeholder).toBe(false);
       expect(sessionExport.transcoding).toBe(true);
+      expect(sessionExport.dynamic).toBe(false);
+      expect(sessionExport.live).toBe(false);
+      expect(sessionExport.canReadCurrentItem).toBe(true);
+      expect(sessionExport.canSeekCurrent).toBe(true);
+      expect(sessionExport.positionMs).toBeGreaterThanOrEqual(0);
+
+      await expect
+        .poll(
+          async () => {
+            const latestTimelineSummary =
+              await readLatestTimelineSummary(device);
+
+            return (
+              latestTimelineSummary !== null &&
+              latestTimelineSummary.durationMs > 0 &&
+              latestTimelineSummary.seekable &&
+              !latestTimelineSummary.dynamic &&
+              !latestTimelineSummary.live &&
+              !latestTimelineSummary.placeholder
+            );
+          },
+          {
+            timeout: 15000,
+            message:
+              "Expected transcoded ExoPlayer timeline to be finite and seekable",
+          },
+        )
+        .toBe(true);
+
+      await expect
+        .poll(
+          async () => {
+            const platformSession =
+              await readLatestPlatformMediaSession(device);
+
+            return (
+              platformSession !== null &&
+              platformSession.playbackState === 3 &&
+              platformSession.positionMs >= 0 &&
+              platformSession.bufferedPositionMs >= 0 &&
+              platformSession.speed > 0
+            );
+          },
+          {
+            timeout: 15000,
+            message:
+              "Expected phone platform media session to expose determinate playback progress",
+          },
+        )
+        .toBe(true);
+
+      await playerBar.getByRole("button", { name: /next/i }).click();
+      await expect(playerBar).toContainText("Second Song", {
+        timeout: 15000,
+      });
+
+      await expect
+        .poll(
+          async () => {
+            const latestSessionExport = await readLatestSessionExport(device);
+
+            return (
+              latestSessionExport !== null &&
+              latestSessionExport.currentIndex !== sessionExport.currentIndex &&
+              latestSessionExport.durationMs > 0 &&
+              latestSessionExport.seekable &&
+              !latestSessionExport.placeholder &&
+              latestSessionExport.transcoding &&
+              !latestSessionExport.dynamic &&
+              !latestSessionExport.live &&
+              latestSessionExport.canReadCurrentItem
+            );
+          },
+          {
+            timeout: 15000,
+            message:
+              "Expected transcoded session export to remain determinate after track transition",
+          },
+        )
+        .toBe(true);
     } catch (error) {
       if (page) {
         await page

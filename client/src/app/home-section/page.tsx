@@ -1,0 +1,747 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import Link from "next/link";
+import { Navigate, useParams } from "react-router-dom";
+import { useSetAtom } from "jotai";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import {
+  Clock,
+  Disc,
+  Heart,
+  ListMusic,
+  Play,
+  Radio,
+  Sparkles,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
+import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { getClient } from "@/lib/api/client";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import { getMostPlayedRecentlyFilters } from "@/lib/utils/home-sections";
+import {
+  getPlaylistDetailsHref,
+  getSongRadioHref,
+} from "@/lib/utils/source-links";
+import { formatCount, formatDate, formatDuration } from "@/lib/utils/format";
+import { DetailHeader } from "@/components/shared/detail-header";
+import { ActionBar } from "@/components/shared/action-bar";
+import { EmptyState } from "@/components/shared/empty-state";
+import { MediaRow, MediaRowSkeleton } from "@/components/shared/media-row";
+import { VirtualizedList } from "@/components/shared/virtualized-grid";
+import { AlbumCardCompact } from "@/components/browse/album-card";
+import {
+  SongRow,
+  SongRowSkeleton,
+  type QueueSource,
+} from "@/components/browse/song-row";
+import {
+  AlbumListHeader,
+  SongListHeader,
+} from "@/components/shared/song-list-header";
+import type { Album, Song } from "@/lib/api/types";
+import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
+import type { AlbumColumnVisibility, ColumnVisibility } from "@/lib/store/ui";
+
+const PAGE_SIZE = 50;
+
+const songColumns: ColumnVisibility = {
+  trackNumber: true,
+  artist: true,
+  album: true,
+  duration: true,
+  playCount: true,
+  dateAdded: false,
+  lastPlayed: true,
+  year: false,
+  starred: false,
+  genre: false,
+  bitRate: false,
+  format: false,
+  rating: false,
+};
+
+const albumColumns: AlbumColumnVisibility = {
+  showIndex: true,
+  artist: true,
+  year: true,
+  songCount: true,
+  duration: true,
+  genre: false,
+  starred: false,
+  rating: false,
+  dateAdded: true,
+};
+
+type HomeSectionConfig =
+  | {
+      id: string;
+      kind: "continueListening";
+      title: string;
+      label: string;
+      emptyTitle: string;
+      icon: LucideIcon;
+      iconClassName: string;
+      gradientColor: string;
+      queueSourceType: "continueListening";
+      queueSourceName: string;
+    }
+  | {
+      id: string;
+      kind: "song";
+      title: string;
+      label: string;
+      emptyTitle: string;
+      icon: LucideIcon;
+      iconClassName: string;
+      gradientColor: string;
+      queueSourceType: "forgottenFavorites" | "mostPlayedRecently";
+      queueSourceName: string;
+    }
+  | {
+      id: string;
+      kind: "album";
+      title: string;
+      label: string;
+      emptyTitle: string;
+      icon: LucideIcon;
+      iconClassName: string;
+      gradientColor: string;
+      albumListType: "newest" | "random";
+      queueSourceName: string;
+    };
+
+function getHomeSectionConfig(
+  sectionId: string | undefined,
+): HomeSectionConfig | null {
+  switch (sectionId) {
+    case "continue-listening":
+      return {
+        id: sectionId,
+        kind: "continueListening",
+        title: "Continue Listening",
+        label: "Home",
+        emptyTitle: "No recently played items",
+        icon: Play,
+        iconClassName: "bg-linear-to-br from-emerald-500 to-cyan-700",
+        gradientColor: "rgba(16,185,129,0.22)",
+        queueSourceType: "continueListening",
+        queueSourceName: "Continue Listening",
+      };
+    case "most-played-recently":
+      return {
+        id: sectionId,
+        kind: "song",
+        title: "Most Played Recently",
+        label: "Home",
+        emptyTitle: "No recently played songs",
+        icon: TrendingUp,
+        iconClassName: "bg-linear-to-br from-rose-500 to-amber-600",
+        gradientColor: "rgba(244,63,94,0.2)",
+        queueSourceType: "mostPlayedRecently",
+        queueSourceName: "Most Played Recently",
+      };
+    case "recently-added":
+      return {
+        id: sectionId,
+        kind: "album",
+        title: "Recently Added",
+        label: "Home",
+        emptyTitle: "No recently added albums",
+        icon: Clock,
+        iconClassName: "bg-linear-to-br from-sky-500 to-blue-700",
+        gradientColor: "rgba(14,165,233,0.2)",
+        albumListType: "newest",
+        queueSourceName: "Recently Added",
+      };
+    case "forgotten-favorites":
+      return {
+        id: sectionId,
+        kind: "song",
+        title: "Forgotten Favorites",
+        label: "Home",
+        emptyTitle: "No forgotten favorites",
+        icon: Heart,
+        iconClassName: "bg-linear-to-br from-red-500 to-pink-700",
+        gradientColor: "rgba(239,68,68,0.2)",
+        queueSourceType: "forgottenFavorites",
+        queueSourceName: "Forgotten Favorites",
+      };
+    case "discover":
+      return {
+        id: sectionId,
+        kind: "album",
+        title: "Discover Something New",
+        label: "Home",
+        emptyTitle: "No discovery albums found",
+        icon: Sparkles,
+        iconClassName: "bg-linear-to-br from-violet-500 to-fuchsia-700",
+        gradientColor: "rgba(139,92,246,0.2)",
+        albumListType: "random",
+        queueSourceName: "Discover",
+      };
+    default:
+      return null;
+  }
+}
+
+function getNextOffsetPageParam(lastPage: {
+  nextOffset: number;
+  pageSize: number;
+  total?: number | null;
+  count: number;
+}) {
+  if (lastPage.total == null) {
+    return lastPage.count >= lastPage.pageSize
+      ? lastPage.nextOffset
+      : undefined;
+  }
+
+  return lastPage.nextOffset < lastPage.total ? lastPage.nextOffset : undefined;
+}
+
+function getEntryKey(entry: ContinueListeningEntry) {
+  if (
+    (entry.type === "playlist" || entry.type === "smartPlaylist") &&
+    entry.playlist
+  ) {
+    return `${entry.type}-${entry.playlist.id}`;
+  }
+  if (entry.type === "songRadio" && entry.source) {
+    return `songRadio-${entry.source.id}`;
+  }
+  return `album-${entry.album?.id ?? entry.lastPlayed}`;
+}
+
+function ContinueListeningRow({
+  entry,
+  index,
+  onPlayAlbum,
+  onPlayPlaylist,
+  onPlaySongRadio,
+}: {
+  entry: ContinueListeningEntry;
+  index: number;
+  onPlayAlbum: (album: Album) => void;
+  onPlayPlaylist: (playlist: {
+    id: string;
+    name: string;
+    playlistType: string;
+  }) => void;
+  onPlaySongRadio: (source: { id: string; name: string }) => void;
+}) {
+  if (entry.album) {
+    const album = entry.album;
+    const coverArtUrl =
+      album.coverArt && !album.coverArtData
+        ? getClient()?.getCoverArtUrl(album.coverArt, "small")
+        : undefined;
+
+    return (
+      <MediaRow
+        coverArt={coverArtUrl}
+        coverArtData={album.coverArtData}
+        title={album.name}
+        titleIcon={<Disc className="w-4 h-4 shrink-0 text-muted-foreground" />}
+        subtitleContent={
+          <Link
+            href={`/library/artists/details?id=${album.artistId}`}
+            prefetch={false}
+            className="hover:underline hover:text-foreground"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {album.artist}
+          </Link>
+        }
+        href={`/library/albums/details?id=${album.id}`}
+        colorSeed={album.name}
+        coverType="album"
+        index={index}
+        onPlay={() => onPlayAlbum(album)}
+        onDoubleClick={() => onPlayAlbum(album)}
+        rightContent={
+          <span className="hidden sm:block text-sm text-muted-foreground w-24 text-right shrink-0">
+            {formatDate(entry.lastPlayed)}
+          </span>
+        }
+      />
+    );
+  }
+
+  if (
+    (entry.type === "playlist" || entry.type === "smartPlaylist") &&
+    entry.playlist
+  ) {
+    const playlist = entry.playlist;
+    const isSmartPlaylist = playlist.playlistType === "smartPlaylist";
+    const coverArtUrl = playlist.coverArt
+      ? getClient()?.getCoverArtUrl(playlist.coverArt, "small")
+      : undefined;
+    const PlaylistIcon = isSmartPlaylist ? Sparkles : ListMusic;
+
+    return (
+      <MediaRow
+        coverArt={coverArtUrl}
+        title={playlist.name}
+        titleIcon={
+          <PlaylistIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+        }
+        subtitleContent={
+          <span>
+            {formatCount(playlist.songCount, "song")} •{" "}
+            {formatDuration(playlist.duration)}
+          </span>
+        }
+        href={getPlaylistDetailsHref(playlist.playlistType, playlist.id)}
+        colorSeed={playlist.name}
+        coverType={isSmartPlaylist ? "smartPlaylist" : "playlist"}
+        index={index}
+        onPlay={() => onPlayPlaylist(playlist)}
+        onDoubleClick={() => onPlayPlaylist(playlist)}
+        rightContent={
+          <span className="hidden sm:block text-sm text-muted-foreground w-24 text-right shrink-0">
+            {formatDate(entry.lastPlayed)}
+          </span>
+        }
+      />
+    );
+  }
+
+  if (entry.type === "songRadio" && entry.source) {
+    const source = entry.source;
+    const coverArtUrl = source.coverArt
+      ? getClient()?.getCoverArtUrl(source.coverArt, "small")
+      : undefined;
+
+    return (
+      <MediaRow
+        coverArt={coverArtUrl}
+        title={source.name}
+        titleIcon={<Radio className="w-4 h-4 shrink-0 text-muted-foreground" />}
+        subtitle="Song Radio"
+        href={getSongRadioHref(source.id)}
+        colorSeed={source.name}
+        coverType="song"
+        index={index}
+        onPlay={() => onPlaySongRadio(source)}
+        onDoubleClick={() => onPlaySongRadio(source)}
+        rightContent={
+          <span className="hidden sm:block text-sm text-muted-foreground w-24 text-right shrink-0">
+            {formatDate(entry.lastPlayed)}
+          </span>
+        }
+      />
+    );
+  }
+
+  return null;
+}
+
+export default function HomeSectionPage() {
+  const { sectionId } = useParams();
+  const section = getHomeSectionConfig(sectionId);
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
+  const isMounted = useIsMounted();
+  const startQueue = useSetAtom(startQueueAtom);
+  const seedRef = useRef<number | undefined>(undefined);
+  const mostPlayedFiltersRef = useRef(getMostPlayedRecentlyFilters());
+
+  useEffect(() => {
+    seedRef.current = undefined;
+    mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters();
+  }, [sectionId]);
+
+  const query = useInfiniteQuery({
+    queryKey: ["home-section", section?.id],
+    queryFn: async ({ pageParam }) => {
+      if (!section) {
+        return {
+          entries: [] as ContinueListeningEntry[],
+          songs: [] as Song[],
+          albums: [] as Album[],
+          total: 0,
+          count: 0,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+
+      if (section.kind === "continueListening") {
+        const response = await client.getContinueListening({
+          size: PAGE_SIZE,
+          offset: pageParam,
+          inlineImages: "small",
+        });
+        return {
+          entries: response.entries,
+          songs: [] as Song[],
+          albums: [] as Album[],
+          total: response.total,
+          count: response.entries.length,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
+      if (
+        section.kind === "song" &&
+        section.queueSourceType === "mostPlayedRecently"
+      ) {
+        const response = await client.getMostPlayedRecently({
+          size: PAGE_SIZE,
+          offset: pageParam,
+          inlineImages: "small",
+          ...mostPlayedFiltersRef.current,
+        });
+        return {
+          entries: [] as ContinueListeningEntry[],
+          songs: response.song ?? [],
+          albums: [] as Album[],
+          total: response.total,
+          count: response.song.length,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
+      if (
+        section.kind === "song" &&
+        section.queueSourceType === "forgottenFavorites"
+      ) {
+        const response = await client.getForgottenFavorites({
+          size: PAGE_SIZE,
+          offset: pageParam,
+          inlineImages: "small",
+          seed: pageParam > 0 ? seedRef.current : undefined,
+        });
+        seedRef.current = response.seed;
+        return {
+          entries: [] as ContinueListeningEntry[],
+          songs: response.song ?? [],
+          albums: [] as Album[],
+          total: response.total,
+          count: response.song.length,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
+      if (section.kind === "album") {
+        const response = await client.getAlbumList2({
+          type: section.albumListType,
+          size: PAGE_SIZE,
+          offset: pageParam,
+          inlineImages: "small",
+          seed:
+            section.albumListType === "random" && pageParam > 0
+              ? seedRef.current
+              : undefined,
+        });
+        seedRef.current = response.albumList2.seed;
+        const albums = response.albumList2.album ?? [];
+        return {
+          entries: [] as ContinueListeningEntry[],
+          songs: [] as Song[],
+          albums,
+          total: response.albumList2.total,
+          count: albums.length,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
+      return {
+        entries: [] as ContinueListeningEntry[],
+        songs: [] as Song[],
+        albums: [] as Album[],
+        total: 0,
+        count: 0,
+        nextOffset: pageParam + PAGE_SIZE,
+        pageSize: PAGE_SIZE,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: getNextOffsetPageParam,
+    enabled: isReady && section !== null,
+  });
+
+  if (!section) {
+    return <Navigate to="/" replace />;
+  }
+
+  const entries = query.data?.pages.flatMap((page) => page.entries) ?? [];
+  const songs = query.data?.pages.flatMap((page) => page.songs) ?? [];
+  const albums = query.data?.pages.flatMap((page) => page.albums) ?? [];
+  const loadedCount = entries.length + songs.length + albums.length;
+  const totalCount = query.data?.pages[0]?.total ?? loadedCount;
+  const isLoading = authLoading || query.isLoading;
+  const hasItems = loadedCount > 0 || totalCount > 0;
+  const subtitle = !isLoading
+    ? formatCount(
+        totalCount,
+        section.kind === "album"
+          ? "album"
+          : section.kind === "song"
+            ? "song"
+            : "item",
+      )
+    : undefined;
+
+  const playAll = (shuffle: boolean) => {
+    if (section.kind === "album") {
+      startQueue({
+        sourceType: "albumList",
+        sourceId: section.albumListType,
+        sourceName: section.queueSourceName,
+        startIndex: 0,
+        shuffle,
+        filters:
+          section.albumListType === "random"
+            ? { seed: seedRef.current }
+            : undefined,
+      });
+      return;
+    }
+
+    if (section.kind === "song") {
+      startQueue({
+        sourceType: section.queueSourceType,
+        sourceName: section.queueSourceName,
+        startIndex: 0,
+        shuffle,
+        filters:
+          section.queueSourceType === "mostPlayedRecently"
+            ? mostPlayedFiltersRef.current
+            : { seed: seedRef.current },
+      });
+      return;
+    }
+
+    startQueue({
+      sourceType: section.queueSourceType,
+      sourceName: section.queueSourceName,
+      startIndex: 0,
+      shuffle,
+    });
+  };
+
+  const handlePlayAlbum = (album: Album) => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
+  };
+
+  const handlePlayAlbumById = (id: string) => {
+    const album = albums.find((item) => item.id === id);
+    if (album) {
+      handlePlayAlbum(album);
+    }
+  };
+
+  const handlePlayPlaylist = (playlist: {
+    id: string;
+    name: string;
+    playlistType: string;
+  }) => {
+    const sourceType: QueueSourceType =
+      playlist.playlistType === "smartPlaylist" ? "smartPlaylist" : "playlist";
+    startQueue({
+      sourceType,
+      sourceId: playlist.id,
+      sourceName: playlist.name,
+      startIndex: 0,
+      shuffle: false,
+    });
+  };
+
+  const handlePlaySongRadio = (source: { id: string; name: string }) => {
+    startQueue({
+      sourceType: "songRadio",
+      sourceId: source.id,
+      sourceName: source.name,
+      startIndex: 0,
+      shuffle: false,
+    });
+  };
+
+  const songQueueSource: QueueSource | undefined =
+    section.kind === "song"
+      ? {
+          type: section.queueSourceType,
+          name: section.queueSourceName,
+          filters:
+            section.queueSourceType === "mostPlayedRecently"
+              ? mostPlayedFiltersRef.current
+              : { seed: seedRef.current },
+        }
+      : undefined;
+
+  if (!isMounted || authLoading) {
+    return (
+      <div className="min-h-dvh">
+        <DetailHeader
+          icon={section.icon}
+          iconClassName={section.iconClassName}
+          gradientColor={section.gradientColor}
+          label={section.label}
+          title={section.title}
+          isLoading
+        />
+        <ActionBar disablePlay />
+        <div className="px-4 lg:px-6 py-4">
+          {Array.from({ length: 10 }).map((_, index) => (
+            <MediaRowSkeleton key={index} showIndex showRightContent />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-dvh">
+      <DetailHeader
+        icon={section.icon}
+        iconClassName={section.iconClassName}
+        gradientColor={section.gradientColor}
+        label={section.label}
+        title={section.title}
+        subtitle={subtitle}
+      />
+
+      <ActionBar
+        onPlayAll={() => playAll(false)}
+        onShuffle={() => playAll(true)}
+        disablePlay={isLoading || !hasItems}
+      />
+
+      <div className="px-4 lg:px-6 py-4">
+        {section.kind === "continueListening" && hasItems ? (
+          <>
+            <div className="sticky top-18 z-10 bg-background/95 backdrop-blur-sm border-b border-border flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent">
+              <div className="w-8 text-center shrink-0 text-xs font-medium text-muted-foreground">
+                #
+              </div>
+              <div className="w-10 shrink-0" />
+              <div className="flex-1 min-w-0 text-xs font-medium text-muted-foreground">
+                Item
+              </div>
+              <div className="hidden sm:block text-xs font-medium text-muted-foreground w-24 text-right shrink-0">
+                Last Played
+              </div>
+            </div>
+            <VirtualizedList
+              items={entries}
+              totalCount={totalCount}
+              hasNextPage={query.hasNextPage}
+              isFetchingNextPage={query.isFetchingNextPage}
+              fetchNextPage={() => {
+                void query.fetchNextPage();
+              }}
+              renderItem={(entry, index) => (
+                <ContinueListeningRow
+                  entry={entry}
+                  index={index}
+                  onPlayAlbum={handlePlayAlbum}
+                  onPlayPlaylist={handlePlayPlaylist}
+                  onPlaySongRadio={handlePlaySongRadio}
+                />
+              )}
+              renderSkeleton={() => (
+                <MediaRowSkeleton showIndex showRightContent />
+              )}
+              getItemKey={getEntryKey}
+              estimateItemHeight={56}
+            />
+          </>
+        ) : section.kind === "song" && hasItems && songQueueSource ? (
+          <>
+            <SongListHeader
+              columnVisibility={songColumns}
+              showIndex
+              showCover
+              stickyTop="72px"
+            />
+            <VirtualizedList
+              items={songs}
+              totalCount={totalCount}
+              hasNextPage={query.hasNextPage}
+              isFetchingNextPage={query.isFetchingNextPage}
+              fetchNextPage={() => {
+                void query.fetchNextPage();
+              }}
+              renderItem={(song, index) => (
+                <SongRow
+                  song={song}
+                  index={index}
+                  showCover
+                  inlineImagesRequested
+                  showArtist={songColumns.artist}
+                  showAlbum={songColumns.album}
+                  showDuration={songColumns.duration}
+                  showPlayCount={songColumns.playCount}
+                  showLastPlayed={songColumns.lastPlayed}
+                  queueSource={songQueueSource}
+                />
+              )}
+              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              getItemKey={(song) => song.id}
+              estimateItemHeight={56}
+            />
+          </>
+        ) : section.kind === "album" && hasItems ? (
+          <>
+            <AlbumListHeader
+              columnVisibility={albumColumns}
+              showIndex
+              stickyTop="72px"
+            />
+            <VirtualizedList
+              items={albums}
+              totalCount={totalCount}
+              hasNextPage={query.hasNextPage}
+              isFetchingNextPage={query.isFetchingNextPage}
+              fetchNextPage={() => {
+                void query.fetchNextPage();
+              }}
+              renderItem={(album, index) => (
+                <AlbumCardCompact
+                  album={album}
+                  index={index}
+                  onPlay={handlePlayAlbumById}
+                  showArtist={albumColumns.artist}
+                  showYear={albumColumns.year}
+                  showSongCount={albumColumns.songCount}
+                  showDuration={albumColumns.duration}
+                  showGenre={albumColumns.genre}
+                  showStarred={albumColumns.starred}
+                  showRating={albumColumns.rating}
+                  showDateAdded={albumColumns.dateAdded}
+                />
+              )}
+              renderSkeleton={() => (
+                <MediaRowSkeleton showIndex showRightContent />
+              )}
+              getItemKey={(album) => album.id}
+              estimateItemHeight={56}
+            />
+          </>
+        ) : (
+          <EmptyState icon={section.icon} title={section.emptyTitle} />
+        )}
+      </div>
+
+      <div className="h-24" />
+    </div>
+  );
+}
