@@ -138,9 +138,10 @@ pub use listening::{
     LogListeningRequest, LogListeningResponse, PeriodReviewQuery, PeriodReviewResponse,
 };
 pub use lists::{
-    get_album_list, get_forgotten_favorites, get_random_songs, get_songs_by_genre, AlbumListParams,
-    AlbumListType, FerrotuneAlbumListResponse, FerrotuneRandomSongsResponse,
-    FerrotuneSongsByGenreResponse, ForgottenFavoritesParams, ForgottenFavoritesResponse,
+    get_album_list, get_forgotten_favorites, get_most_played_recently, get_random_songs,
+    get_songs_by_genre, AlbumListParams, AlbumListType, FerrotuneAlbumListResponse,
+    FerrotuneRandomSongsResponse, FerrotuneSongsByGenreResponse, ForgottenFavoritesParams,
+    ForgottenFavoritesResponse, MostPlayedRecentlyParams, MostPlayedRecentlyResponse,
     RandomSongsParams, SongsByGenreParams,
 };
 pub use match_dictionary::{
@@ -204,6 +205,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/albums", get(lists::get_album_list))
         .route("/ferrotune/songs/random", get(lists::get_random_songs))
         .route("/ferrotune/songs/by-genre", get(lists::get_songs_by_genre))
+        .route(
+            "/ferrotune/songs/most-played-recently",
+            get(lists::get_most_played_recently),
+        )
         .route(
             "/ferrotune/songs/forgotten-favorites",
             get(lists::get_forgotten_favorites),

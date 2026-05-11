@@ -5,8 +5,8 @@
 
 pub use crate::api::common::lists::AlbumListType;
 use crate::api::common::lists::{
-    get_album_list_logic, get_forgotten_favorites_logic, get_random_songs_logic,
-    get_songs_by_genre_logic,
+    get_album_list_logic, get_forgotten_favorites_logic, get_most_played_recently_logic,
+    get_random_songs_logic, get_songs_by_genre_logic,
 };
 use crate::api::common::models::{AlbumResponse, SongResponse};
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
@@ -204,6 +204,67 @@ pub async fn get_songs_by_genre(
     .await?;
 
     Ok(Json(FerrotuneSongsByGenreResponse { song: songs }))
+}
+
+// ============================================================================
+// Most Played Recently Endpoint
+// ============================================================================
+
+/// Query params for most played recently
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MostPlayedRecentlyParams {
+    /// Number of songs to return (default 50)
+    pub size: Option<i64>,
+    /// Offset for pagination (default 0)
+    pub offset: Option<i64>,
+    /// Only count scrobbles since this ISO date
+    pub since: Option<String>,
+    /// Include inline cover art thumbnails (small or medium)
+    pub inline_images: Option<String>,
+}
+
+/// Response for most played recently
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MostPlayedRecentlyResponse {
+    pub song: Vec<SongResponse>,
+    /// Total number of qualifying songs
+    #[ts(type = "number")]
+    pub total: i64,
+}
+
+/// GET /ferrotune/songs/most-played-recently - Get recently frequent songs
+pub async fn get_most_played_recently(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MostPlayedRecentlyParams>,
+) -> FerrotuneApiResult<Json<MostPlayedRecentlyResponse>> {
+    use crate::thumbnails::ThumbnailSize;
+
+    let size = params.size.unwrap_or(50).min(500);
+    let offset = params.offset.unwrap_or(0);
+    let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
+        Some("small") | Some("s") => Some(ThumbnailSize::Small),
+        Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
+        _ => None,
+    };
+
+    let result = get_most_played_recently_logic(
+        &state.database,
+        user.user_id,
+        size,
+        offset,
+        inline_size,
+        params.since,
+    )
+    .await?;
+
+    Ok(Json(MostPlayedRecentlyResponse {
+        song: result.songs,
+        total: result.total,
+    }))
 }
 
 // ============================================================================

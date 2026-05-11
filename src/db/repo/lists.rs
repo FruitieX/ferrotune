@@ -391,6 +391,13 @@ pub struct RecentAlbum {
     pub last_played: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, FromQueryResult)]
+pub struct FrequentSongAggregate {
+    pub song_id: String,
+    pub play_count: i64,
+    pub last_played: Option<DateTime<Utc>>,
+}
+
 /// `(source_type, source_id, last_played)` row for the continue-listening feed.
 #[derive(Debug, Clone)]
 pub struct ContinueListeningSource {
@@ -473,6 +480,94 @@ pub async fn list_frequent_album_ids(
     let start = (offset as usize).min(ordered.len());
     let end = (start + size as usize).min(ordered.len());
     Ok(ordered[start..end].to_vec())
+}
+
+/// Count scrobbles per visible song for the given user and optional cutoff,
+/// ordered by play count and then recency.
+pub async fn list_frequent_song_aggregates(
+    database: &Database,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    since: Option<DateTime<Utc>>,
+) -> Result<Vec<FrequentSongAggregate>> {
+    use sea_orm::sea_query::Alias;
+
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut query = entity::scrobbles::Entity::find()
+        .select_only()
+        .column_as(entity::scrobbles::Column::SongId, "song_id")
+        .expr_as(
+            Expr::col((entity::scrobbles::Entity, entity::scrobbles::Column::Id))
+                .count()
+                .cast_as("BIGINT"),
+            "play_count",
+        )
+        .expr_as(entity::scrobbles::Column::PlayedAt.max(), "last_played")
+        .join(
+            JoinType::InnerJoin,
+            entity::scrobbles::Relation::Songs.def(),
+        )
+        .filter(entity::scrobbles::Column::UserId.eq(user_id))
+        .filter(entity::scrobbles::Column::Submission.eq(true))
+        .filter(entity::scrobbles::Column::PlayedAt.is_not_null())
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .group_by(entity::scrobbles::Column::SongId)
+        .order_by_desc(Expr::col(Alias::new("play_count")))
+        .order_by_desc(Expr::col(Alias::new("last_played")))
+        .limit(size as u64)
+        .offset(offset as u64);
+
+    if let Some(since) = since {
+        query = query.filter(entity::scrobbles::Column::PlayedAt.gte(since.fixed_offset()));
+    }
+
+    query
+        .into_model::<FrequentSongAggregate>()
+        .all(database.conn())
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn count_frequent_songs(
+    database: &Database,
+    user_id: i64,
+    since: Option<DateTime<Utc>>,
+) -> Result<i64> {
+    use sea_orm::sea_query::Func;
+
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let mut query = entity::scrobbles::Entity::find()
+        .select_only()
+        .expr(Func::count_distinct(Expr::col((
+            entity::scrobbles::Entity,
+            entity::scrobbles::Column::SongId,
+        ))))
+        .join(
+            JoinType::InnerJoin,
+            entity::scrobbles::Relation::Songs.def(),
+        )
+        .filter(entity::scrobbles::Column::UserId.eq(user_id))
+        .filter(entity::scrobbles::Column::Submission.eq(true))
+        .filter(entity::scrobbles::Column::PlayedAt.is_not_null())
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()));
+
+    if let Some(since) = since {
+        query = query.filter(entity::scrobbles::Column::PlayedAt.gte(since.fixed_offset()));
+    }
+
+    let value = query.into_tuple::<i64>().one(database.conn()).await?;
+    Ok(value.unwrap_or(0))
 }
 
 /// Aggregate scrobbles grouped by album id for albums visible to the user,
@@ -733,7 +828,12 @@ fn continue_listening_subquery(user_id: i64) -> sea_orm::sea_query::SelectStatem
                 ))
                 .if_null(""),
             )
-            .is_not_in(["forgottenFavorites", "continueListening"]),
+            .is_not_in([
+                "albumList",
+                "continueListening",
+                "forgottenFavorites",
+                "mostPlayedRecently",
+            ]),
         );
 
     let mut outer = SqQuery::select();

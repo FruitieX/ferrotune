@@ -40,6 +40,38 @@ function makeSong(id: string, title: string) {
 }
 
 test.describe("Home continue listening", () => {
+  test("most played recently renders track cards", async ({
+    authenticatedPage: page,
+  }) => {
+    const song = makeSong("recent-track", "Recently Played Track");
+
+    await page.route("**/ferrotune/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: { entries: [], total: 0 },
+          mostPlayedRecently: { song: [song], total: 1 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+        },
+      });
+    });
+
+    await page.goto("/");
+
+    const section = page.locator("section").filter({
+      has: page.getByRole("heading", { name: /most played recently/i }),
+    });
+
+    await expect(
+      section.getByRole("link", { name: song.title }).first(),
+    ).toHaveAttribute(
+      "href",
+      `/library/albums/details?id=${song.albumId}&songId=${song.id}`,
+    );
+    await expect(section.getByText(song.artist).first()).toBeVisible();
+  });
+
   test("smart playlists and song radio entries navigate to the correct routes", async ({
     authenticatedPage: page,
   }) => {

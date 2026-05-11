@@ -53,6 +53,7 @@ import type {
   CreateApiKeyResponse,
   PlaylistResponse,
   ForgottenFavoritesResponse,
+  MostPlayedRecentlyResponse,
 } from "./types";
 import type { DirectoryPagedResponse } from "./generated/DirectoryPagedResponse";
 import type { GetDirectoryPagedParams } from "./generated/GetDirectoryPagedParams";
@@ -443,6 +444,21 @@ export class FerrotuneClient {
       params,
     );
     return this.request<ForgottenFavoritesResponse>(endpoint);
+  }
+
+  async getMostPlayedRecently(
+    params: {
+      size?: number;
+      offset?: number;
+      since?: string;
+      inlineImages?: "small" | "medium";
+    } = {},
+  ): Promise<MostPlayedRecentlyResponse> {
+    const endpoint = buildEndpoint(
+      "/ferrotune/songs/most-played-recently",
+      params,
+    );
+    return this.request<MostPlayedRecentlyResponse>(endpoint);
   }
 
   async getHomePage(

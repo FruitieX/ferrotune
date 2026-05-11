@@ -2165,6 +2165,19 @@ async fn materialize_queue_songs(
             let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
             Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
         }
+        QueueSourceType::MostPlayedRecently => {
+            let since = filters
+                .and_then(|f| f.get("since"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let result = crate::api::common::lists::get_most_played_recently_logic(
+                database, user_id, 1000, 0, None, since,
+            )
+            .await?;
+
+            let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
+            Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+        }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
             let search_params = build_search_params_from_json(filters, sort);

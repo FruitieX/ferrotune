@@ -1,5 +1,5 @@
 use crate::api::common::browse::{get_song_play_stats, song_to_response_with_stats};
-use crate::api::common::models::{AlbumResponse, SongResponse};
+use crate::api::common::models::{AlbumResponse, SongPlayStats, SongResponse};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
@@ -378,6 +378,91 @@ pub struct ForgottenFavoritesResult {
     pub songs: Vec<SongResponse>,
     pub total: i64,
     pub seed: i64,
+}
+
+pub struct MostPlayedRecentlyResult {
+    pub songs: Vec<SongResponse>,
+    pub total: i64,
+}
+
+pub async fn get_most_played_recently_logic(
+    database: &crate::db::Database,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    inline_image_size: Option<ThumbnailSize>,
+    since: Option<String>,
+) -> crate::error::Result<MostPlayedRecentlyResult> {
+    let size = size.min(1000);
+    let since_dt: Option<DateTime<Utc>> = since
+        .as_deref()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+
+    let aggregates =
+        lists_repo::list_frequent_song_aggregates(database, user_id, size, offset, since_dt)
+            .await?;
+    let total = lists_repo::count_frequent_songs(database, user_id, since_dt).await?;
+
+    if aggregates.is_empty() {
+        return Ok(MostPlayedRecentlyResult {
+            songs: Vec::new(),
+            total,
+        });
+    }
+
+    let song_ids: Vec<String> = aggregates.iter().map(|row| row.song_id.clone()).collect();
+    let mut songs =
+        crate::db::repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?;
+
+    let aggregate_map: std::collections::HashMap<String, lists_repo::FrequentSongAggregate> =
+        aggregates
+            .into_iter()
+            .map(|row| (row.song_id.clone(), row))
+            .collect();
+
+    let visible_song_ids: Vec<String> = songs.iter().map(|song| song.id.clone()).collect();
+    let starred_map = get_starred_map(database, user_id, ItemType::Song, &visible_song_ids).await?;
+    let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &visible_song_ids).await?;
+    let thumbnails = if let Some(thumb_size) = inline_image_size {
+        let song_album_pairs: Vec<(String, Option<String>)> = songs
+            .iter()
+            .map(|song| (song.id.clone(), song.album_id.clone()))
+            .collect();
+        get_song_thumbnails_base64(database, &song_album_pairs, thumb_size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let responses = songs
+        .drain(..)
+        .map(|song| {
+            let aggregate = aggregate_map.get(&song.id);
+            let play_stats = SongPlayStats {
+                play_count: aggregate.map(|row| row.play_count),
+                last_played: aggregate
+                    .and_then(|row| row.last_played)
+                    .map(format_datetime_iso_ms),
+            };
+            let starred = starred_map.get(&song.id).cloned();
+            let user_rating = ratings_map.get(&song.id).copied();
+            let cover_art_data = thumbnails.get(&song.id).cloned();
+            song_to_response_with_stats(
+                song,
+                None,
+                starred,
+                user_rating,
+                Some(play_stats),
+                None,
+                cover_art_data,
+            )
+        })
+        .collect();
+
+    Ok(MostPlayedRecentlyResult {
+        songs: responses,
+        total,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

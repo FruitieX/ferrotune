@@ -4,7 +4,7 @@
 
 use crate::api::common::lists::{
     get_album_list_logic, get_continue_listening_logic, get_forgotten_favorites_logic,
-    AlbumListType, ContinueListeningEntry,
+    get_most_played_recently_logic, AlbumListType, ContinueListeningEntry,
 };
 use crate::api::common::models::SongResponse;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
@@ -56,6 +56,16 @@ pub struct HomeContinueListeningSection {
     pub total: i64,
 }
 
+/// A section of the home page containing songs
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct HomeSongSection {
+    pub song: Vec<SongResponse>,
+    #[ts(type = "number")]
+    pub total: i64,
+}
+
 /// The forgotten favorites section of the home page
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -74,7 +84,7 @@ pub struct HomeForgottenFavoritesSection {
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct HomePageResponse {
     pub continue_listening: HomeContinueListeningSection,
-    pub most_played_recently: HomeAlbumSection,
+    pub most_played_recently: HomeSongSection,
     pub recently_added: HomeAlbumSection,
     pub forgotten_favorites: HomeForgottenFavoritesSection,
     pub discover: HomeAlbumSection,
@@ -96,26 +106,14 @@ pub async fn get_home(
     let database = &state.database;
     let user_id = user.user_id;
 
-    // Compute "since 30 days ago" for frequent albums
+    // Compute "since 30 days ago" for recently frequent tracks
     let since = chrono::Utc::now() - chrono::Duration::days(30);
     let since_str = since.format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     // Run all queries concurrently
     let (continue_result, frequent_result, newest_result, random_result, forgotten_result) = tokio::join!(
         get_continue_listening_logic(&state.database, user_id, size, 0, inline_size),
-        get_album_list_logic(
-            database,
-            user_id,
-            AlbumListType::Frequent,
-            size,
-            0,
-            None,
-            None,
-            None,
-            inline_size,
-            Some(since_str),
-            None
-        ),
+        get_most_played_recently_logic(database, user_id, size, 0, inline_size, Some(since_str)),
         get_album_list_logic(
             database,
             user_id,
@@ -170,10 +168,9 @@ pub async fn get_home(
                 entries: continue_listening.entries,
                 total: continue_listening.total,
             },
-            most_played_recently: HomeAlbumSection {
-                album: frequent.albums,
+            most_played_recently: HomeSongSection {
+                song: frequent.songs,
                 total: frequent.total,
-                seed: None,
             },
             recently_added: HomeAlbumSection {
                 album: newest.albums,

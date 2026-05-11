@@ -78,6 +78,7 @@ export type QueueSourceType =
   | "albumList"
   | "continueListening"
   | "forgottenFavorites"
+  | "mostPlayedRecently"
   | "other";
 
 export type RepeatMode = "off" | "all" | "one";

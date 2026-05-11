@@ -438,6 +438,8 @@ pub enum QueueSourceType {
     ContinueListening,
     /// Forgotten favorites - songs with high play counts not played recently
     ForgottenFavorites,
+    /// Most played recently - songs with the most recent-window scrobbles
+    MostPlayedRecently,
     #[default]
     Other,
 }
@@ -460,6 +462,7 @@ impl QueueSourceType {
             QueueSourceType::AlbumList => "albumList",
             QueueSourceType::ContinueListening => "continueListening",
             QueueSourceType::ForgottenFavorites => "forgottenFavorites",
+            QueueSourceType::MostPlayedRecently => "mostPlayedRecently",
             QueueSourceType::Other => "other",
         }
     }
@@ -485,6 +488,7 @@ impl std::str::FromStr for QueueSourceType {
             "albumList" => Ok(QueueSourceType::AlbumList),
             "continueListening" => Ok(QueueSourceType::ContinueListening),
             "forgottenFavorites" => Ok(QueueSourceType::ForgottenFavorites),
+            "mostPlayedRecently" => Ok(QueueSourceType::MostPlayedRecently),
             "other" => Ok(QueueSourceType::Other),
             _ => Err(format!("Unknown queue source type: {s}")),
         }

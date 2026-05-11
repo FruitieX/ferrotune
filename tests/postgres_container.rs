@@ -22,6 +22,7 @@ use ferrotune::{
             get_continue_listening as ferrotune_get_continue_listening,
             get_forgotten_favorites as ferrotune_get_forgotten_favorites,
             get_home as ferrotune_get_home, get_lazy_queue_count,
+            get_most_played_recently as ferrotune_get_most_played_recently,
             get_play_counts as ferrotune_get_play_counts,
             get_random_songs as ferrotune_get_random_songs,
             get_songs_by_genre as ferrotune_get_songs_by_genre, history as ferrotune_history,
@@ -33,8 +34,9 @@ use ferrotune::{
             FerrotuneScrobbleParams, ForgottenFavoritesParams, GetPlayCountsRequest,
             HomePageParams, ImportMode, ImportScrobbleEntry, ImportScrobblesRequest,
             ImportSongWithPlays, ImportWithTimestampsRequest, LogListeningRequest,
-            PeriodReviewQuery, PlayEvent, RandomSongsParams, SavePlayQueueRequest,
-            SetPreferenceRequest, SongsByGenreParams, StartQueueRequest, UpdatePreferencesRequest,
+            MostPlayedRecentlyParams, PeriodReviewQuery, PlayEvent, RandomSongsParams,
+            SavePlayQueueRequest, SetPreferenceRequest, SongsByGenreParams, StartQueueRequest,
+            UpdatePreferencesRequest,
         },
         subsonic::{
             auth::{AuthenticatedUser, FerrotuneAuthenticatedUser},
@@ -547,6 +549,25 @@ fn test_postgres_ferrotune_lists_handlers_work() {
         .0;
         let genre_song_ids: Vec<String> = songs_by_genre.song.into_iter().map(|song| song.id).collect();
         assert_eq!(genre_song_ids, vec![song_2.clone(), song_1.clone()]);
+
+        let since = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+        let most_played_recently = ferrotune_get_most_played_recently(
+            auth_user(),
+            State(state.clone()),
+            Query(MostPlayedRecentlyParams {
+                size: Some(10),
+                offset: Some(0),
+                since: Some(since),
+                inline_images: None,
+            }),
+        )
+        .await
+        .expect("postgres ferrotune most-played-recently handler should succeed")
+        .0;
+        assert_eq!(most_played_recently.total, 1);
+        assert_eq!(most_played_recently.song.len(), 1);
+        assert_eq!(most_played_recently.song[0].id, song_1);
+        assert_eq!(most_played_recently.song[0].play_count, Some(2));
 
         let forgotten_favorites = ferrotune_get_forgotten_favorites(
             auth_user(),
@@ -3450,7 +3471,7 @@ fn test_postgres_home_handler_works() {
         let pool = database
             .postgres_pool()
             .expect("postgres runtime database should expose a PgPool");
-        let (user, _artist_id, album_id, _song_1, song_2) =
+        let (user, _artist_id, album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
         sqlx::query("UPDATE songs SET album_id = NULL WHERE id = $1")
@@ -3509,9 +3530,9 @@ fn test_postgres_home_handler_works() {
         assert_eq!(response_json["recentlyAdded"]["total"].as_i64(), Some(1));
         assert_eq!(response_json["discover"]["total"].as_i64(), Some(1));
         assert_eq!(
-            response_json["mostPlayedRecently"]["album"]
+            response_json["mostPlayedRecently"]["song"]
                 .as_array()
-                .expect("most played recently albums should be an array")
+                .expect("most played recently songs should be an array")
                 .len(),
             1,
         );
@@ -3530,8 +3551,8 @@ fn test_postgres_home_handler_works() {
             1,
         );
         assert_eq!(
-            response_json["mostPlayedRecently"]["album"][0]["id"].as_str(),
-            Some(album_id.as_str()),
+            response_json["mostPlayedRecently"]["song"][0]["id"].as_str(),
+            Some(song_1.as_str()),
         );
         assert_eq!(
             response_json["recentlyAdded"]["album"][0]["id"].as_str(),
@@ -5315,6 +5336,17 @@ fn test_postgres_continue_listening_handler_works() {
         .await
         .expect("postgres null played_at scrobble insert should succeed");
 
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description, queue_source_type, queue_source_id)
+             VALUES ($1, $2, NOW() + INTERVAL '2 seconds', TRUE, 1, NULL, 'mostPlayedRecently', NULL),
+                    ($1, $2, NOW() + INTERVAL '3 seconds', TRUE, 1, NULL, 'albumList', 'frequent')",
+        )
+        .bind(user.id)
+        .bind(&song_1)
+        .execute(pool)
+        .await
+        .expect("postgres generated-source scrobbles should be inserted");
+
         let state = Arc::new(AppState {
             database: database.clone(),
             config: postgres_test_app_config(config.clone()),
@@ -5449,6 +5481,88 @@ fn test_postgres_continue_listening_start_queue_handler_works() {
             .expect("postgres queue should exist after continue listening start_queue");
         assert_eq!(queue.current_index, 0);
         assert_eq!(queue.source_type, "continueListening".to_string());
+    });
+}
+
+#[test]
+fn test_postgres_most_played_recently_start_queue_uses_tracks() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (user, _artist_id, _album_id, song_1, song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let session = db::queries::get_or_create_session(&database, user.id)
+            .await
+            .expect("postgres playback session should exist for most-played queue start");
+
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+
+        let since = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+        let response = ferrotune_start_queue(
+            FerrotuneAuthenticatedUser {
+                user_id: user.id,
+                username: user.username.clone(),
+                is_admin: user.is_admin,
+            },
+            State(state),
+            Json(StartQueueRequest {
+                session_id: Some(session.id.clone()),
+                source_type: "mostPlayedRecently".to_string(),
+                source_id: None,
+                source_name: Some("Most Played Recently".to_string()),
+                start_index: 0,
+                start_song_id: Some(song_1.clone()),
+                shuffle: false,
+                repeat_mode: None,
+                filters: Some(serde_json::json!({ "since": since })),
+                sort: None,
+                song_ids: None,
+                inline_images: None,
+                client_id: None,
+                client_name: None,
+                keep_playing: false,
+            }),
+        )
+        .await
+        .expect("postgres start_queue most-played-recently handler should succeed")
+        .0;
+
+        assert_eq!(response.total_count, 1);
+        assert_eq!(response.current_index, 0);
+        assert_eq!(response.window.songs.len(), 1);
+        assert_eq!(response.window.songs[0].song.id, song_1);
+        assert_ne!(response.window.songs[0].song.id, song_2);
+
+        let queue = db::queries::get_play_queue_by_session(&database, &session.id, user.id)
+            .await
+            .expect("postgres queue lookup after most-played start_queue should succeed")
+            .expect("postgres queue should exist after most-played start_queue");
+        assert_eq!(queue.source_type, "mostPlayedRecently".to_string());
     });
 }
 

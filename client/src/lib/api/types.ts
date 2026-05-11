@@ -110,6 +110,9 @@ export type { SongsByGenreResponse } from "./generated";
 // getForgottenFavorites response
 export type { ForgottenFavoritesResponse } from "./generated";
 
+// getMostPlayedRecently response
+export type { MostPlayedRecentlyResponse } from "./generated";
+
 // search3 response
 export type { SearchResult3 } from "./generated";
 export type { SearchContent } from "./generated";

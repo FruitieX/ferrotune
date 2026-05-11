@@ -61,6 +61,12 @@ function getPageSize(viewportWidth: number, itemWidth: number, gap: number) {
   return Math.max(6, itemsPerScreen * 2);
 }
 
+function getMostPlayedRecentlyFilters() {
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  return { since: since.toISOString() };
+}
+
 function useStickyHomeSection<TPage>(
   queryKey: readonly unknown[],
   data: InfiniteData<TPage, unknown> | undefined,
@@ -425,9 +431,9 @@ export default function HomePage() {
     "home",
     currentAccountKey,
   ] as const;
-  const frequentQueryKey = [
-    "albums",
-    "frequent-recent",
+  const mostPlayedRecentlyQueryKey = [
+    "songs",
+    "most-played-recently",
     "home",
     currentAccountKey,
   ] as const;
@@ -601,18 +607,18 @@ export default function HomePage() {
   });
 
   const {
-    data: frequentData,
-    isLoading: loadingFrequent,
-    hasNextPage: hasNextFrequent,
-    isFetchingNextPage: fetchingNextFrequent,
-    fetchNextPage: fetchNextFrequent,
+    data: mostPlayedRecentlyData,
+    isLoading: loadingMostPlayedRecently,
+    hasNextPage: hasNextMostPlayedRecently,
+    isFetchingNextPage: fetchingNextMostPlayedRecently,
+    fetchNextPage: fetchNextMostPlayedRecently,
   } = useInfiniteQuery({
-    queryKey: frequentQueryKey,
+    queryKey: mostPlayedRecentlyQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
         const batch = await fetchBatch();
         return {
-          albums: batch.mostPlayedRecently.album,
+          songs: batch.mostPlayedRecently.song,
           total: batch.mostPlayedRecently.total,
           nextOffset: pageSize,
           pageSize,
@@ -620,18 +626,15 @@ export default function HomePage() {
       }
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-      const response = await client.getAlbumList2({
-        type: "frequent",
+      const response = await client.getMostPlayedRecently({
         size: pageSize,
         offset: pageParam,
         inlineImages: "medium",
-        since: since.toISOString(),
+        ...getMostPlayedRecentlyFilters(),
       });
       return {
-        albums: response.albumList2.album ?? [],
-        total: response.albumList2.total,
+        songs: response.song ?? [],
+        total: response.total,
         nextOffset: pageParam + pageSize,
         pageSize,
       };
@@ -644,7 +647,7 @@ export default function HomePage() {
           ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
           : MAX_SECTION_ITEMS;
       if (lastPage.total == null) {
-        return lastPage.albums.length >= lastPage.pageSize
+        return lastPage.songs.length >= lastPage.pageSize
           ? lastPage.nextOffset
           : undefined;
       }
@@ -767,10 +770,11 @@ export default function HomePage() {
       : undefined;
   const randomSeed =
     stickyRandomData?.pages[0]?.seed ?? discoverSeedRef.current;
-  const frequentAlbums = frequentData?.pages.flatMap((p) => p.albums) ?? [];
-  const frequentTotal =
-    frequentData?.pages[0]?.total != null
-      ? Math.min(frequentData.pages[0].total, MAX_SECTION_ITEMS)
+  const mostPlayedRecentlySongs =
+    mostPlayedRecentlyData?.pages.flatMap((p) => p.songs) ?? [];
+  const mostPlayedRecentlyTotal =
+    mostPlayedRecentlyData?.pages[0]?.total != null
+      ? Math.min(mostPlayedRecentlyData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
   const forgottenFavSongs =
     stickyForgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
@@ -1031,34 +1035,59 @@ export default function HomePage() {
         </section>
 
         {/* Most Played Recently */}
-        <AlbumSection
-          title="Most Played Recently"
-          icon={TrendingUp}
-          albums={frequentAlbums}
-          totalCount={frequentTotal}
-          isLoading={loadingFrequent}
-          hasNextPage={hasNextFrequent}
-          isFetchingNextPage={fetchingNextFrequent}
-          fetchNextPage={fetchNextFrequent}
-          onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => {
-            const since = new Date();
-            since.setDate(since.getDate() - 30);
-            handlePlayAllAlbums("frequent", "Most Played Recently", {
-              since: since.toISOString(),
-            });
-          }}
-          onShuffleAll={() => {
-            const since = new Date();
-            since.setDate(since.getDate() - 30);
-            handleShuffleAllAlbums("frequent", "Most Played Recently", {
-              since: since.toISOString(),
-            });
-          }}
-          itemWidth={itemWidth}
-          itemGap={itemGap}
-          paddingX={paddingX}
-        />
+        <section className="space-y-2 sm:space-y-4">
+          <SectionHeader
+            title="Most Played Recently"
+            icon={TrendingUp}
+            hasItems={mostPlayedRecentlySongs.length > 0}
+            isLoading={loadingMostPlayedRecently}
+            onPlayAll={() =>
+              startQueue({
+                sourceType: "mostPlayedRecently",
+                sourceName: "Most Played Recently",
+                startIndex: 0,
+                shuffle: false,
+                filters: getMostPlayedRecentlyFilters(),
+              })
+            }
+            onShuffleAll={() =>
+              startQueue({
+                sourceType: "mostPlayedRecently",
+                sourceName: "Most Played Recently",
+                startIndex: 0,
+                shuffle: true,
+                filters: getMostPlayedRecentlyFilters(),
+              })
+            }
+          />
+          <VirtualizedHorizontalScroll<Song>
+            items={mostPlayedRecentlySongs}
+            totalCount={mostPlayedRecentlyTotal}
+            isLoading={loadingMostPlayedRecently}
+            itemWidth={itemWidth}
+            gap={itemGap}
+            paddingX={paddingX}
+            hasNextPage={hasNextMostPlayedRecently}
+            isFetchingNextPage={fetchingNextMostPlayedRecently}
+            fetchNextPage={fetchNextMostPlayedRecently}
+            renderItem={(song, index) => (
+              <SongCard
+                song={song}
+                index={index}
+                songIndex={index}
+                queueSource={{
+                  type: "mostPlayedRecently",
+                  name: "Most Played Recently",
+                  filters: getMostPlayedRecentlyFilters(),
+                }}
+                inlineImagesRequested
+              />
+            )}
+            renderSkeleton={() => <SongCardSkeleton />}
+            getItemKey={(song) => song.id}
+            emptyMessage="No recently played songs"
+          />
+        </section>
 
         {/* Recently Added */}
         <AlbumSection

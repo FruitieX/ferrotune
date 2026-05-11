@@ -2,8 +2,9 @@
 import type { HomeAlbumSection } from "./HomeAlbumSection";
 import type { HomeContinueListeningSection } from "./HomeContinueListeningSection";
 import type { HomeForgottenFavoritesSection } from "./HomeForgottenFavoritesSection";
+import type { HomeSongSection } from "./HomeSongSection";
 
 /**
  * Combined home page response
  */
-export type HomePageResponse = { continueListening: HomeContinueListeningSection, mostPlayedRecently: HomeAlbumSection, recentlyAdded: HomeAlbumSection, forgottenFavorites: HomeForgottenFavoritesSection, discover: HomeAlbumSection, };
+export type HomePageResponse = { continueListening: HomeContinueListeningSection, mostPlayedRecently: HomeSongSection, recentlyAdded: HomeAlbumSection, forgottenFavorites: HomeForgottenFavoritesSection, discover: HomeAlbumSection, };
