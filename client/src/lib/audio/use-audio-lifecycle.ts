@@ -19,6 +19,7 @@ import {
 import {
   serverQueueStateAtom,
   fetchQueueAtom,
+  fetchQueueSilentAtom,
   isRestoringQueueAtom,
   queueWindowAtom,
 } from "@/lib/store/server-queue";
@@ -41,6 +42,7 @@ import {
 import { getActiveAudio } from "@/lib/audio/web-audio";
 import {
   usingNativeAudio,
+  setCurrentLoadedTrackId,
   setIsIntentionalStop,
   resetPlaybackRuntimeState,
 } from "@/lib/audio/engine-state";
@@ -62,6 +64,7 @@ export function useAudioLifecycle({
   const clientId = useAtomValue(clientIdAtom);
   const queueWindow = useAtomValue(queueWindowAtom);
   const fetchQueue = useSetAtom(fetchQueueAtom);
+  const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
 
   // Ref to avoid stale closure in event listeners
   const currentSessionIdRef = useRef(currentSessionId);
@@ -119,6 +122,10 @@ export function useAudioLifecycle({
             nativeState.state === "idle" ||
             (!!nativeState.trackId && entry?.song.id === nativeState.trackId);
 
+          if (nativeState.trackId) {
+            setCurrentLoadedTrackId(nativeState.trackId);
+          }
+
           if (!nativeStateMatchesCurrentQueue) {
             console.warn(
               "[Audio] Ignoring native resume state that does not match the active queue",
@@ -128,7 +135,7 @@ export function useAudioLifecycle({
                 expectedTrackId: entry?.song.id,
               },
             );
-            fetchQueue();
+            fetchQueueSilent();
             return;
           }
 
@@ -146,7 +153,7 @@ export function useAudioLifecycle({
           );
 
           // The native player is the source of truth.
-          // Sync its position to the server *before* fetchQueue() so the
+          // Sync its position to the server before refreshing the queue so the
           // server response won't contain a stale currentIndex that
           // overwrites the correct native position and causes a track jump.
           if (nativeState.state !== "idle") {
@@ -161,6 +168,7 @@ export function useAudioLifecycle({
                   false,
                   sessionId,
                   ownerClientId,
+                  true,
                 );
               } catch (e) {
                 console.warn(
@@ -174,14 +182,14 @@ export function useAudioLifecycle({
           console.warn("[Audio] Failed to sync native state on resume:", e);
         }
       }
-      fetchQueue();
+      fetchQueueSilent();
     };
 
     window.addEventListener(appResumeRepaintEvent, handleResume);
     return () => {
       window.removeEventListener(appResumeRepaintEvent, handleResume);
     };
-  }, [fetchQueue, settersRef]);
+  }, [fetchQueueSilent, settersRef]);
 
   // Reset playback and queue when user account changes (user switch)
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);

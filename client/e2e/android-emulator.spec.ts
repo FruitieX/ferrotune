@@ -787,6 +787,7 @@ test.describe.serial("Android Emulator Smoke", () => {
       expect(countOccurrences(logs, "startPlayback() command received")).toBe(
         1,
       );
+      expect(logs).toContain("softInvalidateQueue: totalCount");
       expect(logs).not.toContain("current track removed, doing full reload");
     } catch (error) {
       if (page) {
@@ -871,6 +872,7 @@ test.describe.serial("Android Emulator Smoke", () => {
       expect(countOccurrences(logs, "startPlayback() command received")).toBe(
         1,
       );
+      expect(logs).toContain("softInvalidateQueue: totalCount");
       expect(logs).not.toContain("current track removed, doing full reload");
     } catch (error) {
       if (page) {

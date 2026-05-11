@@ -1774,15 +1774,53 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Soft invalidate: update the total count and prefetch new songs without
-     * rebuilding the ExoPlayer playlist. Used for "play next" / "add to queue"
-     * to avoid briefly interrupting playback.
+     * Soft invalidate: refetch the authoritative queue window and update the
+     * loaded ExoPlayer playlist around the current item without restarting it.
+     * Used for "play next" / "add to queue" as a local backstop when SSE is late.
      */
     fun softInvalidateQueue(newTotalCount: Int) {
-        Log.d(TAG, "softInvalidateQueue: totalCount $serverTotalCount -> $newTotalCount")
+        if (!nativeOwnsSession) {
+            Log.d(TAG, "Ignoring softInvalidateQueue while not session owner")
+            return
+        }
+        invalidateVersion++
+        Log.d(TAG, "softInvalidateQueue: totalCount $serverTotalCount -> $newTotalCount (version=$invalidateVersion)")
         serverTotalCount = newTotalCount
-        // Trigger prefetch to pick up new songs appended/inserted near current position
-        maybePrefetchMore()
+        val generation = nextQueueLoadGeneration("softInvalidateQueue")
+        apiExecutor.execute {
+            try {
+                val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
+                handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, "softInvalidateQueue")) return@post
+                    val shouldPlay = player.playWhenReady
+
+                    if (isCurrentTrackAtTarget(response, response.currentIndex)) {
+                        syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
+                        if (shouldPlay && !player.playWhenReady) {
+                            player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                                true,
+                                "softInvalidateQueue existing target"
+                            )
+                        }
+                    } else {
+                        Log.d(TAG, "softInvalidateQueue: current track changed, full reload")
+                        handleQueueWindowResponse(
+                            response,
+                            response.currentIndex,
+                            getAbsolutePlaybackPositionMs(),
+                            shouldPlay,
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to soft-invalidate queue", e)
+                handler.post {
+                    if (isQueueLoadGenerationCurrent(generation, "softInvalidateQueue error")) {
+                        maybePrefetchMore()
+                    }
+                }
+            }
+        }
     }
 
     // === Scrobbling ===
@@ -1921,32 +1959,32 @@ class PlaybackService : MediaSessionService() {
                     "network retry for ${track.id}"
                 )
 
+                val livePositionMs = getAbsolutePlaybackPositionMs()
+                val retryPositionMs = maxOf(
+                    livePositionMs,
+                    positionMsAtError,
+                    lastKnownGoodPositionMs,
+                )
+                if (lastKnownGoodPositionMs > maxOf(livePositionMs, positionMsAtError)) {
+                    Log.d(
+                        TAG,
+                        "Network retry: using lastKnownGoodPositionMs=$lastKnownGoodPositionMs " +
+                            "over livePositionMs=$livePositionMs and errorPositionMs=$positionMsAtError"
+                    )
+                }
+                if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
+                    Log.d(
+                        TAG,
+                        "Network retry reached track end for ${track.id} at ${retryPositionMs}ms; advancing instead"
+                    )
+                    autonomousSkipNext()
+                    return
+                }
+
                 if (playbackSettings.transcodingEnabled) {
                     // For transcoded streams, rebuild URL with the furthest
                     // known playback position so a transient player reset at
                     // the track boundary does not reopen the current item from 0.
-                    val livePositionMs = getAbsolutePlaybackPositionMs()
-                    val retryPositionMs = maxOf(
-                        livePositionMs,
-                        positionMsAtError,
-                        lastKnownGoodPositionMs,
-                    )
-                    if (lastKnownGoodPositionMs > maxOf(livePositionMs, positionMsAtError)) {
-                        Log.d(
-                            TAG,
-                            "Network retry: using lastKnownGoodPositionMs=$lastKnownGoodPositionMs " +
-                                "over livePositionMs=$livePositionMs and errorPositionMs=$positionMsAtError"
-                        )
-                    }
-                    if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
-                        Log.d(
-                            TAG,
-                            "Network retry reached track end for ${track.id} at ${retryPositionMs}ms; advancing instead"
-                        )
-                        autonomousSkipNext()
-                        return
-                    }
-
                     val timeOffsetSeconds = retryPositionMs / 1000
                     seekTimeOffsetMs = retryPositionMs
                     lastKnownGoodPositionMs = retryPositionMs
@@ -1978,10 +2016,21 @@ class PlaybackService : MediaSessionService() {
                             "for ${track.id} (retryPositionMs=$retryPositionMs, errorPositionMs=$positionMsAtError)"
                     )
                 } else {
-                    // For non-transcoded streams, just re-prepare at the current position
+                    seekTimeOffsetMs = 0
+                    lastKnownGoodPositionMs = retryPositionMs
+                    val currentIndex = player.currentMediaItemIndex
+                    if (currentIndex != C.INDEX_UNSET && currentIndex < player.mediaItemCount) {
+                        player.seekTo(currentIndex, retryPositionMs)
+                    } else {
+                        player.seekTo(retryPositionMs)
+                    }
                     player.playWhenReady = retryPlayWhenReady
                     player.prepare()
-                    Log.d(TAG, "Network retry: re-prepared non-transcoded stream")
+                    Log.d(
+                        TAG,
+                        "Network retry: re-prepared non-transcoded stream at ${retryPositionMs}ms " +
+                            "for ${track.id} (errorPositionMs=$positionMsAtError)"
+                    )
                 }
             }
         }
@@ -1994,7 +2043,6 @@ class PlaybackService : MediaSessionService() {
         track: TrackInfo,
         absolutePositionMs: Long,
     ): Boolean {
-        if (!playbackSettings.transcodingEnabled) return false
         if (repeatMode == "one") return false
         if (track.durationMs <= 0) return false
 
@@ -2701,7 +2749,8 @@ class PlaybackService : MediaSessionService() {
             val trackAtError = currentTrack
             val queueIndexAtError = serverQueueIndex
             val mediaIdAtError = player.currentMediaItem?.mediaId ?: trackAtError?.id
-            val positionMsAtError = getAbsolutePlaybackPositionMs()
+            val livePositionMsAtError = getAbsolutePlaybackPositionMs()
+            val positionMsAtError = maxOf(livePositionMsAtError, lastKnownGoodPositionMs)
 
             if (isNetworkError && networkRetryCount < MAX_NETWORK_RETRIES && trackAtError != null) {
                 if (shouldAdvanceInsteadOfRetryOnNetworkError(trackAtError, positionMsAtError)) {

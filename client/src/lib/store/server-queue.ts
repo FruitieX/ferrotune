@@ -31,6 +31,7 @@ import {
   nativeToggleShuffle,
   nativeSetRepeatMode,
   nativePlayAtIndex,
+  nativeSoftInvalidateQueue,
 } from "@/lib/audio/native-engine";
 
 import {
@@ -1175,6 +1176,17 @@ export const addToQueueAtom = atom(
         });
       }
 
+      if (
+        hasNativeAudio() &&
+        get(isAudioOwnerAtom) &&
+        response.totalCount !== undefined &&
+        response.totalCount !== null
+      ) {
+        void nativeSoftInvalidateQueue(response.totalCount).catch((error) => {
+          console.error("Failed to soft-invalidate native queue:", error);
+        });
+      }
+
       // Refresh window
       const queueResponse = await client.getQueueCurrentWindow(
         20,
@@ -1198,8 +1210,8 @@ export const addToQueueAtom = atom(
       });
       set(queueWindowAtom, queueResponse.window);
 
-      // PlaybackService already receives the server-broadcast QueueUpdated
-      // event over SSE, so avoid issuing a second local invalidate here.
+      // The native soft-invalidate above is a fetch-only backstop for missed
+      // SSE; avoid a full local invalidate that can restart playback.
 
       return { success: true, addedCount: response.addedCount ?? 0 };
     } catch (error) {

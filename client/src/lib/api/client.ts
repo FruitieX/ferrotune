@@ -1673,17 +1673,22 @@ export class FerrotuneClient {
     reshuffle: boolean = false,
     sessionId?: string,
     clientId?: string,
+    silent: boolean = false,
   ): Promise<QueueSuccessResponse> {
-    return this.request("/ferrotune/queue/position", {
-      method: "POST",
-      body: JSON.stringify({
-        currentIndex,
-        positionMs,
-        ...(reshuffle && { reshuffle: true }),
-        sessionId,
-        clientId,
-      }),
-    });
+    return this.request(
+      "/ferrotune/queue/position",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          currentIndex,
+          positionMs,
+          ...(reshuffle && { reshuffle: true }),
+          sessionId,
+          clientId,
+        }),
+      },
+      silent,
+    );
   }
 
   /**
