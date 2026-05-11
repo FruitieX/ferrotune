@@ -396,6 +396,9 @@ export class FerrotuneClient {
         inlineImages?: "small" | "medium";
         since?: string;
         seed?: number;
+        filter?: string;
+        sort?: string;
+        sortDir?: string;
       },
   ): Promise<AlbumListResponse> {
     const endpoint = buildEndpoint("/ferrotune/albums", params);
@@ -437,6 +440,9 @@ export class FerrotuneClient {
       minPlays?: number;
       notPlayedSinceDays?: number;
       inlineImages?: "small" | "medium";
+      filter?: string;
+      sort?: string;
+      sortDir?: string;
     } = {},
   ): Promise<ForgottenFavoritesResponse> {
     const endpoint = buildEndpoint(
@@ -452,6 +458,9 @@ export class FerrotuneClient {
       offset?: number;
       since?: string;
       inlineImages?: "small" | "medium";
+      filter?: string;
+      sort?: string;
+      sortDir?: string;
     } = {},
   ): Promise<MostPlayedRecentlyResponse> {
     const endpoint = buildEndpoint(
@@ -478,6 +487,9 @@ export class FerrotuneClient {
       size?: number;
       offset?: number;
       inlineImages?: "small" | "medium";
+      filter?: string;
+      sort?: string;
+      sortDir?: string;
     } = {},
   ): Promise<HomeContinueListeningSection> {
     const endpoint = buildEndpoint("/ferrotune/continue-listening", params);

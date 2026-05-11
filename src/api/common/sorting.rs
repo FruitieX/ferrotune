@@ -4,7 +4,7 @@
 //! All sorting should be done server-side to ensure queue materialization
 //! uses the same order as the displayed list.
 
-use crate::db::models::Song;
+use crate::db::models::{Album, Song};
 use serde::Deserialize;
 
 fn compare_option_nulls_last<T: Ord>(
@@ -221,6 +221,88 @@ pub fn filter_and_sort_songs(
 ) -> Vec<Song> {
     let filtered = filter_songs(songs, filter);
     sort_songs(filtered, sort, sort_dir)
+}
+
+/// Sort albums by the specified field and direction.
+pub fn sort_albums(
+    mut albums: Vec<Album>,
+    sort: Option<&str>,
+    sort_dir: Option<&str>,
+) -> Vec<Album> {
+    let field = sort.unwrap_or("custom");
+    let direction = sort_dir.unwrap_or("asc");
+    let descending = direction == "desc";
+
+    if matches!(field, "custom" | "recommended") {
+        if descending && field == "custom" {
+            albums.reverse();
+        }
+        return albums;
+    }
+
+    albums.sort_by(|a, b| {
+        let cmp = match field {
+            "name" | "title" => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            "artist" => a
+                .artist_name
+                .to_lowercase()
+                .cmp(&b.artist_name.to_lowercase())
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            "year" => a.year.unwrap_or(0).cmp(&b.year.unwrap_or(0)),
+            "dateAdded" | "created" => a.created_at.cmp(&b.created_at),
+            "songCount" => a.song_count.cmp(&b.song_count),
+            "duration" => a.duration.cmp(&b.duration),
+            "genre" => a
+                .genre
+                .as_deref()
+                .unwrap_or("")
+                .to_lowercase()
+                .cmp(&b.genre.as_deref().unwrap_or("").to_lowercase()),
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        };
+
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
+    });
+
+    albums
+}
+
+/// Filter albums by a text query (matches album, artist, or genre).
+pub fn filter_albums(albums: Vec<Album>, filter: Option<&str>) -> Vec<Album> {
+    match filter {
+        Some(query) if !query.trim().is_empty() => {
+            let query = query.to_lowercase();
+            albums
+                .into_iter()
+                .filter(|album| {
+                    album.name.to_lowercase().contains(&query)
+                        || album.artist_name.to_lowercase().contains(&query)
+                        || album
+                            .genre
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&query)
+                })
+                .collect()
+        }
+        _ => albums,
+    }
+}
+
+/// Apply both filtering and sorting to albums.
+pub fn filter_and_sort_albums(
+    albums: Vec<Album>,
+    filter: Option<&str>,
+    sort: Option<&str>,
+    sort_dir: Option<&str>,
+) -> Vec<Album> {
+    let filtered = filter_albums(albums, filter);
+    sort_albums(filtered, sort, sort_dir)
 }
 
 /// Sort songs using SortFilterParams struct

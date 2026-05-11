@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Navigate, useParams } from "react-router-dom";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   Clock,
@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { getClient } from "@/lib/api/client";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
@@ -28,7 +29,7 @@ import {
 import { formatCount, formatDate, formatDuration } from "@/lib/utils/format";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
-import { EmptyState } from "@/components/shared/empty-state";
+import { EmptyFilterState, EmptyState } from "@/components/shared/empty-state";
 import { MediaRow, MediaRowSkeleton } from "@/components/shared/media-row";
 import { VirtualizedList } from "@/components/shared/virtualized-grid";
 import { AlbumCardCompact } from "@/components/browse/album-card";
@@ -41,39 +42,23 @@ import {
   AlbumListHeader,
   SongListHeader,
 } from "@/components/shared/song-list-header";
+import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
-import type { AlbumColumnVisibility, ColumnVisibility } from "@/lib/store/ui";
+import {
+  homeAlbumColumnVisibilityAtom,
+  homeSongColumnVisibilityAtom,
+  type SortConfig,
+} from "@/lib/store/ui";
 
 const PAGE_SIZE = 50;
+const LIST_VIEW = "list";
 
-const songColumns: ColumnVisibility = {
-  trackNumber: true,
-  artist: true,
-  album: true,
-  duration: true,
-  playCount: true,
-  dateAdded: false,
-  lastPlayed: true,
-  year: false,
-  starred: false,
-  genre: false,
-  bitRate: false,
-  format: false,
-  rating: false,
-};
-
-const albumColumns: AlbumColumnVisibility = {
-  showIndex: true,
-  artist: true,
-  year: true,
-  songCount: true,
-  duration: true,
-  genre: false,
-  starred: false,
-  rating: false,
-  dateAdded: true,
-};
+const continueListeningSortOptions = [
+  { value: "lastPlayed" as const, label: "Last Played" },
+  { value: "name" as const, label: "Name" },
+];
 
 type HomeSectionConfig =
   | {
@@ -185,6 +170,50 @@ function getHomeSectionConfig(
     default:
       return null;
   }
+}
+
+function getDefaultSortConfig(section: HomeSectionConfig | null): SortConfig {
+  if (!section) {
+    return { field: "lastPlayed", direction: "desc" };
+  }
+
+  if (section.kind === "continueListening") {
+    return { field: "lastPlayed", direction: "desc" };
+  }
+
+  if (section.kind === "song") {
+    return { field: "playCount", direction: "desc" };
+  }
+
+  if (section.albumListType === "random") {
+    return { field: "recommended", direction: "desc" };
+  }
+
+  return { field: "dateAdded", direction: "desc" };
+}
+
+function getFilterParam(filter: string) {
+  const trimmed = filter.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function getSortParam(sortConfig: SortConfig) {
+  return {
+    sort: sortConfig.field,
+    sortDir: sortConfig.direction,
+  };
+}
+
+function getQueueFilters(
+  filter: string,
+  extraFilters?: Record<string, unknown>,
+) {
+  const filterParam = getFilterParam(filter);
+  if (!filterParam) return extraFilters;
+  return {
+    ...extraFilters,
+    filter: filterParam,
+  };
 }
 
 function getNextOffsetPageParam(lastPage: {
@@ -347,16 +376,35 @@ export default function HomeSectionPage() {
   });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
+  const [songColumnVisibility, setSongColumnVisibility] = useAtom(
+    homeSongColumnVisibilityAtom,
+  );
+  const [albumColumnVisibility, setAlbumColumnVisibility] = useAtom(
+    homeAlbumColumnVisibilityAtom,
+  );
+  const [filter, setFilter] = useState("");
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() =>
+    getDefaultSortConfig(section),
+  );
+  const debouncedFilter = useDebounce(filter, 300);
   const seedRef = useRef<number | undefined>(undefined);
   const mostPlayedFiltersRef = useRef(getMostPlayedRecentlyFilters());
 
   useEffect(() => {
     seedRef.current = undefined;
     mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters();
+    setFilter("");
+    setSortConfig(getDefaultSortConfig(getHomeSectionConfig(sectionId)));
   }, [sectionId]);
 
   const query = useInfiniteQuery({
-    queryKey: ["home-section", section?.id],
+    queryKey: [
+      "home-section",
+      section?.id,
+      debouncedFilter,
+      sortConfig.field,
+      sortConfig.direction,
+    ],
     queryFn: async ({ pageParam }) => {
       if (!section) {
         return {
@@ -372,12 +420,16 @@ export default function HomeSectionPage() {
 
       const client = getClient();
       if (!client) throw new Error("Not connected");
+      const filterParam = getFilterParam(debouncedFilter);
+      const sortParam = getSortParam(sortConfig);
 
       if (section.kind === "continueListening") {
         const response = await client.getContinueListening({
           size: PAGE_SIZE,
           offset: pageParam,
           inlineImages: "small",
+          filter: filterParam,
+          ...sortParam,
         });
         return {
           entries: response.entries,
@@ -399,6 +451,8 @@ export default function HomeSectionPage() {
           offset: pageParam,
           inlineImages: "small",
           ...mostPlayedFiltersRef.current,
+          filter: filterParam,
+          ...sortParam,
         });
         return {
           entries: [] as ContinueListeningEntry[],
@@ -420,6 +474,8 @@ export default function HomeSectionPage() {
           offset: pageParam,
           inlineImages: "small",
           seed: pageParam > 0 ? seedRef.current : undefined,
+          filter: filterParam,
+          ...sortParam,
         });
         seedRef.current = response.seed;
         return {
@@ -439,6 +495,8 @@ export default function HomeSectionPage() {
           size: PAGE_SIZE,
           offset: pageParam,
           inlineImages: "small",
+          filter: filterParam,
+          ...sortParam,
           seed:
             section.albumListType === "random" && pageParam > 0
               ? seedRef.current
@@ -483,6 +541,7 @@ export default function HomeSectionPage() {
   const totalCount = query.data?.pages[0]?.total ?? loadedCount;
   const isLoading = authLoading || query.isLoading;
   const hasItems = loadedCount > 0 || totalCount > 0;
+  const hasFilter = getFilterParam(debouncedFilter) !== undefined;
   const subtitle = !isLoading
     ? formatCount(
         totalCount,
@@ -495,31 +554,42 @@ export default function HomeSectionPage() {
     : undefined;
 
   const playAll = (shuffle: boolean) => {
+    const queueSort = {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    };
+
     if (section.kind === "album") {
+      const seedFilters =
+        section.albumListType === "random" && seedRef.current !== undefined
+          ? { seed: seedRef.current }
+          : undefined;
       startQueue({
         sourceType: "albumList",
         sourceId: section.albumListType,
         sourceName: section.queueSourceName,
         startIndex: 0,
         shuffle,
-        filters:
-          section.albumListType === "random"
-            ? { seed: seedRef.current }
-            : undefined,
+        filters: getQueueFilters(debouncedFilter, seedFilters),
+        sort: queueSort,
       });
       return;
     }
 
     if (section.kind === "song") {
+      const sectionFilters =
+        section.queueSourceType === "mostPlayedRecently"
+          ? mostPlayedFiltersRef.current
+          : seedRef.current !== undefined
+            ? { seed: seedRef.current }
+            : undefined;
       startQueue({
         sourceType: section.queueSourceType,
         sourceName: section.queueSourceName,
         startIndex: 0,
         shuffle,
-        filters:
-          section.queueSourceType === "mostPlayedRecently"
-            ? mostPlayedFiltersRef.current
-            : { seed: seedRef.current },
+        filters: getQueueFilters(debouncedFilter, sectionFilters),
+        sort: queueSort,
       });
       return;
     }
@@ -529,6 +599,8 @@ export default function HomeSectionPage() {
       sourceName: section.queueSourceName,
       startIndex: 0,
       shuffle,
+      filters: getQueueFilters(debouncedFilter),
+      sort: queueSort,
     });
   };
 
@@ -580,12 +652,70 @@ export default function HomeSectionPage() {
       ? {
           type: section.queueSourceType,
           name: section.queueSourceName,
-          filters:
+          filters: getQueueFilters(
+            debouncedFilter,
             section.queueSourceType === "mostPlayedRecently"
               ? mostPlayedFiltersRef.current
-              : { seed: seedRef.current },
+              : seedRef.current !== undefined
+                ? { seed: seedRef.current }
+                : undefined,
+          ),
+          sort: {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          },
         }
       : undefined;
+
+  const toolbar =
+    section.kind === "song" ? (
+      <SongListToolbar
+        filter={filter}
+        onFilterChange={setFilter}
+        filterPlaceholder={`Filter ${section.title.toLowerCase()}...`}
+        sortConfig={sortConfig}
+        onSortChange={setSortConfig}
+        columnVisibility={songColumnVisibility}
+        onColumnVisibilityChange={setSongColumnVisibility}
+        viewMode={LIST_VIEW}
+        onViewModeChange={() => undefined}
+        showViewMode={false}
+      />
+    ) : section.kind === "album" ? (
+      <MediaListToolbar
+        filter={filter}
+        onFilterChange={setFilter}
+        filterPlaceholder={`Filter ${section.title.toLowerCase()}...`}
+        sortConfig={sortConfig}
+        onSortChange={setSortConfig}
+        viewMode={LIST_VIEW}
+        onViewModeChange={() => undefined}
+        mediaType="album"
+        columnVisibility={albumColumnVisibility}
+        onColumnVisibilityChange={(visibility) => {
+          if ("artist" in visibility) {
+            setAlbumColumnVisibility(visibility);
+          }
+        }}
+        showViewMode={false}
+        showRecommendedSort={section.albumListType === "random"}
+      />
+    ) : (
+      <SongListToolbar
+        filter={filter}
+        onFilterChange={setFilter}
+        filterPlaceholder="Filter continue listening..."
+        sortConfig={sortConfig}
+        onSortChange={setSortConfig}
+        columnVisibility={songColumnVisibility}
+        onColumnVisibilityChange={setSongColumnVisibility}
+        viewMode={LIST_VIEW}
+        onViewModeChange={() => undefined}
+        showColumns={false}
+        showViewMode={false}
+        sortOptionsOverride={continueListeningSortOptions}
+      />
+    );
 
   if (!isMounted || authLoading) {
     return (
@@ -623,6 +753,7 @@ export default function HomeSectionPage() {
         onPlayAll={() => playAll(false)}
         onShuffle={() => playAll(true)}
         disablePlay={isLoading || !hasItems}
+        toolbar={toolbar}
       />
 
       <div className="px-4 lg:px-6 py-4">
@@ -667,10 +798,11 @@ export default function HomeSectionPage() {
         ) : section.kind === "song" && hasItems && songQueueSource ? (
           <>
             <SongListHeader
-              columnVisibility={songColumns}
-              showIndex
+              columnVisibility={songColumnVisibility}
               showCover
               stickyTop="72px"
+              sortConfig={sortConfig}
+              onSortChange={setSortConfig}
             />
             <VirtualizedList
               items={songs}
@@ -683,18 +815,31 @@ export default function HomeSectionPage() {
               renderItem={(song, index) => (
                 <SongRow
                   song={song}
-                  index={index}
+                  index={songColumnVisibility.trackNumber ? index : undefined}
+                  songIndex={index}
                   showCover
                   inlineImagesRequested
-                  showArtist={songColumns.artist}
-                  showAlbum={songColumns.album}
-                  showDuration={songColumns.duration}
-                  showPlayCount={songColumns.playCount}
-                  showLastPlayed={songColumns.lastPlayed}
+                  showArtist={songColumnVisibility.artist}
+                  showAlbum={songColumnVisibility.album}
+                  showDuration={songColumnVisibility.duration}
+                  showPlayCount={songColumnVisibility.playCount}
+                  showYear={songColumnVisibility.year}
+                  showDateAdded={songColumnVisibility.dateAdded}
+                  showLastPlayed={songColumnVisibility.lastPlayed}
+                  showStarred={songColumnVisibility.starred}
+                  showGenre={songColumnVisibility.genre}
+                  showBitRate={songColumnVisibility.bitRate}
+                  showFormat={songColumnVisibility.format}
+                  showRating={songColumnVisibility.rating}
                   queueSource={songQueueSource}
                 />
               )}
-              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              renderSkeleton={() => (
+                <SongRowSkeleton
+                  showCover
+                  showIndex={songColumnVisibility.trackNumber}
+                />
+              )}
               getItemKey={(song) => song.id}
               estimateItemHeight={56}
             />
@@ -702,8 +847,8 @@ export default function HomeSectionPage() {
         ) : section.kind === "album" && hasItems ? (
           <>
             <AlbumListHeader
-              columnVisibility={albumColumns}
-              showIndex
+              columnVisibility={albumColumnVisibility}
+              showIndex={albumColumnVisibility.showIndex}
               stickyTop="72px"
             />
             <VirtualizedList
@@ -717,25 +862,30 @@ export default function HomeSectionPage() {
               renderItem={(album, index) => (
                 <AlbumCardCompact
                   album={album}
-                  index={index}
+                  index={albumColumnVisibility.showIndex ? index : undefined}
                   onPlay={handlePlayAlbumById}
-                  showArtist={albumColumns.artist}
-                  showYear={albumColumns.year}
-                  showSongCount={albumColumns.songCount}
-                  showDuration={albumColumns.duration}
-                  showGenre={albumColumns.genre}
-                  showStarred={albumColumns.starred}
-                  showRating={albumColumns.rating}
-                  showDateAdded={albumColumns.dateAdded}
+                  showArtist={albumColumnVisibility.artist}
+                  showYear={albumColumnVisibility.year}
+                  showSongCount={albumColumnVisibility.songCount}
+                  showDuration={albumColumnVisibility.duration}
+                  showGenre={albumColumnVisibility.genre}
+                  showStarred={albumColumnVisibility.starred}
+                  showRating={albumColumnVisibility.rating}
+                  showDateAdded={albumColumnVisibility.dateAdded}
                 />
               )}
               renderSkeleton={() => (
-                <MediaRowSkeleton showIndex showRightContent />
+                <MediaRowSkeleton
+                  showIndex={albumColumnVisibility.showIndex}
+                  showRightContent
+                />
               )}
               getItemKey={(album) => album.id}
               estimateItemHeight={56}
             />
           </>
+        ) : hasFilter ? (
+          <EmptyFilterState message="No items match your filter" />
         ) : (
           <EmptyState icon={section.icon} title={section.emptyTitle} />
         )}

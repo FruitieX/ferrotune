@@ -36,12 +36,15 @@ export interface SortConfig {
 
 // Sort options for albums
 const albumSortOptions: { value: SortField; label: string }[] = [
+  { value: "recommended", label: "Recommended" },
   { value: "name", label: "Name" },
   { value: "artist", label: "Artist" },
   { value: "year", label: "Year" },
+  { value: "genre", label: "Genre" },
   { value: "dateAdded", label: "Date Added" },
   { value: "starred", label: "Favorited" },
   { value: "songCount", label: "Track Count" },
+  { value: "duration", label: "Duration" },
 ];
 
 // Sort options for artists
@@ -61,7 +64,10 @@ const albumColumnOptions: {
   { key: "year", label: "Year" },
   { key: "songCount", label: "Songs" },
   { key: "duration", label: "Duration" },
+  { key: "genre", label: "Genre" },
   { key: "starred", label: "Favorited" },
+  { key: "rating", label: "Rating" },
+  { key: "dateAdded", label: "Date Added" },
 ];
 
 // Column options for artists in list view
@@ -103,6 +109,7 @@ interface MediaListToolbarProps {
   showSort?: boolean;
   showViewMode?: boolean;
   showColumns?: boolean;
+  showRecommendedSort?: boolean;
 }
 
 export function MediaListToolbar({
@@ -120,9 +127,11 @@ export function MediaListToolbar({
   showSort = true,
   showViewMode = true,
   showColumns = true,
+  showRecommendedSort = false,
 }: MediaListToolbarProps) {
-  const sortOptions =
-    mediaType === "album" ? albumSortOptions : artistSortOptions;
+  const sortOptions = (
+    mediaType === "album" ? albumSortOptions : artistSortOptions
+  ).filter((option) => showRecommendedSort || option.value !== "recommended");
   const columnOptions =
     mediaType === "album" ? albumColumnOptions : artistColumnOptions;
 

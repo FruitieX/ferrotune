@@ -505,6 +505,9 @@ fn test_postgres_ferrotune_lists_handlers_work() {
                 inline_images: None,
                 since: None,
                 seed: None,
+                filter: None,
+                sort: None,
+                sort_dir: None,
             }),
         )
         .await
@@ -559,6 +562,9 @@ fn test_postgres_ferrotune_lists_handlers_work() {
                 offset: Some(0),
                 since: Some(since),
                 inline_images: None,
+                filter: None,
+                sort: None,
+                sort_dir: None,
             }),
         )
         .await
@@ -579,6 +585,9 @@ fn test_postgres_ferrotune_lists_handlers_work() {
                 min_plays: Some(2),
                 not_played_since_days: Some(90),
                 inline_images: None,
+                filter: None,
+                sort: None,
+                sort_dir: None,
             }),
         )
         .await
@@ -5366,6 +5375,9 @@ fn test_postgres_continue_listening_handler_works() {
                 size: Some(10),
                 offset: Some(0),
                 inline_images: None,
+                filter: None,
+                sort: None,
+                sort_dir: None,
             }),
         )
         .await

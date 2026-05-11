@@ -57,6 +57,7 @@ export interface SortConfig {
 }
 
 const sortOptions: { value: SortField; label: string }[] = [
+  { value: "recommended", label: "Recommended" },
   { value: "custom", label: "Custom" },
   { value: "trackNumber", label: "Track Number" },
   { value: "name", label: "Title" },
@@ -92,18 +93,23 @@ const columnOptions: { key: keyof ColumnVisibility; label: string }[] = [
 ];
 
 interface SortOptionVisibility {
+  options?: { value: SortField; label: string }[];
+  showRecommendedSort?: boolean;
   showCustomSort?: boolean;
   showTrackNumber?: boolean;
   showAddedToPlaylist?: boolean;
 }
 
 function getVisibleSortOptions({
+  options = sortOptions,
+  showRecommendedSort = false,
   showCustomSort = false,
   showTrackNumber = false,
   showAddedToPlaylist = false,
 }: SortOptionVisibility) {
-  return sortOptions.filter(
+  return options.filter(
     (option) =>
+      (showRecommendedSort || option.value !== "recommended") &&
       (showCustomSort || option.value !== "custom") &&
       (showTrackNumber || option.value !== "trackNumber") &&
       (showAddedToPlaylist || option.value !== "addedToPlaylist"),
@@ -134,12 +140,16 @@ interface SongListToolbarProps {
   showColumns?: boolean;
   showViewMode?: boolean;
   showAdvancedFilters?: boolean;
+  /** Show the "Recommended" sort option (for generated/recommended lists) */
+  showRecommendedSort?: boolean;
   /** Show the "Custom" sort option (for playlist reordering) */
   showCustomSort?: boolean;
   /** Show "Track Number" sort option (for album views) */
   showTrackNumber?: boolean;
   /** Show the "Added to Playlist" sort option (for playlist views) */
   showAddedToPlaylist?: boolean;
+  /** Override the available sort options for non-song lists that reuse this toolbar styling. */
+  sortOptionsOverride?: { value: SortField; label: string }[];
 }
 
 export function SongListToolbar({
@@ -157,9 +167,11 @@ export function SongListToolbar({
   showColumns = true,
   showViewMode = true,
   showAdvancedFilters = false,
+  showRecommendedSort = false,
   showCustomSort = false,
   showTrackNumber = false,
   showAddedToPlaylist = false,
+  sortOptionsOverride,
 }: SongListToolbarProps) {
   const handleSort = (field: SortField) => {
     // For "custom" sort (playlist order), don't toggle direction - always use ascending
@@ -234,6 +246,8 @@ export function SongListToolbar({
               <DropdownMenuLabel>Sort by</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {getVisibleSortOptions({
+                options: sortOptionsOverride,
+                showRecommendedSort,
                 showCustomSort,
                 showTrackNumber,
                 showAddedToPlaylist,

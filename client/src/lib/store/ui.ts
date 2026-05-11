@@ -322,6 +322,39 @@ export const libraryAlbumColumnVisibilityAtom =
     dateAdded: false,
   });
 
+// Home section detail view column visibility. Kept separate from the main
+// library settings so wide desktop table preferences do not make mobile home
+// section lists unreadable by default.
+export const homeSongColumnVisibilityAtom =
+  atomWithClientAccountStorage<ColumnVisibility>("home-song-columns", {
+    trackNumber: true,
+    artist: true,
+    album: true,
+    duration: true,
+    playCount: true,
+    dateAdded: false,
+    lastPlayed: false,
+    year: false,
+    starred: false,
+    genre: false,
+    bitRate: false,
+    format: false,
+    rating: false,
+  });
+
+export const homeAlbumColumnVisibilityAtom =
+  atomWithClientAccountStorage<AlbumColumnVisibility>("home-album-columns", {
+    showIndex: true,
+    artist: true,
+    year: true,
+    songCount: true,
+    duration: false,
+    genre: false,
+    starred: false,
+    rating: false,
+    dateAdded: false,
+  });
+
 // Library artist column visibility (for artists list view)
 export const libraryArtistColumnVisibilityAtom =
   atomWithClientAccountStorage<ArtistColumnVisibility>(

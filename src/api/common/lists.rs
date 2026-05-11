@@ -40,6 +40,80 @@ pub struct AlbumListResult {
     pub seed: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ListViewOptions<'a> {
+    pub filter: Option<&'a str>,
+    pub sort: Option<&'a str>,
+    pub sort_dir: Option<&'a str>,
+}
+
+fn has_text_filter(filter: Option<&str>) -> bool {
+    filter.is_some_and(|value| !value.trim().is_empty())
+}
+
+fn matches_sort(sort: Option<&str>, sort_dir: Option<&str>, field: &str, direction: &str) -> bool {
+    matches!(sort, Some(value) if value == field)
+        && sort_dir.unwrap_or("asc").eq_ignore_ascii_case(direction)
+}
+
+fn is_default_album_list_sort(
+    list_type: &AlbumListType,
+    sort: Option<&str>,
+    sort_dir: Option<&str>,
+) -> bool {
+    if sort.is_none() {
+        return true;
+    }
+
+    match list_type {
+        AlbumListType::Random => matches!(sort, Some("recommended") | Some("custom")),
+        AlbumListType::Newest => matches_sort(sort, sort_dir, "dateAdded", "desc"),
+        AlbumListType::Frequent => matches_sort(sort, sort_dir, "playCount", "desc"),
+        AlbumListType::Recent => matches_sort(sort, sort_dir, "lastPlayed", "desc"),
+        AlbumListType::Starred => matches_sort(sort, sort_dir, "starred", "desc"),
+        AlbumListType::AlphabeticalByName => matches_sort(sort, sort_dir, "name", "asc"),
+        AlbumListType::AlphabeticalByArtist => matches_sort(sort, sort_dir, "artist", "asc"),
+        AlbumListType::ByYear => matches_sort(sort, sort_dir, "year", "desc"),
+        AlbumListType::ByGenre => matches_sort(sort, sort_dir, "name", "asc"),
+        AlbumListType::Highest => matches_sort(sort, sort_dir, "name", "asc"),
+    }
+}
+
+async fn count_album_list_candidates(
+    database: &crate::db::Database,
+    user_id: i64,
+    list_type: &AlbumListType,
+    from_year: Option<i32>,
+    to_year: Option<i32>,
+    genre: Option<&str>,
+) -> crate::error::Result<i64> {
+    match list_type {
+        AlbumListType::Starred => {
+            lists_repo::count_starred_albums_for_user(database, user_id).await
+        }
+        AlbumListType::Recent => lists_repo::count_recent_albums_for_user(database, user_id).await,
+        AlbumListType::ByGenre => {
+            if let Some(genre) = genre {
+                lists_repo::count_visible_albums_for_user(
+                    database,
+                    user_id,
+                    Some(genre),
+                    None,
+                    None,
+                )
+                .await
+            } else {
+                Ok(0)
+            }
+        }
+        AlbumListType::ByYear => {
+            lists_repo::count_visible_albums_for_user(database, user_id, None, from_year, to_year)
+                .await
+        }
+        _ => lists_repo::count_visible_albums_for_user(database, user_id, None, None, None).await,
+    }
+}
+
 async fn fetch_albums_by_ids_in_order(
     database: &crate::db::Database,
     album_ids: &[String],
@@ -60,8 +134,28 @@ pub async fn get_album_list_logic(
     inline_image_size: Option<ThumbnailSize>,
     since: Option<String>,
     seed: Option<i64>,
+    filter: Option<&str>,
+    sort: Option<&str>,
+    sort_dir: Option<&str>,
 ) -> crate::error::Result<AlbumListResult> {
     let size = size.min(500);
+    let should_post_process =
+        has_text_filter(filter) || !is_default_album_list_sort(&list_type, sort, sort_dir);
+    let query_offset = if should_post_process { 0 } else { offset };
+    let query_size = if should_post_process {
+        count_album_list_candidates(
+            database,
+            user_id,
+            &list_type,
+            from_year,
+            to_year,
+            genre.as_deref(),
+        )
+        .await?
+        .max(size)
+    } else {
+        size
+    };
     let mut result_seed: Option<i64> = None;
     // For the Recent list, capture (album_id -> last_played) from the repo so
     // we can populate the `played` field without a second query.
@@ -85,8 +179,8 @@ pub async fn get_album_list_logic(
             ids.shuffle(&mut rng);
 
             // Slice for pagination
-            let start = (offset as usize).min(ids.len());
-            let end = (start + size as usize).min(ids.len());
+            let start = (query_offset as usize).min(ids.len());
+            let end = (start + query_size as usize).min(ids.len());
             let page_ids = &ids[start..end];
 
             if page_ids.is_empty() {
@@ -98,15 +192,21 @@ pub async fn get_album_list_logic(
         AlbumListType::Newest => {
             fetch_albums_by_ids_in_order(
                 database,
-                &lists_repo::list_album_ids_newest(database, user_id, size, offset).await?,
+                &lists_repo::list_album_ids_newest(database, user_id, query_size, query_offset)
+                    .await?,
             )
             .await?
         }
         AlbumListType::Highest => {
             fetch_albums_by_ids_in_order(
                 database,
-                &lists_repo::list_album_ids_alphabetical_by_name(database, user_id, size, offset)
-                    .await?,
+                &lists_repo::list_album_ids_alphabetical_by_name(
+                    database,
+                    user_id,
+                    query_size,
+                    query_offset,
+                )
+                .await?,
             )
             .await?
         }
@@ -115,14 +215,24 @@ pub async fn get_album_list_logic(
                 .as_deref()
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&Utc));
-            let ids =
-                lists_repo::list_frequent_album_ids(database, user_id, size, offset, since_dt)
-                    .await?;
+            let ids = lists_repo::list_frequent_album_ids(
+                database,
+                user_id,
+                query_size,
+                query_offset,
+                since_dt,
+            )
+            .await?;
             fetch_albums_by_ids_in_order(database, &ids).await?
         }
         AlbumListType::Recent => {
-            let recent =
-                lists_repo::list_recent_albums_for_user(database, user_id, size, offset).await?;
+            let recent = lists_repo::list_recent_albums_for_user(
+                database,
+                user_id,
+                query_size,
+                query_offset,
+            )
+            .await?;
             let ids: Vec<String> = recent.iter().map(|r| r.album_id.clone()).collect();
             recent_played_map = recent
                 .iter()
@@ -133,23 +243,34 @@ pub async fn get_album_list_logic(
         AlbumListType::Starred => {
             fetch_albums_by_ids_in_order(
                 database,
-                &lists_repo::list_starred_album_ids(database, user_id, size, offset).await?,
+                &lists_repo::list_starred_album_ids(database, user_id, query_size, query_offset)
+                    .await?,
             )
             .await?
         }
         AlbumListType::AlphabeticalByName => {
             fetch_albums_by_ids_in_order(
                 database,
-                &lists_repo::list_album_ids_alphabetical_by_name(database, user_id, size, offset)
-                    .await?,
+                &lists_repo::list_album_ids_alphabetical_by_name(
+                    database,
+                    user_id,
+                    query_size,
+                    query_offset,
+                )
+                .await?,
             )
             .await?
         }
         AlbumListType::AlphabeticalByArtist => {
             fetch_albums_by_ids_in_order(
                 database,
-                &lists_repo::list_album_ids_alphabetical_by_artist(database, user_id, size, offset)
-                    .await?,
+                &lists_repo::list_album_ids_alphabetical_by_artist(
+                    database,
+                    user_id,
+                    query_size,
+                    query_offset,
+                )
+                .await?,
             )
             .await?
         }
@@ -157,7 +278,12 @@ pub async fn get_album_list_logic(
             fetch_albums_by_ids_in_order(
                 database,
                 &lists_repo::list_album_ids_by_year(
-                    database, user_id, size, offset, from_year, to_year,
+                    database,
+                    user_id,
+                    query_size,
+                    query_offset,
+                    from_year,
+                    to_year,
                 )
                 .await?,
             )
@@ -167,8 +293,14 @@ pub async fn get_album_list_logic(
             if let Some(ref g) = genre {
                 fetch_albums_by_ids_in_order(
                     database,
-                    &lists_repo::list_album_ids_by_genre(database, user_id, size, offset, g)
-                        .await?,
+                    &lists_repo::list_album_ids_by_genre(
+                        database,
+                        user_id,
+                        query_size,
+                        query_offset,
+                        g,
+                    )
+                    .await?,
                 )
                 .await?
             } else {
@@ -177,43 +309,66 @@ pub async fn get_album_list_logic(
         }
     };
 
+    let (albums, post_processed_total) = if should_post_process {
+        use crate::api::common::sorting::filter_and_sort_albums;
+
+        let albums = filter_and_sort_albums(albums, filter, sort, sort_dir);
+        let total = albums.len() as i64;
+        let albums = albums
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(size.max(0) as usize)
+            .collect();
+        (albums, Some(total))
+    } else {
+        (albums, None)
+    };
+
     // Calculate total if needed (for pagination)
-    let total: Option<i64> = match list_type {
-        AlbumListType::AlphabeticalByName
-        | AlbumListType::AlphabeticalByArtist
-        | AlbumListType::Newest
-        | AlbumListType::Highest
-        | AlbumListType::Frequent => Some(
-            lists_repo::count_visible_albums_for_user(database, user_id, None, None, None).await?,
-        ),
-        AlbumListType::Starred => {
-            Some(lists_repo::count_starred_albums_for_user(database, user_id).await?)
-        }
-        AlbumListType::ByGenre => {
-            if let Some(ref g) = genre {
-                Some(
-                    lists_repo::count_visible_albums_for_user(
-                        database,
-                        user_id,
-                        Some(g),
-                        None,
-                        None,
-                    )
+    let total: Option<i64> = if let Some(total) = post_processed_total {
+        Some(total)
+    } else {
+        match list_type {
+            AlbumListType::AlphabeticalByName
+            | AlbumListType::AlphabeticalByArtist
+            | AlbumListType::Newest
+            | AlbumListType::Highest
+            | AlbumListType::Frequent => Some(
+                lists_repo::count_visible_albums_for_user(database, user_id, None, None, None)
                     .await?,
-                )
-            } else {
-                None
+            ),
+            AlbumListType::Starred => {
+                Some(lists_repo::count_starred_albums_for_user(database, user_id).await?)
             }
-        }
-        AlbumListType::ByYear => Some(
-            lists_repo::count_visible_albums_for_user(database, user_id, None, from_year, to_year)
+            AlbumListType::ByGenre => {
+                if let Some(ref g) = genre {
+                    Some(
+                        lists_repo::count_visible_albums_for_user(
+                            database,
+                            user_id,
+                            Some(g),
+                            None,
+                            None,
+                        )
+                        .await?,
+                    )
+                } else {
+                    None
+                }
+            }
+            AlbumListType::ByYear => Some(
+                lists_repo::count_visible_albums_for_user(
+                    database, user_id, None, from_year, to_year,
+                )
                 .await?,
-        ),
-        AlbumListType::Random => Some(
-            lists_repo::count_visible_albums_for_user(database, user_id, None, None, None).await?,
-        ),
-        AlbumListType::Recent => {
-            Some(lists_repo::count_recent_albums_for_user(database, user_id).await?)
+            ),
+            AlbumListType::Random => Some(
+                lists_repo::count_visible_albums_for_user(database, user_id, None, None, None)
+                    .await?,
+            ),
+            AlbumListType::Recent => {
+                Some(lists_repo::count_recent_albums_for_user(database, user_id).await?)
+            }
         }
     };
 
@@ -385,6 +540,10 @@ pub struct MostPlayedRecentlyResult {
     pub total: i64,
 }
 
+fn is_default_most_played_sort(sort: Option<&str>, sort_dir: Option<&str>) -> bool {
+    sort.is_none() || matches_sort(sort, sort_dir, "playCount", "desc")
+}
+
 pub async fn get_most_played_recently_logic(
     database: &crate::db::Database,
     user_id: i64,
@@ -392,6 +551,7 @@ pub async fn get_most_played_recently_logic(
     offset: i64,
     inline_image_size: Option<ThumbnailSize>,
     since: Option<String>,
+    view_options: ListViewOptions<'_>,
 ) -> crate::error::Result<MostPlayedRecentlyResult> {
     let size = size.min(1000);
     let since_dt: Option<DateTime<Utc>> = since
@@ -399,15 +559,29 @@ pub async fn get_most_played_recently_logic(
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc));
 
-    let aggregates =
-        lists_repo::list_frequent_song_aggregates(database, user_id, size, offset, since_dt)
-            .await?;
     let total = lists_repo::count_frequent_songs(database, user_id, since_dt).await?;
+    let should_post_process = has_text_filter(view_options.filter)
+        || !is_default_most_played_sort(view_options.sort, view_options.sort_dir);
+    let aggregate_size = if should_post_process {
+        total.max(size)
+    } else {
+        size
+    };
+    let aggregate_offset = if should_post_process { 0 } else { offset };
+
+    let aggregates = lists_repo::list_frequent_song_aggregates(
+        database,
+        user_id,
+        aggregate_size,
+        aggregate_offset,
+        since_dt,
+    )
+    .await?;
 
     if aggregates.is_empty() {
         return Ok(MostPlayedRecentlyResult {
             songs: Vec::new(),
-            total,
+            total: if should_post_process { 0 } else { total },
         });
     }
 
@@ -420,6 +594,38 @@ pub async fn get_most_played_recently_logic(
             .into_iter()
             .map(|row| (row.song_id.clone(), row))
             .collect();
+
+    for song in &mut songs {
+        if let Some(aggregate) = aggregate_map.get(&song.id) {
+            song.play_count = Some(aggregate.play_count);
+            song.last_played = aggregate.last_played;
+        }
+    }
+
+    if should_post_process {
+        use crate::api::common::sorting::filter_and_sort_songs;
+
+        songs = filter_and_sort_songs(
+            songs,
+            view_options.filter,
+            view_options.sort,
+            view_options.sort_dir,
+        );
+    }
+
+    let filtered_total = if should_post_process {
+        songs.len() as i64
+    } else {
+        total
+    };
+
+    if should_post_process {
+        songs = songs
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(size.max(0) as usize)
+            .collect();
+    }
 
     let visible_song_ids: Vec<String> = songs.iter().map(|song| song.id.clone()).collect();
     let starred_map = get_starred_map(database, user_id, ItemType::Song, &visible_song_ids).await?;
@@ -461,7 +667,7 @@ pub async fn get_most_played_recently_logic(
 
     Ok(MostPlayedRecentlyResult {
         songs: responses,
-        total,
+        total: filtered_total,
     })
 }
 
@@ -475,6 +681,7 @@ pub async fn get_forgotten_favorites_logic(
     not_played_since_days: i64,
     inline_image_size: Option<ThumbnailSize>,
     seed: Option<i64>,
+    view_options: ListViewOptions<'_>,
 ) -> crate::error::Result<ForgottenFavoritesResult> {
     let size = size.min(1000);
     // Constrain seed to JS Number.MAX_SAFE_INTEGER to avoid precision loss during JSON round-trip
@@ -485,16 +692,21 @@ pub async fn get_forgotten_favorites_logic(
     let cutoff = chrono::Utc::now() - chrono::Duration::days(not_played_since_days);
     let mut ids: Vec<String> =
         lists_repo::list_forgotten_favorite_song_ids(database, user_id, min_plays, cutoff).await?;
-    let total = ids.len() as i64;
+    let mut total = ids.len() as i64;
+    let should_post_process = has_text_filter(view_options.filter) || view_options.sort.is_some();
 
     // Seeded shuffle for deterministic pagination with randomness per session
     let mut rng = StdRng::seed_from_u64(actual_seed as u64);
     ids.shuffle(&mut rng);
 
     // Paginate
-    let start = (offset as usize).min(ids.len());
-    let end = (start + size as usize).min(ids.len());
-    let page_ids = &ids[start..end];
+    let page_ids: Vec<String> = if should_post_process {
+        ids
+    } else {
+        let start = (offset as usize).min(ids.len());
+        let end = (start + size as usize).min(ids.len());
+        ids[start..end].to_vec()
+    };
 
     if page_ids.is_empty() {
         return Ok(ForgottenFavoritesResult {
@@ -505,7 +717,33 @@ pub async fn get_forgotten_favorites_logic(
     }
 
     let songs =
-        crate::db::repo::browse::get_songs_by_ids_for_user(database, page_ids, user_id).await?;
+        crate::db::repo::browse::get_songs_by_ids_for_user(database, &page_ids, user_id).await?;
+    let mut songs = songs;
+
+    for song in &mut songs {
+        let stats =
+            crate::db::repo::browse::get_song_play_count_and_last(database, user_id, &song.id)
+                .await?;
+        song.play_count = (stats.play_count > 0).then_some(stats.play_count);
+        song.last_played = stats.last_played;
+    }
+
+    if should_post_process {
+        use crate::api::common::sorting::filter_and_sort_songs;
+
+        songs = filter_and_sort_songs(
+            songs,
+            view_options.filter,
+            view_options.sort,
+            view_options.sort_dir,
+        );
+        total = songs.len() as i64;
+        songs = songs
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(size.max(0) as usize)
+            .collect();
+    }
 
     // Get starred/rating maps and play stats
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
@@ -617,6 +855,62 @@ pub struct ContinueListeningSourceRef {
     pub source_id: String,
 }
 
+fn continue_listening_entry_name(entry: &ContinueListeningEntry) -> &str {
+    entry
+        .album
+        .as_ref()
+        .map(|album| album.name.as_str())
+        .or_else(|| {
+            entry
+                .playlist
+                .as_ref()
+                .map(|playlist| playlist.name.as_str())
+        })
+        .or_else(|| entry.source.as_ref().map(|source| source.name.as_str()))
+        .unwrap_or("")
+}
+
+fn continue_listening_entry_matches_filter(entry: &ContinueListeningEntry, filter: &str) -> bool {
+    let query = filter.to_lowercase();
+    continue_listening_entry_name(entry)
+        .to_lowercase()
+        .contains(&query)
+        || entry
+            .album
+            .as_ref()
+            .is_some_and(|album| album.artist.to_lowercase().contains(&query))
+}
+
+fn filter_and_sort_continue_listening_entries(
+    mut entries: Vec<ContinueListeningEntry>,
+    filter: Option<&str>,
+    sort: Option<&str>,
+    sort_dir: Option<&str>,
+) -> Vec<ContinueListeningEntry> {
+    if let Some(filter) = filter.filter(|value| !value.trim().is_empty()) {
+        entries.retain(|entry| continue_listening_entry_matches_filter(entry, filter));
+    }
+
+    let field = sort.unwrap_or("lastPlayed");
+    let descending = sort_dir.unwrap_or("desc") == "desc";
+    entries.sort_by(|left, right| {
+        let cmp = match field {
+            "name" | "title" => continue_listening_entry_name(left)
+                .to_lowercase()
+                .cmp(&continue_listening_entry_name(right).to_lowercase()),
+            _ => left.last_played.cmp(&right.last_played),
+        };
+
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
+    });
+
+    entries
+}
+
 async fn get_continue_listening_source_rows(
     database: &crate::db::Database,
     user_id: i64,
@@ -665,11 +959,27 @@ pub async fn get_continue_listening_logic(
     size: i64,
     offset: i64,
     inline_image_size: Option<ThumbnailSize>,
+    view_options: ListViewOptions<'_>,
 ) -> crate::error::Result<ContinueListeningResult> {
     let size = size.min(500);
-
-    let sources = get_continue_listening_source_rows(database, user_id, size, offset).await?;
     let total = count_continue_listening_sources(database, user_id).await?;
+    let should_post_process = has_text_filter(view_options.filter)
+        || !(view_options.sort.is_none()
+            || matches_sort(
+                view_options.sort,
+                view_options.sort_dir,
+                "lastPlayed",
+                "desc",
+            ));
+    let source_size = if should_post_process {
+        total.max(size)
+    } else {
+        size
+    };
+    let source_offset = if should_post_process { 0 } else { offset };
+
+    let sources =
+        get_continue_listening_source_rows(database, user_id, source_size, source_offset).await?;
 
     if sources.is_empty() {
         return Ok(ContinueListeningResult {
@@ -812,7 +1122,7 @@ pub async fn get_continue_listening_logic(
         };
 
     // Step 8: Assemble entries in source order (already sorted by last_played DESC)
-    let entries: Vec<ContinueListeningEntry> = sources
+    let mut entries: Vec<ContinueListeningEntry> = sources
         .into_iter()
         .filter_map(|source| {
             let source_type = source.source_type;
@@ -865,6 +1175,24 @@ pub async fn get_continue_listening_logic(
             }
         })
         .collect();
+
+    let total = if should_post_process {
+        entries = filter_and_sort_continue_listening_entries(
+            entries,
+            view_options.filter,
+            view_options.sort,
+            view_options.sort_dir,
+        );
+        let total = entries.len() as i64;
+        entries = entries
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(size.max(0) as usize)
+            .collect();
+        total
+    } else {
+        total
+    };
 
     Ok(ContinueListeningResult { entries, total })
 }

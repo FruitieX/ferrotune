@@ -122,6 +122,64 @@ test.describe("Home continue listening", () => {
     ).toBeVisible();
   });
 
+  test("section list views expose filter sort and column controls", async ({
+    authenticatedPage: page,
+  }) => {
+    const song = makeSong("recent-controls-track", "Recent Controls Track");
+
+    await page.route(
+      "**/ferrotune/songs/most-played-recently*",
+      async (route) => {
+        await route.fulfill({
+          json: {
+            song: [song],
+            total: 1,
+          },
+        });
+      },
+    );
+
+    await page.goto("/home/most-played-recently");
+
+    await expect(
+      page.getByRole("heading", { name: "Most Played Recently" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Toggle columns" }).click();
+    const lastPlayedColumn = page.getByRole("menuitemcheckbox", {
+      name: "Last Played",
+    });
+    await expect(lastPlayedColumn).toHaveAttribute("aria-checked", "false");
+    await lastPlayedColumn.click();
+    await expect(lastPlayedColumn).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
+
+    const filterRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === "/ferrotune/songs/most-played-recently" &&
+        url.searchParams.get("filter") === "Recent"
+      );
+    });
+    await page.getByRole("textbox", { name: "Filter items" }).fill("Recent");
+    const filterRequest = await filterRequestPromise;
+    const filterUrl = new URL(filterRequest.url());
+    expect(filterUrl.searchParams.get("sort")).toBe("playCount");
+    expect(filterUrl.searchParams.get("sortDir")).toBe("desc");
+
+    const sortRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === "/ferrotune/songs/most-played-recently" &&
+        url.searchParams.get("sort") === "artist" &&
+        url.searchParams.get("sortDir") === "asc"
+      );
+    });
+    await page.getByRole("button", { name: "Sort options" }).click();
+    await page.getByRole("menuitem", { name: "Artist" }).click();
+    await sortRequestPromise;
+  });
+
   test("smart playlists and song radio entries navigate to the correct routes", async ({
     authenticatedPage: page,
   }) => {

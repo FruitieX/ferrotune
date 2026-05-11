@@ -4,7 +4,7 @@
 
 use crate::api::common::lists::{
     get_album_list_logic, get_continue_listening_logic, get_forgotten_favorites_logic,
-    get_most_played_recently_logic, AlbumListType, ContinueListeningEntry,
+    get_most_played_recently_logic, AlbumListType, ContinueListeningEntry, ListViewOptions,
 };
 use crate::api::common::models::SongResponse;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
@@ -112,8 +112,23 @@ pub async fn get_home(
 
     // Run all queries concurrently
     let (continue_result, frequent_result, newest_result, random_result, forgotten_result) = tokio::join!(
-        get_continue_listening_logic(&state.database, user_id, size, 0, inline_size),
-        get_most_played_recently_logic(database, user_id, size, 0, inline_size, Some(since_str)),
+        get_continue_listening_logic(
+            &state.database,
+            user_id,
+            size,
+            0,
+            inline_size,
+            ListViewOptions::default(),
+        ),
+        get_most_played_recently_logic(
+            database,
+            user_id,
+            size,
+            0,
+            inline_size,
+            Some(since_str),
+            ListViewOptions::default(),
+        ),
         get_album_list_logic(
             database,
             user_id,
@@ -124,6 +139,9 @@ pub async fn get_home(
             None,
             None,
             inline_size,
+            None,
+            None,
+            None,
             None,
             None
         ),
@@ -138,7 +156,10 @@ pub async fn get_home(
             None,
             inline_size,
             None,
-            params.discover_seed
+            params.discover_seed,
+            None,
+            None,
+            None
         ),
         get_forgotten_favorites_logic(
             database,
@@ -148,7 +169,8 @@ pub async fn get_home(
             10,
             90,
             inline_size,
-            params.forgotten_fav_seed
+            params.forgotten_fav_seed,
+            ListViewOptions::default()
         ),
     );
 
@@ -198,6 +220,12 @@ pub struct ContinueListeningParams {
     pub size: Option<i64>,
     pub offset: Option<i64>,
     pub inline_images: Option<String>,
+    #[serde(default)]
+    pub filter: Option<String>,
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub sort_dir: Option<String>,
 }
 
 /// GET /ferrotune/continue-listening - Paginated continue listening entries
@@ -214,9 +242,19 @@ pub async fn get_continue_listening(
         _ => None,
     };
 
-    let result =
-        get_continue_listening_logic(&state.database, user.user_id, size, offset, inline_size)
-            .await?;
+    let result = get_continue_listening_logic(
+        &state.database,
+        user.user_id,
+        size,
+        offset,
+        inline_size,
+        ListViewOptions {
+            filter: params.filter.as_deref(),
+            sort: params.sort.as_deref(),
+            sort_dir: params.sort_dir.as_deref(),
+        },
+    )
+    .await?;
 
     Ok(Json(HomeContinueListeningSection {
         entries: result.entries,

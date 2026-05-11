@@ -2067,7 +2067,20 @@ async fn materialize_queue_songs(
                     .map(|s| s.to_string());
                 let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
                 let result = crate::api::common::lists::get_album_list_logic(
-                    database, user_id, list_type, 500, 0, None, None, None, None, since, seed,
+                    database,
+                    user_id,
+                    list_type,
+                    500,
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    since,
+                    seed,
+                    text_filter,
+                    sort_field.as_deref(),
+                    sort_dir.as_deref(),
                 )
                 .await?;
                 result.albums.into_iter().map(|a| a.id).collect()
@@ -2087,37 +2100,51 @@ async fn materialize_queue_songs(
             Ok(songs)
         }
         QueueSourceType::ContinueListening => {
-            let continue_listening_sources =
-                crate::api::common::lists::get_continue_listening_source_refs(
-                    database, user_id, 500, 0,
-                )
-                .await?;
+            let continue_listening = crate::api::common::lists::get_continue_listening_logic(
+                database,
+                user_id,
+                500,
+                0,
+                None,
+                crate::api::common::lists::ListViewOptions {
+                    filter: text_filter,
+                    sort: sort_field.as_deref(),
+                    sort_dir: sort_dir.as_deref(),
+                },
+            )
+            .await?;
 
             let mut songs = Vec::new();
-            for item in continue_listening_sources {
+            for item in continue_listening.entries {
                 if songs.len() >= 1000 {
                     break;
                 }
 
-                match item.source_type.as_str() {
+                match item.entry_type.as_str() {
                     "album" => {
-                        let album_songs = repo::browse::get_songs_by_album_for_user(
-                            database,
-                            &item.source_id,
-                            user_id,
-                        )
-                        .await?;
+                        let Some(album) = item.album else {
+                            continue;
+                        };
+                        let album_songs =
+                            repo::browse::get_songs_by_album_for_user(database, &album.id, user_id)
+                                .await?;
                         songs.extend(album_songs);
                     }
                     "playlist" => {
+                        let Some(playlist) = item.playlist else {
+                            continue;
+                        };
                         let playlist_songs =
-                            queries::get_playlist_songs(database, &item.source_id, user_id).await?;
+                            queries::get_playlist_songs(database, &playlist.id, user_id).await?;
                         songs.extend(playlist_songs);
                     }
                     "smartPlaylist" => {
+                        let Some(playlist) = item.playlist else {
+                            continue;
+                        };
                         let smart_playlist_songs = get_smart_playlist_songs_by_id(
                             database,
-                            &item.source_id,
+                            &playlist.id,
                             user_id,
                             None,
                             None,
@@ -2127,9 +2154,11 @@ async fn materialize_queue_songs(
                         songs.extend(smart_playlist_songs);
                     }
                     "songRadio" => {
+                        let Some(source) = item.source else {
+                            continue;
+                        };
                         let radio_songs =
-                            materialize_song_radio_songs(database, user_id, &item.source_id)
-                                .await?;
+                            materialize_song_radio_songs(database, user_id, &source.id).await?;
                         songs.extend(radio_songs);
                     }
                     _ => {}
@@ -2158,6 +2187,11 @@ async fn materialize_queue_songs(
                 not_played_since_days,
                 None,
                 seed,
+                crate::api::common::lists::ListViewOptions {
+                    filter: text_filter,
+                    sort: sort_field.as_deref(),
+                    sort_dir: sort_dir.as_deref(),
+                },
             )
             .await?;
 
@@ -2171,7 +2205,17 @@ async fn materialize_queue_songs(
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let result = crate::api::common::lists::get_most_played_recently_logic(
-                database, user_id, 1000, 0, None, since,
+                database,
+                user_id,
+                1000,
+                0,
+                None,
+                since,
+                crate::api::common::lists::ListViewOptions {
+                    filter: text_filter,
+                    sort: sort_field.as_deref(),
+                    sort_dir: sort_dir.as_deref(),
+                },
             )
             .await?;
 

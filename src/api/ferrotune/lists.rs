@@ -6,7 +6,7 @@
 pub use crate::api::common::lists::AlbumListType;
 use crate::api::common::lists::{
     get_album_list_logic, get_forgotten_favorites_logic, get_most_played_recently_logic,
-    get_random_songs_logic, get_songs_by_genre_logic,
+    get_random_songs_logic, get_songs_by_genre_logic, ListViewOptions,
 };
 use crate::api::common::models::{AlbumResponse, SongResponse};
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
@@ -45,6 +45,15 @@ pub struct AlbumListParams {
     /// Random seed for reproducible random ordering (for Random type)
     #[serde(default)]
     pub seed: Option<i64>,
+    /// Quick filter text to match against album, artist, or genre
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// Sort field for list views
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    pub sort_dir: Option<String>,
 }
 
 /// Response for album list
@@ -93,6 +102,9 @@ pub async fn get_album_list(
         inline_size,
         params.since,
         params.seed,
+        params.filter.as_deref(),
+        params.sort.as_deref(),
+        params.sort_dir.as_deref(),
     )
     .await?;
 
@@ -222,6 +234,15 @@ pub struct MostPlayedRecentlyParams {
     pub since: Option<String>,
     /// Include inline cover art thumbnails (small or medium)
     pub inline_images: Option<String>,
+    /// Quick filter text to match against song title, artist, or album
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// Sort field for list views
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    pub sort_dir: Option<String>,
 }
 
 /// Response for most played recently
@@ -258,6 +279,11 @@ pub async fn get_most_played_recently(
         offset,
         inline_size,
         params.since,
+        ListViewOptions {
+            filter: params.filter.as_deref(),
+            sort: params.sort.as_deref(),
+            sort_dir: params.sort_dir.as_deref(),
+        },
     )
     .await?;
 
@@ -288,6 +314,15 @@ pub struct ForgottenFavoritesParams {
     pub not_played_since_days: Option<i64>,
     /// Include inline cover art thumbnails (small or medium)
     pub inline_images: Option<String>,
+    /// Quick filter text to match against song title, artist, or album
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// Sort field for list views
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    pub sort_dir: Option<String>,
 }
 
 /// Response for forgotten favorites
@@ -332,6 +367,11 @@ pub async fn get_forgotten_favorites(
         not_played_since_days,
         inline_size,
         params.seed,
+        ListViewOptions {
+            filter: params.filter.as_deref(),
+            sort: params.sort.as_deref(),
+            sort_dir: params.sort_dir.as_deref(),
+        },
     )
     .await?;
 
