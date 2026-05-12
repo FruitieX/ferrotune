@@ -576,6 +576,14 @@ export const progressBarStyleAtom = atomWithServerStorage<ProgressBarStyle>(
   "waveform",
 );
 
+// Current / total duration label visibility above the progress timeline
+export type ProgressTimeLabelVisibility = "always" | "hover" | "never";
+export const progressTimeLabelVisibilityAtom =
+  atomWithServerStorage<ProgressTimeLabelVisibility>(
+    "progress-time-label-visibility",
+    "hover",
+  );
+
 // Accent color theme - 10 presets + custom option
 export type AccentColor =
   | "rust" // 45° - warm orange (default)

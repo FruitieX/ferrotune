@@ -10,11 +10,16 @@ import {
   bufferedAtom,
 } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
-import { accentColorRgbAtom } from "@/lib/store/ui";
+import {
+  accentColorRgbAtom,
+  progressTimeLabelVisibilityAtom,
+} from "@/lib/store/ui";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
 import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
 import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
+import { ProgressTimeOverlay } from "@/components/player/progress-time-overlay";
+import { formatDuration } from "@/lib/utils/format";
 
 interface WaveformProgressBarProps {
   className?: string;
@@ -79,6 +84,9 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const playbackState = useAtomValue(playbackStateAtom);
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
+  const progressTimeLabelVisibility = useAtomValue(
+    progressTimeLabelVisibilityAtom,
+  );
   const { seekPercent } = useAudioEngine();
   const { heights: sourceHeights, isAvailable, isLoading } = useWaveform();
 
@@ -87,6 +95,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [containerWidth, setContainerWidth] = useState(0);
 
@@ -288,12 +297,6 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     if (bufferedX > progressX)
       drawBars(bufferedColor, progressX, bufferedX - progressX);
     if (progressX > 0) drawBars(primaryColor, 0, progressX);
-
-    if (isHovering && hoverPercent !== null) {
-      const x = (hoverPercent / 100) * rect.width;
-      ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.9)";
-      ctx.fillRect(x - 1.5, -4, 2, rect.height + 8);
-    }
   };
 
   useEffect(() => {
@@ -516,15 +519,6 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     }
   };
 
-  const formatTime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    return hrs > 0
-      ? `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-      : `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
   const hoverTime =
     hoverPercent !== null && duration > 0
       ? (hoverPercent / 100) * duration
@@ -532,6 +526,10 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const hasTrack =
     !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
   const waveformHeight = 16;
+  const displayTime = isEnded ? 0 : currentTime;
+  const displayDuration = isEnded ? 0 : duration;
+  const timeOverlayVisible =
+    hasTrack && (isHovering || isDragging || isFocused);
 
   // Fall back to simple progress bar when no waveform data is available
   if (!isAvailable && !isLoading) {
@@ -546,6 +544,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(atomProgress)}
+      aria-valuetext={`${formatDuration(displayTime)} of ${formatDuration(displayDuration)}`}
       tabIndex={hasTrack ? 0 : -1}
       className={cn(
         "absolute left-0 right-0 cursor-pointer overflow-visible",
@@ -562,6 +561,8 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       onMouseDown={hasTrack ? handleMouseDown : undefined}
       onTouchStart={hasTrack ? handleTouchStart : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
+      onFocus={hasTrack ? () => setIsFocused(true) : undefined}
+      onBlur={() => setIsFocused(false)}
       onMouseMove={hasTrack && !isDragging ? handleMouseMove : undefined}
       onMouseEnter={hasTrack ? () => setIsHovering(true) : undefined}
       onMouseLeave={() => {
@@ -572,21 +573,27 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       }}
     >
       <div className="absolute inset-0 -top-2 -bottom-2" />
+      <ProgressTimeOverlay
+        currentTime={displayTime}
+        currentPercent={atomProgress}
+        duration={displayDuration}
+        scrubPercent={hoverPercent}
+        scrubTime={hoverTime}
+        hasTrack={hasTrack}
+        interactionVisible={timeOverlayVisible}
+        currentLabelVisibility={progressTimeLabelVisibility}
+      />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
         style={{ imageRendering: "pixelated" }}
       />
-      {(isHovering || isDragging) &&
-        hoverPercent !== null &&
-        hoverTime !== null && (
-          <div
-            className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
-            style={{ left: `${hoverPercent}%`, transform: "translateX(-50%)" }}
-          >
-            {formatTime(hoverTime)}
-          </div>
-        )}
+      {(isHovering || isDragging) && hoverPercent !== null && (
+        <div
+          className="absolute top-1/2 z-10 h-6 w-0.5 -translate-y-1/2 bg-foreground/80 pointer-events-none"
+          style={{ left: `${hoverPercent}%` }}
+        />
+      )}
     </div>
   );
 }

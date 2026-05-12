@@ -1,5 +1,6 @@
 /target
 /.direnv
+/.envrc
 
 # Generated test fixtures (regenerate with scripts/generate-test-fixtures.sh)
 /tests/fixtures/music/

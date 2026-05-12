@@ -2,7 +2,7 @@
  * Tagger tests - Tag editing functionality
  */
 
-import { isolatedTest as test, expect } from "./fixtures";
+import { isolatedTest as test, expect, waitForToast } from "./fixtures";
 import * as path from "path";
 
 test.describe("Tagger", () => {
@@ -54,6 +54,80 @@ test.describe("Tagger", () => {
 
     // Dialog should have search functionality
     await expect(dialog.getByRole("textbox")).toBeVisible();
+  });
+
+  test("can select all add from library results with ctrl+a", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/tagger");
+    await expect(page.getByRole("heading", { name: /tagger/i })).toBeVisible({
+      timeout: 10000,
+    });
+
+    await page.getByRole("button", { name: /add from library/i }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+
+    const searchResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/ferrotune/search") &&
+        response.status() === 200,
+    );
+    await dialog.getByPlaceholder(/search/i).fill("First Song");
+    await searchResponse;
+
+    await expect(dialog.getByText("First Song").first()).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(dialog.getByText("0 of 1 selected")).toBeVisible();
+
+    await dialog.getByRole("textbox").press("Control+A");
+
+    await expect(dialog.getByText("1 of 1 selected")).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: /add 1 track/i }),
+    ).toBeEnabled();
+  });
+
+  test("shows an error when add from library loads no selected tracks", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route("**/ferrotune/tagger/stage-library", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ tracks: [] }),
+      });
+    });
+
+    await page.goto("/tagger");
+    await expect(page.getByRole("heading", { name: /tagger/i })).toBeVisible({
+      timeout: 10000,
+    });
+
+    await page.getByRole("button", { name: /add from library/i }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+
+    const searchResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/ferrotune/search") &&
+        response.status() === 200,
+    );
+    await dialog.getByPlaceholder(/search/i).fill("First Song");
+    await searchResponse;
+
+    await expect(dialog.getByText("First Song").first()).toBeVisible({
+      timeout: 5000,
+    });
+    await dialog.getByText("First Song").first().click();
+    await dialog.getByRole("button", { name: /add 1 track/i }).click();
+
+    await waitForToast(page, /could not be loaded/i);
+    await expect(page.getByText(/added 0 track/i)).not.toBeVisible();
+    await expect(dialog).toBeVisible();
   });
 
   test("can load tracks from library via dialog", async ({

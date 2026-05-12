@@ -58,17 +58,22 @@ async function createSecondTab(
  * Returns 0 if not found.
  */
 async function getDisplayedCurrentTime(page: Page): Promise<number> {
-  // The time is shown as "M:SS" text in the player bar
   const timeText = await page
     .locator('[data-testid="player-bar"]')
-    .locator("span.tabular-nums")
+    .getByTestId("progress-current-duration")
     .first()
     .textContent();
   if (!timeText) return 0;
-  const parts = timeText.trim().split(":");
-  if (parts.length === 2) {
-    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-  }
+
+  return parseDurationText(timeText.split("/")[0] ?? "");
+}
+
+function parseDurationText(value: string): number {
+  const parts = value.trim().split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return 0;
+
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return 0;
 }
 
@@ -212,6 +217,160 @@ async function getConnectedClientCount(page: Page): Promise<number> {
       await response.json();
     return data.clients.length;
   });
+}
+
+interface ConnectedClientSnapshot {
+  clientId: string;
+  clientName: string;
+  displayName: string;
+  isOwner: boolean;
+}
+
+async function getConnectedClients(
+  page: Page,
+): Promise<ConnectedClientSnapshot[]> {
+  return page.evaluate(async () => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      return [];
+    }
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/clients`,
+      {
+        headers: {
+          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        },
+      },
+    );
+    if (!response.ok) return [];
+
+    const data: { clients: ConnectedClientSnapshot[] } = await response.json();
+    return data.clients;
+  });
+}
+
+async function connectSyntheticSessionClient(
+  page: Page,
+  options: { clientId: string; clientName: string },
+): Promise<void> {
+  await page.evaluate(async ({ clientId, clientName }) => {
+    type SyntheticSessionWindow = typeof window & {
+      __ferrotuneSyntheticSessionClients?: EventSource[];
+    };
+
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      throw new Error("Missing authenticated session for synthetic client");
+    }
+
+    const authHeader = `Basic ${btoa(`${connection.username}:${connection.password}`)}`;
+    const sessionResponse = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions`,
+      { headers: { Authorization: authHeader } },
+    );
+    if (!sessionResponse.ok) {
+      throw new Error(`Session lookup failed: ${sessionResponse.status}`);
+    }
+    const session: { id: string } = await sessionResponse.json();
+
+    const params = new URLSearchParams({
+      u: connection.username,
+      p: connection.password,
+      v: "1.16.1",
+      c: "ferrotune-web",
+      clientId,
+      clientName,
+    });
+    const url = `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(session.id)}/events?${params.toString()}`;
+
+    await new Promise<void>((resolve, reject) => {
+      const eventSource = new EventSource(url);
+      const syntheticWindow = window as SyntheticSessionWindow;
+      syntheticWindow.__ferrotuneSyntheticSessionClients ??= [];
+      syntheticWindow.__ferrotuneSyntheticSessionClients.push(eventSource);
+
+      eventSource.onopen = () => resolve();
+      eventSource.onerror = () => reject(new Error("Synthetic SSE failed"));
+    });
+  }, options);
+}
+
+async function closeSyntheticSessionClients(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    type SyntheticSessionWindow = typeof window & {
+      __ferrotuneSyntheticSessionClients?: EventSource[];
+    };
+
+    const syntheticWindow = window as SyntheticSessionWindow;
+    for (const eventSource of syntheticWindow.__ferrotuneSyntheticSessionClients ??
+      []) {
+      eventSource.close();
+    }
+    syntheticWindow.__ferrotuneSyntheticSessionClients = [];
+  });
+}
+
+async function sendTakeoverCommandForClient(
+  page: Page,
+  options: { clientId: string; clientName: string },
+): Promise<void> {
+  await page.evaluate(async ({ clientId, clientName }) => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      throw new Error("Missing authenticated session for takeover command");
+    }
+
+    const authHeader = `Basic ${btoa(`${connection.username}:${connection.password}`)}`;
+    const sessionResponse = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions`,
+      { headers: { Authorization: authHeader } },
+    );
+    if (!sessionResponse.ok) {
+      throw new Error(`Session lookup failed: ${sessionResponse.status}`);
+    }
+    const session: { id: string } = await sessionResponse.json();
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(session.id)}/command`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          action: "takeOver",
+          clientId,
+          clientName,
+          resumePlayback: true,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Takeover command failed: ${response.status}`);
+    }
+  }, options);
 }
 
 async function getStoredSessionCloneValues(
@@ -656,6 +815,59 @@ test.describe.serial("Multi-Session Playback", () => {
       await expectConnectedWebClientsInMenu(clonePage, 2);
     } finally {
       await clonePage.close();
+    }
+  });
+
+  test("Chromecast session client is listed and can become owner", async ({
+    authenticatedPage: page,
+  }) => {
+    const castClient = {
+      clientId: "ferrotune-cast:e2e",
+      clientName: "ferrotune-cast",
+    };
+
+    try {
+      await waitForAuthenticatedHome(page);
+      await connectSyntheticSessionClient(page, castClient);
+
+      await expect
+        .poll(() => getConnectedClients(page), { timeout: 10000 })
+        .toContainEqual(
+          expect.objectContaining({
+            clientId: castClient.clientId,
+            clientName: castClient.clientName,
+            displayName: "Chromecast",
+          }),
+        );
+
+      await page
+        .getByRole("button", { name: /profile|@/i })
+        .first()
+        .click();
+      await expect(page.getByText("Connected Clients")).toBeVisible({
+        timeout: 10000,
+      });
+      await expect(
+        page.locator('[role="menuitem"]').filter({ hasText: "Chromecast" }),
+      ).toBeVisible({ timeout: 10000 });
+      await page.keyboard.press("Escape");
+
+      await sendTakeoverCommandForClient(page, castClient);
+
+      await expect
+        .poll(
+          async () => {
+            const clients = await getConnectedClients(page);
+            return clients.some(
+              (client) =>
+                client.clientId === castClient.clientId && client.isOwner,
+            );
+          },
+          { timeout: 10000 },
+        )
+        .toBe(true);
+    } finally {
+      await closeSyntheticSessionClients(page);
     }
   });
 

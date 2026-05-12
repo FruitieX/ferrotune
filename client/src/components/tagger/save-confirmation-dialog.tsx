@@ -135,7 +135,7 @@ export function SaveConfirmationDialog({
 
   // Fetch music folders for library selection
   const { data: musicFoldersData } = useQuery({
-    queryKey: ["musicFolders"],
+    queryKey: ["adminMusicFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");

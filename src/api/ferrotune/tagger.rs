@@ -940,33 +940,33 @@ pub async fn stage_library_tracks(
 
     for song_id in &request.song_ids {
         // Get song from database
-        let song = match repo::browse::get_song_by_id(&state.database, song_id).await {
-            Ok(Some(song)) => song,
-            Ok(None) => continue,
-            Err(_) => continue,
-        };
+        let song = repo::browse::get_song_by_id(&state.database, song_id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Song not found: {song_id}")))?;
 
         // Find which folder this song belongs to
-        let mut full_path: Option<PathBuf> = None;
-        let mut found_folder: Option<&crate::db::models::MusicFolder> = None;
-        for folder in &music_folders {
-            let candidate = PathBuf::from(&folder.path).join(&song.file_path);
-            if candidate.exists() {
-                full_path = Some(candidate);
-                found_folder = Some(folder);
-                break;
-            }
-        }
-
-        let (full_path, folder) = match (full_path, found_folder) {
-            (Some(p), Some(f)) => (p, f),
-            _ => continue,
-        };
+        let (full_path, folder) = music_folders
+            .iter()
+            .find_map(|folder| {
+                let candidate = PathBuf::from(&folder.path).join(&song.file_path);
+                candidate.exists().then_some((candidate, folder))
+            })
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "Audio file for \"{}\" was not found. Check that the music library is mounted.",
+                    song.title
+                ))
+            })?;
 
         // Extract tags
         let metadata = match extract_file_metadata(&full_path).await {
-            Ok(m) => m,
-            Err(_) => continue,
+            Ok(metadata) => metadata,
+            Err(error) => {
+                return Err(crate::error::FerrotuneApiError(Error::Internal(format!(
+                    "Failed to read metadata for \"{}\": {error}",
+                    song.title
+                ))));
+            }
         };
 
         tracks.push(TaggerTrack {
@@ -1350,7 +1350,7 @@ pub async fn rescan_files(
     let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
-            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
+            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into());
         }
     };
 
@@ -1426,7 +1426,7 @@ pub async fn rename_files(
     let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
-            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
+            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into());
         }
     };
 
@@ -1554,7 +1554,7 @@ pub async fn check_path_conflicts(
     let music_folders = match crate::db::repo::users::get_music_folders(&state.database).await {
         Ok(folders) => folders,
         Err(e) => {
-            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
+            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into());
         }
     };
 

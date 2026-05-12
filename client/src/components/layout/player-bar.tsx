@@ -47,12 +47,7 @@ import {
   useShuffle,
 } from "@/lib/audio/hooks";
 import { useCast } from "@/lib/hooks/use-cast";
-import {
-  currentTimeAtom,
-  durationAtom,
-  effectivePlaybackStateAtom,
-  playbackStateAtom,
-} from "@/lib/store/player";
+import { effectivePlaybackStateAtom } from "@/lib/store/player";
 import {
   currentSongAtom,
   queueWindowAtom,
@@ -66,7 +61,6 @@ import {
 } from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { useStarred } from "@/lib/store/starred";
-import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import {
@@ -74,6 +68,7 @@ import {
   followerSessionNameAtom,
   followerSessionClientNameAtom,
 } from "@/lib/store/session";
+import { isCastClientName } from "@/lib/cast/constants";
 
 import {
   SongContextMenu,
@@ -95,7 +90,7 @@ import {
 
 // ============================================================================
 // Memoized Sub-Components
-// These components are split out to prevent re-renders when currentTimeAtom updates
+// These components are split out so frequently changing atoms only re-render the controls that need them
 // ============================================================================
 
 interface NowPlayingInfoProps {
@@ -752,42 +747,6 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
   );
 }
 
-/** Time slider and duration display - this component subscribes to currentTimeAtom */
-function TimeSlider() {
-  const currentTime = useAtomValue(currentTimeAtom);
-  const duration = useAtomValue(durationAtom);
-  const playbackState = useAtomValue(playbackStateAtom);
-  const { seekPercent } = useAudioEngine();
-
-  const isEnded = playbackState === "ended";
-  const progress = isEnded
-    ? 0
-    : duration > 0
-      ? (currentTime / duration) * 100
-      : 0;
-  const displayTime = isEnded ? 0 : currentTime;
-  const displayDuration = isEnded ? 0 : duration;
-
-  return (
-    <div className="hidden md:flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
-      <span className="w-10 text-right tabular-nums">
-        {formatDuration(displayTime)}
-      </span>
-      <Slider
-        value={[progress]}
-        max={100}
-        step={0.1}
-        className="flex-1"
-        onValueChange={([value]) => seekPercent(value)}
-        disabled={isEnded}
-      />
-      <span className="w-10 tabular-nums">
-        {formatDuration(displayDuration)}
-      </span>
-    </div>
-  );
-}
-
 /** Volume controls - separated to avoid re-renders from time updates */
 function VolumeControls() {
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
@@ -1061,7 +1020,11 @@ function FollowerIndicator() {
   const clientName = useAtomValue(followerSessionClientNameAtom);
   if (!sessionName) return null;
 
-  const Icon = clientName === "ferrotune-mobile" ? Smartphone : Monitor;
+  const Icon = isCastClientName(clientName)
+    ? Cast
+    : clientName === "ferrotune-mobile"
+      ? Smartphone
+      : Monitor;
 
   return (
     <div className="flex items-center justify-center gap-1.5 pt-2 pb-0.5 bg-primary/10 text-primary text-xs">
@@ -1139,9 +1102,8 @@ export function PlayerBar() {
         </div>
 
         {/* Center Controls - hidden on mobile (moved to right), visible on desktop */}
-        <div className="hidden md:flex flex-col items-center gap-1 flex-1 max-w-[40%]">
+        <div className="hidden md:flex flex-col items-center justify-center gap-1 flex-1 max-w-[40%]">
           <PlaybackControls hasTrack={hasTrack} playbackState={playbackState} />
-          <TimeSlider />
         </div>
 
         {/* Right Controls */}
@@ -1189,7 +1151,7 @@ export function PlayerBarSkeleton() {
         </div>
 
         {/* Center Controls - hidden on mobile, visible on desktop */}
-        <div className="hidden md:flex flex-col items-center gap-1 flex-1 max-w-[40%]">
+        <div className="hidden md:flex flex-col items-center justify-center gap-1 flex-1 max-w-[40%]">
           <div className="flex items-center gap-2">
             {/* Shuffle */}
             <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
@@ -1216,12 +1178,6 @@ export function PlayerBarSkeleton() {
             <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
               <Repeat className="w-4 h-4" />
             </Button>
-          </div>
-          {/* Time slider skeleton */}
-          <div className="flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
-            <span className="w-10 text-right tabular-nums">0:00</span>
-            <Slider value={[0]} max={100} className="flex-1" disabled />
-            <span className="w-10 tabular-nums">0:00</span>
           </div>
         </div>
 

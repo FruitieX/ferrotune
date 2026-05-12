@@ -2,7 +2,7 @@
  * Format duration in seconds to mm:ss or hh:mm:ss
  */
 export function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return "0:00";
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
 
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);

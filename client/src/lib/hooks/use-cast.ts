@@ -1,16 +1,102 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useSetAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   castStateAtom,
   castDeviceNameAtom,
   castSdkLoadedAtom,
 } from "@/lib/store/cast";
-import { currentSongAtom } from "@/lib/store/server-queue";
-import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
+import {
+  currentSongAtom,
+  queueWindowAtom,
+  serverQueueStateAtom,
+  type RepeatMode,
+  type ServerQueueState,
+} from "@/lib/store/server-queue";
+import {
+  playbackStateAtom,
+  currentTimeAtom,
+  durationAtom,
+  bufferedAtom,
+} from "@/lib/store/player";
+import {
+  clientIdAtom,
+  effectiveSessionIdAtom,
+  isAudioOwnerAtom,
+  ownerClientIdAtom,
+  ownerClientNameAtom,
+  remotePlaybackStateAtom,
+} from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
-import type { Song } from "@/lib/api/types";
+import type { GetQueueResponse, Song } from "@/lib/api/types";
+import { getActiveAudio } from "@/lib/audio/web-audio";
+import { CAST_CLIENT_NAME } from "@/lib/cast/constants";
+import type { SessionEvent } from "@/lib/hooks/use-session-events";
+
+const CAST_HEARTBEAT_INTERVAL_MS = 5_000;
+
+function getCastClientId(clientId: string): string | null {
+  return clientId ? `${CAST_CLIENT_NAME}:${clientId}` : null;
+}
+
+function toRepeatMode(mode: string): RepeatMode {
+  if (mode === "all" || mode === "one") return mode;
+  return "off";
+}
+
+function queueStateFromResponse(response: GetQueueResponse): ServerQueueState {
+  return {
+    totalCount: response.totalCount,
+    currentIndex: response.currentIndex,
+    positionMs: Number(response.positionMs),
+    isShuffled: response.isShuffled,
+    repeatMode: toRepeatMode(response.repeatMode),
+    source: response.source,
+  };
+}
+
+function getCurrentSongFromQueueResponse(
+  response: GetQueueResponse,
+): Song | null {
+  return (
+    response.window.songs.find(
+      (entry) => entry.position === response.currentIndex,
+    )?.song ?? null
+  );
+}
+
+function getCurrentCastSession(): cast.framework.CastSession | null {
+  return cast.framework.CastContext.getInstance().getCurrentSession();
+}
+
+function getCurrentCastMedia(): chrome.cast.media.Media | null {
+  return getCurrentCastSession()?.getMediaSession() ?? null;
+}
+
+function getCastPositionMs(): number {
+  const media = getCurrentCastMedia();
+  if (!media) return 0;
+  return Math.max(0, Math.round(media.getEstimatedTime() * 1000));
+}
+
+function isCastMediaPlaying(media: chrome.cast.media.Media | null): boolean {
+  return (
+    media?.playerState === chrome.cast.media.PlayerState.PLAYING ||
+    media?.playerState === chrome.cast.media.PlayerState.BUFFERING
+  );
+}
+
+function runCastMediaCommand(
+  run: (
+    resolve: () => void,
+    reject: (error: chrome.cast.Error) => void,
+  ) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    run(resolve, reject);
+  });
+}
 
 /**
  * Build a stream URL with embedded auth for Chromecast to fetch directly.
@@ -35,19 +121,23 @@ function buildCastCoverArtUrl(coverArtId: string | undefined): string | null {
 /**
  * Load a song onto the Chromecast.
  */
-function loadMediaOnCast(song: Song, startTime = 0): void {
-  const castSession =
-    cast.framework.CastContext.getInstance().getCurrentSession();
-  if (!castSession) return;
+async function loadMediaOnCast(song: Song, startTime = 0): Promise<boolean> {
+  const castSession = getCurrentCastSession();
+  if (!castSession) return false;
 
   const streamUrl = buildCastStreamUrl(song.id);
-  if (!streamUrl) return;
+  if (!streamUrl) return false;
 
-  const mediaInfo = new chrome.cast.media.MediaInfo(streamUrl, "audio/mpeg");
+  const mediaInfo = new chrome.cast.media.MediaInfo(
+    streamUrl,
+    song.contentType || "audio/mpeg",
+  );
   mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
 
   const metadata = new chrome.cast.media.MusicTrackMediaMetadata();
+  metadata.metadataType = chrome.cast.media.MetadataType.MUSIC_TRACK;
   metadata.title = song.title;
+  metadata.songName = song.title;
   metadata.artist = song.artist ?? undefined;
   if (song.album) metadata.albumName = song.album;
   if (song.track) metadata.trackNumber = song.track;
@@ -61,6 +151,7 @@ function loadMediaOnCast(song: Song, startTime = 0): void {
   }
 
   mediaInfo.metadata = metadata;
+  mediaInfo.customData = { songId: song.id, applicationName: "Ferrotune" };
 
   if (song.duration) {
     mediaInfo.duration = song.duration;
@@ -70,11 +161,69 @@ function loadMediaOnCast(song: Song, startTime = 0): void {
   request.currentTime = startTime;
   request.autoplay = true;
 
-  castSession.loadMedia(request).then(
-    () => console.log("[Cast] Media loaded successfully"),
-    (errorCode: chrome.cast.ErrorCode) =>
-      console.error("[Cast] Error loading media:", errorCode),
-  );
+  try {
+    await castSession.loadMedia(request);
+    console.log("[Cast] Media loaded successfully");
+    return true;
+  } catch (error) {
+    console.error("[Cast] Error loading media:", error);
+    return false;
+  }
+}
+
+async function playCastMedia(): Promise<void> {
+  const media = getCurrentCastMedia();
+  if (!media) return;
+  await runCastMediaCommand((resolve, reject) => {
+    media.play(new chrome.cast.media.PlayRequest(), resolve, reject);
+  });
+}
+
+async function pauseCastMedia(): Promise<void> {
+  const media = getCurrentCastMedia();
+  if (!media) return;
+  await runCastMediaCommand((resolve, reject) => {
+    media.pause(new chrome.cast.media.PauseRequest(), resolve, reject);
+  });
+}
+
+async function stopCastMedia(): Promise<void> {
+  const media = getCurrentCastMedia();
+  if (!media) return;
+  await runCastMediaCommand((resolve, reject) => {
+    media.stop(new chrome.cast.media.StopRequest(), resolve, reject);
+  });
+}
+
+async function seekCastMedia(positionMs: number): Promise<void> {
+  const media = getCurrentCastMedia();
+  if (!media) return;
+  const request = new chrome.cast.media.SeekRequest();
+  request.currentTime = Math.max(0, positionMs / 1000);
+  request.resumeState = chrome.cast.media.ResumeState.PLAYBACK_START;
+
+  await runCastMediaCommand((resolve, reject) => {
+    media.seek(request, resolve, reject);
+  });
+}
+
+async function setCastMediaVolume(
+  volume: number | undefined,
+  isMuted: boolean | undefined,
+): Promise<void> {
+  const castSession = getCurrentCastSession();
+  if (!castSession) return;
+
+  const clampedVolume =
+    volume === undefined ? undefined : Math.max(0, Math.min(1, volume));
+
+  if (clampedVolume !== undefined) {
+    await castSession.setVolume(clampedVolume);
+  }
+
+  if (isMuted !== undefined) {
+    await castSession.setMute(isMuted);
+  }
 }
 
 /**
@@ -82,26 +231,419 @@ function loadMediaOnCast(song: Song, startTime = 0): void {
  * Should be called once at the app root level.
  */
 export function useCastInit() {
+  const castState = useAtomValue(castStateAtom);
   const setCastState = useSetAtom(castStateAtom);
   const setCastDeviceName = useSetAtom(castDeviceNameAtom);
   const setCastSdkLoaded = useSetAtom(castSdkLoadedAtom);
   const currentSong = useAtomValue(currentSongAtom);
-  const playbackState = useAtomValue(playbackStateAtom);
   const currentTime = useAtomValue(currentTimeAtom);
+  const duration = useAtomValue(durationAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const sessionId = useAtomValue(effectiveSessionIdAtom);
+  const clientId = useAtomValue(clientIdAtom);
+  const castClientId = getCastClientId(clientId);
+  const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
+  const setOwnerClientId = useSetAtom(ownerClientIdAtom);
+  const setOwnerClientName = useSetAtom(ownerClientNameAtom);
+  const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
+  const setPlaybackState = useSetAtom(playbackStateAtom);
+  const setCurrentTime = useSetAtom(currentTimeAtom);
+  const setDuration = useSetAtom(durationAtom);
+  const setBuffered = useSetAtom(bufferedAtom);
+  const setServerQueueState = useSetAtom(serverQueueStateAtom);
+  const setQueueWindow = useSetAtom(queueWindowAtom);
 
   // Refs to store latest values for event callbacks
   const currentSongRef = useRef(currentSong);
   const currentTimeRef = useRef(currentTime);
-  const playbackStateRef = useRef(playbackState);
+  const durationRef = useRef(duration);
+  const queueStateRef = useRef(queueState);
+  const sessionIdRef = useRef(sessionId);
+  const castClientIdRef = useRef(castClientId);
+  const isAudioOwnerRef = useRef(isAudioOwner);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const mediaRef = useRef<chrome.cast.media.Media | null>(null);
+  const mediaUpdateListenerRef = useRef<((isAlive: boolean) => void) | null>(
+    null,
+  );
+  const loadedSongIdRef = useRef<string | null>(null);
+  const lastFinishedMediaSessionIdRef = useRef<number | null>(null);
+  const claimedCastClientIdRef = useRef<string | null>(null);
+  const sendCastHeartbeatRef = useRef<(isPlaying?: boolean) => Promise<void>>(
+    async () => {},
+  );
+  const claimCastOwnershipRef = useRef<() => Promise<void>>(async () => {});
+  const claimCastAndLoadRef = useRef<() => Promise<void>>(async () => {});
+  const loadCurrentCastSongRef = useRef<
+    (positionMs?: number) => Promise<boolean>
+  >(async () => false);
+  const fetchQueueAndLoadCurrentRef = useRef<
+    (positionMs?: number) => Promise<void>
+  >(async () => {});
+  const advanceCastQueueRef = useRef<
+    (direction: "next" | "previous" | number) => Promise<void>
+  >(async () => {});
+  const handleCastSessionEventRef = useRef<
+    (event: SessionEvent) => Promise<void>
+  >(async () => {});
+  const handleCastMediaUpdateRef = useRef<
+    (media: chrome.cast.media.Media) => void
+  >(() => {});
+  const detachCastMediaListenerRef = useRef<() => void>(() => {});
+  const attachCastMediaListenerRef = useRef<
+    (media: chrome.cast.media.Media | null) => void
+  >(() => {});
 
   useEffect(() => {
     currentSongRef.current = currentSong;
     currentTimeRef.current = currentTime;
-    playbackStateRef.current = playbackState;
+    durationRef.current = duration;
+    queueStateRef.current = queueState;
+    sessionIdRef.current = sessionId;
+    castClientIdRef.current = castClientId;
+    isAudioOwnerRef.current = isAudioOwner;
+  });
+
+  useEffect(() => {
+    detachCastMediaListenerRef.current = () => {
+      const media = mediaRef.current;
+      const listener = mediaUpdateListenerRef.current;
+      if (media && listener) {
+        media.removeUpdateListener(listener);
+      }
+      mediaRef.current = null;
+      mediaUpdateListenerRef.current = null;
+    };
+
+    attachCastMediaListenerRef.current = (media) => {
+      if (!media || mediaRef.current === media) return;
+      detachCastMediaListenerRef.current();
+
+      const listener = (isAlive: boolean) => {
+        if (!isAlive) return;
+        handleCastMediaUpdateRef.current(media);
+      };
+
+      media.addUpdateListener(listener);
+      mediaRef.current = media;
+      mediaUpdateListenerRef.current = listener;
+    };
+  });
+
+  useEffect(() => {
+    sendCastHeartbeatRef.current = async (isPlayingOverride?: boolean) => {
+      const sid = sessionIdRef.current;
+      const virtualClientId = castClientIdRef.current;
+      if (!sid || !virtualClientId) return;
+
+      const client = getClient();
+      if (!client) return;
+
+      const song = currentSongRef.current;
+      const state = queueStateRef.current;
+      const media = getCurrentCastMedia();
+      const isPlaying = isPlayingOverride ?? isCastMediaPlaying(media);
+      const positionMs = getCastPositionMs();
+
+      setRemotePlaybackState({
+        isPlaying,
+        currentIndex: state?.currentIndex ?? 0,
+        positionMs,
+        positionTimestamp: Date.now(),
+        currentSongId: song?.id,
+        currentSongTitle: song?.title,
+        currentSongArtist: song?.artist,
+      });
+      setPlaybackState(isPlaying ? "playing" : "paused");
+      setCurrentTime(positionMs / 1000);
+
+      await client.sessionHeartbeat(sid, {
+        clientId: virtualClientId,
+        isPlaying,
+        currentIndex: state?.currentIndex,
+        positionMs,
+        currentSongId: song?.id,
+        currentSongTitle: song?.title,
+        currentSongArtist: song?.artist,
+      });
+    };
+
+    claimCastOwnershipRef.current = async () => {
+      const sid = sessionIdRef.current;
+      const virtualClientId = castClientIdRef.current;
+      if (!sid || !virtualClientId) return;
+
+      const client = getClient();
+      if (!client) return;
+
+      const positionMs = Math.max(0, Math.round(currentTimeRef.current * 1000));
+
+      await client.sendSessionCommand(
+        sid,
+        "takeOver",
+        positionMs,
+        undefined,
+        undefined,
+        CAST_CLIENT_NAME,
+        virtualClientId,
+        true,
+      );
+
+      const activeAudio = getActiveAudio();
+      if (activeAudio && !activeAudio.paused) {
+        activeAudio.pause();
+      }
+
+      setOwnerClientId(virtualClientId);
+      setOwnerClientName(CAST_CLIENT_NAME);
+      setIsAudioOwner(false);
+    };
+
+    claimCastAndLoadRef.current = async () => {
+      const sid = sessionIdRef.current;
+      const virtualClientId = castClientIdRef.current;
+      if (!sid || !virtualClientId) return;
+      if (claimedCastClientIdRef.current === virtualClientId) return;
+
+      await claimCastOwnershipRef.current();
+      claimedCastClientIdRef.current = virtualClientId;
+      await loadCurrentCastSongRef.current();
+    };
+
+    loadCurrentCastSongRef.current = async (positionMs?: number) => {
+      const song = currentSongRef.current;
+      if (!song) return false;
+
+      setPlaybackState("loading");
+      setDuration(song.duration ?? durationRef.current);
+      setBuffered(0);
+
+      const startTime = Math.max(
+        0,
+        (positionMs ?? Math.round(currentTimeRef.current * 1000)) / 1000,
+      );
+      const loaded = await loadMediaOnCast(song, startTime);
+      if (!loaded) return false;
+
+      loadedSongIdRef.current = song.id;
+      attachCastMediaListenerRef.current(getCurrentCastMedia());
+      setPlaybackState("playing");
+      await sendCastHeartbeatRef.current(true);
+      return true;
+    };
+
+    fetchQueueAndLoadCurrentRef.current = async (positionMs?: number) => {
+      const sid = sessionIdRef.current;
+      if (!sid) return;
+
+      const client = getClient();
+      if (!client) return;
+
+      const response = await client.getQueueCurrentWindow(20, "small", sid);
+      const nextSong = getCurrentSongFromQueueResponse(response);
+      const nextQueueState = queueStateFromResponse(response);
+
+      queueStateRef.current = nextQueueState;
+      setServerQueueState(nextQueueState);
+      setQueueWindow(response.window);
+
+      if (nextSong) {
+        currentSongRef.current = nextSong;
+        currentTimeRef.current = Math.max(0, (positionMs ?? 0) / 1000);
+        await loadCurrentCastSongRef.current(positionMs ?? 0);
+      }
+    };
+
+    advanceCastQueueRef.current = async (direction) => {
+      const sid = sessionIdRef.current;
+      const virtualClientId = castClientIdRef.current;
+      const state = queueStateRef.current;
+      if (!sid || !virtualClientId || !state) return;
+
+      const client = getClient();
+      if (!client) return;
+
+      let nextIndex: number;
+      let shouldReshuffle = false;
+
+      if (typeof direction === "number") {
+        nextIndex = direction;
+      } else if (state.repeatMode === "one" && direction === "next") {
+        nextIndex = state.currentIndex;
+      } else if (direction === "next") {
+        nextIndex = state.currentIndex + 1;
+        const isWrapping = nextIndex >= state.totalCount;
+        if (isWrapping) {
+          if (state.repeatMode !== "all") {
+            setRemotePlaybackState((previous) =>
+              previous ? { ...previous, isPlaying: false } : previous,
+            );
+            await sendCastHeartbeatRef.current(false);
+            setPlaybackState("ended");
+            return;
+          }
+          nextIndex = 0;
+          shouldReshuffle = state.isShuffled;
+        }
+      } else {
+        const positionMs = getCastPositionMs();
+        if (positionMs > 3_000) {
+          await seekCastMedia(0);
+          await sendCastHeartbeatRef.current(true);
+          return;
+        }
+
+        nextIndex = state.currentIndex - 1;
+        if (nextIndex < 0) {
+          if (state.repeatMode !== "all") {
+            await seekCastMedia(0);
+            await sendCastHeartbeatRef.current(true);
+            return;
+          }
+          nextIndex = state.totalCount - 1;
+        }
+      }
+
+      const positionResponse = await client.updateServerQueuePosition(
+        nextIndex,
+        0,
+        shouldReshuffle,
+        sid,
+        virtualClientId,
+        true,
+      );
+      const resolvedIndex = positionResponse.newIndex ?? nextIndex;
+      const response = await client.getQueueCurrentWindow(20, "small", sid);
+      const nextSong = getCurrentSongFromQueueResponse(response);
+      const nextQueueState = {
+        ...queueStateFromResponse(response),
+        currentIndex: resolvedIndex,
+        positionMs: 0,
+      };
+
+      queueStateRef.current = nextQueueState;
+      setServerQueueState(nextQueueState);
+      setQueueWindow(response.window);
+
+      if (nextSong) {
+        currentSongRef.current = nextSong;
+        currentTimeRef.current = 0;
+        lastFinishedMediaSessionIdRef.current = null;
+        await loadCurrentCastSongRef.current(0);
+      }
+    };
+
+    handleCastSessionEventRef.current = async (event) => {
+      if (event.type === "playbackCommand") {
+        if (event.action === "takeOver") {
+          if (event.clientId === castClientIdRef.current) {
+            setOwnerClientId(event.clientId ?? null);
+            setOwnerClientName(CAST_CLIENT_NAME);
+            setIsAudioOwner(false);
+            await fetchQueueAndLoadCurrentRef.current(event.positionMs);
+          } else {
+            await stopCastMedia().catch(console.error);
+            getCurrentCastSession()?.endSession(true);
+          }
+          return;
+        }
+
+        switch (event.action) {
+          case "play":
+            await playCastMedia();
+            await sendCastHeartbeatRef.current(true);
+            break;
+          case "pause":
+          case "stop":
+            await pauseCastMedia();
+            await sendCastHeartbeatRef.current(false);
+            break;
+          case "next":
+            await advanceCastQueueRef.current("next");
+            break;
+          case "previous":
+            await advanceCastQueueRef.current("previous");
+            break;
+          case "playAtIndex":
+            if (event.currentIndex !== undefined) {
+              await advanceCastQueueRef.current(event.currentIndex);
+            }
+            break;
+          case "seek":
+            if (event.positionMs !== undefined) {
+              await seekCastMedia(event.positionMs);
+              await sendCastHeartbeatRef.current(true);
+            }
+            break;
+          case "setVolume":
+            await setCastMediaVolume(event.volume, event.isMuted);
+            break;
+        }
+        return;
+      }
+
+      if (event.type === "queueChanged") {
+        await fetchQueueAndLoadCurrentRef.current(0);
+        return;
+      }
+
+      if (event.type === "queueUpdated") {
+        const sid = sessionIdRef.current;
+        const client = getClient();
+        if (!sid || !client) return;
+        const response = await client.getQueueCurrentWindow(20, "small", sid);
+        const nextQueueState = queueStateFromResponse(response);
+        queueStateRef.current = nextQueueState;
+        setServerQueueState(nextQueueState);
+        setQueueWindow(response.window);
+      }
+    };
+
+    handleCastMediaUpdateRef.current = (media) => {
+      const positionMs = Math.max(
+        0,
+        Math.round(media.getEstimatedTime() * 1000),
+      );
+      const isPlaying = isCastMediaPlaying(media);
+      const state = queueStateRef.current;
+      const song = currentSongRef.current;
+
+      setRemotePlaybackState({
+        isPlaying,
+        currentIndex: state?.currentIndex ?? 0,
+        positionMs,
+        positionTimestamp: Date.now(),
+        currentSongId: song?.id,
+        currentSongTitle: song?.title,
+        currentSongArtist: song?.artist,
+      });
+      setPlaybackState(isPlaying ? "playing" : "paused");
+      setCurrentTime(positionMs / 1000);
+
+      const finished =
+        media.playerState === chrome.cast.media.PlayerState.IDLE &&
+        media.idleReason === chrome.cast.media.IdleReason.FINISHED;
+
+      if (
+        finished &&
+        lastFinishedMediaSessionIdRef.current !== media.mediaSessionId
+      ) {
+        lastFinishedMediaSessionIdRef.current = media.mediaSessionId;
+        advanceCastQueueRef.current("next").catch(console.error);
+      }
+    };
   });
 
   useEffect(() => {
     // Set up the callback before the SDK script loads
+    let context: cast.framework.CastContext | null = null;
+    let handleCastStateChange:
+      | ((event: cast.framework.CastStateEventData) => void)
+      | null = null;
+    let handleSessionStateChange:
+      | ((event: cast.framework.SessionStateEventData) => void)
+      | null = null;
+
     window.__onGCastApiAvailable = (isAvailable: boolean) => {
       if (!isAvailable) {
         setCastState("unavailable");
@@ -111,43 +653,68 @@ export function useCastInit() {
       setCastSdkLoaded(true);
 
       // Initialize the Cast context with the default media receiver
-      const context = cast.framework.CastContext.getInstance();
+      context = cast.framework.CastContext.getInstance();
       context.setOptions({
-        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+        receiverApplicationId:
+          import.meta.env.VITE_CHROMECAST_RECEIVER_APP_ID ??
+          chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
         autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
       });
 
       // Listen for Cast state changes
+      handleCastStateChange = (event) => {
+        switch (event.castState) {
+          case cast.framework.CastState.NO_DEVICES_AVAILABLE:
+            setCastState("unavailable");
+            setCastDeviceName(null);
+            detachCastMediaListenerRef.current();
+            claimedCastClientIdRef.current = null;
+            break;
+          case cast.framework.CastState.NOT_CONNECTED:
+            setCastState("available");
+            setCastDeviceName(null);
+            detachCastMediaListenerRef.current();
+            loadedSongIdRef.current = null;
+            claimedCastClientIdRef.current = null;
+            break;
+          case cast.framework.CastState.CONNECTING:
+            setCastState("connecting");
+            break;
+          case cast.framework.CastState.CONNECTED: {
+            setCastState("connected");
+            const activeContext = context;
+            if (!activeContext) return;
+            const session = activeContext.getCurrentSession();
+            const device = session?.getCastDevice();
+            setCastDeviceName(device?.friendlyName ?? null);
+
+            claimCastAndLoadRef.current().catch((error) => {
+              console.error("[Cast] Failed to transfer playback:", error);
+            });
+            break;
+          }
+        }
+      };
+
+      handleSessionStateChange = (event) => {
+        if (
+          event.sessionState === cast.framework.SessionState.SESSION_ENDED ||
+          event.sessionState === cast.framework.SessionState.NO_SESSION
+        ) {
+          detachCastMediaListenerRef.current();
+          loadedSongIdRef.current = null;
+          claimedCastClientIdRef.current = null;
+        }
+      };
+
       context.addEventListener(
         cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-        (event: cast.framework.CastStateEventData) => {
-          switch (event.castState) {
-            case cast.framework.CastState.NO_DEVICES_AVAILABLE:
-              setCastState("unavailable");
-              setCastDeviceName(null);
-              break;
-            case cast.framework.CastState.NOT_CONNECTED:
-              setCastState("available");
-              setCastDeviceName(null);
-              break;
-            case cast.framework.CastState.CONNECTING:
-              setCastState("connecting");
-              break;
-            case cast.framework.CastState.CONNECTED: {
-              setCastState("connected");
-              const session = context.getCurrentSession();
-              const device = session?.getCastDevice();
-              setCastDeviceName(device?.friendlyName ?? null);
+        handleCastStateChange,
+      );
 
-              // When Cast connects, transfer current playback
-              const song = currentSongRef.current;
-              if (song) {
-                loadMediaOnCast(song, currentTimeRef.current);
-              }
-              break;
-            }
-          }
-        },
+      context.addEventListener(
+        cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+        handleSessionStateChange,
       );
 
       // Set initial state
@@ -168,8 +735,81 @@ export function useCastInit() {
 
     return () => {
       window.__onGCastApiAvailable = () => {};
+      if (context && handleCastStateChange) {
+        context.removeEventListener(
+          cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+          handleCastStateChange,
+        );
+      }
+      if (context && handleSessionStateChange) {
+        context.removeEventListener(
+          cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+          handleSessionStateChange,
+        );
+      }
+      detachCastMediaListenerRef.current();
     };
   }, [setCastState, setCastDeviceName, setCastSdkLoaded]);
+
+  useEffect(() => {
+    if (castState !== "connected" || !sessionId || !castClientId) return;
+
+    claimCastAndLoadRef.current().catch((error) => {
+      console.error("[Cast] Failed to prepare cast session:", error);
+    });
+  }, [castState, sessionId, castClientId]);
+
+  useEffect(() => {
+    if (castState !== "connected" || !sessionId || !castClientId) return;
+
+    const client = getClient();
+    if (!client) return;
+
+    const url = client.getSessionEventsUrl(
+      sessionId,
+      castClientId,
+      CAST_CLIENT_NAME,
+    );
+    const eventSource = new EventSource(url);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data: SessionEvent = JSON.parse(event.data);
+        handleCastSessionEventRef.current(data).catch(console.error);
+      } catch {
+        // Ignore keep-alive and malformed events.
+      }
+    };
+
+    eventSource.onerror = () => {};
+
+    return () => {
+      eventSource.close();
+      if (eventSourceRef.current === eventSource) {
+        eventSourceRef.current = null;
+      }
+    };
+  }, [castState, sessionId, castClientId]);
+
+  useEffect(() => {
+    if (castState !== "connected" || !sessionId || !castClientId) return;
+
+    sendCastHeartbeatRef.current().catch(() => {});
+    const interval = setInterval(() => {
+      sendCastHeartbeatRef.current().catch(() => {});
+    }, CAST_HEARTBEAT_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [castState, sessionId, castClientId]);
+
+  useEffect(() => {
+    if (castState !== "connected" || !currentSong) return;
+    if (loadedSongIdRef.current === currentSong.id) return;
+    if (isAudioOwnerRef.current) return;
+
+    loadCurrentCastSongRef.current().catch(console.error);
+  }, [castState, currentSong]);
 }
 
 /**
@@ -203,7 +843,7 @@ export function useCast() {
   };
 
   const castCurrentTrack = (song: Song, startTime = 0) => {
-    loadMediaOnCast(song, startTime);
+    loadMediaOnCast(song, startTime).catch(console.error);
   };
 
   return {

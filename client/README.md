@@ -19,3 +19,7 @@ pnpm run start
 ```
 
 Production assets are emitted to `out/`, which is also the directory embedded by the Tauri and backend static UI builds.
+
+## Chromecast
+
+Set `VITE_CHROMECAST_RECEIVER_APP_ID` to a registered Google Cast receiver app ID to use a branded Ferrotune receiver. If it is not set, the client falls back to Google's default media receiver.

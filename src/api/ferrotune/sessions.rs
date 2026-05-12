@@ -125,11 +125,13 @@ fn compute_display_names(
 ) -> Vec<ClientResponse> {
     let mut web_count = 0usize;
     let mut mobile_count = 0usize;
+    let mut cast_count = 0usize;
 
     // First pass: count by type
     for c in clients {
         match c.client_name.as_str() {
             "ferrotune-mobile" => mobile_count += 1,
+            "ferrotune-cast" => cast_count += 1,
             _ => web_count += 1,
         }
     }
@@ -137,6 +139,7 @@ fn compute_display_names(
     // Second pass: assign display names
     let mut web_index = 0usize;
     let mut mobile_index = 0usize;
+    let mut cast_index = 0usize;
     let mut result = Vec::with_capacity(clients.len());
 
     for c in clients {
@@ -144,6 +147,10 @@ fn compute_display_names(
             "ferrotune-mobile" => {
                 mobile_index += 1;
                 ("Mobile", mobile_count, mobile_index)
+            }
+            "ferrotune-cast" => {
+                cast_index += 1;
+                ("Chromecast", cast_count, cast_index)
             }
             _ => {
                 web_index += 1;
@@ -591,4 +598,54 @@ pub async fn session_command(
     state.session_manager.broadcast(&session_id, event).await;
 
     Ok(Json(SessionSuccessResponse { success: true }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn connected_client(client_id: &str, client_name: &str) -> ConnectedClient {
+        ConnectedClient {
+            client_id: client_id.to_string(),
+            client_name: client_name.to_string(),
+            connected_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn display_names_label_single_cast_client_as_chromecast_owner() {
+        let clients = [connected_client("cast-1", "ferrotune-cast")];
+
+        let responses = compute_display_names(&clients, Some("cast-1"));
+
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0].client_id, "cast-1");
+        assert_eq!(responses[0].client_name, "ferrotune-cast");
+        assert_eq!(responses[0].display_name, "Chromecast");
+        assert!(responses[0].is_owner);
+    }
+
+    #[test]
+    fn display_names_number_cast_clients_independently() {
+        let clients = [
+            connected_client("web-1", "ferrotune-web"),
+            connected_client("cast-1", "ferrotune-cast"),
+            connected_client("mobile-1", "ferrotune-mobile"),
+            connected_client("cast-2", "ferrotune-cast"),
+        ];
+
+        let responses = compute_display_names(&clients, Some("cast-2"));
+        let display_names: Vec<&str> = responses
+            .iter()
+            .map(|response| response.display_name.as_str())
+            .collect();
+
+        assert_eq!(
+            display_names,
+            ["Web", "Chromecast 1", "Mobile", "Chromecast 2"]
+        );
+        assert!(!responses[1].is_owner);
+        assert!(responses[3].is_owner);
+    }
 }

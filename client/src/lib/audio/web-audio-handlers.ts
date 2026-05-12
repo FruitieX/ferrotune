@@ -41,6 +41,7 @@ import {
   getCurrentStreamTimeOffset,
   setCurrentStreamTimeOffset,
 } from "./seeking-control";
+import { getPlaybackDuration } from "./duration";
 import { createNetworkErrorHandlers } from "./network-error-recovery";
 import {
   isEndingQueue,
@@ -222,7 +223,10 @@ export function createWebAudioHandlers({
     }
 
     const state = stateRef.current;
-    const duration = activeAudio.duration || 0;
+    const duration = getPlaybackDuration(
+      state.currentSong,
+      activeAudio.duration,
+    );
     checkAndScrobble(
       state,
       duration,
@@ -238,13 +242,9 @@ export function createWebAudioHandlers({
     if (!isFromActive(e)) return;
     const activeAudio = audioElements[activeIndex]!;
     const state = stateRef.current;
-    const songDuration = state.currentSong?.duration;
-
-    if (state.transcodingEnabled && songDuration && songDuration > 0) {
-      settersRef.current.setDuration(songDuration);
-    } else {
-      settersRef.current.setDuration(activeAudio.duration || 0);
-    }
+    settersRef.current.setDuration(
+      getPlaybackDuration(state.currentSong, activeAudio.duration),
+    );
   };
 
   const handleProgress = (e: Event) => {

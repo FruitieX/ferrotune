@@ -23,6 +23,7 @@ import {
   ListMusic,
   Heart,
   MoreHorizontal,
+  Cast,
   Monitor,
   Smartphone,
 } from "lucide-react";
@@ -74,6 +75,7 @@ import {
   formatClippingTooltip,
 } from "@/components/player/clipping-indicator";
 import { AlertTriangle } from "lucide-react";
+import { isCastClientName } from "@/lib/cast/constants";
 import {
   Tooltip,
   TooltipContent,
@@ -741,7 +743,9 @@ export function FullscreenPlayer() {
                     {followerSessionName ? (
                       <>
                         <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
-                          {followerClientName === "ferrotune-mobile" ? (
+                          {isCastClientName(followerClientName) ? (
+                            <Cast className="w-3 h-3" />
+                          ) : followerClientName === "ferrotune-mobile" ? (
                             <Smartphone className="w-3 h-3" />
                           ) : (
                             <Monitor className="w-3 h-3" />

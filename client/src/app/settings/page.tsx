@@ -52,6 +52,8 @@ import {
   type AccentColor,
   applySearchTermsToQueueAtom,
   progressBarStyleAtom,
+  progressTimeLabelVisibilityAtom,
+  type ProgressTimeLabelVisibility,
   sidebarItemSizeAtom,
   type SidebarItemSize,
 } from "@/lib/store/ui";
@@ -82,6 +84,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
 
+const progressTimeLabelVisibilityOptions = [
+  { value: "always", label: "Always" },
+  { value: "hover", label: "On hover" },
+  { value: "never", label: "Never" },
+] satisfies { value: ProgressTimeLabelVisibility; label: string }[];
+
 export default function SettingsPage() {
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
@@ -90,6 +98,9 @@ export default function SettingsPage() {
   const { isAdmin } = useCurrentUser();
   const [connection] = useAtom(serverConnectionAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
+  const [progressTimeLabelVisibility, setProgressTimeLabelVisibility] = useAtom(
+    progressTimeLabelVisibilityAtom,
+  );
   const [sidebarItemSize, setSidebarItemSize] = useAtom(sidebarItemSizeAtom);
   const [applySearchTermsToQueue, setApplySearchTermsToQueue] = useAtom(
     applySearchTermsToQueueAtom,
@@ -919,6 +930,41 @@ export default function SettingsPage() {
                     <div className="w-4 h-0.5 bg-current rounded-full" />
                     Simple
                   </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Progress Time Label */}
+              <div
+                data-testid="progress-time-label-visibility-setting"
+                className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">
+                    Current / total duration label
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Choose when the timeline time label appears
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  {progressTimeLabelVisibilityOptions.map((option) => (
+                    <Button
+                      key={option.value}
+                      variant={
+                        progressTimeLabelVisibility === option.value
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setProgressTimeLabelVisibility(option.value)
+                      }
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
             </CardContent>

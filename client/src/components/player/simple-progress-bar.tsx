@@ -10,11 +10,17 @@ import {
   bufferedAtom,
 } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
-import { accentColorRgbAtom } from "@/lib/store/ui";
+import {
+  accentColorRgbAtom,
+  progressTimeLabelVisibilityAtom,
+} from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
+import { getCurrentStreamTimeOffset } from "@/lib/audio/seeking-control";
 import { hasNativeAudio } from "@/lib/tauri";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { isRemoteControllingAtom } from "@/lib/store/session";
+import { ProgressTimeOverlay } from "@/components/player/progress-time-overlay";
+import { formatDuration } from "@/lib/utils/format";
 
 interface SimpleProgressBarProps {
   className?: string;
@@ -27,12 +33,16 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
   const playbackState = useAtomValue(playbackStateAtom);
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
+  const progressTimeLabelVisibility = useAtomValue(
+    progressTimeLabelVisibilityAtom,
+  );
   const { seekPercent } = useAudioEngine();
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   // Smooth progress tracking
   const smoothProgressRef = useRef<number>(0);
@@ -46,18 +56,6 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       ? (currentTime / duration) * 100
       : 0;
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
-
-  // Format time as h:mm:ss or mm:ss depending on duration
-  const formatTime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hrs > 0) {
-      return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
 
   const hoverTime =
     hoverPercent !== null && duration > 0
@@ -76,9 +74,14 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
           smoothProgressRef.current = atomProgress;
         } else {
           const audio = getGlobalAudio();
-          if (audio && audio.duration > 0) {
-            smoothProgressRef.current =
-              (audio.currentTime / audio.duration) * 100;
+          const audioTime = audio
+            ? audio.currentTime + getCurrentStreamTimeOffset()
+            : 0;
+          if (audio && duration > 0 && Number.isFinite(audioTime)) {
+            smoothProgressRef.current = Math.max(
+              0,
+              Math.min(100, (audioTime / duration) * 100),
+            );
           } else {
             smoothProgressRef.current = atomProgress;
           }
@@ -107,7 +110,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
         progressAnimationRef.current = null;
       }
     };
-  }, [playbackState, atomProgress, isRemoteControlling]);
+  }, [playbackState, atomProgress, duration, isRemoteControlling]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -145,6 +148,9 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
     !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
   const isSmallScreen = useIsSmallScreen();
   const barHeight = isSmallScreen ? 8 : 4; // pixels
+  const displayTime = isEnded ? 0 : currentTime;
+  const displayDuration = isEnded ? 0 : duration;
+  const timeOverlayVisible = hasTrack && (isHovering || isFocused);
 
   return (
     <div
@@ -154,6 +160,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(displayProgress)}
+      aria-valuetext={`${formatDuration(displayTime)} of ${formatDuration(displayDuration)}`}
       tabIndex={hasTrack ? 0 : -1}
       className={cn(
         "absolute left-0 right-0 cursor-pointer group",
@@ -168,12 +175,25 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       }}
       onClick={hasTrack ? handleClick : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
+      onFocus={hasTrack ? () => setIsFocused(true) : undefined}
+      onBlur={() => setIsFocused(false)}
       onMouseMove={hasTrack ? handleMouseMove : undefined}
       onMouseEnter={hasTrack ? handleMouseEnter : undefined}
       onMouseLeave={handleMouseLeave}
     >
       {/* Expand click target area */}
       <div className="absolute inset-0 -top-3 -bottom-3" />
+
+      <ProgressTimeOverlay
+        currentTime={displayTime}
+        currentPercent={displayProgress}
+        duration={displayDuration}
+        scrubPercent={hoverPercent}
+        scrubTime={hoverTime}
+        hasTrack={hasTrack}
+        interactionVisible={timeOverlayVisible}
+        currentLabelVisibility={progressTimeLabelVisibility}
+      />
 
       {/* Background track */}
       <div className="absolute inset-0 rounded-full bg-muted/50 overflow-hidden">
@@ -199,19 +219,6 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
           className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 md:h-3 bg-foreground/80 pointer-events-none"
           style={{ left: `${hoverPercent}%` }}
         />
-      )}
-
-      {/* Hover time tooltip */}
-      {isHovering && hoverPercent !== null && hoverTime !== null && (
-        <div
-          className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
-          style={{
-            left: `${hoverPercent}%`,
-            transform: "translateX(-50%)",
-          }}
-        >
-          {formatTime(hoverTime)}
-        </div>
       )}
     </div>
   );

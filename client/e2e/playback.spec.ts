@@ -12,6 +12,7 @@ import {
   resetState,
 } from "./fixtures";
 import { setDocumentVisibility } from "./page-visibility";
+import { setServerPreference, waitForAuthenticatedHome } from "./app-helpers";
 
 interface AudioPlaybackSnapshot {
   isPlaying: boolean;
@@ -43,15 +44,100 @@ async function getAudioPlaybackSnapshot(
 async function getDisplayedCurrentTime(page: Page): Promise<number> {
   const timeText = await page
     .getByTestId("player-bar")
-    .locator("span.tabular-nums")
+    .getByTestId("progress-current-duration")
     .first()
     .textContent();
   if (!timeText) return 0;
 
-  const parts = timeText.trim().split(":");
-  if (parts.length !== 2) return 0;
+  return parseDurationText(timeText.split("/")[0] ?? "");
+}
 
-  return Number(parts[0]) * 60 + Number(parts[1]);
+function parseDurationText(value: string): number {
+  const parts = value.trim().split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return 0;
+
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
+async function getDisplayedDuration(page: Page): Promise<string> {
+  const timeText =
+    (await page
+      .getByTestId("player-bar")
+      .getByTestId("progress-current-duration")
+      .first()
+      .textContent()) ?? "";
+  return (timeText.split("/")[1] ?? "").trim();
+}
+
+async function waitForServerPreference(
+  page: Page,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        ({ preferenceKey, expectedValue }) => {
+          type ServerStorageStateForTest = {
+            __ferrotuneServerStorageState?: {
+              hasLoadedOnce: boolean;
+              valueCache: Map<string, unknown>;
+            };
+          };
+
+          const storageState = (window as Window & ServerStorageStateForTest)
+            .__ferrotuneServerStorageState;
+
+          return (
+            storageState?.hasLoadedOnce === true &&
+            storageState.valueCache.get(preferenceKey) === expectedValue
+          );
+        },
+        { preferenceKey: key, expectedValue: value },
+      ),
+    )
+    .toBe(true);
+}
+
+async function getProgressTimeOverlayOpacity(page: Page): Promise<number> {
+  return page
+    .getByTestId("player-bar")
+    .getByTestId("progress-time-overlay")
+    .first()
+    .evaluate((element) =>
+      Number.parseFloat(window.getComputedStyle(element).opacity),
+    );
+}
+
+async function expectProgressTimeOverlayOpacity(
+  page: Page,
+  expectedOpacity: number,
+): Promise<void> {
+  await expect
+    .poll(() => getProgressTimeOverlayOpacity(page), { timeout: 5000 })
+    .toBe(expectedOpacity);
+}
+
+async function forceActiveAudioDurationChangeToInfinity(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const audio = Array.from(document.querySelectorAll("audio")).find(
+      (element) => element.currentSrc !== "" || element.src !== "",
+    );
+
+    if (!audio) {
+      throw new Error("No active audio element found");
+    }
+
+    Object.defineProperty(audio, "duration", {
+      configurable: true,
+      get: () => Number.POSITIVE_INFINITY,
+    });
+    audio.dispatchEvent(new Event("durationchange"));
+  });
 }
 
 test.describe("Playback", () => {
@@ -106,6 +192,111 @@ test.describe("Playback", () => {
     // Skip previous
     await playerBar.getByRole("button", { name: /previous/i }).click();
     await expect(playerBar).toContainText("Second Song");
+  });
+
+  test("direct streams keep the stored song duration in the player", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "transcodingEnabled", false);
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+    await waitForServerPreference(page, "transcodingEnabled", false);
+
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song");
+    await expect.poll(async () => getDisplayedDuration(page)).toBe("0:03");
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const audio = Array.from(document.querySelectorAll("audio")).find(
+            (element) => element.currentSrc !== "" || element.src !== "",
+          );
+          return audio?.currentSrc || audio?.src || "";
+        }),
+      )
+      .toContain("/ferrotune/stream");
+
+    const streamUrl = await page.evaluate(() => {
+      const audio = Array.from(document.querySelectorAll("audio")).find(
+        (element) => element.currentSrc !== "" || element.src !== "",
+      );
+      return audio?.currentSrc || audio?.src || "";
+    });
+    expect(streamUrl).not.toContain("format=opus");
+
+    await forceActiveAudioDurationChangeToInfinity(page);
+    await expect.poll(async () => getDisplayedDuration(page)).toBe("0:03");
+  });
+
+  test("can configure current and total duration label visibility", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    const progressSlider = playerBar.getByRole("slider", {
+      name: "Playback progress",
+    });
+
+    await expect(
+      playerBar.getByTestId("progress-current-duration"),
+    ).toHaveCount(1);
+    await expectProgressTimeOverlayOpacity(page, 0);
+
+    await progressSlider.hover();
+    await expectProgressTimeOverlayOpacity(page, 1);
+
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+    const labelVisibilitySetting = page.getByTestId(
+      "progress-time-label-visibility-setting",
+    );
+    await expect(labelVisibilitySetting).toBeVisible();
+
+    await labelVisibilitySetting
+      .getByRole("button", { name: "Always" })
+      .click();
+    await waitForServerPreference(
+      page,
+      "progress-time-label-visibility",
+      "always",
+    );
+    await expectProgressTimeOverlayOpacity(page, 1);
+
+    await labelVisibilitySetting.getByRole("button", { name: "Never" }).click();
+    await waitForServerPreference(
+      page,
+      "progress-time-label-visibility",
+      "never",
+    );
+    await expect(
+      page.getByTestId("player-bar").getByTestId("progress-current-duration"),
+    ).toHaveCount(0);
+    await expectProgressTimeOverlayOpacity(page, 0);
+
+    await labelVisibilitySetting
+      .getByRole("button", { name: "On hover" })
+      .click();
+    await waitForServerPreference(
+      page,
+      "progress-time-label-visibility",
+      "hover",
+    );
+    await expect(
+      page.getByTestId("player-bar").getByTestId("progress-current-duration"),
+    ).toHaveCount(1);
+    await expectProgressTimeOverlayOpacity(page, 0);
+
+    await page
+      .getByTestId("player-bar")
+      .getByRole("slider", { name: "Playback progress" })
+      .hover();
+    await expectProgressTimeOverlayOpacity(page, 1);
   });
 
   test("keeps playing after switching to another browser tab and back", async ({

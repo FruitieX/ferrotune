@@ -13,6 +13,7 @@ import {
   invalidatePreBuffer,
   resumeAudioContext,
 } from "./web-audio";
+import { getPlaybackDuration, getPositiveFiniteDuration } from "./duration";
 
 // Module-level mutable state (shared with hooks.ts via getter/setter)
 let currentStreamTimeOffset = 0;
@@ -202,14 +203,10 @@ export function useSeekControl(deps: SeekControlDeps) {
     const audio = getActiveAudio();
     if (!audio) return;
 
-    // Use the browser's audio.duration for non-transcoded content since it
-    // reflects the actual decoded length which may differ from metadata.
-    // For transcoded streams audio.duration is Infinity, so fall back to metadata.
     const audioDuration =
-      !deps.transcodingEnabled && audio.duration && isFinite(audio.duration)
-        ? audio.duration
-        : (deps.currentSong?.duration ?? audio.duration);
-    if (!audioDuration || audioDuration <= 0) return;
+      getPlaybackDuration(deps.currentSong, deps.duration) ||
+      getPositiveFiniteDuration(audio.duration);
+    if (audioDuration <= 0) return;
 
     const targetTime = (percent / 100) * audioDuration;
 

@@ -10,6 +10,7 @@ import {
   UserPlus,
   Check,
   X,
+  Cast,
   Monitor,
   Smartphone,
   Music,
@@ -36,6 +37,7 @@ import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
 import { initializeClient, getClient, getClientName } from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { hasNativeAudio } from "@/lib/tauri";
+import { isCastClientName } from "@/lib/cast/constants";
 
 interface AccountMenuItemsProps {
   components: MenuComponents;
@@ -235,7 +237,9 @@ export function AccountMenuItems({
                   }
                 }}
               >
-                {client.clientName === "ferrotune-mobile" ? (
+                {isCastClientName(client.clientName) ? (
+                  <Cast className="w-4 h-4 shrink-0 mr-2" />
+                ) : client.clientName === "ferrotune-mobile" ? (
                   <Smartphone className="w-4 h-4 shrink-0 mr-2" />
                 ) : (
                   <Monitor className="w-4 h-4 shrink-0 mr-2" />

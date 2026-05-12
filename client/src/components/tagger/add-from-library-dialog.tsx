@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
-import { getClient } from "@/lib/api/client";
+import { FerrotuneApiError, getClient } from "@/lib/api/client";
 import { toast } from "sonner";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import {
@@ -77,7 +77,14 @@ export function AddFromLibraryDialog({
         };
 
         const response = await client.search3(searchParams);
-        setResults(response.searchResult3?.song ?? []);
+        const songs = response.searchResult3?.song ?? [];
+        const songIds = new Set(songs.map((song) => song.id));
+
+        setResults(songs);
+        setSelectedIds(
+          (previousSelectedIds) =>
+            new Set([...previousSelectedIds].filter((id) => songIds.has(id))),
+        );
         // Reset last clicked when results change
         lastClickedIndexRef.current = null;
       } catch (error) {
@@ -131,6 +138,19 @@ export function AddFromLibraryDialog({
     setSelectedIds(new Set(filteredResults.map((r) => r.id)));
   }
 
+  function handleDialogKeyDown(event: React.KeyboardEvent) {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === "a" &&
+      filteredResults.length > 0
+    ) {
+      event.preventDefault();
+      selectAll();
+    }
+  }
+
   function clearSelection() {
     setSelectedIds(new Set());
     lastClickedIndexRef.current = null;
@@ -142,44 +162,47 @@ export function AddFromLibraryDialog({
 
     setIsAdding(true);
     try {
-      const response = await client.stageLibraryTracks(Array.from(selectedIds));
+      const selectedTrackIds = Array.from(selectedIds);
+      const response = await client.stageLibraryTracks(selectedTrackIds);
+
+      if (response.tracks.length !== selectedTrackIds.length) {
+        throw new Error(
+          "Some selected tracks could not be loaded. Check that the music library is mounted.",
+        );
+      }
 
       // Add tracks to state
       const newTracks = new Map(tracks);
-      const newTrackIds: string[] = [];
+      const newTrackRefs = response.tracks.map((track) => ({
+        id: track.id,
+        trackType: "library" as const,
+      }));
 
       for (const track of response.tracks) {
         const trackState = createTrackState(track);
         newTracks.set(track.id, trackState);
-        newTrackIds.push(track.id);
       }
+
+      await client.addTaggerTracks(newTrackRefs);
 
       setTracks(newTracks);
       setSession({
         ...session,
-        tracks: [
-          ...session.tracks,
-          ...newTrackIds.map((id) => ({ id, trackType: "library" as const })),
-        ],
+        tracks: [...session.tracks, ...newTrackRefs],
       });
 
-      // Explicitly add tracks to server session
-      try {
-        await client.addTaggerTracks(
-          newTrackIds.map((id) => ({ id, trackType: "library" as const })),
-        );
-      } catch (error) {
-        console.warn("Failed to sync library tracks to session:", error);
-      }
-
-      toast.success(`Added ${newTrackIds.length} track(s) to tagger`);
+      toast.success(`Added ${newTrackRefs.length} track(s) to tagger`);
 
       // Close dialog but keep query and filters for next time
       onOpenChange(false);
       setSelectedIds(new Set());
     } catch (error) {
       console.error("Failed to add tracks:", error);
-      toast.error("Failed to add tracks");
+      if (error instanceof FerrotuneApiError) return;
+
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add tracks",
+      );
     } finally {
       setIsAdding(false);
     }
@@ -194,7 +217,10 @@ export function AddFromLibraryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-[900px] h-[85vh] max-h-[85vh] flex flex-col overflow-hidden select-none">
+      <DialogContent
+        className="w-[95vw] max-w-225 h-[85vh] max-h-[85vh] flex flex-col overflow-hidden select-none"
+        onKeyDown={handleDialogKeyDown}
+      >
         <DialogHeader className="shrink-0">
           <DialogTitle>Add from Library</DialogTitle>
           <DialogDescription className="sr-only">
