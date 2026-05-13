@@ -84,6 +84,66 @@ async function addSecondarySavedAccount(page: Page) {
   });
 }
 
+async function mockCastSdkAvailable(page: Page) {
+  await page.route("**/cast_sender.js**", async (route) => {
+    await route.fulfill({
+      contentType: "application/javascript",
+      body: `
+        (() => {
+          const castState = {
+            NO_DEVICES_AVAILABLE: "NO_DEVICES_AVAILABLE",
+            NOT_CONNECTED: "NOT_CONNECTED",
+            CONNECTING: "CONNECTING",
+            CONNECTED: "CONNECTED"
+          };
+          const context = {
+            setOptions() {},
+            getCastState() {
+              return castState.NOT_CONNECTED;
+            },
+            addEventListener() {},
+            removeEventListener() {},
+            getCurrentSession() {
+              return null;
+            },
+            requestSession() {
+              window.__ferrotuneCastRequested = true;
+              return Promise.resolve();
+            }
+          };
+
+          window.chrome = {
+            cast: {
+              AutoJoinPolicy: { ORIGIN_SCOPED: "ORIGIN_SCOPED" },
+              media: { DEFAULT_MEDIA_RECEIVER_APP_ID: "default-receiver" }
+            }
+          };
+          window.cast = {
+            framework: {
+              CastState: castState,
+              SessionState: {
+                SESSION_ENDED: "SESSION_ENDED",
+                NO_SESSION: "NO_SESSION"
+              },
+              CastContextEventType: {
+                CAST_STATE_CHANGED: "CAST_STATE_CHANGED",
+                SESSION_STATE_CHANGED: "SESSION_STATE_CHANGED"
+              },
+              CastContext: {
+                getInstance() {
+                  return context;
+                }
+              }
+            }
+          };
+
+          window.__onGCastApiAvailable?.(true);
+        })();
+      `,
+    });
+  });
+}
+
 async function openMobileAccountMenu(page: Page) {
   await page.locator("header").first().getByRole("button").first().click();
 }
@@ -194,6 +254,26 @@ test.describe("Mobile Tests", () => {
       .getByRole("button", { name: /play|pause/i })
       .first();
     await expect(playPauseButton).toBeVisible();
+  });
+
+  test("player overflow shows Cast when a receiver is available", async ({
+    page,
+    server,
+  }) => {
+    await mockCastSdkAvailable(page);
+    await login(page, {
+      serverUrl: server.url,
+      username: server.username,
+      password: server.password,
+    });
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toBeVisible();
+
+    await playerBar.getByRole("button", { name: /more options/i }).click();
+    await expect(
+      page.getByRole("button", { name: /cast to device/i }),
+    ).toBeVisible();
   });
 
   test("queue opens as sheet on mobile", async ({

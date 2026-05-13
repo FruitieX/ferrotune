@@ -856,6 +856,8 @@ function MobileMoreMenu() {
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
   const { togglePlayPause, next, previous } = useAudioEngine();
+  const { isAvailable, isCasting, castDeviceName, requestCast, stopCasting } =
+    useCast();
   const playbackState = useAtomValue(effectivePlaybackStateAtom);
   const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
 
@@ -867,6 +869,15 @@ function MobileMoreMenu() {
   const handleFullscreen = () => {
     setIsOpen(false);
     setFullscreenOpen(true);
+  };
+
+  const handleCast = () => {
+    setIsOpen(false);
+    if (isCasting) {
+      stopCasting();
+    } else {
+      requestCast();
+    }
   };
 
   return (
@@ -937,6 +948,22 @@ function MobileMoreMenu() {
                 aria-label="Volume"
               />
             </div>
+          )}
+          {isAvailable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "justify-start gap-2",
+                isCasting && "text-primary hover:text-primary",
+              )}
+              onClick={handleCast}
+            >
+              <Cast className="w-4 h-4" />
+              {isCasting
+                ? `Casting to ${castDeviceName ?? "device"}`
+                : "Cast to device"}
+            </Button>
           )}
           {/* Shuffle */}
           <Button

@@ -257,7 +257,7 @@ export function SessionEventHandler() {
       case "volumeChange":
         // Only non-owners apply volumeChange events (followers sync from this).
         // The audio owner ignores these to prevent echo of its own changes.
-        if (!isAudioOwner) {
+        if (!isAudioOwner && event.clientId !== clientId) {
           if (event.volume !== undefined) {
             setVolume(event.volume);
           }

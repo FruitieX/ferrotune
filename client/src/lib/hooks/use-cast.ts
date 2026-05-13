@@ -87,6 +87,13 @@ function isCastMediaPlaying(media: chrome.cast.media.Media | null): boolean {
   );
 }
 
+function isFinishedCastMedia(media: chrome.cast.media.Media): boolean {
+  return (
+    media.playerState === chrome.cast.media.PlayerState.IDLE &&
+    media.idleReason === chrome.cast.media.IdleReason.FINISHED
+  );
+}
+
 function runCastMediaCommand(
   run: (
     resolve: () => void,
@@ -320,7 +327,7 @@ export function useCastInit() {
       detachCastMediaListenerRef.current();
 
       const listener = (isAlive: boolean) => {
-        if (!isAlive) return;
+        if (!isAlive && !isFinishedCastMedia(media)) return;
         handleCastMediaUpdateRef.current(media);
       };
 
@@ -418,10 +425,12 @@ export function useCastInit() {
       setDuration(song.duration ?? durationRef.current);
       setBuffered(0);
 
-      const startTime = Math.max(
-        0,
-        (positionMs ?? Math.round(currentTimeRef.current * 1000)) / 1000,
-      );
+      const startPositionMs =
+        positionMs ?? Math.round(currentTimeRef.current * 1000);
+      const startTime = Math.max(0, startPositionMs / 1000);
+      currentTimeRef.current = startTime;
+      setCurrentTime(startTime);
+
       const loaded = await loadMediaOnCast(song, startTime);
       if (!loaded) return false;
 
@@ -620,9 +629,7 @@ export function useCastInit() {
       setPlaybackState(isPlaying ? "playing" : "paused");
       setCurrentTime(positionMs / 1000);
 
-      const finished =
-        media.playerState === chrome.cast.media.PlayerState.IDLE &&
-        media.idleReason === chrome.cast.media.IdleReason.FINISHED;
+      const finished = isFinishedCastMedia(media);
 
       if (
         finished &&
@@ -808,7 +815,8 @@ export function useCastInit() {
     if (loadedSongIdRef.current === currentSong.id) return;
     if (isAudioOwnerRef.current) return;
 
-    loadCurrentCastSongRef.current().catch(console.error);
+    const startPositionMs = loadedSongIdRef.current ? 0 : undefined;
+    loadCurrentCastSongRef.current(startPositionMs).catch(console.error);
   }, [castState, currentSong]);
 }
 

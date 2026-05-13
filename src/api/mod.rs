@@ -72,7 +72,12 @@ pub enum SessionEvent {
     },
     /// Volume change command from a remote controller
     #[serde(rename_all = "camelCase")]
-    VolumeChange { volume: f64, is_muted: bool },
+    VolumeChange {
+        volume: f64,
+        is_muted: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_id: Option<String>,
+    },
     /// The connected client list changed (a client connected or disconnected)
     ClientListChanged,
     /// Session ownership changed to a different client (or cleared)
@@ -272,7 +277,29 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use super::SessionManager;
+    use super::{SessionEvent, SessionManager};
+    use serde_json::json;
+
+    #[test]
+    fn volume_change_serializes_client_id_when_present() {
+        let event = SessionEvent::VolumeChange {
+            volume: 0.42,
+            is_muted: false,
+            client_id: Some("web-client".to_string()),
+        };
+
+        let serialized = serde_json::to_value(event).map_err(|error| error.to_string());
+
+        assert_eq!(
+            serialized,
+            Ok(json!({
+                "type": "volumeChange",
+                "volume": 0.42,
+                "isMuted": false,
+                "clientId": "web-client",
+            }))
+        );
+    }
 
     #[tokio::test]
     async fn duplicate_logical_client_connections_are_ref_counted() {

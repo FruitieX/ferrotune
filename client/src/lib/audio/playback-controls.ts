@@ -11,8 +11,9 @@ import {
 import {
   isRemoteControllingAtom,
   effectiveSessionIdAtom,
+  clientIdAtom,
 } from "@/lib/store/session";
-import { getClient } from "@/lib/api/client";
+import { getClient, getClientName } from "@/lib/api/client";
 
 /** Hook for volume control */
 export function useVolumeControl() {
@@ -20,6 +21,7 @@ export function useVolumeControl() {
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
   const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
+  const clientId = useAtomValue(clientIdAtom);
 
   const sendVolumeCommand = (newVolume: number, newMuted: boolean) => {
     const sessionId = effectiveSessionId;
@@ -34,6 +36,8 @@ export function useVolumeControl() {
         undefined,
         newVolume,
         newMuted,
+        getClientName(),
+        clientId || undefined,
       )
       .catch(console.error);
     // When remote-controlling, also send as a playbackCommand so the
@@ -46,6 +50,8 @@ export function useVolumeControl() {
           undefined,
           newVolume,
           newMuted,
+          getClientName(),
+          clientId || undefined,
         )
         .catch(console.error);
     }

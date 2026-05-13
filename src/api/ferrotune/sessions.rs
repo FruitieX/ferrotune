@@ -573,6 +573,7 @@ pub async fn session_command(
         "volumeChange" => SessionEvent::VolumeChange {
             volume: request.volume.unwrap_or(1.0),
             is_muted: request.is_muted.unwrap_or(false),
+            client_id: request.client_id.clone(),
         },
         "takeOver" => {
             // Already handled above — also send playback command to pause old owner
