@@ -87,6 +87,8 @@ pub enum SessionEvent {
         owner_client_name: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         resume_playback: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        position_ms: Option<i64>,
     },
 }
 

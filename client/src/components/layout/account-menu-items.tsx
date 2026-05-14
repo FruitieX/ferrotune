@@ -33,7 +33,10 @@ import {
   markSelfTakeoverAtom,
 } from "@/lib/store/session";
 import { clearQueueAtom, currentSongAtom } from "@/lib/store/server-queue";
-import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
+import {
+  effectivePlaybackStateAtom,
+  currentTimeAtom,
+} from "@/lib/store/player";
 import { initializeClient, getClient, getClientName } from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { hasNativeAudio } from "@/lib/tauri";
@@ -41,6 +44,125 @@ import { isCastClientName } from "@/lib/cast/constants";
 
 interface AccountMenuItemsProps {
   components: MenuComponents;
+}
+
+interface ConnectedClientsMenuItemsProps {
+  components: MenuComponents;
+  showSeparator?: boolean;
+}
+
+export function ConnectedClientsMenuItems({
+  components: { Item, Separator },
+  showSeparator = false,
+}: ConnectedClientsMenuItemsProps) {
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
+  const connectedClients = useAtomValue(connectedClientsAtom);
+  const myClientId = useAtomValue(clientIdAtom);
+  const ownerClientId = useAtomValue(ownerClientIdAtom);
+  const setIsAudioOwner = useSetAtom(isAudioOwnerAtom);
+  const setOwnerClientId = useSetAtom(ownerClientIdAtom);
+  const setOwnerClientName = useSetAtom(ownerClientNameAtom);
+  const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
+
+  const localCurrentSong = useAtomValue(currentSongAtom);
+  const effectivePlaybackState = useAtomValue(effectivePlaybackStateAtom);
+  const currentTime = useAtomValue(currentTimeAtom);
+
+  const transferToClient = async (
+    targetClientId: string,
+    targetClientName: string,
+  ) => {
+    const client = getClient();
+    if (!client || !currentSessionId) return;
+
+    const transferringToSelf = targetClientId === myClientId;
+    const shouldResumePlayback =
+      !!localCurrentSong &&
+      (effectivePlaybackState === "playing" ||
+        effectivePlaybackState === "loading");
+    const positionMs =
+      currentTime > 0 ? Math.round(currentTime * 1000) : undefined;
+
+    try {
+      await client.sendSessionCommand(
+        currentSessionId,
+        "takeOver",
+        positionMs,
+        undefined,
+        undefined,
+        targetClientName,
+        targetClientId,
+        shouldResumePlayback,
+      );
+
+      if (transferringToSelf) {
+        markSelfTakeover();
+        setIsAudioOwner(true);
+        setOwnerClientId(myClientId);
+        setOwnerClientName(getClientName());
+      } else {
+        setIsAudioOwner(false);
+        setOwnerClientId(targetClientId);
+        setOwnerClientName(targetClientName);
+      }
+
+      toast.success("Playback transferred");
+    } catch {
+      toast.error("Failed to transfer playback");
+    }
+  };
+
+  if (connectedClients.length === 0) return null;
+
+  return (
+    <>
+      {showSeparator && <Separator />}
+      <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground font-semibold">
+        <div className="w-4 shrink-0" />
+        Connected Clients
+      </div>
+      {connectedClients.map((client) => {
+        const isMe = client.clientId === myClientId;
+        const isOwner = client.clientId === ownerClientId;
+        return (
+          <Item
+            key={client.clientId}
+            className="flex items-center gap-2 group"
+            onClick={() => {
+              if (!isOwner) {
+                transferToClient(client.clientId, client.clientName);
+              }
+            }}
+          >
+            {isCastClientName(client.clientName) ? (
+              <Cast className="w-4 h-4 shrink-0 mr-2" />
+            ) : client.clientName === "ferrotune-mobile" ? (
+              <Smartphone className="w-4 h-4 shrink-0 mr-2" />
+            ) : (
+              <Monitor className="w-4 h-4 shrink-0 mr-2" />
+            )}
+            <div className="flex-1 min-w-0">
+              <span className="truncate block text-sm">
+                {client.displayName}
+                {isMe && (hasNativeAudio() ? " (this app)" : " (this tab)")}
+              </span>
+              {isOwner && (
+                <span className="truncate block text-xs text-muted-foreground">
+                  {effectivePlaybackState === "playing" && (
+                    <Music className="w-3 h-3 inline mr-1" />
+                  )}
+                  {localCurrentSong?.title
+                    ? `${localCurrentSong.title}${localCurrentSong.artist ? ` — ${localCurrentSong.artist}` : ""}`
+                    : "Owner"}
+                </span>
+              )}
+            </div>
+            {isOwner && <Check className="w-4 h-4 shrink-0 text-primary" />}
+          </Item>
+        );
+      })}
+    </>
+  );
 }
 
 export function AccountMenuItems({
@@ -56,20 +178,6 @@ export function AccountMenuItems({
 
   const currentKey = connection ? accountKey(connection) : null;
   const hasMultipleAccounts = savedAccounts.length > 1;
-
-  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
-  const connectedClients = useAtomValue(connectedClientsAtom);
-  const myClientId = useAtomValue(clientIdAtom);
-  const ownerClientId = useAtomValue(ownerClientIdAtom);
-  const setIsAudioOwner = useSetAtom(isAudioOwnerAtom);
-  const setOwnerClientId = useSetAtom(ownerClientIdAtom);
-  const setOwnerClientName = useSetAtom(ownerClientNameAtom);
-  const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
-
-  // Local playback state for own session display
-  const localCurrentSong = useAtomValue(currentSongAtom);
-  const localPlaybackState = useAtomValue(playbackStateAtom);
-  const currentTime = useAtomValue(currentTimeAtom);
 
   const switchToAccount = async (account: (typeof savedAccounts)[0]) => {
     const key = accountKey(account);
@@ -108,58 +216,6 @@ export function AccountMenuItems({
     setConnection(null);
     router.push("/login");
     toast.success("Logged out successfully");
-  };
-
-  const transferToClient = async (
-    targetClientId: string,
-    targetClientName: string,
-  ) => {
-    const client = getClient();
-    if (!client || !currentSessionId) return;
-
-    const transferringToSelf = targetClientId === myClientId;
-    const shouldResumePlayback =
-      !!localCurrentSong &&
-      (localPlaybackState === "playing" || localPlaybackState === "loading");
-
-    // Calculate current position to send with takeover so the new owner
-    // picks up from the right spot (avoids stale DB position from heartbeat lag).
-    // currentTime already has interpolated position for both follower and owner.
-    const positionMs =
-      currentTime > 0 ? Math.round(currentTime * 1000) : undefined;
-
-    try {
-      // Tell the server to transfer ownership
-      await client.sendSessionCommand(
-        currentSessionId,
-        "takeOver",
-        positionMs,
-        undefined,
-        undefined,
-        targetClientName,
-        targetClientId,
-        shouldResumePlayback,
-      );
-
-      if (transferringToSelf) {
-        // We're taking over — become the owner.
-        // Don't call fetchQueueAndPlay or clear remotePlaybackState here;
-        // the ownerChanged SSE handler will do both exactly once.
-        markSelfTakeover();
-        setIsAudioOwner(true);
-        setOwnerClientId(myClientId);
-        setOwnerClientName(getClientName());
-      } else {
-        // Transferring to another client — become a follower
-        setIsAudioOwner(false);
-        setOwnerClientId(targetClientId);
-        setOwnerClientName(targetClientName);
-      }
-
-      toast.success("Playback transferred");
-    } catch {
-      toast.error("Failed to transfer playback");
-    }
   };
 
   return (
@@ -217,55 +273,10 @@ export function AccountMenuItems({
         <LogOut className="w-4 h-4 mr-2" />
         Sign Out
       </Item>
-      {connectedClients.length > 0 && (
-        <>
-          <Separator />
-          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground font-semibold">
-            <div className="w-4 shrink-0" />
-            Connected Clients
-          </div>
-          {connectedClients.map((client) => {
-            const isMe = client.clientId === myClientId;
-            const isOwner = client.clientId === ownerClientId;
-            return (
-              <Item
-                key={client.clientId}
-                className="flex items-center gap-2 group"
-                onClick={() => {
-                  if (!isOwner) {
-                    transferToClient(client.clientId, client.clientName);
-                  }
-                }}
-              >
-                {isCastClientName(client.clientName) ? (
-                  <Cast className="w-4 h-4 shrink-0 mr-2" />
-                ) : client.clientName === "ferrotune-mobile" ? (
-                  <Smartphone className="w-4 h-4 shrink-0 mr-2" />
-                ) : (
-                  <Monitor className="w-4 h-4 shrink-0 mr-2" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <span className="truncate block text-sm">
-                    {client.displayName}
-                    {isMe && (hasNativeAudio() ? " (this app)" : " (this tab)")}
-                  </span>
-                  {isOwner && (
-                    <span className="truncate block text-xs text-muted-foreground">
-                      {localPlaybackState === "playing" && (
-                        <Music className="w-3 h-3 inline mr-1" />
-                      )}
-                      {localCurrentSong?.title
-                        ? `${localCurrentSong.title}${localCurrentSong.artist ? ` — ${localCurrentSong.artist}` : ""}`
-                        : "Owner"}
-                    </span>
-                  )}
-                </div>
-                {isOwner && <Check className="w-4 h-4 shrink-0 text-primary" />}
-              </Item>
-            );
-          })}
-        </>
-      )}
+      <ConnectedClientsMenuItems
+        components={{ Item, Separator }}
+        showSeparator
+      />
     </>
   );
 }

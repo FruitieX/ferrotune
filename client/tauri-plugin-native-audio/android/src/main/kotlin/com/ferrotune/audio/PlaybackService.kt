@@ -32,6 +32,7 @@ import androidx.media3.common.SimpleBasePlayer.PeriodData
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -59,6 +60,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import java.io.File
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlinx.coroutines.CompletableDeferred
 
@@ -98,6 +100,9 @@ class PlaybackService : MediaSessionService() {
         private const val STREAM_BUFFER_FOR_PLAYBACK_MS = 5_000
         private const val STREAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 15_000
         private const val STREAM_TARGET_BUFFER_BYTES = 64 * 1024 * 1024
+        private const val TRANSCODED_STREAM_LOAD_RETRY_COUNT = 10
+        private const val TRANSCODED_STREAM_LOAD_RETRY_BASE_DELAY_MS = 1_000L
+        private const val TRANSCODED_STREAM_LOAD_RETRY_MAX_DELAY_MS = 5_000L
         // Stop the foreground service after this many ms of inactivity (paused).
         // Kept short to release ExoPlayer's wake/wifi lock and tear down the
         // MediaSessionService + SSE connection quickly when the user stops
@@ -389,19 +394,45 @@ class PlaybackService : MediaSessionService() {
             // is still open (progressive caching).
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        // Custom load error policy: for transcoded (chunked) streams the server
-        // does not support Range requests, so ExoPlayer's default retry (which
-        // tries to resume from the last byte) is counter-productive — it would
-        // restart from byte 0. Disable source-level retries so errors surface
-        // immediately to onPlayerError where we handle them with timeOffset.
+        // Custom load error policy: keep transient network failures inside
+        // ExoPlayer while already-buffered audio can continue. If the upstream
+        // cannot recover, onPlayerError still falls back to a timeOffset reload.
         @OptIn(UnstableApi::class)
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getMinimumLoadableRetryCount(dataType: Int): Int {
-                // When transcoding is active, skip data-source-level retries.
-                // The cache covers brief blips; longer outages are handled by
-                // onPlayerError's timeOffset retry logic.
-                return if (playbackSettings.transcodingEnabled) 0
-                    else super.getMinimumLoadableRetryCount(dataType)
+                return if (playbackSettings.transcodingEnabled) {
+                    TRANSCODED_STREAM_LOAD_RETRY_COUNT
+                } else {
+                    super.getMinimumLoadableRetryCount(dataType)
+                }
+            }
+
+            override fun getRetryDelayMsFor(
+                loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo,
+            ): Long {
+                if (!playbackSettings.transcodingEnabled) {
+                    return super.getRetryDelayMsFor(loadErrorInfo)
+                }
+
+                val httpError = loadErrorInfo.exception as? InvalidResponseCodeException
+                val responseCode = httpError?.responseCode
+                if (
+                    responseCode != null &&
+                    responseCode in 400..499 &&
+                    responseCode != 408 &&
+                    responseCode != 429
+                ) {
+                    return C.TIME_UNSET
+                }
+
+                if (loadErrorInfo.errorCount > TRANSCODED_STREAM_LOAD_RETRY_COUNT) {
+                    return C.TIME_UNSET
+                }
+
+                return minOf(
+                    TRANSCODED_STREAM_LOAD_RETRY_BASE_DELAY_MS * loadErrorInfo.errorCount,
+                    TRANSCODED_STREAM_LOAD_RETRY_MAX_DELAY_MS,
+                )
             }
         }
 
@@ -1046,14 +1077,18 @@ class PlaybackService : MediaSessionService() {
         Log.d(
             TAG,
             "SSE OwnerChanged: owner=${event.ownerClientId}, myClientId=$myClientId, " +
-                "resume=${event.resumePlayback}"
+                "resume=${event.resumePlayback}, positionMs=${event.positionMs}"
         )
 
         nativeOwnsSession = isCurrentClientOwner
 
         if (isCurrentClientOwner) {
             if (event.resumePlayback && (!wasOwner || !player.playWhenReady)) {
-                loadCurrentQueueFromServer(playWhenReady = true, reason = "ownerChanged resume")
+                loadCurrentQueueFromServer(
+                    playWhenReady = true,
+                    reason = "ownerChanged resume",
+                    startPositionOverrideMs = event.positionMs,
+                )
             }
             return
         }
@@ -1068,7 +1103,11 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun loadCurrentQueueFromServer(playWhenReady: Boolean, reason: String) {
+    private fun loadCurrentQueueFromServer(
+        playWhenReady: Boolean,
+        reason: String,
+        startPositionOverrideMs: Long? = null,
+    ) {
         if (!isNetworkAvailable()) return
         val generation = nextQueueLoadGeneration(reason)
         apiExecutor.execute {
@@ -1078,10 +1117,12 @@ class PlaybackService : MediaSessionService() {
                     if (!isQueueLoadGenerationCurrent(generation, reason)) return@post
                     response.sourceType?.let { queueSourceType = it }
                     response.sourceId?.let { queueSourceId = it }
+                    val startPositionMs = startPositionOverrideMs ?: response.positionMs
 
                     if (isCurrentTrackAtTarget(response, response.currentIndex)) {
                         Log.d(TAG, "$reason: target track already loaded, syncing without restart")
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
+                        seekLoadedCurrentTrackTo(startPositionMs, reason)
                         if (playWhenReady && !player.playWhenReady) {
                             player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
                                 true,
@@ -1092,7 +1133,7 @@ class PlaybackService : MediaSessionService() {
                         handleQueueWindowResponse(
                             response,
                             response.currentIndex,
-                            response.positionMs,
+                            startPositionMs,
                             playWhenReady,
                         )
                     }
@@ -1175,10 +1216,16 @@ class PlaybackService : MediaSessionService() {
                     // Preserve playWhenReady if already true (e.g. invalidateQueue
                     // started playback before this handler.post ran)
                     val effectivePlay = playWhenReady || player.playWhenReady
+                    val effectiveStartPositionMs = if (response.currentIndex == currentIndex) {
+                        startPositionMs
+                    } else {
+                        response.positionMs
+                    }
                     if (player.mediaItemCount > 0 &&
                         isCurrentTrackAtTarget(response, response.currentIndex)) {
                         Log.d(TAG, "startPlayback: target track already loaded, syncing queue without restart")
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
+                        seekLoadedCurrentTrackTo(effectiveStartPositionMs, "startPlayback existing target")
                         if (effectivePlay && !player.playWhenReady) {
                             player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
                                 true,
@@ -1188,11 +1235,6 @@ class PlaybackService : MediaSessionService() {
                     } else {
                         // Use response.currentIndex (server truth) instead of JS-passed
                         // currentIndex to avoid stale data from race conditions
-                        val effectiveStartPositionMs = if (response.currentIndex == currentIndex) {
-                            startPositionMs
-                        } else {
-                            response.positionMs
-                        }
                         handleQueueWindowResponse(
                             response,
                             response.currentIndex,
@@ -1281,6 +1323,7 @@ class PlaybackService : MediaSessionService() {
         queueIndex = targetIndex
         serverQueueIndex = targetIndex
         currentTrack = tracks.getOrNull(exoStartIndex)
+        lastKnownGoodPositionMs = startPositionMs.coerceAtLeast(0)
 
         val mediaItems = tracks.map { createMediaItem(it) }.toMutableList()
 
@@ -1871,6 +1914,22 @@ class PlaybackService : MediaSessionService() {
         } else null
 
         return currentMediaId != null && targetSongId != null && currentMediaId == targetSongId
+    }
+
+    private fun seekLoadedCurrentTrackTo(positionMs: Long, reason: String) {
+        val targetPositionMs = positionMs.coerceAtLeast(0)
+        val currentPositionMs = getAbsolutePlaybackPositionMs().coerceAtLeast(0)
+        if (abs(currentPositionMs - targetPositionMs) < 750) {
+            lastKnownGoodPositionMs = targetPositionMs
+            return
+        }
+
+        Log.d(
+            TAG,
+            "$reason: seeking loaded track from ${currentPositionMs}ms to ${targetPositionMs}ms"
+        )
+        seek(targetPositionMs)
+        lastKnownGoodPositionMs = targetPositionMs
     }
 
     private fun syncQueueWithoutRestart(

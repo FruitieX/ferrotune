@@ -76,6 +76,8 @@ import {
 } from "@/components/player/clipping-indicator";
 import { AlertTriangle } from "lucide-react";
 import { isCastClientName } from "@/lib/cast/constants";
+import { ResponsiveDropdownMenu } from "@/components/shared/responsive-context-menu";
+import { ConnectedClientsMenuItems } from "@/components/layout/account-menu-items";
 import {
   Tooltip,
   TooltipContent,
@@ -741,21 +743,38 @@ export function FullscreenPlayer() {
                   </Button>
                   <div className="text-center min-w-0 flex-1 mx-2">
                     {followerSessionName ? (
-                      <>
-                        <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
-                          {isCastClientName(followerClientName) ? (
-                            <Cast className="w-3 h-3" />
-                          ) : followerClientName === "ferrotune-mobile" ? (
-                            <Smartphone className="w-3 h-3" />
-                          ) : (
-                            <Monitor className="w-3 h-3" />
-                          )}
-                          Listening on
-                        </p>
-                        <p className="text-sm font-medium truncate">
-                          {followerSessionName}
-                        </p>
-                      </>
+                      <ResponsiveDropdownMenu
+                        trigger={
+                          <button
+                            type="button"
+                            className="mx-auto max-w-full rounded-md px-2 py-1 text-center hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                            aria-label={`Open playback clients, currently playing on ${followerSessionName}`}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
+                          >
+                            <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
+                              {isCastClientName(followerClientName) ? (
+                                <Cast className="w-3 h-3" />
+                              ) : followerClientName === "ferrotune-mobile" ? (
+                                <Smartphone className="w-3 h-3" />
+                              ) : (
+                                <Monitor className="w-3 h-3" />
+                              )}
+                              Playing on
+                            </p>
+                            <p className="text-sm font-medium truncate">
+                              {followerSessionName}
+                            </p>
+                          </button>
+                        }
+                        renderMenuContent={(components) => (
+                          <ConnectedClientsMenuItems components={components} />
+                        )}
+                        contentClassName="w-64"
+                        align="center"
+                        side="bottom"
+                        drawerTitle="Playback Clients"
+                      />
                     ) : (
                       <>
                         <p className="text-xs text-muted-foreground uppercase tracking-wider">

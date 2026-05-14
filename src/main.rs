@@ -331,6 +331,7 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
                                         owner_client_id: None,
                                         owner_client_name: None,
                                         resume_playback: None,
+                                        position_ms: None,
                                     },
                                 )
                                 .await;

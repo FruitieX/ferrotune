@@ -572,7 +572,11 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
  */
 export const fetchQueueAndPlayAtom = atom(
   null,
-  async (get, set, options?: { forceReload?: boolean }) => {
+  async (
+    get,
+    set,
+    options?: { forceReload?: boolean; positionMs?: number },
+  ) => {
     const client = getClient();
     if (!client) return;
 
@@ -594,6 +598,8 @@ export const fetchQueueAndPlayAtom = atom(
         set(serverQueueStateAtom, null);
         set(queueWindowAtom, null);
       } else {
+        const responsePositionMs =
+          options?.positionMs ?? Number(response.positionMs);
         const currentSong = get(currentSongAtom);
         const currentQueueState = get(serverQueueStateAtom);
         const canKeepPlayback =
@@ -609,7 +615,7 @@ export const fetchQueueAndPlayAtom = atom(
           currentIndex: response.currentIndex,
           positionMs: canKeepPlayback
             ? (currentQueueState?.positionMs ?? Number(response.positionMs))
-            : Number(response.positionMs),
+            : responsePositionMs,
           isShuffled: response.isShuffled,
           repeatMode: response.repeatMode as RepeatMode,
           source: response.source,
@@ -620,7 +626,7 @@ export const fetchQueueAndPlayAtom = atom(
         } else {
           // Signal the audio engine to load and play the new track,
           // resuming from the server-reported position (e.g. session takeover)
-          pendingPlaybackPositionMs.value = Number(response.positionMs);
+          pendingPlaybackPositionMs.value = responsePositionMs;
           set(isRestoringQueueAtom, false);
           set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
         }

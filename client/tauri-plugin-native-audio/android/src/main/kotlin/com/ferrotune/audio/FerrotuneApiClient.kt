@@ -578,6 +578,8 @@ class FerrotuneApiClient {
                 ownerClientName = json.optString("ownerClientName").ifEmpty { null },
                 resumePlayback = if (json.has("resumePlayback") && !json.isNull("resumePlayback"))
                     json.getBoolean("resumePlayback") else false,
+                positionMs = if (json.has("positionMs") && !json.isNull("positionMs"))
+                    json.getLong("positionMs") else null,
             )
             "volumeChange" -> SessionEvent.VolumeChange(
                 volume = json.getDouble("volume").toFloat(),
@@ -613,6 +615,7 @@ sealed class SessionEvent {
         val ownerClientId: String?,
         val ownerClientName: String?,
         val resumePlayback: Boolean,
+        val positionMs: Long?,
     ) : SessionEvent()
     data class VolumeChange(val volume: Float, val isMuted: Boolean) : SessionEvent()
 }

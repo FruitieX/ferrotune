@@ -370,6 +370,7 @@ impl Drop for ClientCleanupGuard {
                                 owner_client_id: None,
                                 owner_client_name: None,
                                 resume_playback: None,
+                                position_ms: None,
                             },
                         )
                         .await;
@@ -444,6 +445,7 @@ pub async fn session_events(
             .map(|_| session.owner_client_name),
         owner_client_id: session.owner_client_id,
         resume_playback: None,
+        position_ms: None,
     };
 
     // This guard is held by the stream; when axum drops the stream on client
@@ -563,6 +565,7 @@ pub async fn session_command(
                     owner_client_id: Some(new_client_id.to_string()),
                     owner_client_name: Some(new_client_name.to_string()),
                     resume_playback: request.resume_playback.filter(|resume| *resume),
+                    position_ms: request.position_ms,
                 },
             )
             .await;

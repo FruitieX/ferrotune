@@ -79,9 +79,9 @@ function parseDurationText(value: string): number {
 
 async function sendTakeoverCommand(
   page: Page,
-  options?: { resumePlayback?: boolean },
+  options?: { resumePlayback?: boolean; positionMs?: number },
 ): Promise<void> {
-  await page.evaluate(async ({ resumePlayback }) => {
+  await page.evaluate(async ({ resumePlayback, positionMs }) => {
     const connection = JSON.parse(
       localStorage.getItem("ferrotune-connection") || "null",
     );
@@ -117,6 +117,7 @@ async function sendTakeoverCommand(
           clientId,
           clientName: "ferrotune-web",
           ...(resumePlayback !== undefined ? { resumePlayback } : {}),
+          ...(positionMs !== undefined ? { positionMs } : {}),
         }),
       },
     );
@@ -257,6 +258,42 @@ async function getConnectedClients(
   });
 }
 
+async function getCurrentQueuePositionMs(page: Page): Promise<number | null> {
+  return page.evaluate(async () => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+    const sessionId = JSON.parse(
+      sessionStorage.getItem("ferrotune-session-id") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password ||
+      !sessionId
+    ) {
+      return null;
+    }
+
+    const url = new URL(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/queue/current-window`,
+    );
+    url.searchParams.set("radius", "20");
+    url.searchParams.set("sessionId", sessionId);
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+      },
+    });
+    if (!response.ok) return null;
+
+    const data: { positionMs: number } = await response.json();
+    return data.positionMs;
+  });
+}
+
 async function connectSyntheticSessionClient(
   page: Page,
   options: { clientId: string; clientName: string },
@@ -326,9 +363,9 @@ async function closeSyntheticSessionClients(page: Page): Promise<void> {
 
 async function sendTakeoverCommandForClient(
   page: Page,
-  options: { clientId: string; clientName: string },
+  options: { clientId: string; clientName: string; positionMs?: number },
 ): Promise<void> {
-  await page.evaluate(async ({ clientId, clientName }) => {
+  await page.evaluate(async ({ clientId, clientName, positionMs }) => {
     const connection = JSON.parse(
       localStorage.getItem("ferrotune-connection") || "null",
     );
@@ -363,6 +400,7 @@ async function sendTakeoverCommandForClient(
           clientId,
           clientName,
           resumePlayback: true,
+          ...(positionMs !== undefined ? { positionMs } : {}),
         }),
       },
     );
@@ -586,7 +624,10 @@ async function playFirstAlbumSong(page: Page): Promise<void> {
   await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
   const firstTrack = page.locator('[data-testid="song-row"]').first();
   await expect(firstTrack).toBeVisible({ timeout: 10000 });
-  await firstTrack.getByRole("button", { name: "Play" }).first().click();
+  await firstTrack
+    .getByRole("button", { name: /^Play$/ })
+    .first()
+    .click();
 }
 
 async function playAlbumTrackAndPause(
@@ -610,7 +651,10 @@ async function playAlbumTrackAndPause(
     .filter({ hasText: trackName })
     .first();
   await expect(track).toBeVisible({ timeout: 10000 });
-  await track.getByRole("button", { name: "Play" }).first().click();
+  await track
+    .getByRole("button", { name: /^Play$/ })
+    .first()
+    .click();
 
   await waitForPlayerReady(page);
   await expect(page.getByTestId("player-bar")).toContainText(trackName, {
@@ -622,7 +666,7 @@ async function playAlbumTrackAndPause(
 async function pauseCurrentPlayback(page: Page): Promise<void> {
   const playerBar = page.getByTestId("player-bar");
   const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
-  const playBtn = playerBar.getByRole("button", { name: "Play" }).first();
+  const playBtn = playerBar.getByRole("button", { name: /^Play$/ }).first();
 
   await expect(pauseBtn).toBeVisible({ timeout: 10000 });
   await pauseBtn.click();
@@ -871,6 +915,77 @@ test.describe.serial("Multi-Session Playback", () => {
     }
   });
 
+  test("player bar session indicator opens connected clients", async ({
+    authenticatedPage: page,
+  }) => {
+    const castClient = {
+      clientId: "ferrotune-cast:bar-indicator",
+      clientName: "ferrotune-cast",
+    };
+
+    try {
+      await playFirstSongAndPause(page);
+      await connectSyntheticSessionClient(page, castClient);
+      await sendTakeoverCommandForClient(page, castClient);
+
+      const playerBar = page.getByTestId("player-bar");
+      const sessionButton = playerBar.getByRole("button", {
+        name: /playing on chromecast/i,
+      });
+      await expect(sessionButton).toBeVisible({ timeout: 10000 });
+      await sessionButton.click();
+
+      await expect(page.getByText("Connected Clients")).toBeVisible({
+        timeout: 10000,
+      });
+      await expect(
+        page.locator('[role="menuitem"]').filter({ hasText: "Chromecast" }),
+      ).toBeVisible({ timeout: 10000 });
+      await page.keyboard.press("Escape");
+    } finally {
+      await closeSyntheticSessionClients(page);
+    }
+  });
+
+  test("fullscreen session indicator opens connected clients", async ({
+    authenticatedPage: page,
+  }) => {
+    const castClient = {
+      clientId: "ferrotune-cast:fullscreen-indicator",
+      clientName: "ferrotune-cast",
+    };
+
+    try {
+      await playFirstSongAndPause(page);
+      await connectSyntheticSessionClient(page, castClient);
+      await sendTakeoverCommandForClient(page, castClient);
+
+      const playerBar = page.getByTestId("player-bar");
+      await expect(
+        playerBar.getByRole("button", { name: /playing on chromecast/i }),
+      ).toBeVisible({ timeout: 10000 });
+      await playerBar.getByRole("button", { name: "Fullscreen" }).click();
+
+      const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+      await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+      const sessionButton = fullscreenPlayer.getByRole("button", {
+        name: /playing on chromecast/i,
+      });
+      await expect(sessionButton).toBeVisible({ timeout: 10000 });
+      await sessionButton.click();
+
+      await expect(page.getByText("Connected Clients")).toBeVisible({
+        timeout: 10000,
+      });
+      await expect(
+        page.locator('[role="menuitem"]').filter({ hasText: "Chromecast" }),
+      ).toBeVisible({ timeout: 10000 });
+      await page.keyboard.press("Escape");
+    } finally {
+      await closeSyntheticSessionClients(page);
+    }
+  });
+
   test("follower joining mid-song loads the current waveform", async ({
     authenticatedPage: ownerPage,
     server,
@@ -961,7 +1076,7 @@ test.describe.serial("Multi-Session Playback", () => {
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
       await expect(
-        followerBar.getByRole("button", { name: "Play" }).first(),
+        followerBar.getByRole("button", { name: /^Play$/ }).first(),
       ).toBeVisible({ timeout: 10000 });
       await expect
         .poll(() => waveformRequestCount, { timeout: 10000 })
@@ -980,7 +1095,9 @@ test.describe.serial("Multi-Session Playback", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
 
     const playerBar = page.getByTestId("player-bar");
-    const playButton = playerBar.getByRole("button", { name: "Play" }).first();
+    const playButton = playerBar
+      .getByRole("button", { name: /^Play$/ })
+      .first();
     await expect(playButton).toBeVisible({ timeout: 10000 });
 
     await resetAudioPauseProbe(page);
@@ -1027,7 +1144,7 @@ test.describe.serial("Multi-Session Playback", () => {
     await expect(
       page
         .getByTestId("player-bar")
-        .getByRole("button", { name: "Play" })
+        .getByRole("button", { name: /^Play$/ })
         .first(),
     ).toBeVisible({ timeout: 10000 });
 
@@ -1050,7 +1167,7 @@ test.describe.serial("Multi-Session Playback", () => {
     await playFirstSongAndPause(page);
 
     const playerBar = page.getByTestId("player-bar");
-    const playBtn = playerBar.getByRole("button", { name: "Play" }).first();
+    const playBtn = playerBar.getByRole("button", { name: /^Play$/ }).first();
     const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
 
     // Capture time while paused
@@ -1109,7 +1226,7 @@ test.describe.serial("Multi-Session Playback", () => {
 
       // Follower should show Play button (since owner is paused)
       const followerPlayBtn = followerBar
-        .getByRole("button", { name: "Play" })
+        .getByRole("button", { name: /^Play$/ })
         .first();
       await expect(followerPlayBtn).toBeVisible({ timeout: 10000 });
 
@@ -1130,7 +1247,7 @@ test.describe.serial("Multi-Session Playback", () => {
 
       // Owner should be paused again
       await expect(
-        ownerBar.getByRole("button", { name: "Play" }).first(),
+        ownerBar.getByRole("button", { name: /^Play$/ }).first(),
       ).toBeVisible({ timeout: 10000 });
     } finally {
       await followerCtx.close();
@@ -1169,7 +1286,7 @@ test.describe.serial("Multi-Session Playback", () => {
       // call is not hidden by autoplay policy.
       await followerBar.click({ position: { x: 10, y: 10 } });
       await expect(
-        ownerBar.getByRole("button", { name: "Play" }).first(),
+        ownerBar.getByRole("button", { name: /^Play$/ }).first(),
       ).toBeVisible({ timeout: 10000 });
 
       // Simulate an ownership change with no explicit resume request.
@@ -1178,7 +1295,7 @@ test.describe.serial("Multi-Session Playback", () => {
       await sendTakeoverCommand(followerPage);
 
       await expect(
-        followerBar.getByRole("button", { name: "Play" }).first(),
+        followerBar.getByRole("button", { name: /^Play$/ }).first(),
       ).toBeVisible({ timeout: 10000 });
       await expect
         .poll(async () => {
@@ -1217,7 +1334,14 @@ test.describe.serial("Multi-Session Playback", () => {
       // handoff logic instead of browser autoplay policy.
       await followerBar.click({ position: { x: 10, y: 10 } });
 
-      await sendTakeoverCommand(followerPage, { resumePlayback: true });
+      await sendTakeoverCommand(followerPage, {
+        resumePlayback: true,
+        positionMs: 1_000,
+      });
+
+      await expect
+        .poll(() => getCurrentQueuePositionMs(followerPage), { timeout: 10000 })
+        .toBe(1000);
 
       await expect
         .poll(
@@ -1322,7 +1446,7 @@ test.describe.serial("Multi-Session Playback", () => {
       const ownerTimeAfterShuffle = await getDisplayedCurrentTime(ownerPage);
       expect(ownerTimeAfterShuffle).toBe(ownerTimeBefore);
       await expect(
-        ownerBar.getByRole("button", { name: "Play" }).first(),
+        ownerBar.getByRole("button", { name: /^Play$/ }).first(),
       ).toBeVisible({ timeout: 5000 });
 
       // Toggle repeat from FOLLOWER
@@ -1333,7 +1457,7 @@ test.describe.serial("Multi-Session Playback", () => {
       const ownerTimeAfterRepeat = await getDisplayedCurrentTime(ownerPage);
       expect(ownerTimeAfterRepeat).toBe(ownerTimeBefore);
       await expect(
-        ownerBar.getByRole("button", { name: "Play" }).first(),
+        ownerBar.getByRole("button", { name: /^Play$/ }).first(),
       ).toBeVisible({ timeout: 5000 });
     } finally {
       await followerCtx.close();
@@ -1397,7 +1521,7 @@ test.describe.serial("Multi-Session Playback", () => {
     await playFirstSongAndPause(page);
 
     const playerBar = page.getByTestId("player-bar");
-    const playBtn = playerBar.getByRole("button", { name: "Play" }).first();
+    const playBtn = playerBar.getByRole("button", { name: /^Play$/ }).first();
     const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
 
     const timeBeforeAdd = await getDisplayedCurrentTime(page);

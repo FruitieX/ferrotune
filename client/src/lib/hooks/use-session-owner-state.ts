@@ -25,6 +25,7 @@ export interface SessionOwnerSnapshot {
   ownerClientId?: string | null;
   ownerClientName?: string | null;
   resumePlayback?: boolean;
+  positionMs?: number;
 }
 
 function isVisible(): boolean {
@@ -104,7 +105,10 @@ export function useSessionOwnerState() {
         selfTakeoverPending.value = false;
 
         if (snapshot.resumePlayback === true) {
-          fetchQueueAndPlay({ forceReload: shouldForceLocalLoad });
+          fetchQueueAndPlay({
+            forceReload: shouldForceLocalLoad,
+            positionMs: snapshot.positionMs,
+          });
         } else {
           fetchQueueAndRestore();
         }

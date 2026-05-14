@@ -917,6 +917,7 @@ pub async fn start_queue(
                         owner_client_id: Some(client_id.clone()),
                         owner_client_name: Some(client_name),
                         resume_playback: None,
+                        position_ms: None,
                     },
                 )
                 .await;
@@ -1686,6 +1687,7 @@ pub async fn update_position(
                         owner_client_id: Some(request_client_id.to_string()),
                         owner_client_name: Some(client_name),
                         resume_playback: None,
+                        position_ms: None,
                     },
                 )
                 .await;

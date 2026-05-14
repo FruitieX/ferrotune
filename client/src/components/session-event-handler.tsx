@@ -251,6 +251,7 @@ export function SessionEventHandler() {
           ownerClientId: event.ownerClientId,
           ownerClientName: event.ownerClientName,
           resumePlayback: event.resumePlayback,
+          positionMs: event.positionMs,
         });
         break;
       }
