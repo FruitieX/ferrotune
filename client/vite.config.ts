@@ -29,14 +29,6 @@ function getBuildDate() {
     return explicitBuildDate;
   }
 
-  const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH;
-  if (sourceDateEpoch) {
-    const epochSeconds = Number.parseInt(sourceDateEpoch, 10);
-    if (Number.isFinite(epochSeconds)) {
-      return new Date(epochSeconds * 1000).toISOString();
-    }
-  }
-
   return new Date().toISOString();
 }
 

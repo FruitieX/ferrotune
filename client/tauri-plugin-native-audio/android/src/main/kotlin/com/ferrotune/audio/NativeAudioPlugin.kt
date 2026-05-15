@@ -128,6 +128,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private var playbackService: PlaybackService? = null
     private var serviceBound = false
     private var webViewRef: WebView? = null
+    private var lastSessionConfig: SessionConfig? = null
+    private var lastPlaybackSettings: PlaybackSettings? = null
     private var safeAreaTop: Float = 0f
     private var safeAreaBottom: Float = 0f
     @Volatile private var webViewInForeground: Boolean = true
@@ -135,9 +137,17 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             Log.d(TAG, "PlaybackService connected")
-            playbackService = (service as PlaybackService.LocalBinder).getService()
-            playbackService?.setEventEmitter { event, data ->
+            val connectedService = (service as PlaybackService.LocalBinder).getService()
+            playbackService = connectedService
+            connectedService.setEventEmitter { event, data ->
                 triggerEvent(event, data)
+            }
+            lastSessionConfig?.let { config ->
+                Log.d(TAG, "Re-applying cached session config to PlaybackService")
+                connectedService.initSession(config)
+            }
+            lastPlaybackSettings?.let { settings ->
+                connectedService.updateSettings(settings)
             }
         }
 
@@ -268,8 +278,10 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private fun bindPlaybackService() {
         val intent = Intent(activity, PlaybackService::class.java)
         activity.startService(intent)
-        activity.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-        serviceBound = true
+        if (!serviceBound) {
+            activity.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            serviceBound = true
+        }
     }
 
     private fun unbindPlaybackService() {
@@ -332,6 +344,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private suspend fun awaitService(timeoutMs: Long = 5000L): PlaybackService? {
         // If service is already available, return immediately
         playbackService?.let { return it }
+
+        bindPlaybackService()
 
         // Wait for service to connect with polling
         return withTimeoutOrNull(timeoutMs) {
@@ -410,6 +424,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
+                lastSessionConfig = null
                 service.resetSession()
                 invoke.resolve()
             } catch (e: Exception) {
@@ -618,14 +633,16 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
-                service.initSession(SessionConfig(
+                val config = SessionConfig(
                     serverUrl = args.serverUrl,
                     username = args.username,
                     password = args.password,
                     apiKey = args.apiKey,
                     sessionId = args.sessionId,
                     clientId = args.clientId
-                ))
+                )
+                lastSessionConfig = config
+                service.initSession(config)
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in initSession()", e)
@@ -654,6 +671,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
+                lastPlaybackSettings = settings
                 service.updateSettings(settings)
                 invoke.resolve()
             } catch (e: Exception) {

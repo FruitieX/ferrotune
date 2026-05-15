@@ -14,6 +14,7 @@
 
 import { isTauriMobile } from "@/lib/tauri";
 import type { PlaybackState as AppPlaybackState } from "@/lib/store/player";
+import { nativeAudioReady, nativeSessionReady } from "@/lib/audio/engine-state";
 
 // Types from the native plugin
 interface NativeTrackInfo {
@@ -123,6 +124,15 @@ async function waitForNativeStop(): Promise<void> {
   const stopPromise = nativeStopPromise;
   if (stopPromise) {
     await stopPromise;
+  }
+}
+
+async function waitForNativeSession(): Promise<void> {
+  if (nativeAudioReady) {
+    await nativeAudioReady;
+  }
+  if (nativeSessionReady) {
+    await nativeSessionReady;
   }
 }
 
@@ -302,6 +312,7 @@ export interface NativeStreamOptions {
 export async function nativePlay(): Promise<void> {
   console.log("[NativeAudio] nativePlay() called");
   await waitForNativeStop();
+  await waitForNativeSession();
   const api = await getNativeApi();
   await api.play();
 }
@@ -379,6 +390,7 @@ export async function nativePlayAtIndex(index: number): Promise<void> {
   console.log("[NativeAudio] nativePlayAtIndex() called:", index);
   try {
     await waitForNativeStop();
+    await waitForNativeSession();
     const api = await getNativeApi();
     await api.playAtIndex(index);
     console.log("[NativeAudio] nativePlayAtIndex() SUCCEEDED");
@@ -516,6 +528,7 @@ export async function nativeStartPlayback(params: {
   console.log("[NativeAudio] nativeStartPlayback() called", params);
   try {
     await waitForNativeStop();
+    await waitForNativeSession();
     const api = await getNativeApi();
     await api.startPlayback(params);
     console.log("[NativeAudio] nativeStartPlayback() SUCCEEDED");

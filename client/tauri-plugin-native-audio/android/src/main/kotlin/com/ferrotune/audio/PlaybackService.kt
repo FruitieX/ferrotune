@@ -711,11 +711,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        // Keep the service in foreground when a track ends naturally
-        // (playWhenReady still true) to prevent the system from killing
-        // the service before the JS side can advance to the next track.
+        // Keep the service foreground while playback is intended, including
+        // buffering and ended-but-advancing states where isPlaying is false.
         val keepForeground = startInForegroundRequired ||
-            (player.playWhenReady && player.playbackState == Player.STATE_ENDED)
+            (player.playWhenReady && player.mediaItemCount > 0)
         super.onUpdateNotification(session, keepForeground)
     }
 
@@ -933,12 +932,23 @@ class PlaybackService : MediaSessionService() {
     private fun handleSessionEvent(event: SessionEvent) {
         when (event) {
             is SessionEvent.PlaybackCommand -> {
-                Log.d(TAG, "SSE PlaybackCommand: action=${event.action}, positionMs=${event.positionMs}")
+                Log.d(TAG, "SSE PlaybackCommand: action=${event.action}, clientId=${event.clientId}, positionMs=${event.positionMs}")
                 if (event.action == "takeOver") {
-                    // OwnerChanged is the authoritative ownership signal. The
-                    // takeOver playback command lets web owners pause after
-                    // handoff, and would otherwise double-process self echoes
-                    // on Android.
+                    val myClientId = apiClient.getClientId()
+                    if (myClientId != null && event.clientId == myClientId) {
+                        Log.d(TAG, "Ignoring self takeOver echo")
+                        return
+                    }
+
+                    Log.d(TAG, "Remote takeOver received; pausing native playback")
+                    nativeOwnsSession = false
+                    clearPendingNetworkRetry("remote takeover")
+                    handler.removeCallbacks(positionSyncRunnable)
+                    handler.removeCallbacks(preApplyGainRunnable)
+                    if (player.playWhenReady || player.isPlaying) {
+                        player.pause()
+                    }
+                    emitStateChange()
                     return
                 }
                 if (!nativeOwnsSession) {

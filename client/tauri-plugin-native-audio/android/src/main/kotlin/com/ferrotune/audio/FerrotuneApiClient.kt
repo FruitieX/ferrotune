@@ -559,6 +559,7 @@ class FerrotuneApiClient {
             "queueUpdated" -> SessionEvent.QueueUpdated
             "playbackCommand" -> SessionEvent.PlaybackCommand(
                 action = json.getString("action"),
+                clientId = json.optString("clientId").ifEmpty { null },
                 positionMs = if (json.has("positionMs") && !json.isNull("positionMs"))
                     json.getLong("positionMs") else null,
                 currentIndex = if (json.has("currentIndex") && !json.isNull("currentIndex"))
@@ -601,6 +602,7 @@ sealed class SessionEvent {
     object QueueUpdated : SessionEvent()
     data class PlaybackCommand(
         val action: String,
+        val clientId: String?,
         val positionMs: Long?,
         val currentIndex: Int?,
     ) : SessionEvent()

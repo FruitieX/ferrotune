@@ -60,6 +60,25 @@ async function setQueuePanelPreference(page: Page, value: boolean) {
   await setServerPreference(page, "queue-panel-open", value);
 }
 
+async function getProgressTimeOverlayOpacity(page: Page): Promise<number> {
+  return page
+    .getByTestId("player-bar")
+    .getByTestId("progress-time-overlay")
+    .first()
+    .evaluate((element) =>
+      Number.parseFloat(window.getComputedStyle(element).opacity),
+    );
+}
+
+async function expectProgressTimeOverlayOpacity(
+  page: Page,
+  expectedOpacity: number,
+): Promise<void> {
+  await expect
+    .poll(() => getProgressTimeOverlayOpacity(page), { timeout: 5000 })
+    .toBe(expectedOpacity);
+}
+
 async function addSecondarySavedAccount(page: Page) {
   await page.evaluate(() => {
     const connection = JSON.parse(
@@ -254,6 +273,20 @@ test.describe("Mobile Tests", () => {
       .getByRole("button", { name: /play|pause/i })
       .first();
     await expect(playPauseButton).toBeVisible();
+  });
+
+  test("hides progress seek overlay after touch tap", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const progressSlider = page
+      .getByTestId("player-bar")
+      .getByRole("slider", { name: "Playback progress" });
+    await expectProgressTimeOverlayOpacity(page, 0);
+    await progressSlider.tap({ position: { x: 120, y: 8 } });
+    await expectProgressTimeOverlayOpacity(page, 0);
   });
 
   test("player overflow shows Cast when a receiver is available", async ({

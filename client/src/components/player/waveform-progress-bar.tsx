@@ -455,6 +455,12 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     seekPercent(percent);
   };
 
+  const finishTouchInteraction = () => {
+    setIsDragging(false);
+    setIsHovering(false);
+    setHoverPercent(null);
+  };
+
   // Handle mouse/touch move during drag (global listeners)
   useEffect(() => {
     if (!isDragging) return;
@@ -560,6 +566,8 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       }}
       onMouseDown={hasTrack ? handleMouseDown : undefined}
       onTouchStart={hasTrack ? handleTouchStart : undefined}
+      onTouchEnd={hasTrack ? finishTouchInteraction : undefined}
+      onTouchCancel={hasTrack ? finishTouchInteraction : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
       onFocus={hasTrack ? () => setIsFocused(true) : undefined}
       onBlur={() => setIsFocused(false)}
