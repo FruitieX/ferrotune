@@ -20,6 +20,7 @@ pub mod search;
 pub mod starring;
 pub mod stream;
 pub mod system;
+pub mod transcode_cache;
 pub mod transcoding;
 pub mod xml;
 

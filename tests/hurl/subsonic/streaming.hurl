@@ -81,6 +81,16 @@ HTTP 200
 header "Content-Type" matches "audio/.*"
 bytes count > 1000
 
+# Test: transcoded stream supports byte range requests from cache
+GET {{base_url}}/rest/stream?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id={{stream_song_id}}&format=opus&maxBitRate=96
+Range: bytes=0-127
+HTTP 206
+[Asserts]
+header "Content-Type" contains "audio/ogg"
+header "Accept-Ranges" == "bytes"
+header "Content-Range" contains "bytes 0-127/"
+bytes count == 128
+
 # Test: stream - invalid song ID (JSON) - error code 70 = not found
 GET {{base_url}}/rest/stream?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-id&f=json
 HTTP 200

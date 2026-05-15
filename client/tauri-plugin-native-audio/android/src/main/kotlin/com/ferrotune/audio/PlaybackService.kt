@@ -395,8 +395,9 @@ class PlaybackService : MediaSessionService() {
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
         // Custom load error policy: keep transient network failures inside
-        // ExoPlayer while already-buffered audio can continue. If the upstream
-        // cannot recover, onPlayerError still falls back to a timeOffset reload.
+        // ExoPlayer so Media3 can resume with byte-range requests while
+        // already-buffered audio continues. If the upstream cannot recover,
+        // onPlayerError still falls back to a timeOffset reload.
         @OptIn(UnstableApi::class)
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getMinimumLoadableRetryCount(dataType: Int): Int {
@@ -842,8 +843,9 @@ class PlaybackService : MediaSessionService() {
         clearPendingNetworkRetry("seek")
 
         if (playbackSettings.transcodingEnabled && currentTrack != null) {
-            // Transcoded streams don't support HTTP Range requests, so we reload
-            // the stream with a timeOffset parameter to seek server-side.
+            // Transcoded streams now support byte ranges, but user seeks are
+            // time-based. Reload with timeOffset so the server starts the
+            // encoded stream at the requested playback position.
             val track = currentTrack!!
             val timeOffsetSeconds = positionMs / 1000
             val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
@@ -1327,9 +1329,10 @@ class PlaybackService : MediaSessionService() {
 
         val mediaItems = tracks.map { createMediaItem(it) }.toMutableList()
 
-        // For transcoded streams, ExoPlayer can't seek via Range headers.
-        // Use seek-by-reload: rebuild the current track's URL with a timeOffset
-        // parameter so the server sends audio starting from the right position.
+        // Transcoded streams can be retried with byte ranges, but initial
+        // queue restores need a playback-time seek. Use seek-by-reload:
+        // rebuild the current track's URL with a timeOffset parameter so the
+        // server sends audio starting from the right position.
         if (startPositionMs > 0 && playbackSettings.transcodingEnabled && currentTrack != null) {
             val track = currentTrack!!
             val timeOffsetSeconds = startPositionMs / 1000
@@ -3068,8 +3071,8 @@ class PlaybackService : MediaSessionService() {
             Log.e(TAG, "onPlayerError: ${error.message}", error)
 
             // Retry on network errors (IO_ERROR) if we haven't exceeded the limit.
-            // For transcoded streams, reload with the correct timeOffset to avoid
-            // restarting playback from position 0.
+            // If source-level retry is exhausted, reload transcoded streams
+            // with the correct timeOffset to avoid restarting from position 0.
             val isNetworkError = error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||

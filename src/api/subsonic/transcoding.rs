@@ -11,6 +11,7 @@
 use crate::api::ferrotune::users::user_has_song_access;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::SubsonicResponse;
+use crate::api::subsonic::transcode_cache::transcode_with_cache;
 use crate::api::AppState;
 use crate::error::{Error, FormatError, Result};
 use audiopus::coder::Encoder as OpusEncoder;
@@ -18,7 +19,7 @@ use audiopus::{Application, Bitrate, Channels, SampleRate};
 use axum::{
     body::Body,
     extract::{Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -380,10 +381,11 @@ async fn get_transcode_decision_logic(
 pub async fn get_transcode_stream(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<TranscodeStreamParams>,
 ) -> std::result::Result<Response, impl IntoResponse> {
     let format = user.format;
-    get_transcode_stream_logic(user, state, params)
+    get_transcode_stream_logic(user, state, headers, params)
         .await
         .map_err(|e| FormatError::new(e, format))
 }
@@ -391,6 +393,7 @@ pub async fn get_transcode_stream(
 async fn get_transcode_stream_logic(
     user: AuthenticatedUser,
     state: Arc<AppState>,
+    headers: HeaderMap,
     params: TranscodeStreamParams,
 ) -> Result<Response> {
     // Decode transcode parameters
@@ -448,10 +451,6 @@ async fn get_transcode_stream_logic(
         return Err(Error::NotFound("File not found".to_string()));
     }
 
-    // Create channel for streaming transcoded data
-    // Large buffer to allow transcoding to run ahead without blocking
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
-
     // Build ReplayGain info from song data
     // Prefer computed values over original tags (computed uses EBU R128 with -23 LUFS reference)
     let replaygain_info = ReplayGainInfo {
@@ -463,32 +462,17 @@ async fn get_transcode_stream_logic(
             .or(song.original_replaygain_track_peak),
     };
 
-    // Spawn blocking task to transcode
-    let config_clone = config.clone();
     let offset_seconds = params.offset.unwrap_or(0) as f64;
-    tokio::task::spawn_blocking(move || {
-        if let Err(e) = transcode_to_opus_with_offset(
-            &canonical_path,
-            &config_clone,
-            tx,
-            offset_seconds,
-            replaygain_info,
-            false, // Use coarse seek by default for OpenSubsonic endpoint
-        ) {
-            tracing::error!("Transcoding error: {}", e);
-        }
-    });
-
-    // Convert receiver to stream
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let body_stream = futures::stream::StreamExt::map(stream, Ok::<_, std::io::Error>);
-    let body = Body::from_stream(body_stream);
-
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "audio/ogg")
-        .body(body)
-        .unwrap())
+    transcode_with_cache(
+        &state.config.cache,
+        &headers,
+        &canonical_path,
+        &config,
+        offset_seconds,
+        replaygain_info,
+        false,
+    )
+    .await
 }
 
 // ============================================================================
@@ -563,6 +547,27 @@ fn transcode_to_opus_with_offset(
     time_offset_seconds: f64,
     replaygain_info: ReplayGainInfo,
     accurate_seek: bool,
+) -> Result<()> {
+    let writer = OggStreamBuffer::new(tx);
+    transcode_to_opus_writer(
+        path,
+        config,
+        writer,
+        time_offset_seconds,
+        replaygain_info,
+        accurate_seek,
+        rand::random::<u32>(),
+    )
+}
+
+pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
+    path: &std::path::Path,
+    config: &TranscodeConfig,
+    writer: W,
+    time_offset_seconds: f64,
+    replaygain_info: ReplayGainInfo,
+    accurate_seek: bool,
+    ogg_serial: u32,
 ) -> Result<()> {
     // Open source file
     let file = std::fs::File::open(path)
@@ -681,12 +686,12 @@ fn transcode_to_opus_with_offset(
         .set_bitrate(Bitrate::BitsPerSecond(config.bitrate as i32))
         .map_err(|e| Error::Internal(format!("Could not set bitrate: {}", e)))?;
 
-    // Create Ogg packet writer with a streaming buffer
-    let mut ogg_buffer = OggStreamBuffer::new(tx.clone());
-    let mut ogg_writer = PacketWriter::new(&mut ogg_buffer);
+    // Create Ogg packet writer with the requested output target.
+    let mut output = writer;
+    let mut ogg_writer = PacketWriter::new(&mut output);
 
     // Write Opus header packets
-    let serial = rand::random::<u32>();
+    let serial = ogg_serial;
     write_opus_header(
         &mut ogg_writer,
         serial,
@@ -785,12 +790,16 @@ fn transcode_to_opus_with_offset(
                 Ok(len) => {
                     granule_pos += OPUS_FRAME_SIZE as u64;
                     let ogg_packet = ogg::writing::PacketWriteEndInfo::EndPage;
-                    if ogg_writer
-                        .write_packet(opus_output[..len].to_vec(), serial, ogg_packet, granule_pos)
-                        .is_err()
-                    {
-                        // Client disconnected
-                        return Ok(());
+                    if let Err(e) = ogg_writer.write_packet(
+                        opus_output[..len].to_vec(),
+                        serial,
+                        ogg_packet,
+                        granule_pos,
+                    ) {
+                        if e.kind() == std::io::ErrorKind::BrokenPipe {
+                            return Ok(());
+                        }
+                        return Err(Error::Internal(format!("Could not write Ogg packet: {e}")));
                     }
                 }
                 Err(e) => {
@@ -826,12 +835,13 @@ fn transcode_to_opus_with_offset(
         let frame: Vec<i16> = pcm_buffer.drain(..frame_samples).collect();
         if let Ok(len) = opus_encoder.encode(&frame, &mut opus_output) {
             granule_pos += OPUS_FRAME_SIZE as u64;
-            let _ = ogg_writer.write_packet(
+            write_ogg_packet(
+                &mut ogg_writer,
                 opus_output[..len].to_vec(),
                 serial,
                 ogg::writing::PacketWriteEndInfo::EndStream,
                 granule_pos,
-            );
+            )?;
         }
     } else {
         // No remaining samples, but we still need to write an EndStream marker
@@ -839,22 +849,40 @@ fn transcode_to_opus_with_offset(
         let silent_frame = vec![0i16; frame_samples];
         if let Ok(len) = opus_encoder.encode(&silent_frame, &mut opus_output) {
             granule_pos += OPUS_FRAME_SIZE as u64;
-            let _ = ogg_writer.write_packet(
+            write_ogg_packet(
+                &mut ogg_writer,
                 opus_output[..len].to_vec(),
                 serial,
                 ogg::writing::PacketWriteEndInfo::EndStream,
                 granule_pos,
-            );
+            )?;
         }
     }
 
     // Flush the ogg writer
     drop(ogg_writer);
-
-    // Send any remaining buffered data
-    ogg_buffer.flush();
+    if let Err(e) = output.flush() {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            return Ok(());
+        }
+        return Err(Error::Internal(format!("Could not flush Ogg output: {e}")));
+    }
 
     Ok(())
+}
+
+fn write_ogg_packet<W: std::io::Write>(
+    writer: &mut PacketWriter<W>,
+    packet: Vec<u8>,
+    serial: u32,
+    end_info: ogg::writing::PacketWriteEndInfo,
+    granule_pos: u64,
+) -> Result<()> {
+    match writer.write_packet(packet, serial, end_info, granule_pos) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(Error::Internal(format!("Could not write Ogg packet: {e}"))),
+    }
 }
 
 /// Write Opus ID and Comment headers to the Ogg stream.

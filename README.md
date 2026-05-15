@@ -41,6 +41,8 @@ On first run, open `http://localhost:4040` in your browser to:
 |----------|-------------|---------|
 | `FERROTUNE_DATABASE_URL` | Database connection URL. Overrides `[database]` in the TOML config. | unset (falls back to SQLite at `FERROTUNE_DATA_DIR`) |
 | `FERROTUNE_DATA_DIR` | Directory for database and cache | Platform-specific |
+| `FERROTUNE_TRANSCODE_CACHE_PATH` | Directory for byte-range-addressable transcoded stream cache | `$TMPDIR/ferrotune/transcodes` |
+| `FERROTUNE_TRANSCODE_CACHE_MAX_MB` | Max transcoded stream cache size in MiB before LRU eviction | `10240` |
 | `FERROTUNE_CONFIG` | Path to config file | `~/.config/ferrotune/config.toml` |
 | `FERROTUNE_HOST` | Server bind address | `127.0.0.1` |
 | `FERROTUNE_PORT` | Server port | `4040` |
@@ -60,6 +62,14 @@ FERROTUNE_DATABASE_URL="postgres://ferrotune:ferrotune@localhost:5432/ferrotune"
 When `FERROTUNE_DATA_DIR` is set:
 - Database: `$FERROTUNE_DATA_DIR/ferrotune.db` (if using SQLite)
 - Cache: `$FERROTUNE_DATA_DIR/cache/`
+
+For Kubernetes/container deployments without a config file, point the transcode cache at an ephemeral volume:
+
+```bash
+FERROTUNE_TRANSCODE_CACHE_PATH=/cache/transcodes \
+FERROTUNE_TRANSCODE_CACHE_MAX_MB=20480 \
+  ferrotune serve --host 0.0.0.0 --port 4040
+```
 
 ## CLI Commands
 

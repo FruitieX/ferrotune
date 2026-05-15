@@ -24,3 +24,9 @@ path = "~/ferrotune-library"
 [cache]
 path = "~/.cache/ferrotune"
 max_cover_size = 1024
+# Store byte-range-addressable transcoded streams here. Point this at an
+# ephemeral volume in container deployments.
+# Configless/container deployments can use FERROTUNE_TRANSCODE_CACHE_PATH and
+# FERROTUNE_TRANSCODE_CACHE_MAX_MB instead of this TOML section.
+transcode_path = "/tmp/ferrotune/transcodes"
+max_transcode_size_mb = 10240

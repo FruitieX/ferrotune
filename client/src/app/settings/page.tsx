@@ -57,7 +57,7 @@ import {
   sidebarItemSizeAtom,
   type SidebarItemSize,
 } from "@/lib/store/ui";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   parseCssColorToOklch,
   clampOklchToSliderRanges,
@@ -82,6 +82,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { buildInfo, formatBuildDate } from "@/lib/build-info";
 import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
 
 const progressTimeLabelVisibilityOptions = [
@@ -89,6 +90,22 @@ const progressTimeLabelVisibilityOptions = [
   { value: "hover", label: "On hover" },
   { value: "never", label: "Never" },
 ] satisfies { value: ProgressTimeLabelVisibility; label: string }[];
+
+type AboutInfoRowProps = {
+  label: string;
+  children: ReactNode;
+};
+
+function AboutInfoRow({ label, children }: AboutInfoRowProps) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-all text-right font-medium">
+        {children}
+      </span>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const { isReady, isLoading: authLoading } = useAuth({
@@ -120,6 +137,7 @@ export default function SettingsPage() {
     transcodingSeekModeAtom,
   );
   const { theme, setTheme } = useTheme();
+  const formattedBuildDate = formatBuildDate(buildInfo.buildDate);
 
   // Fetch server stats
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -985,14 +1003,16 @@ export default function SettingsPage() {
               <CardTitle>About Ferrotune</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Client Version</span>
-                <span className="font-medium">1.0.0</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Protocol</span>
-                <span className="font-medium">OpenSubsonic</span>
-              </div>
+              <AboutInfoRow label="App Version">
+                {buildInfo.version}
+              </AboutInfoRow>
+              <AboutInfoRow label="Build Date">
+                {formattedBuildDate}
+              </AboutInfoRow>
+              <AboutInfoRow label="Git Commit">
+                <span className="font-mono text-sm">{buildInfo.gitCommit}</span>
+              </AboutInfoRow>
+              <AboutInfoRow label="Protocol">OpenSubsonic</AboutInfoRow>
               <Separator />
               <p className="text-sm text-muted-foreground">
                 Ferrotune is a modern music player for your personal music

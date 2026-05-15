@@ -195,14 +195,38 @@ export function createNetworkErrorHandlers(
         // navigated away or paused)
         const currentState = deps.stateRef.current.playbackState;
         if (currentState === "loading" || currentState === "error") {
-          // Retry by reloading the current audio source
+          // Retry by reloading the same source and restoring the stream-relative
+          // media position. With byte-range-capable streams, the browser can
+          // turn that seek into a range request instead of replaying from zero.
           const activeAudio = audioElements[activeIndex];
           if (activeAudio?.src) {
             const currentSrc = activeAudio.src;
+            const resumeTime = Number.isFinite(activeAudio.currentTime)
+              ? activeAudio.currentTime
+              : 0;
+            const streamTimeOffset = deps.getCurrentStreamTimeOffset();
+            const restoreRetryPosition = () => {
+              if (resumeTime <= 0) return;
+              try {
+                activeAudio.currentTime = resumeTime;
+              } catch (error) {
+                console.warn(
+                  "[Audio] Failed to restore retry position:",
+                  error,
+                );
+              }
+            };
+
+            activeAudio.addEventListener(
+              "loadedmetadata",
+              restoreRetryPosition,
+              { once: true },
+            );
             activeAudio.src = "";
             activeAudio.src = currentSrc;
-            deps.setCurrentStreamTimeOffset(0);
+            deps.setCurrentStreamTimeOffset(streamTimeOffset);
             deps.setIsLoadingNewTrack(true);
+            activeAudio.load();
             resumeAudioContext().then(() => {
               activeAudio.play().catch(console.error);
             });

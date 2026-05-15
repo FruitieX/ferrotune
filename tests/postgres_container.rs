@@ -78,6 +78,8 @@ fn postgres_test_app_config(database: DatabaseConfig) -> Config {
         cache: CacheConfig {
             path: PathBuf::from("/tmp/ferrotune-test-cache"),
             max_cover_size: 1024,
+            transcode_path: PathBuf::from("/tmp/ferrotune-test-cache/transcodes"),
+            max_transcode_size_mb: 1024,
         },
     }
 }
