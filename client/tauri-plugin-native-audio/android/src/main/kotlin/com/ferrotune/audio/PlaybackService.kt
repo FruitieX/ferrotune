@@ -32,6 +32,7 @@ import androidx.media3.common.SimpleBasePlayer.PeriodData
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -114,6 +115,7 @@ class PlaybackService : MediaSessionService() {
         private const val AUDIO_ROUTE_SETTLE_DELAY_MS = 500L
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
+        private const val NOTIFICATION_ARTWORK_MAX_DIMENSION_PX = 512
         // SimpleCache is a singleton — only one instance may exist per cache directory.
         // We keep it in the companion object so it survives service re-creation.
         private var streamCache: SimpleCache? = null
@@ -160,6 +162,8 @@ class PlaybackService : MediaSessionService() {
     // Stored reference to update auth headers when session config changes
     @OptIn(UnstableApi::class)
     private var httpDataSourceFactory: DefaultHttpDataSource.Factory? = null
+    @OptIn(UnstableApi::class)
+    private var artworkDataSourceFactory: DefaultHttpDataSource.Factory? = null
     // Server queue state
     private var serverQueueIndex: Int = 0
     private var serverTotalCount: Int = 0
@@ -386,6 +390,8 @@ class PlaybackService : MediaSessionService() {
         // without re-requesting already-received data from the server.
         @OptIn(UnstableApi::class)
         httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        @OptIn(UnstableApi::class)
+        artworkDataSourceFactory = DefaultHttpDataSource.Factory()
 
         @OptIn(UnstableApi::class)
         val cacheDataSourceFactory = CacheDataSource.Factory()
@@ -625,6 +631,12 @@ class PlaybackService : MediaSessionService() {
         @OptIn(UnstableApi::class)
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
+            .setBitmapLoader(
+                DataSourceBitmapLoader.Builder(this)
+                    .setDataSourceFactory(artworkDataSourceFactory!!)
+                    .setMaximumOutputDimension(NOTIFICATION_ARTWORK_MAX_DIMENSION_PX)
+                    .build()
+            )
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
                     session: MediaSession,
@@ -893,9 +905,11 @@ class PlaybackService : MediaSessionService() {
         }
         activeSessionIdentity = sessionIdentity
         apiClient.setSessionConfig(config)
-        // Set auth headers on ExoPlayer's HTTP data source so streaming
-        // and cover art requests use headers instead of URL query params.
-        httpDataSourceFactory?.setDefaultRequestProperties(apiClient.getAuthHeaders())
+        // Set auth headers on Media3 HTTP data sources so streaming and
+        // notification artwork use headers instead of URL query params.
+        val authHeaders = apiClient.getAuthHeaders()
+        httpDataSourceFactory?.setDefaultRequestProperties(authHeaders)
+        artworkDataSourceFactory?.setDefaultRequestProperties(authHeaders)
         // Connect SSE for remote control if session ID is available
         connectSessionSSE()
     }
@@ -2864,7 +2878,8 @@ class PlaybackService : MediaSessionService() {
         // Use artwork URI instead of embedding raw bitmap data.
         // Embedding bitmaps in MediaMetadata causes TransactionTooLargeException
         // (binder limit ~1MB) when the MediaSession sends player info to controllers.
-        // Media3 will load the artwork asynchronously from the URI for notifications.
+        // The session bitmap loader hydrates this URI for phone notifications and
+        // legacy MediaSession controllers such as Wear OS.
         if (track.coverArtUrl != null) {
             metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
         }
