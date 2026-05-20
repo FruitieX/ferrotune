@@ -1056,25 +1056,28 @@ function FollowerIndicator() {
       : Monitor;
 
   return (
-    <ResponsiveDropdownMenu
-      trigger={
-        <button
-          type="button"
-          className="relative z-110 flex w-full items-center justify-center gap-1.5 pt-2 pb-0.5 bg-primary/10 text-primary text-xs hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-          aria-label={`Open playback clients, currently playing on ${sessionName}`}
-        >
-          <Icon className="w-3 h-3" />
-          <span>Playing on {sessionName}</span>
-        </button>
-      }
-      renderMenuContent={(components) => (
-        <ConnectedClientsMenuItems components={components} />
-      )}
-      contentClassName="w-64"
-      align="center"
-      side="top"
-      drawerTitle="Playback Clients"
-    />
+    <div className="pointer-events-none relative z-110 flex w-full items-center justify-center bg-primary/10 pt-2 pb-0.5 text-primary text-xs">
+      <ResponsiveDropdownMenu
+        trigger={
+          <button
+            type="button"
+            className="pointer-events-auto flex max-w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            aria-label={`Open playback clients, currently playing on ${sessionName}`}
+          >
+            <Icon className="w-3 h-3 shrink-0" />
+            <span className="truncate">Playing on {sessionName}</span>
+          </button>
+        }
+        triggerWrapperClassName="pointer-events-auto mx-auto w-fit max-w-[calc(100%-1rem)]"
+        renderMenuContent={(components) => (
+          <ConnectedClientsMenuItems components={components} />
+        )}
+        contentClassName="w-64"
+        align="center"
+        side="top"
+        drawerTitle="Playback Clients"
+      />
+    </div>
   );
 }
 

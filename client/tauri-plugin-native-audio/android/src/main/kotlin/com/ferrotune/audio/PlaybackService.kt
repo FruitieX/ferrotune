@@ -871,7 +871,8 @@ class PlaybackService : MediaSessionService() {
         replayGainProcessor.clearPendingGain()
         scheduleReplayGainPreApply()
 
-        // Broadcast new position to followers immediately
+        // Persist the new queue position and notify followers immediately.
+        syncPositionToServer()
         sendPlaybackStateHeartbeat(player.playWhenReady)
     }
 
@@ -1021,26 +1022,35 @@ class PlaybackService : MediaSessionService() {
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
                             if (!isQueueLoadGenerationCurrent(generation, "SSE QueueUpdated")) return@post
-                            serverQueueIndex = response.currentIndex
-
                             // Check if the currently playing track is still the track
                             // at the target position. If not (e.g., current track was
                             // removed), do a full reload to start the new current track.
                             if (!isCurrentTrackAtTarget(response, response.currentIndex)) {
+                                val currentPlaybackPosition = currentPlaybackPositionInResponse(response)
+                                if (currentPlaybackPosition != null) {
+                                    Log.d(
+                                        TAG,
+                                        "SSE QueueUpdated: preserving active track at position $currentPlaybackPosition " +
+                                            "instead of stale target ${response.currentIndex}"
+                                    )
+                                    syncQueueWithoutRestart(response, currentPlaybackPosition, emitQueueState = false)
+                                    syncPositionToServer()
+                                    return@post
+                                }
+
                                 // If invalidateQueue() was called since we started this
                                 // fetch, skip the full reload — invalidateQueue already
-                                // handles it with the correct player.currentPosition.
+                                // handles it with the correct absolute playback position.
                                 if (invalidateVersion != versionAtStart) {
                                     Log.d(TAG, "SSE QueueUpdated: skipping full reload, invalidateQueue pending")
                                     handleShuffleQueueUpdate(response, response.currentIndex)
                                 } else {
                                     Log.d(TAG, "SSE QueueUpdated: current track removed, doing full reload")
-                                    // Use player.currentPosition instead of response.positionMs
-                                    // because the DB value may be stale (not updated during
-                                    // queue manipulations like add/remove/move)
+                                    // Use the local absolute position instead of response.positionMs
+                                    // because the DB value may be stale during queue edits.
                                     handleQueueWindowResponse(
                                         response, response.currentIndex,
-                                        player.currentPosition, player.playWhenReady)
+                                        getAbsolutePlaybackPositionMs(), player.playWhenReady)
                                 }
                             } else {
                                 // Surgically update ExoPlayer's queue without restarting
@@ -1647,7 +1657,7 @@ class PlaybackService : MediaSessionService() {
             deferred.complete(Unit)
             return deferred
         }
-        val currentPositionMs = player.currentPosition
+        val currentPositionMs = getAbsolutePlaybackPositionMs()
         val generation = nextQueueLoadGeneration("toggle shuffle")
         apiExecutor.execute {
             try {
@@ -1920,13 +1930,38 @@ class PlaybackService : MediaSessionService() {
         response: GetQueueResponse,
         targetIndex: Int,
     ): Boolean {
-        val targetSongId = response.window.songs
-            .find { it.position == targetIndex }?.song?.id
+        val targetSongId = queueWindowSongIdAt(response, targetIndex)
         val currentMediaId = if (player.mediaItemCount > 0) {
             player.currentMediaItem?.mediaId
         } else null
 
         return currentMediaId != null && targetSongId != null && currentMediaId == targetSongId
+    }
+
+    private fun queueWindowSongIdAt(response: GetQueueResponse, targetIndex: Int): String? {
+        return response.window.songs.find { it.position == targetIndex }?.song?.id
+    }
+
+    private fun currentServerPositionFromPlayer(): Int? {
+        val currentExoIndex = player.currentMediaItemIndex
+        if (currentExoIndex == C.INDEX_UNSET) return null
+
+        return exoIndexToServerPosition.getOrNull(currentExoIndex)
+    }
+
+    private fun currentPlaybackPositionInResponse(response: GetQueueResponse): Int? {
+        val currentMediaId = player.currentMediaItem?.mediaId ?: return null
+        val currentServerPosition = currentServerPositionFromPlayer()
+
+        if (currentServerPosition != null &&
+            queueWindowSongIdAt(response, currentServerPosition) == currentMediaId
+        ) {
+            return currentServerPosition
+        }
+
+        return response.window.songs
+            .firstOrNull { it.song.id == currentMediaId }
+            ?.position
     }
 
     private fun seekLoadedCurrentTrackTo(positionMs: Long, reason: String) {
@@ -2132,7 +2167,10 @@ class PlaybackService : MediaSessionService() {
                 return mediaSource
             }
 
-            return KnownDurationMediaSource(mediaSource, durationMs)
+            return KnownDurationMediaSource(
+                mediaSource,
+                transcodedStreamDurationMs(mediaItem, durationMs),
+            )
         }
 
         override fun getSupportedTypes(): IntArray = delegate.supportedTypes
@@ -2157,6 +2195,16 @@ class PlaybackService : MediaSessionService() {
             return uri.getQueryParameter("format") == "opus" ||
                 uri.getQueryParameter("maxBitRate") != null ||
                 uri.getQueryParameter("timeOffset") != null
+        }
+
+        private fun transcodedStreamDurationMs(mediaItem: MediaItem, trackDurationMs: Long): Long {
+            val uri = mediaItem.localConfiguration?.uri ?: return trackDurationMs
+            val timeOffsetSeconds = uri.getQueryParameter("timeOffset")
+                ?.toLongOrNull()
+                ?.coerceAtLeast(0L)
+                ?: return trackDurationMs
+
+            return (trackDurationMs - timeOffsetSeconds * 1000L).coerceAtLeast(1L)
         }
     }
 

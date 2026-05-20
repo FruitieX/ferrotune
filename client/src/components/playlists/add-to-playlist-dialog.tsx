@@ -308,7 +308,7 @@ export function AddToPlaylistDialog({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="sm:max-w-[480px] p-0 gap-0 overflow-hidden"
+          className="sm:max-w-120 p-0 gap-0 overflow-hidden"
           overlayClassName="z-[70]"
           style={{ zIndex: 70 }}
         >
@@ -332,7 +332,7 @@ export function AddToPlaylistDialog({
             />
           </div>
 
-          <ScrollArea className="max-h-[300px] min-w-0">
+          <ScrollArea className="max-h-75 min-w-0">
             <div className="px-2 pb-2">
               {/* Create new playlist option */}
               {!showCreateNew ? (
@@ -480,7 +480,7 @@ export function AddToPlaylistDialog({
               <AlertDialogAction
                 onClick={() => handleDuplicateResponse("skip")}
               >
-                Skip Duplicates
+                Add Only New
               </AlertDialogAction>
             )}
             <AlertDialogAction
