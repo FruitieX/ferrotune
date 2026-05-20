@@ -118,8 +118,8 @@ class PlaybackService : MediaSessionService() {
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
         private const val NOTIFICATION_ARTWORK_MAX_DIMENSION_PX = 512
-        private const val LEGACY_ARTWORK_EMBEDDED_SIZE_PX = 256
-        private const val LEGACY_ARTWORK_MAX_BYTES = 512 * 1024
+        private const val LEGACY_ARTWORK_EMBEDDED_SIZE_PX = 1024
+        private const val LEGACY_ARTWORK_MAX_BYTES = 768 * 1024
         // SimpleCache is a singleton — only one instance may exist per cache directory.
         // We keep it in the companion object so it survives service re-creation.
         private var streamCache: SimpleCache? = null
@@ -3030,7 +3030,7 @@ class PlaybackService : MediaSessionService() {
 
         // Keep the high-resolution artwork as a URI for Media3's notification loader.
         // Wear OS mirrors legacy session metadata, so the current item may also carry
-        // a bounded 256px encoded copy once it has loaded.
+        // a bounded 1024px encoded copy once it has loaded.
         if (track.coverArtUrl != null) {
             metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
         }
