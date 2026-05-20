@@ -21,6 +21,7 @@ pub use subsonic::QsQuery;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, RwLock};
@@ -98,8 +99,42 @@ pub enum SessionEvent {
 pub struct ConnectedClient {
     pub client_id: String,
     pub client_name: String,
+    pub network_address: Option<String>,
+    pub hostname: Option<String>,
+    pub device_label: Option<String>,
     #[serde(skip)]
     pub connected_at: Instant,
+}
+
+/// Optional metadata captured when a client opens an SSE connection.
+#[derive(Clone, Debug, Default)]
+pub struct ConnectedClientMetadata {
+    pub remote_ip: Option<IpAddr>,
+    pub hostname: Option<String>,
+    pub device_label: Option<String>,
+}
+
+impl ConnectedClientMetadata {
+    pub fn network_address(&self) -> Option<String> {
+        self.remote_ip.map(|ip| ip.to_string())
+    }
+}
+
+fn merge_client_metadata(client: &mut ConnectedClient, metadata: ConnectedClientMetadata) {
+    if let Some(network_address) = metadata.network_address() {
+        let address_changed = client.network_address.as_deref() != Some(network_address.as_str());
+        client.network_address = Some(network_address);
+
+        if address_changed || metadata.hostname.is_some() {
+            client.hostname = metadata.hostname;
+        }
+    } else if metadata.hostname.is_some() {
+        client.hostname = metadata.hostname;
+    }
+
+    if let Some(device_label) = metadata.device_label {
+        client.device_label = Some(device_label);
+    }
 }
 
 /// Internal connection state for a logical client.
@@ -197,7 +232,13 @@ impl SessionManager {
     }
 
     /// Register a client as connected to a session.
-    pub async fn register_client(&self, session_id: &str, client_id: &str, client_name: &str) {
+    pub async fn register_client(
+        &self,
+        session_id: &str,
+        client_id: &str,
+        client_name: &str,
+        metadata: ConnectedClientMetadata,
+    ) {
         // Ensure session state exists
         let _ = self.get_or_create_sender(session_id).await;
         let mut sessions = self.sessions.write().await;
@@ -205,21 +246,54 @@ impl SessionManager {
             if let Some(existing) = state.clients.get_mut(client_id) {
                 existing.connection_count += 1;
                 existing.client.client_name = client_name.to_string();
+                merge_client_metadata(&mut existing.client, metadata);
                 return;
             }
+
+            let mut client = ConnectedClient {
+                client_id: client_id.to_string(),
+                client_name: client_name.to_string(),
+                network_address: None,
+                hostname: None,
+                device_label: None,
+                connected_at: Instant::now(),
+            };
+            merge_client_metadata(&mut client, metadata);
 
             state.clients.insert(
                 client_id.to_string(),
                 ConnectedClientState {
-                    client: ConnectedClient {
-                        client_id: client_id.to_string(),
-                        client_name: client_name.to_string(),
-                        connected_at: Instant::now(),
-                    },
+                    client,
                     connection_count: 1,
                 },
             );
         }
+    }
+
+    /// Update a connected client's reverse-DNS hostname if it still has the same IP.
+    pub async fn update_client_hostname(
+        &self,
+        session_id: &str,
+        client_id: &str,
+        network_address: &str,
+        hostname: String,
+    ) -> bool {
+        let mut sessions = self.sessions.write().await;
+        let Some(state) = sessions.get_mut(session_id) else {
+            return false;
+        };
+        let Some(existing) = state.clients.get_mut(client_id) else {
+            return false;
+        };
+        if existing.client.network_address.as_deref() != Some(network_address) {
+            return false;
+        }
+        if existing.client.hostname.as_deref() == Some(hostname.as_str()) {
+            return false;
+        }
+
+        existing.client.hostname = Some(hostname);
+        true
     }
 
     /// Unregister a client from a session.
@@ -280,7 +354,9 @@ impl SessionManager {
 #[cfg(test)]
 mod tests {
     use super::{SessionEvent, SessionManager};
+    use crate::api::ConnectedClientMetadata;
     use serde_json::json;
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn volume_change_serializes_client_id_when_present() {
@@ -308,10 +384,28 @@ mod tests {
         let manager = SessionManager::new();
 
         manager
-            .register_client("session-1", "client-1", "ferrotune-web")
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-web",
+                ConnectedClientMetadata {
+                    remote_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))),
+                    hostname: Some("studio.local".to_string()),
+                    device_label: None,
+                },
+            )
             .await;
         manager
-            .register_client("session-1", "client-1", "ferrotune-mobile")
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-mobile",
+                ConnectedClientMetadata {
+                    remote_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))),
+                    hostname: None,
+                    device_label: Some("Pixel 9".to_string()),
+                },
+            )
             .await;
 
         assert!(manager.is_client_connected("session-1", "client-1").await);
@@ -319,6 +413,9 @@ mod tests {
         assert_eq!(clients.len(), 1);
         assert_eq!(clients[0].client_id, "client-1");
         assert_eq!(clients[0].client_name, "ferrotune-mobile");
+        assert_eq!(clients[0].network_address.as_deref(), Some("192.168.1.10"));
+        assert_eq!(clients[0].hostname.as_deref(), Some("studio.local"));
+        assert_eq!(clients[0].device_label.as_deref(), Some("Pixel 9"));
         assert_eq!(
             manager
                 .get_client_name("session-1", "client-1")
@@ -339,11 +436,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reverse_dns_hostname_update_requires_matching_address() {
+        let manager = SessionManager::new();
+
+        manager
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-web",
+                ConnectedClientMetadata {
+                    remote_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 42))),
+                    hostname: None,
+                    device_label: None,
+                },
+            )
+            .await;
+
+        assert!(
+            manager
+                .update_client_hostname(
+                    "session-1",
+                    "client-1",
+                    "10.0.0.42",
+                    "listening-room.local".to_string(),
+                )
+                .await
+        );
+        assert!(
+            !manager
+                .update_client_hostname(
+                    "session-1",
+                    "client-1",
+                    "10.0.0.99",
+                    "wrong-host.local".to_string(),
+                )
+                .await
+        );
+
+        let clients = manager.get_clients("session-1").await;
+        assert_eq!(clients[0].hostname.as_deref(), Some("listening-room.local"));
+    }
+
+    #[tokio::test]
     async fn unregistering_unknown_client_is_noop() {
         let manager = SessionManager::new();
 
         manager
-            .register_client("session-1", "client-1", "ferrotune-web")
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-web",
+                ConnectedClientMetadata::default(),
+            )
             .await;
         assert!(!manager.unregister_client("session-1", "missing").await);
 

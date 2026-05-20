@@ -224,6 +224,10 @@ interface ConnectedClientSnapshot {
   clientId: string;
   clientName: string;
   displayName: string;
+  networkAddress?: string | null;
+  hostname?: string | null;
+  networkLabel?: string | null;
+  deviceLabel?: string | null;
   isOwner: boolean;
 }
 
@@ -296,9 +300,9 @@ async function getCurrentQueuePositionMs(page: Page): Promise<number | null> {
 
 async function connectSyntheticSessionClient(
   page: Page,
-  options: { clientId: string; clientName: string },
+  options: { clientId: string; clientName: string; deviceLabel?: string },
 ): Promise<void> {
-  await page.evaluate(async ({ clientId, clientName }) => {
+  await page.evaluate(async ({ clientId, clientName, deviceLabel }) => {
     type SyntheticSessionWindow = typeof window & {
       __ferrotuneSyntheticSessionClients?: EventSource[];
     };
@@ -332,6 +336,7 @@ async function connectSyntheticSessionClient(
       clientId,
       clientName,
     });
+    if (deviceLabel) params.set("deviceLabel", deviceLabel);
     const url = `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(session.id)}/events?${params.toString()}`;
 
     await new Promise<void>((resolve, reject) => {
@@ -868,6 +873,7 @@ test.describe.serial("Multi-Session Playback", () => {
     const castClient = {
       clientId: "ferrotune-cast:e2e",
       clientName: "ferrotune-cast",
+      deviceLabel: "Living Room TV",
     };
 
     try {
@@ -881,6 +887,7 @@ test.describe.serial("Multi-Session Playback", () => {
             clientId: castClient.clientId,
             clientName: castClient.clientName,
             displayName: "Chromecast",
+            deviceLabel: castClient.deviceLabel,
           }),
         );
 
@@ -894,6 +901,9 @@ test.describe.serial("Multi-Session Playback", () => {
       await expect(
         page.locator('[role="menuitem"]').filter({ hasText: "Chromecast" }),
       ).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(castClient.deviceLabel)).toBeVisible({
+        timeout: 10000,
+      });
       await page.keyboard.press("Escape");
 
       await sendTakeoverCommandForClient(page, castClient);

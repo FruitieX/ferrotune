@@ -2086,6 +2086,7 @@ export class FerrotuneClient {
     sessionId: string,
     clientId?: string,
     clientName?: string,
+    deviceLabel?: string,
   ): string {
     const params = new URLSearchParams();
     if (this.username && this.password) {
@@ -2098,6 +2099,7 @@ export class FerrotuneClient {
     params.set("c", CLIENT_NAME);
     if (clientId) params.set("clientId", clientId);
     if (clientName) params.set("clientName", clientName);
+    if (deviceLabel) params.set("deviceLabel", deviceLabel);
     return this.buildAdminUrl(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/events?${params.toString()}`,
     );

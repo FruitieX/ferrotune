@@ -427,24 +427,27 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     tracing::info!("  OpenSubsonic API: /rest/*");
     tracing::info!("  Ferrotune API: /ferrotune/*");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let ctrl_c = tokio::signal::ctrl_c();
-            #[cfg(unix)]
-            {
-                let mut sigterm =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                        .expect("failed to install SIGTERM handler");
-                tokio::select! {
-                    _ = ctrl_c => {},
-                    _ = sigterm.recv() => {},
-                }
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let ctrl_c = tokio::signal::ctrl_c();
+        #[cfg(unix)]
+        {
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("failed to install SIGTERM handler");
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = sigterm.recv() => {},
             }
-            #[cfg(not(unix))]
-            ctrl_c.await.ok();
-            tracing::info!("Shutdown signal received, finishing in-flight requests…");
-        })
-        .await?;
+        }
+        #[cfg(not(unix))]
+        ctrl_c.await.ok();
+        tracing::info!("Shutdown signal received, finishing in-flight requests…");
+    })
+    .await?;
 
     Ok(())
 }

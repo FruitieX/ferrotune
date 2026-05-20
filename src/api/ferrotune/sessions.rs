@@ -5,18 +5,20 @@
 //! One client is the audio owner; others are followers.
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::api::{AppState, ConnectedClient, SessionEvent};
+use crate::api::{AppState, ConnectedClient, ConnectedClientMetadata, SessionEvent};
 use crate::db::queries;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     response::sse::{Event, Sse},
-    Json,
+    Extension, Json,
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, sync::Arc, time::Duration};
+use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
 use ts_rs::TS;
+
+const REVERSE_DNS_TIMEOUT: Duration = Duration::from_millis(750);
 
 // ============================================================================
 // Request / Response types
@@ -64,6 +66,10 @@ pub struct ClientResponse {
     pub client_id: String,
     pub client_name: String,
     pub display_name: String,
+    pub network_address: Option<String>,
+    pub hostname: Option<String>,
+    pub network_label: Option<String>,
+    pub device_label: Option<String>,
     pub is_owner: bool,
 }
 
@@ -113,6 +119,7 @@ pub struct SessionSuccessResponse {
 pub struct SessionEventsQuery {
     pub client_id: Option<String>,
     pub client_name: Option<String>,
+    pub device_label: Option<String>,
 }
 
 // ============================================================================
@@ -166,10 +173,69 @@ fn compute_display_names(
             client_id: c.client_id.clone(),
             client_name: c.client_name.clone(),
             display_name,
+            network_address: c.network_address.clone(),
+            hostname: c.hostname.clone(),
+            network_label: c.hostname.clone().or_else(|| c.network_address.clone()),
+            device_label: c.device_label.clone(),
             is_owner: owner_client_id == Some(c.client_id.as_str()),
         });
     }
     result
+}
+
+fn normalize_client_label(value: Option<&str>) -> Option<String> {
+    const MAX_LABEL_CHARS: usize = 120;
+
+    let trimmed = value?.trim().trim_end_matches('.');
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(trimmed.chars().take(MAX_LABEL_CHARS).collect())
+}
+
+async fn reverse_dns_hostname(network_address: String) -> Option<String> {
+    let lookup_address = network_address.clone();
+    let handle = tokio::task::spawn_blocking(move || {
+        let ip = lookup_address.parse().ok()?;
+        dns_lookup::lookup_addr(&ip).ok()
+    });
+
+    let hostname = tokio::time::timeout(REVERSE_DNS_TIMEOUT, handle)
+        .await
+        .ok()?
+        .ok()??;
+
+    let hostname = normalize_client_label(Some(&hostname))?;
+    if hostname == network_address {
+        return None;
+    }
+
+    Some(hostname)
+}
+
+fn resolve_hostname_in_background(
+    state: Arc<AppState>,
+    session_id: String,
+    client_id: String,
+    network_address: String,
+) {
+    tokio::spawn(async move {
+        let Some(hostname) = reverse_dns_hostname(network_address.clone()).await else {
+            return;
+        };
+
+        let changed = state
+            .session_manager
+            .update_client_hostname(&session_id, &client_id, &network_address, hostname)
+            .await;
+        if changed {
+            state
+                .session_manager
+                .broadcast(&session_id, SessionEvent::ClientListChanged)
+                .await;
+        }
+    });
 }
 
 // ============================================================================
@@ -392,6 +458,7 @@ pub async fn session_events(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Query(query): Query<SessionEventsQuery>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
 ) -> FerrotuneApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Verify session belongs to user
     let session = queries::get_session(&state.database, &session_id, user.user_id)
@@ -404,10 +471,26 @@ pub async fn session_events(
     // opened tab also receives the ClientListChanged event for itself.
     if let Some(ref client_id) = query.client_id {
         let client_name = query.client_name.as_deref().unwrap_or("ferrotune-web");
+        let remote_ip = connect_info.map(|Extension(ConnectInfo(remote_addr))| remote_addr.ip());
+        let metadata = ConnectedClientMetadata {
+            remote_ip,
+            hostname: None,
+            device_label: normalize_client_label(query.device_label.as_deref()),
+        };
+        let network_address = metadata.network_address();
         state
             .session_manager
-            .register_client(&session.id, client_id, client_name)
+            .register_client(&session.id, client_id, client_name, metadata)
             .await;
+
+        if let Some(network_address) = network_address {
+            resolve_hostname_in_background(
+                state.clone(),
+                session.id.clone(),
+                client_id.clone(),
+                network_address,
+            );
+        }
 
         // Notify other clients that a new client connected
         state
@@ -613,6 +696,26 @@ mod tests {
         ConnectedClient {
             client_id: client_id.to_string(),
             client_name: client_name.to_string(),
+            network_address: None,
+            hostname: None,
+            device_label: None,
+            connected_at: Instant::now(),
+        }
+    }
+
+    fn connected_client_with_metadata(
+        client_id: &str,
+        client_name: &str,
+        network_address: Option<&str>,
+        hostname: Option<&str>,
+        device_label: Option<&str>,
+    ) -> ConnectedClient {
+        ConnectedClient {
+            client_id: client_id.to_string(),
+            client_name: client_name.to_string(),
+            network_address: network_address.map(str::to_string),
+            hostname: hostname.map(str::to_string),
+            device_label: device_label.map(str::to_string),
             connected_at: Instant::now(),
         }
     }
@@ -628,6 +731,42 @@ mod tests {
         assert_eq!(responses[0].client_name, "ferrotune-cast");
         assert_eq!(responses[0].display_name, "Chromecast");
         assert!(responses[0].is_owner);
+    }
+
+    #[test]
+    fn display_names_include_client_metadata() {
+        let clients = [connected_client_with_metadata(
+            "web-1",
+            "ferrotune-web",
+            Some("192.168.1.15"),
+            Some("office.local"),
+            Some("Laptop"),
+        )];
+
+        let responses = compute_display_names(&clients, Some("web-1"));
+
+        assert_eq!(
+            responses[0].network_address.as_deref(),
+            Some("192.168.1.15")
+        );
+        assert_eq!(responses[0].hostname.as_deref(), Some("office.local"));
+        assert_eq!(responses[0].network_label.as_deref(), Some("office.local"));
+        assert_eq!(responses[0].device_label.as_deref(), Some("Laptop"));
+    }
+
+    #[test]
+    fn display_names_fall_back_to_network_address_label() {
+        let clients = [connected_client_with_metadata(
+            "web-1",
+            "ferrotune-web",
+            Some("192.168.1.15"),
+            None,
+            None,
+        )];
+
+        let responses = compute_display_names(&clients, None);
+
+        assert_eq!(responses[0].network_label.as_deref(), Some("192.168.1.15"));
     }
 
     #[test]

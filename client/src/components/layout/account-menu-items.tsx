@@ -124,6 +124,7 @@ export function ConnectedClientsMenuItems({
       {connectedClients.map((client) => {
         const isMe = client.clientId === myClientId;
         const isOwner = client.clientId === ownerClientId;
+        const metadataLabel = client.deviceLabel ?? client.networkLabel;
         return (
           <Item
             key={client.clientId}
@@ -154,6 +155,11 @@ export function ConnectedClientsMenuItems({
                   {localCurrentSong?.title
                     ? `${localCurrentSong.title}${localCurrentSong.artist ? ` — ${localCurrentSong.artist}` : ""}`
                     : "Owner"}
+                </span>
+              )}
+              {metadataLabel && (
+                <span className="truncate block text-xs text-muted-foreground">
+                  {metadataLabel}
                 </span>
               )}
             </div>

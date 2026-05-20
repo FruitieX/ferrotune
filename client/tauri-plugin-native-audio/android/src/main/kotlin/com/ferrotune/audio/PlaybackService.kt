@@ -93,6 +93,7 @@ class PlaybackService : MediaSessionService() {
         // transition failure and advance the queue instead of restarting the
         // current stream from the beginning.
         private const val NETWORK_ERROR_TRACK_END_GRACE_MS = 2_000L
+        private const val TRANSCODED_STREAM_RESTART_END_GRACE_MS = 15_000L
         // Keep a large rolling buffer for mobile playback so brief coverage
         // drops are absorbed from cache instead of forcing a restart.
         private const val STREAM_MIN_BUFFER_MS = 10 * 60 * 1000
@@ -2414,6 +2415,56 @@ class PlaybackService : MediaSessionService() {
         return repeatMode == "all" || serverQueueIndex + 1 < serverTotalCount
     }
 
+    private fun handleTranscodedStreamRestart(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ): Boolean {
+        if (!playbackSettings.transcodingEnabled) return false
+        if (reason != Player.DISCONTINUITY_REASON_INTERNAL) return false
+        if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) return false
+        if (oldPosition.positionMs <= 1_000 || newPosition.positionMs > 1_000) return false
+
+        val track = currentTrack ?: return false
+        val absoluteOldPositionMs = maxOf(
+            (oldPosition.positionMs + seekTimeOffsetMs).coerceAtLeast(0),
+            lastKnownGoodPositionMs,
+        )
+        val streamDurationMs = player.duration.let { if (it == C.TIME_UNSET) 0 else it }
+        val trackRemainingMs = if (track.durationMs > 0) {
+            (track.durationMs - absoluteOldPositionMs).coerceAtLeast(0)
+        } else {
+            Long.MAX_VALUE
+        }
+        val streamRemainingMs = if (streamDurationMs > 0) {
+            (streamDurationMs - oldPosition.positionMs).coerceAtLeast(0)
+        } else {
+            Long.MAX_VALUE
+        }
+        val closestRemainingMs = minOf(trackRemainingMs, streamRemainingMs)
+        lastKnownGoodPositionMs = maxOf(lastKnownGoodPositionMs, absoluteOldPositionMs)
+        Log.d(
+            TAG,
+            "Transcoded stream restarted at ${newPosition.positionMs}ms " +
+                "after ${oldPosition.positionMs}ms stream playback " +
+                "(absolute=$absoluteOldPositionMs, remaining=$closestRemainingMs, " +
+                "offset=$seekTimeOffsetMs, repeat=$repeatMode)"
+        )
+
+        if (repeatMode == "one") {
+            if (seekTimeOffsetMs > 0) {
+                seek(0)
+                return true
+            }
+            return false
+        } else if (closestRemainingMs > TRANSCODED_STREAM_RESTART_END_GRACE_MS) {
+            seek(absoluteOldPositionMs)
+        } else {
+            autonomousSkipNext()
+        }
+        return true
+    }
+
     fun nextTrack() {
         Log.d(TAG, "nextTrack()")
         clearAudioOutputLossPause("explicit nextTrack()")
@@ -3196,7 +3247,13 @@ class PlaybackService : MediaSessionService() {
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
-            Log.d(TAG, "onPositionDiscontinuity: ${newPosition.positionMs}, reason: $reason")
+            Log.d(
+                TAG,
+                "onPositionDiscontinuity: old=${oldPosition.positionMs}, new=${newPosition.positionMs}, " +
+                    "reason=$reason, offset=$seekTimeOffsetMs"
+            )
+            if (handleTranscodedStreamRestart(oldPosition, newPosition, reason)) return
+
             invalidateSessionExport()
             emitProgressEvent()
         }

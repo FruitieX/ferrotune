@@ -249,6 +249,7 @@ export function useCastInit() {
   const sessionId = useAtomValue(effectiveSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
   const castClientId = getCastClientId(clientId);
+  const castDeviceName = useAtomValue(castDeviceNameAtom);
   const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setOwnerClientId = useSetAtom(ownerClientIdAtom);
   const setOwnerClientName = useSetAtom(ownerClientNameAtom);
@@ -776,6 +777,7 @@ export function useCastInit() {
       sessionId,
       castClientId,
       CAST_CLIENT_NAME,
+      castDeviceName ?? undefined,
     );
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
@@ -797,7 +799,7 @@ export function useCastInit() {
         eventSourceRef.current = null;
       }
     };
-  }, [castState, sessionId, castClientId]);
+  }, [castState, sessionId, castClientId, castDeviceName]);
 
   useEffect(() => {
     if (castState !== "connected" || !sessionId || !castClientId) return;
