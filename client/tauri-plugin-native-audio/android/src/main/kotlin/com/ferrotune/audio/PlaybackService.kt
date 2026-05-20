@@ -33,6 +33,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -59,6 +60,7 @@ import app.tauri.plugin.JSObject
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -116,6 +118,8 @@ class PlaybackService : MediaSessionService() {
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
         private const val NOTIFICATION_ARTWORK_MAX_DIMENSION_PX = 512
+        private const val LEGACY_ARTWORK_EMBEDDED_SIZE_PX = 256
+        private const val LEGACY_ARTWORK_MAX_BYTES = 512 * 1024
         // SimpleCache is a singleton — only one instance may exist per cache directory.
         // We keep it in the companion object so it survives service re-creation.
         private var streamCache: SimpleCache? = null
@@ -164,6 +168,15 @@ class PlaybackService : MediaSessionService() {
     private var httpDataSourceFactory: DefaultHttpDataSource.Factory? = null
     @OptIn(UnstableApi::class)
     private var artworkDataSourceFactory: DefaultHttpDataSource.Factory? = null
+    private data class LegacyArtworkData(
+        val trackId: String,
+        val coverArtUrl: String,
+        val requestUrl: String,
+        val bytes: ByteArray,
+    )
+    private var legacyArtworkData: LegacyArtworkData? = null
+    private var legacyArtworkLoadGeneration: Int = 0
+    private var legacyArtworkLoadingKey: String? = null
     // Server queue state
     private var serverQueueIndex: Int = 0
     private var serverTotalCount: Int = 0
@@ -543,7 +556,11 @@ class PlaybackService : MediaSessionService() {
                     val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
                         val itemTrack = this@PlaybackService.resolveSessionTrack(item, idx)
                         if (itemTrack != null && itemTrack.durationMs > 0) {
-                            createSessionMediaItemData(item, itemTrack)
+                            createSessionMediaItemData(
+                                item,
+                                itemTrack,
+                                includeLegacyArtworkData = idx == currentIdx,
+                            )
                         } else {
                             item
                         }
@@ -789,7 +806,7 @@ class PlaybackService : MediaSessionService() {
         clearPendingNetworkRetry("stop")
         player.stop()
         player.clearMediaItems()
-        currentTrack = null
+        setCurrentTrack(null)
         seekTimeOffsetMs = 0
         lastKnownGoodPositionMs = 0
         queue = emptyList()
@@ -830,7 +847,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(inactivityTimeoutRunnable)
         player.stop()
         player.clearMediaItems()
-        currentTrack = null
+        setCurrentTrack(null)
         seekTimeOffsetMs = 0
         lastKnownGoodPositionMs = 0
         serverTotalCount = 0
@@ -1359,7 +1376,7 @@ class PlaybackService : MediaSessionService() {
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
         serverQueueIndex = targetIndex
-        currentTrack = tracks.getOrNull(exoStartIndex)
+        setCurrentTrack(tracks.getOrNull(exoStartIndex))
         lastKnownGoodPositionMs = startPositionMs.coerceAtLeast(0)
 
         val mediaItems = tracks.map { createMediaItem(it) }.toMutableList()
@@ -1788,7 +1805,7 @@ class PlaybackService : MediaSessionService() {
         queue = tracks
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
-        currentTrack = tracks.getOrNull(targetExoIndex) ?: currentTrack
+        setCurrentTrack(tracks.getOrNull(targetExoIndex) ?: currentTrack)
         invalidateSessionExport()
         // Don't emit track change — the same track is still playing.
         // Don't emit queue-state-changed here: the JS toggleShuffleAtom updates both
@@ -2864,9 +2881,144 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
+    private fun setCurrentTrack(track: TrackInfo?) {
+        currentTrack = track
+        preloadLegacyArtwork(track)
+    }
+
+    private fun preloadLegacyArtwork(track: TrackInfo?) {
+        val coverArtUrl = track?.coverArtUrl
+        if (track == null || coverArtUrl.isNullOrBlank()) {
+            legacyArtworkLoadGeneration += 1
+            legacyArtworkLoadingKey = null
+            legacyArtworkData = null
+            return
+        }
+
+        val requestUrl = buildLegacyArtworkRequestUrl(track) ?: run {
+            legacyArtworkLoadGeneration += 1
+            legacyArtworkLoadingKey = null
+            legacyArtworkData = null
+            return
+        }
+
+        val existingArtwork = legacyArtworkData
+        if (existingArtwork != null &&
+            existingArtwork.trackId == track.id &&
+            existingArtwork.coverArtUrl == coverArtUrl &&
+            existingArtwork.requestUrl == requestUrl
+        ) {
+            return
+        }
+
+        val loadingKey = "${track.id}\n$requestUrl"
+        if (legacyArtworkLoadingKey == loadingKey) return
+
+        legacyArtworkLoadGeneration += 1
+        val generation = legacyArtworkLoadGeneration
+        legacyArtworkLoadingKey = loadingKey
+        legacyArtworkData = null
+
+        apiExecutor.execute {
+            val artworkBytes = fetchLegacyArtworkData(requestUrl, track.id)
+            handler.post {
+                if (generation != legacyArtworkLoadGeneration) return@post
+                legacyArtworkLoadingKey = null
+
+                if (currentTrack?.id != track.id || currentTrack?.coverArtUrl != coverArtUrl) {
+                    return@post
+                }
+
+                legacyArtworkData = artworkBytes?.let {
+                    LegacyArtworkData(track.id, coverArtUrl, requestUrl, it)
+                }
+                if (artworkBytes != null) {
+                    Log.d(TAG, "legacy artwork loaded: track=${track.id} bytes=${artworkBytes.size}")
+                }
+                invalidateSessionExport()
+            }
+        }
+    }
+
+    private fun buildLegacyArtworkRequestUrl(track: TrackInfo): String? {
+        val coverArtUrl = track.coverArtUrl ?: return null
+        if (!apiClient.hasSessionConfig()) return null
+
+        val coverArtId = try {
+            Uri.parse(coverArtUrl).getQueryParameter("id")
+        } catch (exception: Exception) {
+            Log.w(TAG, "legacy artwork: failed to parse cover art URL for track=${track.id}", exception)
+            null
+        }
+
+        if (coverArtId.isNullOrBlank()) return null
+
+        return try {
+            apiClient.buildCoverArtUrl(coverArtId, LEGACY_ARTWORK_EMBEDDED_SIZE_PX)
+        } catch (exception: Exception) {
+            Log.w(TAG, "legacy artwork: failed to build thumbnail URL for track=${track.id}", exception)
+            null
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun fetchLegacyArtworkData(requestUrl: String, trackId: String): ByteArray? {
+        val dataSource = artworkDataSourceFactory?.createDataSource() ?: return null
+
+        try {
+            val contentLength = dataSource.open(DataSpec(Uri.parse(requestUrl)))
+            if (contentLength > LEGACY_ARTWORK_MAX_BYTES) {
+                Log.w(
+                    TAG,
+                    "legacy artwork too large before read: track=$trackId bytes=$contentLength"
+                )
+                return null
+            }
+
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(16 * 1024)
+            var totalBytes = 0
+
+            while (true) {
+                val bytesRead = dataSource.read(buffer, 0, buffer.size)
+                if (bytesRead == C.RESULT_END_OF_INPUT) break
+                if (bytesRead <= 0) continue
+
+                totalBytes += bytesRead
+                if (totalBytes > LEGACY_ARTWORK_MAX_BYTES) {
+                    Log.w(TAG, "legacy artwork too large: track=$trackId bytes=$totalBytes")
+                    return null
+                }
+
+                output.write(buffer, 0, bytesRead)
+            }
+
+            return output.toByteArray().takeIf { it.isNotEmpty() }
+        } catch (exception: Exception) {
+            Log.w(TAG, "legacy artwork load failed: track=$trackId", exception)
+            return null
+        } finally {
+            try {
+                dataSource.close()
+            } catch (exception: Exception) {
+                Log.w(TAG, "legacy artwork data source close failed", exception)
+            }
+        }
+    }
+
+    private fun legacyArtworkBytesFor(track: TrackInfo): ByteArray? {
+        val artwork = legacyArtworkData ?: return null
+        return if (artwork.trackId == track.id && artwork.coverArtUrl == track.coverArtUrl) {
+            artwork.bytes
+        } else {
+            null
+        }
+    }
+
     private fun createTrackMetadata(
         track: TrackInfo,
         baseMetadata: MediaMetadata? = null,
+        includeLegacyArtworkData: Boolean = false,
     ): MediaMetadata {
         val metadataBuilder = baseMetadata?.buildUpon() ?: MediaMetadata.Builder()
         metadataBuilder
@@ -2874,14 +3026,16 @@ class PlaybackService : MediaSessionService() {
             .setArtist(track.artist)
             .setAlbumTitle(track.album)
             .setDurationMs(track.durationMs)
+            .setArtworkData(null)
 
-        // Use artwork URI instead of embedding raw bitmap data.
-        // Embedding bitmaps in MediaMetadata causes TransactionTooLargeException
-        // (binder limit ~1MB) when the MediaSession sends player info to controllers.
-        // The session bitmap loader hydrates this URI for phone notifications and
-        // legacy MediaSession controllers such as Wear OS.
+        // Keep the high-resolution artwork as a URI for Media3's notification loader.
+        // Wear OS mirrors legacy session metadata, so the current item may also carry
+        // a bounded 256px encoded copy once it has loaded.
         if (track.coverArtUrl != null) {
             metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
+        }
+        if (includeLegacyArtworkData) {
+            legacyArtworkBytesFor(track)?.let { metadataBuilder.setArtworkData(it) }
         }
 
         return metadataBuilder.build()
@@ -2890,6 +3044,7 @@ class PlaybackService : MediaSessionService() {
     private fun createSessionMediaItemData(
         item: MediaItemData,
         track: TrackInfo,
+        includeLegacyArtworkData: Boolean = false,
     ): MediaItemData {
         val durationUs = track.durationMs * 1000L
         val periodUid = item.periods.firstOrNull()?.uid ?: item.uid
@@ -2899,6 +3054,7 @@ class PlaybackService : MediaSessionService() {
                 createTrackMetadata(
                     track,
                     item.mediaMetadata ?: item.mediaItem.mediaMetadata,
+                    includeLegacyArtworkData,
                 )
             )
             .setDurationUs(durationUs)
@@ -3178,7 +3334,7 @@ class PlaybackService : MediaSessionService() {
             } else {
                 queueIndex = queueOffset + exoIndex
             }
-            currentTrack = queue.getOrNull(exoIndex)
+            setCurrentTrack(queue.getOrNull(exoIndex))
             applyTrackReplayGain(currentTrack)
             resetScrobbleState()
             invalidateSessionExport()
