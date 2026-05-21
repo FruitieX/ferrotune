@@ -5,6 +5,6 @@
  */
 export type ContinueListeningSource = { id: string, name: string, 
 /**
- * "songRadio"
+ * "songRadio", "favorites", or "history"
  */
 sourceType: string, coverArt: string | null, };

@@ -21,6 +21,7 @@ import {
   ListMusic,
   Heart,
   History,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { startQueueAtom } from "@/lib/store/server-queue";
@@ -45,12 +46,13 @@ import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { formatDuration } from "@/lib/utils/format";
 import {
   getPlaylistDetailsHref,
-  getSongRadioHref,
+  getQueueSourceHref,
 } from "@/lib/utils/source-links";
 import {
   getMostPlayedRecentlyFilters,
   homeSectionHrefs,
 } from "@/lib/utils/home-sections";
+import { getContinueListeningSourceDetails } from "@/lib/utils/continue-listening";
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
 import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
@@ -63,6 +65,23 @@ function getPageSize(viewportWidth: number, itemWidth: number, gap: number) {
   const itemsPerScreen = Math.ceil(viewportWidth / (itemWidth + gap));
   // Load ~2 screenfuls per page for smooth scrolling
   return Math.max(6, itemsPerScreen * 2);
+}
+
+type ContinueListeningSourceItem = NonNullable<
+  ContinueListeningEntry["source"]
+>;
+
+function getContinueListeningSourceIcon(sourceType: string): LucideIcon | null {
+  switch (sourceType) {
+    case "favorites":
+      return Heart;
+    case "history":
+      return History;
+    case "songRadio":
+      return Radio;
+    default:
+      return null;
+  }
 }
 
 function useStickyHomeSection<TPage>(
@@ -360,17 +379,31 @@ function HomePlaylistCard({
   );
 }
 
-function HomeSongRadioCard({
+function HomeSourceCard({
   source,
   onPlay,
 }: {
-  source: {
-    id: string;
-    name: string;
-    coverArt: string | null;
-  };
-  onPlay: () => void;
+  source: ContinueListeningSourceItem;
+  onPlay: (source: ContinueListeningSourceItem) => void;
 }) {
+  const details = getContinueListeningSourceDetails(source.sourceType);
+  const href = details
+    ? getQueueSourceHref({
+        type: details.queueSourceType,
+        id: source.id,
+        name: source.name,
+      })
+    : null;
+
+  if (!details || !href) {
+    return null;
+  }
+
+  const SourceIcon = getContinueListeningSourceIcon(details.queueSourceType);
+  if (!SourceIcon) {
+    return null;
+  }
+
   const coverArtUrl = source.coverArt
     ? getClient()?.getCoverArtUrl(source.coverArt, "medium")
     : undefined;
@@ -379,12 +412,14 @@ function HomeSongRadioCard({
     <MediaCard
       coverArt={coverArtUrl}
       title={source.name}
-      titleIcon={<Radio className="w-4 h-4 shrink-0 text-muted-foreground" />}
-      subtitle="Song Radio"
-      href={getSongRadioHref(source.id)}
-      coverType="song"
+      titleIcon={
+        <SourceIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+      }
+      subtitle={details.subtitle}
+      href={href}
+      coverType={details.coverType}
       colorSeed={source.name}
-      onPlay={onPlay}
+      onPlay={() => onPlay(source)}
     />
   );
 }
@@ -827,11 +862,16 @@ export default function HomePage() {
     });
   };
 
-  const handlePlaySongRadio = (id: string, name: string) => {
+  const handlePlaySource = (source: ContinueListeningSourceItem) => {
+    const details = getContinueListeningSourceDetails(source.sourceType);
+    if (!details) {
+      return;
+    }
+
     startQueue({
-      sourceType: "songRadio",
-      sourceId: id,
-      sourceName: name,
+      sourceType: details.queueSourceType,
+      sourceId: source.id,
+      sourceName: source.name,
       startIndex: 0,
       shuffle: false,
     });
@@ -930,13 +970,8 @@ export default function HomePage() {
         />
       );
     }
-    if (item.type === "songRadio" && item.source) {
-      return (
-        <HomeSongRadioCard
-          source={item.source}
-          onPlay={() => handlePlaySongRadio(item.source!.id, item.source!.name)}
-        />
-      );
+    if (item.source) {
+      return <HomeSourceCard source={item.source} onPlay={handlePlaySource} />;
     }
     if (item.album) {
       return (
@@ -1035,8 +1070,8 @@ export default function HomePage() {
               if (item.type === "playlist" || item.type === "smartPlaylist") {
                 return `pl-${item.playlist?.id}`;
               }
-              if (item.type === "songRadio") {
-                return `sr-${item.source?.id}`;
+              if (item.source) {
+                return `${item.source.sourceType}-${item.source.id}`;
               }
               return `al-${item.album?.id}`;
             }}

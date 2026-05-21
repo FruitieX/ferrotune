@@ -22,9 +22,10 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { getClient } from "@/lib/api/client";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getMostPlayedRecentlyFilters } from "@/lib/utils/home-sections";
+import { getContinueListeningSourceDetails } from "@/lib/utils/continue-listening";
 import {
   getPlaylistDetailsHref,
-  getSongRadioHref,
+  getQueueSourceHref,
 } from "@/lib/utils/source-links";
 import { formatCount, formatDate, formatDuration } from "@/lib/utils/format";
 import { DetailHeader } from "@/components/shared/detail-header";
@@ -54,6 +55,23 @@ import {
 
 const PAGE_SIZE = 50;
 const LIST_VIEW = "list";
+
+type ContinueListeningSourceItem = NonNullable<
+  ContinueListeningEntry["source"]
+>;
+
+function getContinueListeningSourceIcon(sourceType: string): LucideIcon | null {
+  switch (sourceType) {
+    case "favorites":
+      return Heart;
+    case "history":
+      return Clock;
+    case "songRadio":
+      return Radio;
+    default:
+      return null;
+  }
+}
 
 const continueListeningSortOptions = [
   { value: "lastPlayed" as const, label: "Last Played" },
@@ -238,9 +256,7 @@ function getEntryKey(entry: ContinueListeningEntry) {
   ) {
     return `${entry.type}-${entry.playlist.id}`;
   }
-  if (entry.type === "songRadio" && entry.source) {
-    return `songRadio-${entry.source.id}`;
-  }
+  if (entry.source) return `${entry.source.sourceType}-${entry.source.id}`;
   return `album-${entry.album?.id ?? entry.lastPlayed}`;
 }
 
@@ -249,7 +265,7 @@ function ContinueListeningRow({
   index,
   onPlayAlbum,
   onPlayPlaylist,
-  onPlaySongRadio,
+  onPlaySource,
 }: {
   entry: ContinueListeningEntry;
   index: number;
@@ -259,7 +275,7 @@ function ContinueListeningRow({
     name: string;
     playlistType: string;
   }) => void;
-  onPlaySongRadio: (source: { id: string; name: string }) => void;
+  onPlaySource: (source: ContinueListeningSourceItem) => void;
 }) {
   if (entry.album) {
     const album = entry.album;
@@ -338,8 +354,23 @@ function ContinueListeningRow({
     );
   }
 
-  if (entry.type === "songRadio" && entry.source) {
+  if (entry.source) {
     const source = entry.source;
+    const details = getContinueListeningSourceDetails(source.sourceType);
+    if (!details) {
+      return null;
+    }
+
+    const SourceIcon = getContinueListeningSourceIcon(details.queueSourceType);
+    if (!SourceIcon) {
+      return null;
+    }
+
+    const href = getQueueSourceHref({
+      type: details.queueSourceType,
+      id: source.id,
+      name: source.name,
+    });
     const coverArtUrl = source.coverArt
       ? getClient()?.getCoverArtUrl(source.coverArt, "small")
       : undefined;
@@ -348,14 +379,16 @@ function ContinueListeningRow({
       <MediaRow
         coverArt={coverArtUrl}
         title={source.name}
-        titleIcon={<Radio className="w-4 h-4 shrink-0 text-muted-foreground" />}
-        subtitle="Song Radio"
-        href={getSongRadioHref(source.id)}
+        titleIcon={
+          <SourceIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+        }
+        subtitle={details.subtitle}
+        href={href ?? undefined}
         colorSeed={source.name}
-        coverType="song"
+        coverType={details.coverType}
         index={index}
-        onPlay={() => onPlaySongRadio(source)}
-        onDoubleClick={() => onPlaySongRadio(source)}
+        onPlay={() => onPlaySource(source)}
+        onDoubleClick={() => onPlaySource(source)}
         rightContent={
           <span className="hidden sm:block text-sm text-muted-foreground w-24 text-right shrink-0">
             {formatDate(entry.lastPlayed)}
@@ -637,9 +670,14 @@ export default function HomeSectionPage() {
     });
   };
 
-  const handlePlaySongRadio = (source: { id: string; name: string }) => {
+  const handlePlaySource = (source: ContinueListeningSourceItem) => {
+    const details = getContinueListeningSourceDetails(source.sourceType);
+    if (!details) {
+      return;
+    }
+
     startQueue({
-      sourceType: "songRadio",
+      sourceType: details.queueSourceType,
       sourceId: source.id,
       sourceName: source.name,
       startIndex: 0,
@@ -785,7 +823,7 @@ export default function HomeSectionPage() {
                   index={index}
                   onPlayAlbum={handlePlayAlbum}
                   onPlayPlaylist={handlePlayPlaylist}
-                  onPlaySongRadio={handlePlaySongRadio}
+                  onPlaySource={handlePlaySource}
                 />
               )}
               renderSkeleton={() => (

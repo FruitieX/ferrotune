@@ -1865,6 +1865,56 @@ async fn materialize_song_radio_songs(
     }
 }
 
+async fn materialize_favorites_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let songs = queries::get_starred_songs(database, user_id).await?;
+    Ok(sorting::filter_and_sort_songs(
+        songs,
+        text_filter,
+        sort_field,
+        sort_dir,
+    ))
+}
+
+async fn materialize_history_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let aggregates =
+        crate::db::repo::history::list_recent_song_aggregates(database.conn(), user_id, 500, 0)
+            .await?;
+    let ids: Vec<String> = aggregates.iter().map(|a| a.song_id.clone()).collect();
+    let rows = crate::db::repo::history::fetch_songs_by_ids(database.conn(), &ids).await?;
+    let mut by_id: std::collections::HashMap<String, crate::db::models::Song> =
+        rows.into_iter().map(|s| (s.id.clone(), s)).collect();
+    let songs: Vec<crate::db::models::Song> = aggregates
+        .into_iter()
+        .filter_map(|agg| {
+            let last_played = agg.last_played?;
+            by_id.remove(&agg.song_id).map(|mut s| {
+                s.play_count = Some(agg.play_count);
+                s.last_played = Some(last_played);
+                s
+            })
+        })
+        .collect();
+
+    Ok(sorting::filter_and_sort_songs(
+        songs,
+        text_filter,
+        sort_field,
+        sort_dir,
+    ))
+}
+
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
     database: &crate::db::Database,
@@ -1951,14 +2001,14 @@ async fn materialize_queue_songs(
             Ok(search_songs_for_queue(database, user_id, query, &search_params).await?)
         }
         QueueSourceType::Favorites => {
-            let songs = queries::get_starred_songs(database, user_id).await?;
-            // Apply text filtering and sorting if provided
-            Ok(sorting::filter_and_sort_songs(
-                songs,
+            materialize_favorites_songs(
+                database,
+                user_id,
                 text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
-            ))
+            )
+            .await
         }
         QueueSourceType::Library | QueueSourceType::Search => {
             // For library/search, use the search function with filters and sort
@@ -2000,39 +2050,14 @@ async fn materialize_queue_songs(
             ))
         }
         QueueSourceType::History => {
-            // Fetch play history songs (deduplicated, most recent play per song)
-            let aggregates = crate::db::repo::history::list_recent_song_aggregates(
-                database.conn(),
+            materialize_history_songs(
+                database,
                 user_id,
-                500,
-                0,
-            )
-            .await
-            .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
-            let ids: Vec<String> = aggregates.iter().map(|a| a.song_id.clone()).collect();
-            let rows = crate::db::repo::history::fetch_songs_by_ids(database.conn(), &ids)
-                .await
-                .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
-            let mut by_id: std::collections::HashMap<String, crate::db::models::Song> =
-                rows.into_iter().map(|s| (s.id.clone(), s)).collect();
-            let songs: Vec<crate::db::models::Song> = aggregates
-                .into_iter()
-                .filter_map(|agg| {
-                    let last_played = agg.last_played?;
-                    by_id.remove(&agg.song_id).map(|mut s| {
-                        s.play_count = Some(agg.play_count);
-                        s.last_played = Some(last_played);
-                        s
-                    })
-                })
-                .collect();
-
-            Ok(sorting::filter_and_sort_songs(
-                songs,
                 text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
-            ))
+            )
+            .await
         }
         QueueSourceType::SongRadio => {
             let song_id = source_id
@@ -2162,6 +2187,17 @@ async fn materialize_queue_songs(
                         let radio_songs =
                             materialize_song_radio_songs(database, user_id, &source.id).await?;
                         songs.extend(radio_songs);
+                    }
+                    "favorites" => {
+                        let favorite_songs =
+                            materialize_favorites_songs(database, user_id, None, None, None)
+                                .await?;
+                        songs.extend(favorite_songs);
+                    }
+                    "history" => {
+                        let history_songs =
+                            materialize_history_songs(database, user_id, None, None, None).await?;
+                        songs.extend(history_songs);
                     }
                     _ => {}
                 }

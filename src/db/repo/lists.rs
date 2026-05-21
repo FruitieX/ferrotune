@@ -14,6 +14,10 @@ use crate::db::repo::users;
 use crate::db::Database;
 use crate::error::Result;
 
+const ID_BACKED_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 3] =
+    ["playlist", "smartPlaylist", "songRadio"];
+const SINGLETON_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 2] = ["favorites", "history"];
+
 fn album_select() -> sea_orm::Select<entity::albums::Entity> {
     entity::albums::Entity::find()
         .select_only()
@@ -725,21 +729,14 @@ pub async fn list_forgotten_favorite_song_ids(
         .collect())
 }
 
-/// Build a sea_query expression evaluating to the continue-listening source
-/// type/id for a scrobble row. Playlists / smart playlists / song-radio queue
-/// sources keep their original id; everything else falls back to album.
-fn continue_listening_case(
-    then_column: entity::scrobbles::Column,
-    else_expr: SimpleExpr,
-) -> SimpleExpr {
-    let special_types = ["playlist", "smartPlaylist", "songRadio"];
-    let cond = Condition::all()
+fn id_backed_continue_listening_source_condition() -> Condition {
+    Condition::all()
         .add(
             Expr::col((
                 entity::scrobbles::Entity,
                 entity::scrobbles::Column::QueueSourceType,
             ))
-            .is_in(special_types),
+            .is_in(ID_BACKED_CONTINUE_LISTENING_SOURCE_TYPES),
         )
         .add(
             Expr::col((
@@ -747,14 +744,66 @@ fn continue_listening_case(
                 entity::scrobbles::Column::QueueSourceId,
             ))
             .is_not_null(),
-        );
+        )
+}
+
+fn singleton_continue_listening_source_condition() -> Condition {
+    Condition::all().add(
+        Expr::col((
+            entity::scrobbles::Entity,
+            entity::scrobbles::Column::QueueSourceType,
+        ))
+        .is_in(SINGLETON_CONTINUE_LISTENING_SOURCE_TYPES),
+    )
+}
+
+/// Build a sea_query expression evaluating to the continue-listening source
+/// type for a scrobble row. Playlists / smart playlists / song-radio queue
+/// sources keep their original type when they have an id; stable singleton
+/// sources like favorites and history become one source entry. Everything else
+/// falls back to album.
+fn continue_listening_source_type_expr() -> SimpleExpr {
+    let queue_source_type = SimpleExpr::from(Expr::col((
+        entity::scrobbles::Entity,
+        entity::scrobbles::Column::QueueSourceType,
+    )));
 
     CaseStatement::new()
         .case(
-            cond,
-            SimpleExpr::from(Expr::col((entity::scrobbles::Entity, then_column))),
+            id_backed_continue_listening_source_condition(),
+            queue_source_type.clone(),
         )
-        .finally(else_expr)
+        .case(
+            singleton_continue_listening_source_condition(),
+            queue_source_type,
+        )
+        .finally(Expr::value("album"))
+        .into()
+}
+
+/// Build a sea_query expression evaluating to the continue-listening source id
+/// for a scrobble row. Singleton sources synthesize their id from the source
+/// type so rows with no natural id still group together.
+fn continue_listening_source_id_expr() -> SimpleExpr {
+    CaseStatement::new()
+        .case(
+            id_backed_continue_listening_source_condition(),
+            SimpleExpr::from(Expr::col((
+                entity::scrobbles::Entity,
+                entity::scrobbles::Column::QueueSourceId,
+            ))),
+        )
+        .case(
+            singleton_continue_listening_source_condition(),
+            SimpleExpr::from(Expr::col((
+                entity::scrobbles::Entity,
+                entity::scrobbles::Column::QueueSourceType,
+            ))),
+        )
+        .finally(SimpleExpr::from(Expr::col((
+            entity::songs::Entity,
+            entity::songs::Column::AlbumId,
+        ))))
         .into()
 }
 
@@ -765,17 +814,8 @@ fn continue_listening_case(
 fn continue_listening_subquery(user_id: i64) -> sea_orm::sea_query::SelectStatement {
     use sea_orm::sea_query::{Alias, Query as SqQuery};
 
-    let source_type_expr = continue_listening_case(
-        entity::scrobbles::Column::QueueSourceType,
-        Expr::value("album"),
-    );
-    let source_id_expr = continue_listening_case(
-        entity::scrobbles::Column::QueueSourceId,
-        SimpleExpr::from(Expr::col((
-            entity::songs::Entity,
-            entity::songs::Column::AlbumId,
-        ))),
-    );
+    let source_type_expr = continue_listening_source_type_expr();
+    let source_id_expr = continue_listening_source_id_expr();
 
     let mut inner = SqQuery::select();
     inner

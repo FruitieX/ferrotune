@@ -30,6 +30,10 @@ export function getQueueSourceHref(source: {
       return source.id ? getPlaylistDetailsHref(source.type, source.id) : null;
     case "songRadio":
       return source.id ? getSongRadioHref(source.id) : null;
+    case "favorites":
+      return "/favorites";
+    case "history":
+      return "/history";
     case "genre":
       return source.name
         ? `/library/genres/details?name=${encodeURIComponent(source.name)}`

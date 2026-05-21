@@ -795,12 +795,13 @@ pub async fn get_forgotten_favorites_logic(
 // ============================================================================
 
 /// A single entry in the "continue listening" section.
-/// Can be an album, playlist, smart playlist, or source-specific item like song radio.
+/// Can be an album, playlist, smart playlist, or source-specific item like
+/// song radio, favorites, or history.
 #[derive(Debug, Serialize, Clone, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ContinueListeningEntry {
-    /// "album" | "playlist" | "smartPlaylist" | "songRadio"
+    /// "album" | "playlist" | "smartPlaylist" | "songRadio" | "favorites" | "history"
     #[serde(rename = "type")]
     pub entry_type: String,
     /// ISO 8601 timestamp of the last scrobble from this source
@@ -811,7 +812,7 @@ pub struct ContinueListeningEntry {
     /// Present when entry_type = "playlist" or "smartPlaylist"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playlist: Option<ContinueListeningPlaylist>,
-    /// Present when entry_type = "songRadio"
+    /// Present when entry_type is a source-specific item.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<ContinueListeningSource>,
 }
@@ -839,7 +840,7 @@ pub struct ContinueListeningPlaylist {
 pub struct ContinueListeningSource {
     pub id: String,
     pub name: String,
-    /// "songRadio"
+    /// "songRadio", "favorites", or "history"
     pub source_type: String,
     pub cover_art: Option<String>,
 }
@@ -946,13 +947,32 @@ pub async fn get_continue_listening_source_refs(
         .collect())
 }
 
+fn singleton_continue_listening_source(
+    source_type: &str,
+    source_id: &str,
+) -> Option<ContinueListeningSource> {
+    let name = match source_type {
+        "favorites" => "Favorites",
+        "history" => "Recently Played",
+        _ => return None,
+    };
+
+    Some(ContinueListeningSource {
+        id: source_id.to_string(),
+        name: name.to_string(),
+        source_type: source_type.to_string(),
+        cover_art: None,
+    })
+}
+
 /// Get the "continue listening" list: recent playback sources grouped by
 /// the actual source (album, playlist, smart playlist, or supported virtual sources).
 ///
-/// Scrobbles with `queue_source_type` in ("playlist", "smartPlaylist", "songRadio")
-/// that have a valid `queue_source_id` are grouped by that source. Everything
-/// else is grouped by the song's album, except for explicitly excluded virtual
-/// sources like forgotten favorites and continue-listening self-echo.
+/// Scrobbles from id-backed sources like playlists and song radio are grouped by
+/// their source id. Stable singleton sources like favorites and history are
+/// grouped into one named source entry. Everything else is grouped by the song's
+/// album, except for explicitly excluded virtual sources like continue-listening
+/// self-echo.
 pub async fn get_continue_listening_logic(
     database: &crate::db::Database,
     user_id: i64,
@@ -1171,6 +1191,16 @@ pub async fn get_continue_listening_logic(
                         source: Some(source),
                     })
                 }
+                "favorites" | "history" => {
+                    let source = singleton_continue_listening_source(&source_type, &source_id)?;
+                    Some(ContinueListeningEntry {
+                        entry_type: source_type,
+                        last_played,
+                        album: None,
+                        playlist: None,
+                        source: Some(source),
+                    })
+                }
                 _ => None,
             }
         })
@@ -1195,4 +1225,162 @@ pub async fn get_continue_listening_logic(
     };
 
     Ok(ContinueListeningResult { entries, total })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_continue_listening_logic, ListViewOptions};
+    use crate::db::{entity, Database};
+    use chrono::{Duration, TimeZone, Utc};
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+    const USER_ID: i64 = 1;
+    const MUSIC_FOLDER_ID: i64 = 1;
+
+    async fn setup_database() -> Database {
+        let database = Database::new_sqlite_in_memory()
+            .await
+            .expect("create sqlite memory db");
+        let now = Utc.with_ymd_and_hms(2026, 5, 21, 12, 0, 0).unwrap();
+
+        entity::users::ActiveModel {
+            id: Set(USER_ID),
+            username: Set("continue-listening-test".to_string()),
+            password_hash: Set("x".to_string()),
+            is_admin: Set(false),
+            created_at: Set(now.fixed_offset()),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert user");
+
+        entity::music_folders::ActiveModel {
+            id: Set(MUSIC_FOLDER_ID),
+            name: Set("Music".to_string()),
+            path: Set("/music".to_string()),
+            enabled: Set(true),
+            watch_enabled: Set(false),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert music folder");
+
+        entity::user_library_access::ActiveModel {
+            user_id: Set(USER_ID),
+            music_folder_id: Set(MUSIC_FOLDER_ID),
+            created_at: Set(now.fixed_offset()),
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert library access");
+
+        entity::artists::ActiveModel {
+            id: Set("artist-1".to_string()),
+            name: Set("Test Artist".to_string()),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert artist");
+
+        database
+    }
+
+    async fn insert_song(database: &Database, song_id: &str) {
+        entity::songs::ActiveModel {
+            id: Set(song_id.to_string()),
+            title: Set(format!("Song {song_id}")),
+            artist_id: Set("artist-1".to_string()),
+            music_folder_id: Set(Some(MUSIC_FOLDER_ID)),
+            file_path: Set(format!("/music/{song_id}.mp3")),
+            file_size: Set(0),
+            file_format: Set("mp3".to_string()),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert song");
+    }
+
+    async fn insert_source_scrobble(
+        database: &Database,
+        song_id: &str,
+        source_type: &str,
+        played_at: chrono::DateTime<Utc>,
+    ) {
+        entity::scrobbles::ActiveModel {
+            user_id: Set(USER_ID),
+            song_id: Set(song_id.to_string()),
+            played_at: Set(Some(played_at.fixed_offset())),
+            submission: Set(true),
+            queue_source_type: Set(Some(source_type.to_string())),
+            queue_source_id: Set(None),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert scrobble");
+    }
+
+    #[tokio::test]
+    async fn continue_listening_groups_singleton_sources() {
+        let database = setup_database().await;
+        insert_song(&database, "song-1").await;
+        insert_song(&database, "song-2").await;
+        let first_play = Utc.with_ymd_and_hms(2026, 5, 21, 12, 0, 0).unwrap();
+
+        insert_source_scrobble(&database, "song-1", "favorites", first_play).await;
+        insert_source_scrobble(
+            &database,
+            "song-2",
+            "favorites",
+            first_play + Duration::minutes(1),
+        )
+        .await;
+        insert_source_scrobble(
+            &database,
+            "song-1",
+            "history",
+            first_play + Duration::minutes(2),
+        )
+        .await;
+
+        let result = get_continue_listening_logic(
+            &database,
+            USER_ID,
+            10,
+            0,
+            None,
+            ListViewOptions::default(),
+        )
+        .await
+        .expect("get continue listening");
+
+        assert_eq!(result.total, 2);
+        assert_eq!(result.entries.len(), 2);
+
+        let history = &result.entries[0];
+        assert_eq!(history.entry_type, "history");
+        assert_eq!(
+            history.source.as_ref().map(|source| source.id.as_str()),
+            Some("history")
+        );
+        assert_eq!(
+            history.source.as_ref().map(|source| source.name.as_str()),
+            Some("Recently Played")
+        );
+
+        let favorites = &result.entries[1];
+        assert_eq!(favorites.entry_type, "favorites");
+        assert_eq!(
+            favorites.source.as_ref().map(|source| source.id.as_str()),
+            Some("favorites")
+        );
+        assert_eq!(
+            favorites.source.as_ref().map(|source| source.name.as_str()),
+            Some("Favorites")
+        );
+    }
 }

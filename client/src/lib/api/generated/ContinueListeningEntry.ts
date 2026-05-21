@@ -5,11 +5,12 @@ import type { ContinueListeningSource } from "./ContinueListeningSource";
 
 /**
  * A single entry in the "continue listening" section.
- * Can be an album, playlist, smart playlist, or source-specific item like song radio.
+ * Can be an album, playlist, smart playlist, or source-specific item like
+ * song radio, favorites, or history.
  */
 export type ContinueListeningEntry = { 
 /**
- * "album" | "playlist" | "smartPlaylist" | "songRadio"
+ * "album" | "playlist" | "smartPlaylist" | "songRadio" | "favorites" | "history"
  */
 type: string, 
 /**
@@ -25,6 +26,6 @@ album: AlbumResponse | null,
  */
 playlist: ContinueListeningPlaylist | null, 
 /**
- * Present when entry_type = "songRadio"
+ * Present when entry_type is a source-specific item.
  */
 source: ContinueListeningSource | null, };
