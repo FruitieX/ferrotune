@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Environment variable for data directory (database, cache, etc.)
@@ -12,9 +11,14 @@ pub const DATA_DIR_ENV: &str = "FERROTUNE_DATA_DIR";
 /// - `sqlite://<path>` or `sqlite:<path>` — SQLite file (relative or absolute path)
 /// - `postgres://<user>:<pw>@<host>:<port>/<db>` or `postgresql://...` — Postgres server
 ///
-/// When set, this overrides `[database]` in the TOML config and is the primary
-/// way to configure the database in configless / container deployments.
+/// This is the primary way to configure the database for deployments.
 pub const DATABASE_URL_ENV: &str = "FERROTUNE_DATABASE_URL";
+
+/// Environment variable for the server bind host.
+pub const HOST_ENV: &str = "FERROTUNE_HOST";
+
+/// Environment variable for the server bind port.
+pub const PORT_ENV: &str = "FERROTUNE_PORT";
 
 /// Environment variable for the byte-range-addressable transcode cache directory.
 /// Useful for configless/container deployments that mount an ephemeral volume.
@@ -66,7 +70,7 @@ fn expand_tilde(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -74,62 +78,48 @@ pub struct Config {
     pub cache: CacheConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ServerConfig {
-    #[serde(default = "default_host")]
     pub host: String,
-    #[serde(default = "default_port")]
     pub port: u16,
-    #[serde(default = "default_name")]
     pub name: String,
     /// Default admin username (created on first run if no users exist)
-    #[serde(default = "default_admin_user")]
     pub admin_user: String,
     /// Default admin password (created on first run if no users exist)
-    #[serde(default = "default_admin_password")]
     pub admin_password: String,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DatabaseBackend {
     #[default]
     Sqlite,
     Postgres,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct DatabaseConfig {
-    #[serde(default)]
     pub backend: DatabaseBackend,
-    #[serde(default = "default_db_path")]
     pub path: PathBuf,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct MusicConfig {
     pub folders: Vec<MusicFolder>,
-    #[serde(default = "default_true")]
     pub readonly_tags: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct MusicFolder {
     pub name: String,
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct CacheConfig {
-    #[serde(default = "default_cache_path")]
     pub path: PathBuf,
-    #[serde(default = "default_max_cover_size")]
     pub max_cover_size: u32,
-    #[serde(default = "default_transcode_cache_path")]
     pub transcode_path: PathBuf,
-    #[serde(default = "default_max_transcode_size_mb")]
     pub max_transcode_size_mb: u64,
 }
 
@@ -171,10 +161,6 @@ fn default_max_cover_size() -> u32 {
 
 fn default_max_transcode_size_mb() -> u64 {
     10 * 1024
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn redact_database_url(url: &str) -> String {
@@ -234,18 +220,16 @@ impl DatabaseConfig {
             .or_else(|| value.strip_prefix("sqlite:"));
         if let Some(path) = sqlite_path {
             if path.is_empty() {
-                return Err(crate::error::Error::Config(config::ConfigError::Message(
-                    format!("{DATABASE_URL_ENV} sqlite scheme requires a path"),
+                return Err(crate::error::Error::Config(format!(
+                    "{DATABASE_URL_ENV} sqlite scheme requires a path"
                 )));
             }
             return Ok(Self::sqlite(expand_tilde(Path::new(path))));
         }
 
-        Err(crate::error::Error::Config(config::ConfigError::Message(
-            format!(
-                "{DATABASE_URL_ENV} must use scheme sqlite://, postgres:// or postgresql:// (got: {})",
-                redact_database_url(value)
-            ),
+        Err(crate::error::Error::Config(format!(
+            "{DATABASE_URL_ENV} must use scheme sqlite://, postgres:// or postgresql:// (got: {})",
+            redact_database_url(value)
         )))
     }
 
@@ -254,9 +238,9 @@ impl DatabaseConfig {
             DatabaseBackend::Sqlite => Ok(()),
             DatabaseBackend::Postgres => match self.url.as_deref() {
                 Some(url) if !url.trim().is_empty() => Ok(()),
-                _ => Err(crate::error::Error::Config(config::ConfigError::Message(
+                _ => Err(crate::error::Error::Config(
                     "database.url is required when database.backend = \"postgres\"".to_string(),
-                ))),
+                )),
             },
         }
     }
@@ -270,6 +254,20 @@ impl DatabaseConfig {
                 .map(redact_database_url)
                 .unwrap_or_else(|| "postgresql:<missing-url>".to_string()),
         }
+    }
+}
+
+impl ServerConfig {
+    fn apply_env_overrides(&mut self) -> crate::error::Result<()> {
+        if let Some(host) = host_from_env() {
+            self.host = host;
+        }
+
+        if let Some(port) = port_from_env()? {
+            self.port = port;
+        }
+
+        Ok(())
     }
 }
 
@@ -302,71 +300,72 @@ fn transcode_cache_max_size_mb_from_env() -> crate::error::Result<Option<u64>> {
     };
 
     value.trim().parse::<u64>().map(Some).map_err(|error| {
-        crate::error::Error::Config(config::ConfigError::Message(format!(
+        crate::error::Error::Config(format!(
             "{TRANSCODE_CACHE_MAX_MB_ENV} must be an unsigned integer MiB value: {error}"
-        )))
+        ))
+    })
+}
+
+fn host_from_env() -> Option<String> {
+    std::env::var(HOST_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn port_from_env() -> crate::error::Result<Option<u16>> {
+    let value = match std::env::var(PORT_ENV) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return Ok(None),
+    };
+
+    value.trim().parse::<u16>().map(Some).map_err(|error| {
+        crate::error::Error::Config(format!("{PORT_ENV} must be a TCP port number: {error}"))
     })
 }
 
 impl Config {
-    /// Load configuration from the default location.
-    /// Returns Ok(None) if no config file exists (configless mode).
-    pub fn load() -> crate::error::Result<Option<Self>> {
-        let config_path = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("ferrotune")
-            .join("config.toml");
-
-        if !config_path.exists() {
-            return Ok(None);
-        }
-
-        Self::load_from(&config_path).map(Some)
-    }
-
-    /// Load configuration from a specific path.
-    pub fn load_from(path: &PathBuf) -> crate::error::Result<Self> {
-        if !path.exists() {
-            return Err(crate::error::Error::Config(config::ConfigError::Message(
-                format!("Config file not found at {}.", path.display()),
-            )));
-        }
-
-        let settings = config::Config::builder()
-            .add_source(config::File::from(path.as_ref()))
-            .build()?;
-
-        let mut config: Self = settings.try_deserialize()?;
-        // FERROTUNE_DATABASE_URL overrides the TOML [database] section so that
-        // container / configless deployments can be pointed at Postgres without
-        // editing the file.
+    /// Build runtime configuration from environment variables and defaults.
+    pub fn from_env() -> crate::error::Result<Self> {
+        let mut config = Self::defaults();
         if let Some(db) = DatabaseConfig::from_env()? {
             tracing::info!(
-                "Overriding [database] from {}: {}",
+                "Using database from {}: {}",
                 DATABASE_URL_ENV,
                 db.connection_label()
             );
             config.database = db;
         }
+
+        config.server.apply_env_overrides()?;
         config.cache.apply_env_overrides()?;
         config.expand_paths();
         config.database.validate()?;
         Ok(config)
     }
 
-    /// Create a default configuration for configless operation.
-    /// Uses environment variables and platform defaults.
+    /// Create a default runtime configuration for embedded callers.
+    ///
+    /// This is intentionally forgiving so embedded callers can override fields
+    /// directly after construction without failing because of unrelated process
+    /// environment state. The binary startup path should use [`Self::from_env`].
     pub fn default_configless() -> Self {
-        // Prefer FERROTUNE_DATABASE_URL when set. Fall back to SQLite at the
-        // platform-default data dir. We deliberately do not try to validate
-        // here — the caller can call `validate()` if needed; the pool builder
-        // will also refuse to start on invalid config.
-        let database = DatabaseConfig::from_env()
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| DatabaseConfig::sqlite(default_db_path()));
+        let mut config = Self::defaults();
+        if let Ok(Some(database)) = DatabaseConfig::from_env() {
+            config.database = database;
+        }
+        if let Err(error) = config.server.apply_env_overrides() {
+            tracing::warn!(error = %error, "Ignoring invalid server environment override");
+        }
+        if let Err(error) = config.cache.apply_env_overrides() {
+            tracing::warn!(error = %error, "Ignoring invalid transcode cache environment override");
+        }
+        config.expand_paths();
+        config
+    }
 
-        let mut config = Self {
+    fn defaults() -> Self {
+        Self {
             server: ServerConfig {
                 host: default_host(),
                 port: default_port(),
@@ -374,9 +373,9 @@ impl Config {
                 admin_user: default_admin_user(),
                 admin_password: default_admin_password(),
             },
-            database,
+            database: DatabaseConfig::sqlite(default_db_path()),
             music: MusicConfig {
-                folders: Vec::new(), // No folders - will be added via admin UI
+                folders: Vec::new(),
                 readonly_tags: true,
             },
             cache: CacheConfig {
@@ -385,12 +384,7 @@ impl Config {
                 transcode_path: default_transcode_cache_path(),
                 max_transcode_size_mb: default_max_transcode_size_mb(),
             },
-        };
-        if let Err(error) = config.cache.apply_env_overrides() {
-            tracing::warn!(error = %error, "Ignoring invalid transcode cache environment override");
         }
-        config.expand_paths();
-        config
     }
 
     /// Expand tilde (~) in all path fields
@@ -404,8 +398,11 @@ impl Config {
         self.cache.transcode_path = expand_tilde(&self.cache.transcode_path);
 
         if self.database.backend == DatabaseBackend::Sqlite {
-            // If FERROTUNE_DATA_DIR is set, it overrides the SQLite database path.
-            if std::env::var(DATA_DIR_ENV).is_ok() {
+            let database_url_is_set = std::env::var(DATABASE_URL_ENV)
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+
+            if std::env::var(DATA_DIR_ENV).is_ok() && !database_url_is_set {
                 self.database.path = get_data_dir().join("ferrotune.db");
             } else {
                 self.database.path = expand_tilde(&self.database.path);
@@ -416,51 +413,13 @@ impl Config {
             folder.path = expand_tilde(&folder.path);
         }
     }
-
-    pub fn example() -> String {
-        let example = Config {
-            server: ServerConfig {
-                host: "127.0.0.1".to_string(),
-                port: 4040,
-                name: "Ferrotune".to_string(),
-                admin_user: "admin".to_string(),
-                admin_password: "changeme".to_string(),
-            },
-            database: DatabaseConfig::sqlite(PathBuf::from(
-                "~/.local/share/ferrotune/ferrotune.db",
-            )),
-            music: MusicConfig {
-                folders: vec![
-                    MusicFolder {
-                        name: "Music".to_string(),
-                        path: PathBuf::from("/path/to/music"),
-                    },
-                    MusicFolder {
-                        name: "More Music".to_string(),
-                        path: PathBuf::from("/path/to/more/music"),
-                    },
-                ],
-                readonly_tags: true,
-            },
-            cache: CacheConfig {
-                path: PathBuf::from("~/.cache/ferrotune"),
-                max_cover_size: 1024,
-                transcode_path: PathBuf::from("/tmp/ferrotune/transcodes"),
-                max_transcode_size_mb: default_max_transcode_size_mb(),
-            },
-        };
-
-        toml::to_string_pretty(&example).unwrap()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::OsString;
-    use std::fs;
     use std::sync::{LazyLock, Mutex, MutexGuard};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -498,126 +457,14 @@ mod tests {
     }
 
     fn transcode_cache_env_guard() -> EnvGuard {
-        EnvGuard::new(&[TRANSCODE_CACHE_PATH_ENV, TRANSCODE_CACHE_MAX_MB_ENV])
-    }
-
-    fn write_temp_config(contents: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("ferrotune-config-test-{}.toml", unique));
-
-        fs::write(&path, contents).expect("test config should be written");
-        path
-    }
-
-    #[test]
-    fn loads_legacy_sqlite_database_config() {
-        let _env = transcode_cache_env_guard();
-        let path = write_temp_config(
-            r#"
-[server]
-host = "127.0.0.1"
-port = 4040
-name = "Ferrotune"
-admin_user = "admin"
-admin_password = "admin"
-
-[database]
-path = "/tmp/ferrotune.db"
-
-[music]
-folders = []
-readonly_tags = true
-
-[cache]
-path = "/tmp/ferrotune-cache"
-max_cover_size = 1024
-"#,
-        );
-
-        let config = Config::load_from(&path).expect("legacy sqlite config should load");
-        assert_eq!(config.database.backend, DatabaseBackend::Sqlite);
-        assert_eq!(config.database.path, PathBuf::from("/tmp/ferrotune.db"));
-        assert_eq!(config.database.url, None);
-
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn loads_postgres_database_config() {
-        let _env = transcode_cache_env_guard();
-        let path = write_temp_config(
-            r#"
-[server]
-host = "127.0.0.1"
-port = 4040
-name = "Ferrotune"
-admin_user = "admin"
-admin_password = "admin"
-
-[database]
-backend = "postgres"
-url = "postgres://ferrotune:secret@localhost:5432/ferrotune"
-
-[music]
-folders = []
-readonly_tags = true
-
-[cache]
-path = "/tmp/ferrotune-cache"
-max_cover_size = 1024
-"#,
-        );
-
-        let config = Config::load_from(&path).expect("postgres config should load");
-        assert_eq!(config.database.backend, DatabaseBackend::Postgres);
-        assert_eq!(
-            config.database.url.as_deref(),
-            Some("postgres://ferrotune:secret@localhost:5432/ferrotune")
-        );
-        assert_eq!(
-            config.database.connection_label(),
-            "postgres://[REDACTED]@localhost:5432/ferrotune"
-        );
-
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn rejects_postgres_database_config_without_url() {
-        let _env = transcode_cache_env_guard();
-        let path = write_temp_config(
-            r#"
-[server]
-host = "127.0.0.1"
-port = 4040
-name = "Ferrotune"
-admin_user = "admin"
-admin_password = "admin"
-
-[database]
-backend = "postgres"
-
-[music]
-folders = []
-readonly_tags = true
-
-[cache]
-path = "/tmp/ferrotune-cache"
-max_cover_size = 1024
-"#,
-        );
-
-        let err = Config::load_from(&path).expect_err("postgres config without URL should fail");
-        assert!(
-            err.to_string()
-                .contains("database.url is required when database.backend = \"postgres\""),
-            "unexpected error: {err}"
-        );
-
-        let _ = fs::remove_file(path);
+        EnvGuard::new(&[
+            DATABASE_URL_ENV,
+            DATA_DIR_ENV,
+            HOST_ENV,
+            PORT_ENV,
+            TRANSCODE_CACHE_PATH_ENV,
+            TRANSCODE_CACHE_MAX_MB_ENV,
+        ])
     }
 
     #[test]
@@ -665,43 +512,34 @@ max_cover_size = 1024
     }
 
     #[test]
-    fn env_overrides_transcode_cache_settings_from_config_file() {
+    fn config_from_env_uses_database_url() {
         let _env = transcode_cache_env_guard();
-        std::env::set_var(TRANSCODE_CACHE_PATH_ENV, "/tmp/ferrotune-env-transcodes");
-        std::env::set_var(TRANSCODE_CACHE_MAX_MB_ENV, "2048");
-
-        let path = write_temp_config(
-            r#"
-[server]
-host = "127.0.0.1"
-port = 4040
-name = "Ferrotune"
-admin_user = "admin"
-admin_password = "admin"
-
-[database]
-path = "/tmp/ferrotune.db"
-
-[music]
-folders = []
-readonly_tags = true
-
-[cache]
-path = "/tmp/ferrotune-cache"
-max_cover_size = 1024
-transcode_path = "/tmp/ferrotune-config-transcodes"
-max_transcode_size_mb = 512
-"#,
+        std::env::set_var(
+            DATABASE_URL_ENV,
+            "postgres://ferrotune:secret@localhost:5432/ferrotune",
         );
 
-        let config = Config::load_from(&path).expect("config should load");
+        let config = Config::from_env().expect("env config should load");
+        assert_eq!(config.database.backend, DatabaseBackend::Postgres);
         assert_eq!(
-            config.cache.transcode_path,
-            PathBuf::from("/tmp/ferrotune-env-transcodes")
+            config.database.url.as_deref(),
+            Some("postgres://ferrotune:secret@localhost:5432/ferrotune")
         );
-        assert_eq!(config.cache.max_transcode_size_mb, 2048);
+        assert_eq!(
+            config.database.connection_label(),
+            "postgres://[REDACTED]@localhost:5432/ferrotune"
+        );
+    }
 
-        let _ = fs::remove_file(path);
+    #[test]
+    fn config_from_env_uses_server_host_and_port() {
+        let _env = transcode_cache_env_guard();
+        std::env::set_var(HOST_ENV, "0.0.0.0");
+        std::env::set_var(PORT_ENV, "14040");
+
+        let config = Config::from_env().expect("env config should load");
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 14040);
     }
 
     #[test]
@@ -726,34 +564,38 @@ max_transcode_size_mb = 512
         let _env = transcode_cache_env_guard();
         std::env::set_var(TRANSCODE_CACHE_MAX_MB_ENV, "not-a-number");
 
-        let path = write_temp_config(
-            r#"
-[server]
-host = "127.0.0.1"
-port = 4040
-name = "Ferrotune"
-admin_user = "admin"
-admin_password = "admin"
-
-[database]
-path = "/tmp/ferrotune.db"
-
-[music]
-folders = []
-readonly_tags = true
-
-[cache]
-path = "/tmp/ferrotune-cache"
-max_cover_size = 1024
-"#,
-        );
-
-        let err = Config::load_from(&path).expect_err("invalid env override should fail");
+        let err = Config::from_env().expect_err("invalid env override should fail");
         assert!(
             err.to_string().contains(TRANSCODE_CACHE_MAX_MB_ENV),
             "unexpected error: {err}"
         );
+    }
 
-        let _ = fs::remove_file(path);
+    #[test]
+    fn rejects_invalid_port_env_override() {
+        let _env = transcode_cache_env_guard();
+        std::env::set_var(PORT_ENV, "not-a-port");
+
+        let err = Config::from_env().expect_err("invalid port env should fail");
+        assert!(
+            err.to_string().contains(PORT_ENV),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn data_dir_controls_default_sqlite_and_cache_paths() {
+        let _env = transcode_cache_env_guard();
+        std::env::set_var(DATA_DIR_ENV, "/tmp/ferrotune-data-dir-test");
+
+        let config = Config::from_env().expect("env config should load");
+        assert_eq!(
+            config.database.path,
+            PathBuf::from("/tmp/ferrotune-data-dir-test/ferrotune.db")
+        );
+        assert_eq!(
+            config.cache.path,
+            PathBuf::from("/tmp/ferrotune-data-dir-test/cache")
+        );
     }
 }

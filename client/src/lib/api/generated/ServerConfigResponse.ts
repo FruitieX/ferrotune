@@ -17,10 +17,6 @@ serverHost: string,
  */
 serverPort: number, 
 /**
- * Default admin username (for display only)
- */
-adminUser: string, 
-/**
  * Maximum cover art size in pixels
  */
 maxCoverSize: number, 
@@ -37,10 +33,10 @@ allowFileDeletion: boolean,
  */
 configured: boolean, 
 /**
- * Database connection target (read-only, from config file or default)
+ * Database connection target (read-only, from runtime startup config)
  */
 databasePath: string, 
 /**
- * Cache path (read-only, from config file or default)
+ * Cache path (read-only, from runtime startup config)
  */
 cachePath: string, };

@@ -104,7 +104,7 @@ mod scan;
 pub mod scan_state;
 mod scrobbles;
 mod search;
-mod server_config;
+pub mod server_config;
 mod sessions;
 mod setup;
 mod shuffle_exclude;

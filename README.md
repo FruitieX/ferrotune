@@ -15,7 +15,7 @@ A self-hosted music server written in Rust with a Vite/React web client.
 - **OpenSubsonic API**
   - Tested with Supersonic and Symfonium
 - **Configless operation**
-  - Can run without a config file; configure via web UI
+  - Runtime settings use environment variables and the web UI
 - **Listening statistics**
   - Track your listening history and habits
 - **High performance**
@@ -39,11 +39,10 @@ On first run, open `http://localhost:4040` in your browser to:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `FERROTUNE_DATABASE_URL` | Database connection URL. Overrides `[database]` in the TOML config. | unset (falls back to SQLite at `FERROTUNE_DATA_DIR`) |
+| `FERROTUNE_DATABASE_URL` | Database connection URL. | unset (falls back to SQLite at `FERROTUNE_DATA_DIR`) |
 | `FERROTUNE_DATA_DIR` | Directory for database and cache | Platform-specific |
 | `FERROTUNE_TRANSCODE_CACHE_PATH` | Directory for byte-range-addressable transcoded stream cache | `$TMPDIR/ferrotune/transcodes` |
 | `FERROTUNE_TRANSCODE_CACHE_MAX_MB` | Max transcoded stream cache size in MiB before LRU eviction | `10240` |
-| `FERROTUNE_CONFIG` | Path to config file | `~/.config/ferrotune/config.toml` |
 | `FERROTUNE_HOST` | Server bind address | `127.0.0.1` |
 | `FERROTUNE_PORT` | Server port | `4040` |
 
@@ -60,10 +59,10 @@ FERROTUNE_DATABASE_URL="postgres://ferrotune:ferrotune@localhost:5432/ferrotune"
 ```
 
 When `FERROTUNE_DATA_DIR` is set:
-- Database: `$FERROTUNE_DATA_DIR/ferrotune.db` (if using SQLite)
+- Database: `$FERROTUNE_DATA_DIR/ferrotune.db` (if `FERROTUNE_DATABASE_URL` is unset)
 - Cache: `$FERROTUNE_DATA_DIR/cache/`
 
-For Kubernetes/container deployments without a config file, point the transcode cache at an ephemeral volume:
+For Kubernetes/container deployments, point the transcode cache at an ephemeral volume:
 
 ```bash
 FERROTUNE_TRANSCODE_CACHE_PATH=/cache/transcodes \
@@ -86,9 +85,6 @@ ferrotune scan --dry-run    # Preview changes
 # User management
 ferrotune create-user --username alice --password secret --admin
 ferrotune set-password --username alice --password newsecret
-
-# Generate example config
-ferrotune generate-config > ~/.config/ferrotune/config.toml
 ```
 
 ## Development

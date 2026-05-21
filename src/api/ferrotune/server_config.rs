@@ -15,6 +15,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
 
+const DEFAULT_SERVER_NAME: &str = "Ferrotune";
+const DEFAULT_MAX_COVER_SIZE: u32 = 1024;
+const DEFAULT_READONLY_TAGS: bool = true;
+const DEFAULT_ALLOW_FILE_DELETION: bool = false;
+const DEFAULT_CONFIGURED: bool = false;
+
+const KEY_SERVER_NAME: &str = "server.name";
+const KEY_MAX_COVER_SIZE: &str = "cache.max_cover_size";
+const KEY_READONLY_TAGS: &str = "music.readonly_tags";
+const KEY_ALLOW_FILE_DELETION: &str = "music.allow_file_deletion";
+const KEY_INITIAL_SETUP_COMPLETE: &str = "initial_setup_complete";
+
 /// Server configuration response
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -26,8 +38,6 @@ pub struct ServerConfigResponse {
     pub server_host: String,
     /// Server port
     pub server_port: u16,
-    /// Default admin username (for display only)
-    pub admin_user: String,
     /// Maximum cover art size in pixels
     pub max_cover_size: u32,
     /// Whether tag editing is disabled
@@ -36,9 +46,9 @@ pub struct ServerConfigResponse {
     pub allow_file_deletion: bool,
     /// Whether the server has been configured (first-run complete)
     pub configured: bool,
-    /// Database connection target (read-only, from config file or default)
+    /// Database connection target (read-only, from runtime startup config)
     pub database_path: String,
-    /// Cache path (read-only, from config file or default)
+    /// Cache path (read-only, from runtime startup config)
     pub cache_path: String,
 }
 
@@ -49,14 +59,6 @@ pub struct ServerConfigResponse {
 pub struct UpdateServerConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub server_host: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub server_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub admin_user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub admin_password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_cover_size: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,25 +96,31 @@ fn parse_json<T: serde::de::DeserializeOwned>(value: Option<String>, default: T)
         .unwrap_or(default)
 }
 
-/// Check if tag editing is enabled (reads from database, falls back to startup config).
+/// Check if tag editing is enabled (reads from database, defaults to read-only).
 /// This allows the toggle to apply immediately without server restart.
 pub async fn is_tag_editing_enabled(state: &AppState) -> bool {
-    // Check database first for dynamic config
-    let db_value = get_config_value(&state.database, "music.readonly_tags").await;
-    if let Some(val) = db_value {
-        // Database has an explicit value - use it
-        let readonly: bool = parse_json(Some(val), state.config.music.readonly_tags);
-        return !readonly;
-    }
-    // Fall back to startup config value
-    !state.config.music.readonly_tags
+    let readonly: bool = parse_json(
+        get_config_value(&state.database, KEY_READONLY_TAGS).await,
+        DEFAULT_READONLY_TAGS,
+    );
+    !readonly
 }
 
 /// Check if file deletion is enabled (reads from database, defaults to false).
 /// This controls whether users can mark and delete music files from the library.
 pub async fn is_file_deletion_enabled(state: &AppState) -> bool {
-    let db_value = get_config_value(&state.database, "music.allow_file_deletion").await;
-    parse_json(db_value, false)
+    parse_json(
+        get_config_value(&state.database, KEY_ALLOW_FILE_DELETION).await,
+        DEFAULT_ALLOW_FILE_DELETION,
+    )
+}
+
+/// Get the configured maximum cover art size in pixels.
+pub async fn get_max_cover_size(state: &AppState) -> u32 {
+    parse_json(
+        get_config_value(&state.database, KEY_MAX_COVER_SIZE).await,
+        DEFAULT_MAX_COVER_SIZE,
+    )
 }
 
 /// Get server configuration
@@ -130,41 +138,27 @@ pub async fn get_server_config(
     let database = &state.database;
 
     let server_name = parse_json(
-        get_config_value(database, "server.name").await,
-        "Ferrotune".to_string(),
+        get_config_value(database, KEY_SERVER_NAME).await,
+        DEFAULT_SERVER_NAME.to_string(),
     );
-    let server_host = parse_json(
-        get_config_value(database, "server.host").await,
-        "127.0.0.1".to_string(),
-    );
-    let server_port: u16 = parse_json(get_config_value(database, "server.port").await, 4040);
-    let admin_user = parse_json(
-        get_config_value(database, "server.admin_user").await,
-        "admin".to_string(),
-    );
-    let max_cover_size: u32 = parse_json(
-        get_config_value(database, "cache.max_cover_size").await,
-        1024,
-    );
-    // Use config file value as default for readonly_tags (consistent with is_tag_editing_enabled)
+    let max_cover_size = get_max_cover_size(&state).await;
     let readonly_tags: bool = parse_json(
-        get_config_value(database, "music.readonly_tags").await,
-        state.config.music.readonly_tags,
+        get_config_value(database, KEY_READONLY_TAGS).await,
+        DEFAULT_READONLY_TAGS,
     );
     let allow_file_deletion: bool = parse_json(
-        get_config_value(database, "music.allow_file_deletion").await,
-        false,
+        get_config_value(database, KEY_ALLOW_FILE_DELETION).await,
+        DEFAULT_ALLOW_FILE_DELETION,
     );
     let configured: bool = parse_json(
-        get_config_value(database, "initial_setup_complete").await,
-        false,
+        get_config_value(database, KEY_INITIAL_SETUP_COMPLETE).await,
+        DEFAULT_CONFIGURED,
     );
 
     Ok(Json(ServerConfigResponse {
         server_name,
-        server_host,
-        server_port,
-        admin_user,
+        server_host: state.config.server.host.clone(),
+        server_port: state.config.server.port,
         max_cover_size,
         readonly_tags,
         allow_file_deletion,
@@ -193,59 +187,32 @@ pub async fn update_server_config(
     if let Some(name) = &request.server_name {
         set_config_value(
             database,
-            "server.name",
+            KEY_SERVER_NAME,
             &serde_json::to_string(name).unwrap(),
         )
         .await?;
     }
-    if let Some(host) = &request.server_host {
-        set_config_value(
-            database,
-            "server.host",
-            &serde_json::to_string(host).unwrap(),
-        )
-        .await?;
-    }
-    if let Some(port) = request.server_port {
-        set_config_value(database, "server.port", &port.to_string()).await?;
-    }
-    if let Some(admin_user) = &request.admin_user {
-        set_config_value(
-            database,
-            "server.admin_user",
-            &serde_json::to_string(admin_user).unwrap(),
-        )
-        .await?;
-    }
-    if let Some(admin_password) = &request.admin_password {
-        set_config_value(
-            database,
-            "server.admin_password",
-            &serde_json::to_string(admin_password).unwrap(),
-        )
-        .await?;
-    }
     if let Some(max_cover_size) = request.max_cover_size {
-        set_config_value(
-            database,
-            "cache.max_cover_size",
-            &max_cover_size.to_string(),
-        )
-        .await?;
+        set_config_value(database, KEY_MAX_COVER_SIZE, &max_cover_size.to_string()).await?;
     }
     if let Some(readonly_tags) = request.readonly_tags {
-        set_config_value(database, "music.readonly_tags", &readonly_tags.to_string()).await?;
+        set_config_value(database, KEY_READONLY_TAGS, &readonly_tags.to_string()).await?;
     }
     if let Some(allow_file_deletion) = request.allow_file_deletion {
         set_config_value(
             database,
-            "music.allow_file_deletion",
+            KEY_ALLOW_FILE_DELETION,
             &allow_file_deletion.to_string(),
         )
         .await?;
     }
     if let Some(configured) = request.configured {
-        set_config_value(database, "initial_setup_complete", &configured.to_string()).await?;
+        set_config_value(
+            database,
+            KEY_INITIAL_SETUP_COMPLETE,
+            &configured.to_string(),
+        )
+        .await?;
     }
 
     // Return updated config

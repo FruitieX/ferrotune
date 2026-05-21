@@ -101,7 +101,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     #[error("Configuration error: {0}")]
-    Config(#[from] config::ConfigError),
+    Config(String),
 
     #[error("Image processing error: {0}")]
     Image(#[from] image::ImageError),

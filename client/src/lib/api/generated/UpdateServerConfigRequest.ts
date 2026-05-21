@@ -3,4 +3,4 @@
 /**
  * Request to update server configuration
  */
-export type UpdateServerConfigRequest = { serverName: string | null, serverHost: string | null, serverPort: number | null, adminUser: string | null, adminPassword: string | null, maxCoverSize: number | null, readonlyTags: boolean | null, allowFileDeletion: boolean | null, configured: boolean | null, };
+export type UpdateServerConfigRequest = { serverName: string | null, maxCoverSize: number | null, readonlyTags: boolean | null, allowFileDeletion: boolean | null, configured: boolean | null, };

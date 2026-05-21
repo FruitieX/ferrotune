@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{fixtures_dir, TestServer, TestServerConfig};
+use common::{fixtures_dir, TestMusicFolderConfig, TestServer, TestServerConfig};
 use std::path::Path;
 
 /// Check if test fixtures exist.
@@ -76,20 +76,13 @@ fn test_multi_folder_rescan_preserves_other_folders() {
         copy_dir_recursive(&fixtures_music, &folder_b).expect("Failed to copy to folder_b");
     }
 
-    // Create server with two music folders
-    let extra_config = format!(
-        r#"
-[[music.folders]]
-name = "Folder B"
-path = "{}"
-"#,
-        folder_b.display()
-    );
-
     let config = TestServerConfig {
         music_path: Some(folder_a.clone()),
         copy_fixtures: false,
-        extra_config: Some(extra_config),
+        additional_music_folders: vec![TestMusicFolderConfig {
+            name: "Folder B".to_string(),
+            path: folder_b.clone(),
+        }],
         ..Default::default()
     };
 

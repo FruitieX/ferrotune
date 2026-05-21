@@ -254,11 +254,9 @@ fn guard_against_nonlocal_postgres_test_database(
         return Ok(());
     };
     let Some(host) = postgres_url_host(database_url) else {
-        return Err(crate::error::Error::Config(config::ConfigError::Message(
-            format!(
-                "Refusing to use unparsable PostgreSQL database URL in tests: {}",
-                database.connection_label()
-            ),
+        return Err(crate::error::Error::Config(format!(
+            "Refusing to use unparsable PostgreSQL database URL in tests: {}",
+            database.connection_label()
         )));
     };
 
@@ -266,11 +264,9 @@ fn guard_against_nonlocal_postgres_test_database(
         return Ok(());
     }
 
-    Err(crate::error::Error::Config(config::ConfigError::Message(
-        format!(
-            "Refusing to use non-local PostgreSQL database in tests: {}. Use a local/testcontainer database, or set {ALLOW_NONLOCAL_TEST_DATABASE_ENV}=1 if this is intentional.",
-            database.connection_label()
-        ),
+    Err(crate::error::Error::Config(format!(
+        "Refusing to use non-local PostgreSQL database in tests: {}. Use a local/testcontainer database, or set {ALLOW_NONLOCAL_TEST_DATABASE_ENV}=1 if this is intentional.",
+        database.connection_label()
     )))
 }
 

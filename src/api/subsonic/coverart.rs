@@ -328,7 +328,9 @@ async fn get_playlist_cover_art(
     let target_size = match size {
         ThumbnailSize::Small => crate::thumbnails::THUMBNAIL_SMALL * 2, // 128px total
         ThumbnailSize::Medium => crate::thumbnails::THUMBNAIL_MEDIUM * 2, // 512px total
-        ThumbnailSize::Large => state.config.cache.max_cover_size.min(600),
+        ThumbnailSize::Large => crate::api::ferrotune::server_config::get_max_cover_size(state)
+            .await
+            .min(600),
     };
 
     // Generate tiled image
@@ -530,7 +532,9 @@ async fn get_smart_playlist_cover_art(
     let target_size = match size {
         ThumbnailSize::Small => crate::thumbnails::THUMBNAIL_SMALL * 2, // 128px total
         ThumbnailSize::Medium => crate::thumbnails::THUMBNAIL_MEDIUM * 2, // 512px total
-        ThumbnailSize::Large => state.config.cache.max_cover_size.min(600),
+        ThumbnailSize::Large => crate::api::ferrotune::server_config::get_max_cover_size(state)
+            .await
+            .min(600),
     };
 
     // Generate tiled image

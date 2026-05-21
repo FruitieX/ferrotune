@@ -1,5 +1,5 @@
 import { test as base, expect, Page } from "@playwright/test";
-import { execSync, spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as net from "net";
 import * as path from "path";
@@ -204,6 +204,167 @@ async function waitForServer(
   return false;
 }
 
+type ScanStatus = {
+  scanning: boolean;
+  error?: unknown;
+};
+
+type Credentials = {
+  username: string;
+  password: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isScanStatus(value: unknown): value is ScanStatus {
+  return isRecord(value) && typeof value.scanning === "boolean";
+}
+
+function authParams(username: string, password: string): string {
+  const params = new URLSearchParams({
+    u: username,
+    p: password,
+    v: "1.16.1",
+    c: "e2e-test",
+    f: "json",
+  });
+
+  return params.toString();
+}
+
+function basicAuthHeader({ username, password }: Credentials): string {
+  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+}
+
+async function fetchOrThrow(
+  url: string,
+  init: RequestInit,
+  description: string,
+): Promise<Response> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `${description} failed with ${response.status} ${response.statusText}: ${body}`,
+    );
+  }
+
+  return response;
+}
+
+async function waitForScanComplete(
+  baseUrl: string,
+  username: string,
+  password: string,
+): Promise<void> {
+  const deadline = Date.now() + 60000;
+  const query = authParams(username, password);
+
+  while (Date.now() < deadline) {
+    const response = await fetchOrThrow(
+      `${baseUrl}/ferrotune/scan/full?${query}`,
+      { method: "GET" },
+      "Scan status request",
+    );
+    const status: unknown = await response.json();
+
+    if (!isScanStatus(status)) {
+      throw new Error(
+        `Unexpected scan status response: ${JSON.stringify(status)}`,
+      );
+    }
+
+    if (!status.scanning) {
+      if (typeof status.error === "string" && status.error.length > 0) {
+        throw new Error(`Library scan failed: ${status.error}`);
+      }
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  throw new Error("Library scan did not finish within timeout");
+}
+
+async function seedServer(
+  baseUrl: string,
+  bootstrap: Credentials,
+  primary: Credentials,
+  instanceName: string,
+  musicDir: string,
+): Promise<void> {
+  const bootstrapQuery = authParams(bootstrap.username, bootstrap.password);
+
+  await fetchOrThrow(
+    `${baseUrl}/ferrotune/music-folders?${bootstrapQuery}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Test Music",
+        path: musicDir,
+        watchEnabled: false,
+      }),
+    },
+    "Create music folder",
+  );
+
+  await fetchOrThrow(
+    `${baseUrl}/ferrotune/users`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: basicAuthHeader(bootstrap),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: primary.username,
+        password: primary.password,
+        email: null,
+        isAdmin: true,
+        libraryAccess: [],
+      }),
+    },
+    "Create primary test user",
+  );
+
+  const query = authParams(primary.username, primary.password);
+
+  await fetchOrThrow(
+    `${baseUrl}/ferrotune/config?${query}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        serverName: `Ferrotune E2E ${instanceName}`,
+        maxCoverSize: 512,
+        readonlyTags: false,
+      }),
+    },
+    "Update server config",
+  );
+
+  await fetchOrThrow(
+    `${baseUrl}/ferrotune/scan?${query}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    },
+    "Start library scan",
+  );
+  await waitForScanComplete(baseUrl, primary.username, primary.password);
+
+  await fetchOrThrow(
+    `${baseUrl}/ferrotune/setup/complete?${query}`,
+    { method: "POST" },
+    "Complete setup",
+  );
+}
+
 /**
  * Spawn a dedicated Ferrotune server for a test worker or isolated test.
  */
@@ -218,59 +379,37 @@ async function spawnServer(instanceName: string): Promise<ServerInfo> {
     path.join(os.tmpdir(), `ferrotune-e2e-${sanitizedInstanceName}-`),
   );
   const dbPath = path.join(tempDir, "ferrotune.db");
-  const configPath = path.join(tempDir, "config.toml");
   const cacheDir = path.join(tempDir, "cache");
+  const transcodeCacheDir = path.join(tempDir, "transcodes");
   const musicDir = path.join(tempDir, "music");
 
   fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(transcodeCacheDir, { recursive: true });
 
   // Copy test fixtures
   const fixturesMusic = path.join(projectRoot, "tests/fixtures/music");
   copyDirSync(fixturesMusic, musicDir);
 
-  const username = "testadmin";
-  const password = "testpass";
-
-  const config = `
-[server]
-host = "127.0.0.1"
-port = ${port}
-name = "Ferrotune E2E ${instanceName}"
-admin_user = "${username}"
-admin_password = "${password}"
-
-[database]
-path = "${dbPath}"
-
-[music]
-readonly_tags = false
-
-[[music.folders]]
-name = "Test Music"
-path = "${musicDir}"
-
-[cache]
-path = "${cacheDir}"
-max_cover_size = 512
-`;
-
-  fs.writeFileSync(configPath, config);
-
-  // Scan the library first
-  execSync(`"${binary}" --config "${configPath}" scan`, {
-    stdio: "pipe",
-    encoding: "utf-8",
-  });
+  const bootstrap = { username: "admin", password: "admin" };
+  const primary = { username: "testadmin", password: "testpass" };
+  const databaseUrl = `sqlite://${dbPath}`;
 
   // Start the server with FERROTUNE_TESTING enabled for test isolation
-  const serverProcess = spawn(binary, ["--config", configPath, "serve"], {
-    stdio: "pipe",
-    detached: false,
-    env: {
-      ...process.env,
-      FERROTUNE_TESTING: "true",
+  const serverProcess = spawn(
+    binary,
+    ["serve", "--host", "127.0.0.1", "--port", port.toString()],
+    {
+      stdio: "pipe",
+      detached: false,
+      env: {
+        ...process.env,
+        FERROTUNE_DATABASE_URL: databaseUrl,
+        FERROTUNE_DATA_DIR: tempDir,
+        FERROTUNE_TRANSCODE_CACHE_PATH: transcodeCacheDir,
+        FERROTUNE_TESTING: "true",
+      },
     },
-  });
+  );
 
   let serverError = "";
 
@@ -292,7 +431,7 @@ max_cover_size = 512
   });
 
   // Wait for server to be ready
-  const pingUrl = `http://127.0.0.1:${port}/rest/ping?u=${username}&p=${password}&v=1.16.1&c=test&f=json`;
+  const pingUrl = `http://127.0.0.1:${port}/rest/ping?u=${bootstrap.username}&p=${bootstrap.password}&v=1.16.1&c=test&f=json`;
   const ready = await waitForServer(pingUrl);
 
   if (!ready) {
@@ -306,18 +445,13 @@ max_cover_size = 512
     );
   }
 
-  // Mark setup as complete
-  await fetch(
-    `http://127.0.0.1:${port}/ferrotune/setup/complete?u=${username}&p=${password}&v=1.16.1&c=test&f=json`,
-    {
-      method: "POST",
-    },
-  );
+  const baseUrl = `http://127.0.0.1:${port}`;
+  await seedServer(baseUrl, bootstrap, primary, instanceName, musicDir);
 
   return {
-    url: `http://127.0.0.1:${port}`,
-    username,
-    password,
+    url: baseUrl,
+    username: primary.username,
+    password: primary.password,
     tempDir,
     process: serverProcess,
   };

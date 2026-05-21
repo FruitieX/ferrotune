@@ -170,7 +170,6 @@ pub fn create_router_with_layers(state: Arc<api::AppState>) -> Router {
 /// - Creating the database pool
 /// - Running migrations
 /// - Creating the initial admin user if needed
-/// - Initializing music folders from config
 /// - Starting the file watcher
 pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> {
     tracing::info!("Initializing Ferrotune v{}", env!("CARGO_PKG_VERSION"));
@@ -194,9 +193,6 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
         )
         .await?;
     }
-
-    // Initialize music folders
-    init_music_folders(&pool, &config).await?;
 
     // Create shared app state
     let scan_state = api::create_scan_state();
@@ -367,38 +363,6 @@ pub async fn create_admin_user(pool: &db::Database, username: &str, password: &s
         db::repo::users::grant_user_library_access(pool, user_id, folder_id).await?;
     }
 
-    Ok(())
-}
-
-/// Initialize music folders from config into the database
-pub async fn init_music_folders(pool: &db::Database, config: &config::Config) -> Result<()> {
-    for folder in &config.music.folders {
-        if !folder.path.exists() {
-            tracing::warn!("Music folder does not exist: {}", folder.path.display());
-        } else if db::repo::users::get_music_folder_id_by_path(
-            pool,
-            folder.path.to_string_lossy().as_ref(),
-        )
-        .await?
-        .is_none()
-        {
-            let folder_id = db::repo::users::create_music_folder(
-                pool,
-                &folder.name,
-                &folder.path.to_string_lossy(),
-            )
-            .await?;
-            tracing::info!(
-                "Added music folder: {} -> {}",
-                folder.name,
-                folder.path.display()
-            );
-
-            for user_id in db::repo::users::get_user_ids(pool).await? {
-                db::repo::users::grant_user_library_access(pool, user_id, folder_id).await?;
-            }
-        }
-    }
     Ok(())
 }
 

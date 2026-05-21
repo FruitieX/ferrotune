@@ -48,8 +48,6 @@ export function ServerConfig() {
 
   // Form state
   const [serverName, setServerName] = useState("");
-  const [serverHost, setServerHost] = useState("");
-  const [serverPort, setServerPort] = useState("");
   const [maxCoverSize, setMaxCoverSize] = useState("");
   const [readonlyTags, setReadonlyTags] = useState(false);
   const [allowFileDeletion, setAllowFileDeletion] = useState(false);
@@ -78,8 +76,6 @@ export function ServerConfig() {
   if (config && config !== syncedConfig) {
     setSyncedConfig(config);
     setServerName(config.serverName || "");
-    setServerHost(config.serverHost || "");
-    setServerPort(config.serverPort?.toString() || "");
     setMaxCoverSize(config.maxCoverSize?.toString() || "");
     setReadonlyTags(config.readonlyTags ?? false);
     setAllowFileDeletion(config.allowFileDeletion ?? false);
@@ -88,8 +84,6 @@ export function ServerConfig() {
   // Derive hasChanges from current state vs config (computed during render, no effect needed)
   const computedHasChanges = config
     ? serverName !== (config.serverName || "") ||
-      serverHost !== (config.serverHost || "") ||
-      serverPort !== (config.serverPort?.toString() || "") ||
       maxCoverSize !== (config.maxCoverSize?.toString() || "") ||
       readonlyTags !== (config.readonlyTags ?? false) ||
       allowFileDeletion !== (config.allowFileDeletion ?? false)
@@ -115,14 +109,6 @@ export function ServerConfig() {
     const updates: UpdateServerConfigRequest = {
       serverName:
         serverName !== (config?.serverName || "") ? serverName || null : null,
-      serverHost:
-        serverHost !== (config?.serverHost || "") ? serverHost || null : null,
-      serverPort:
-        serverPort !== (config?.serverPort?.toString() || "")
-          ? serverPort
-            ? parseInt(serverPort, 10)
-            : null
-          : null,
       maxCoverSize:
         maxCoverSize !== (config?.maxCoverSize?.toString() || "")
           ? maxCoverSize
@@ -135,8 +121,6 @@ export function ServerConfig() {
         allowFileDeletion !== (config?.allowFileDeletion ?? false)
           ? allowFileDeletion
           : null,
-      adminUser: null,
-      adminPassword: null,
       configured: null,
     };
 
@@ -146,8 +130,6 @@ export function ServerConfig() {
   const handleReset = () => {
     if (config) {
       setServerName(config.serverName || "");
-      setServerHost(config.serverHost || "");
-      setServerPort(config.serverPort?.toString() || "");
       setMaxCoverSize(config.maxCoverSize?.toString() || "");
       setReadonlyTags(config.readonlyTags ?? false);
       setAllowFileDeletion(config.allowFileDeletion ?? false);
@@ -218,11 +200,11 @@ export function ServerConfig() {
                 <TooltipTrigger asChild>
                   <Badge variant="secondary" className="gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    Using config file
+                    Setup complete
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Configuration loaded from file on disk</p>
+                  <p>Initial setup has been completed</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -266,8 +248,8 @@ export function ServerConfig() {
               <Input
                 id="serverHost"
                 placeholder="0.0.0.0"
-                value={serverHost}
-                onChange={(e) => setServerHost(e.target.value)}
+                value={config?.serverHost || ""}
+                readOnly
               />
             </div>
             <div className="space-y-2">
@@ -279,8 +261,8 @@ export function ServerConfig() {
                 id="serverPort"
                 type="number"
                 placeholder="4040"
-                value={serverPort}
-                onChange={(e) => setServerPort(e.target.value)}
+                value={config?.serverPort?.toString() || ""}
+                readOnly
               />
             </div>
           </div>

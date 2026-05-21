@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use ferrotune::config::DATABASE_URL_ENV;
+use ferrotune::config::{DatabaseConfig, DATABASE_URL_ENV, DATA_DIR_ENV, TRANSCODE_CACHE_PATH_ENV};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -30,8 +30,6 @@ pub struct TestServer {
     pub temp_dir: PathBuf,
     /// Path to the test database
     pub db_path: PathBuf,
-    /// Path to the test config file
-    pub config_path: PathBuf,
     /// Path to the music directory
     pub music_dir: PathBuf,
     /// Path to the cache directory
@@ -41,6 +39,8 @@ pub struct TestServer {
     pub admin_password: String,
     /// Base URL for API calls
     pub base_url: String,
+    /// Database URL passed to spawned ferrotune commands.
+    pub database_url: String,
 }
 
 /// Configuration for creating a test server
@@ -53,6 +53,12 @@ pub enum TestDatabaseConfig {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct TestMusicFolderConfig {
+    pub name: String,
+    pub path: PathBuf,
+}
+
 #[derive(Default)]
 pub struct TestServerConfig {
     /// Custom admin username (default: "testadmin")
@@ -61,10 +67,10 @@ pub struct TestServerConfig {
     pub admin_password: Option<String>,
     /// Custom music folder path (if None, uses fixtures/music)
     pub music_path: Option<PathBuf>,
-    /// Whether to copy fixtures to temp dir (default: true)
+    /// Whether to copy fixtures to temp dir (default: false)
     pub copy_fixtures: bool,
-    /// Additional configuration options to append
-    pub extra_config: Option<String>,
+    /// Additional music folders to seed in the test database.
+    pub additional_music_folders: Vec<TestMusicFolderConfig>,
     /// Whether to allow tag editing (default: false - aka readonly)
     /// Note: Default config sets this to true (readonly), so set this to Some(false) to enable editing.
     pub readonly_tags: Option<bool>,
@@ -96,9 +102,10 @@ impl TestServer {
         std::fs::create_dir_all(&temp_dir)?;
 
         let db_path = temp_dir.join("ferrotune.db");
-        let config_path = temp_dir.join("config.toml");
         let cache_dir = temp_dir.join("cache");
+        let transcode_cache_dir = temp_dir.join("transcodes");
         std::fs::create_dir_all(&cache_dir)?;
+        std::fs::create_dir_all(&transcode_cache_dir)?;
 
         // Set up music directory
         let music_dir = if let Some(ref music_path) = config.music_path {
@@ -125,10 +132,25 @@ impl TestServer {
             .admin_password
             .unwrap_or_else(|| format!("testpass_{}", instance_id));
 
+        let database_config = test_database_config(&config.database, &db_path);
+        let database_url = test_database_url(&config.database, &db_path);
+        let mut music_folders = vec![TestMusicFolderConfig {
+            name: "Test Music".to_string(),
+            path: music_dir.clone(),
+        }];
+        music_folders.extend(config.additional_music_folders);
+
+        seed_test_database(
+            database_config,
+            &admin_user,
+            &admin_password,
+            &music_folders,
+            config.readonly_tags.unwrap_or(true),
+        )?;
+
         let binary = find_binary()?;
         let mut process: Option<Child> = None;
         let mut final_port = 0;
-        let mut final_admin_port = 0;
         let mut final_base_url = String::new();
 
         // Retry loop to handle port race conditions
@@ -139,47 +161,24 @@ impl TestServer {
                 std::thread::sleep(Duration::from_millis(100 * (attempt as u64 + 1)));
             }
 
-            // Reserve ports by keeping the listeners alive until after writing config
+            // Reserve the port by keeping the listener alive until just before spawning.
             let (listener, port) = reserve_port()?;
-            let (admin_listener, admin_port) = reserve_port()?;
-
-            // Generate config file
-            let config_content = generate_config(
-                port,
-                admin_port,
-                &config.database,
-                &db_path,
-                &music_dir,
-                &cache_dir,
-                &admin_user,
-                &admin_password,
-                config.extra_config.as_deref(),
-                config.readonly_tags.unwrap_or(true),
-            );
-
-            if let Err(e) = std::fs::write(&config_path, &config_content) {
-                return Err(TestServerError::Io(e));
-            }
 
             // Drop the listeners just before starting the server to minimize the race window
             drop(listener);
-            drop(admin_listener);
-
-            /*
-            eprintln!(
-                "[test] Starting server (attempt {}): {:?} --config {:?} serve",
-                attempt + 1,
-                binary,
-                config_path
-            );
-            */
 
             let mut command = Command::new(&binary);
             prepare_ferrotune_test_command(&mut command);
+            command
+                .env(DATABASE_URL_ENV, &database_url)
+                .env(DATA_DIR_ENV, &temp_dir)
+                .env(TRANSCODE_CACHE_PATH_ENV, &transcode_cache_dir);
             let mut child = match command
-                .arg("--config")
-                .arg(&config_path)
                 .arg("serve")
+                .arg("--host")
+                .arg("127.0.0.1")
+                .arg("--port")
+                .arg(port.to_string())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -200,7 +199,6 @@ impl TestServer {
                     // eprintln!("[test] Server ready at {}", base_url);
                     process = Some(child);
                     final_port = port;
-                    final_admin_port = admin_port;
                     final_base_url = base_url;
                     break;
                 }
@@ -234,15 +232,15 @@ impl TestServer {
             Ok(TestServer {
                 process: Some(child),
                 port: final_port,
-                admin_port: final_admin_port,
+                admin_port: final_port,
                 temp_dir,
                 db_path,
-                config_path,
                 music_dir,
                 cache_dir,
                 admin_user,
                 admin_password,
                 base_url: final_base_url,
+                database_url,
             })
         } else {
             // Cleanup temp dir if we failed to start
@@ -287,10 +285,8 @@ impl TestServer {
         let binary = find_binary()?;
 
         let mut command = Command::new(&binary);
-        prepare_ferrotune_test_command(&mut command);
+        self.prepare_command(&mut command);
         let output = command
-            .arg("--config")
-            .arg(&self.config_path)
             .arg("scan")
             .output()
             .map_err(|e| TestServerError::ProcessStart(e.to_string()))?;
@@ -313,12 +309,20 @@ impl TestServer {
             "API key creation not yet implemented".to_string(),
         ))
     }
+
+    /// Prepare a ferrotune command to use this test server's isolated database.
+    pub fn prepare_command(&self, command: &mut Command) {
+        prepare_ferrotune_test_command(command);
+        command
+            .env(DATABASE_URL_ENV, &self.database_url)
+            .env(DATA_DIR_ENV, &self.temp_dir)
+            .env(TRANSCODE_CACHE_PATH_ENV, self.temp_dir.join("transcodes"));
+    }
 }
 
 pub fn prepare_ferrotune_test_command(command: &mut Command) {
-    // The generated test config always points at a temp SQLite database or a
-    // testcontainer PostgreSQL database. A stale production DATABASE_URL in the
-    // parent shell must not override that config in spawned test servers.
+    // Test commands must opt into their isolated database explicitly. A stale
+    // production DATABASE_URL in the parent shell must never leak into tests.
     command.env_remove(DATABASE_URL_ENV);
     command.env(TEST_DATABASE_GUARD_ENV, "1");
 }
@@ -439,77 +443,80 @@ pub fn fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
-fn escape_toml_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+fn test_database_config(database: &TestDatabaseConfig, db_path: &Path) -> DatabaseConfig {
+    match database {
+        TestDatabaseConfig::Sqlite => DatabaseConfig::sqlite(db_path.to_path_buf()),
+        TestDatabaseConfig::Postgres { url } => DatabaseConfig::postgres(url.clone()),
+    }
 }
 
-/// Generate a test configuration file.
-#[allow(clippy::too_many_arguments)]
-fn generate_config(
-    port: u16,
-    admin_port: u16,
-    database: &TestDatabaseConfig,
-    db_path: &Path,
-    music_dir: &Path,
-    cache_dir: &Path,
+fn test_database_url(database: &TestDatabaseConfig, db_path: &Path) -> String {
+    match database {
+        TestDatabaseConfig::Sqlite => format!("sqlite://{}", db_path.display()),
+        TestDatabaseConfig::Postgres { url } => url.clone(),
+    }
+}
+
+fn seed_test_database(
+    database_config: DatabaseConfig,
     admin_user: &str,
     admin_password: &str,
-    extra_config: Option<&str>,
+    music_folders: &[TestMusicFolderConfig],
     readonly_tags: bool,
-) -> String {
-    let database_config = match database {
-        TestDatabaseConfig::Sqlite => {
-            format!(
-                "[database]\npath = \"{}\"\n",
-                escape_toml_string(&db_path.display().to_string())
+) -> Result<(), TestServerError> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
+
+    runtime.block_on(async move {
+        let database = ferrotune::db::create_pool(&database_config)
+            .await
+            .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
+
+        for folder in music_folders {
+            if !folder.path.exists() {
+                eprintln!(
+                    "[test] Warning: music folder does not exist: {}",
+                    folder.path.display()
+                );
+                continue;
+            }
+
+            ferrotune::db::repo::music_folders::create(
+                &database,
+                &folder.name,
+                &folder.path.to_string_lossy(),
+                false,
             )
+            .await
+            .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
         }
-        TestDatabaseConfig::Postgres { url } => {
-            format!(
-                "[database]\nbackend = \"postgres\"\nurl = \"{}\"\n",
-                escape_toml_string(url)
-            )
-        }
-    };
 
-    let mut config = format!(
-        r#"[server]
-host = "127.0.0.1"
-port = {port}
-admin_port = {admin_port}
-name = "Ferrotune Test"
-admin_user = "{admin_user}"
-admin_password = "{admin_password}"
+        ferrotune::create_admin_user(&database, admin_user, admin_password)
+            .await
+            .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
 
-{database_config}
+        ferrotune::db::repo::config::set_config_value(
+            &database,
+            "server.name",
+            &serde_json::to_string("Ferrotune Test").unwrap(),
+        )
+        .await
+        .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
+        ferrotune::db::repo::config::set_config_value(&database, "cache.max_cover_size", "512")
+            .await
+            .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
+        ferrotune::db::repo::config::set_config_value(
+            &database,
+            "music.readonly_tags",
+            &readonly_tags.to_string(),
+        )
+        .await
+        .map_err(|error| TestServerError::DatabaseSetup(error.to_string()))?;
 
-[music]
-readonly_tags = {readonly_tags}
-
-[[music.folders]]
-name = "Test Music"
-path = "{music_dir}"
-
-[cache]
-path = "{cache_dir}"
-max_cover_size = 512
-"#,
-        port = port,
-        admin_port = admin_port,
-        admin_user = admin_user,
-        admin_password = admin_password,
-        database_config = database_config.trim_end(),
-        music_dir = music_dir.display(),
-        cache_dir = cache_dir.display(),
-        readonly_tags = readonly_tags,
-    );
-
-    if let Some(extra) = extra_config {
-        config.push('\n');
-        config.push_str(extra);
-    }
-
-    config
+        Ok(())
+    })
 }
 
 /// Recursively copy a directory.
@@ -540,6 +547,7 @@ pub enum TestServerError {
     ProcessStart(String),
     Timeout(String),
     ScanFailed(String),
+    DatabaseSetup(String),
     NotImplemented(String),
 }
 
@@ -552,6 +560,7 @@ impl std::fmt::Display for TestServerError {
             TestServerError::ProcessStart(e) => write!(f, "Process start error: {}", e),
             TestServerError::Timeout(e) => write!(f, "Timeout: {}", e),
             TestServerError::ScanFailed(e) => write!(f, "Scan failed: {}", e),
+            TestServerError::DatabaseSetup(e) => write!(f, "Database setup failed: {}", e),
             TestServerError::NotImplemented(e) => write!(f, "Not implemented: {}", e),
         }
     }

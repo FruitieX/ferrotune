@@ -88,8 +88,6 @@ dns-lookup = "2"
 image = "0.25"
 
 # Configuration
-config = "0.14"
-toml = "0.8"
 dirs = "5.0"
 
 # Security

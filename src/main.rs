@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::http::HeaderValue;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -14,10 +13,6 @@ use ferrotune::{api, config, db, error, password, scanner, watcher};
 #[command(name = "ferrotune")]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Path to configuration file
-    #[arg(short, long, env = "FERROTUNE_CONFIG")]
-    config: Option<PathBuf>,
-
     /// Enable verbose logging (debug level)
     #[arg(short, long)]
     verbose: bool,
@@ -84,9 +79,6 @@ enum Commands {
         #[arg(long)]
         password: String,
     },
-
-    /// Generate example configuration file
-    GenerateConfig,
 }
 
 #[tokio::main]
@@ -108,38 +100,9 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Handle generate-config command early
-    if let Some(Commands::GenerateConfig) = cli.command {
-        println!("{}", config::Config::example());
-        return Ok(());
-    }
-
-    // Load configuration
-    // Priority: CLI arg > env var > default path > configless mode
-    let config = if let Some(config_path) = cli.config {
-        // Explicit config file path provided
-        config::Config::load_from(&config_path)?
-    } else if let Ok(config_path) = std::env::var("FERROTUNE_CONFIG") {
-        // Config path from environment variable
-        config::Config::load_from(&PathBuf::from(config_path))?
-    } else {
-        // Try default location, fall back to configless mode
-        match config::Config::load()? {
-            Some(config) => config,
-            None => {
-                let configless = config::Config::default_configless();
-                tracing::info!("No config file found, running in configless mode");
-                tracing::info!("  Data directory: {}", config::get_data_dir().display());
-                tracing::info!(
-                    "  Database:       {}",
-                    configless.database.connection_label()
-                );
-                tracing::info!("  Cache:          {}", config::get_cache_dir().display());
-                tracing::info!("Use the web UI at /setup to configure your server");
-                configless
-            }
-        }
-    };
+    let config = config::Config::from_env()?;
+    tracing::info!("Data directory: {}", config::get_data_dir().display());
+    tracing::info!("Cache:          {}", config::get_cache_dir().display());
 
     tracing::info!(
         "Starting Ferrotune Music Server v{}",
@@ -160,8 +123,6 @@ async fn main() -> Result<()> {
             folder,
             dry_run,
         }) => {
-            // Initialize music folders before scanning
-            ferrotune::init_music_folders(&pool, &config).await?;
             if dry_run {
                 tracing::info!("Starting music library scan (dry-run mode)...");
             } else {
@@ -230,7 +191,6 @@ async fn main() -> Result<()> {
             }
             run_server(pool, config).await?;
         }
-        Some(Commands::GenerateConfig) => unreachable!(), // Handled earlier
         None => {
             // Default to serve
             run_server(pool, config).await?;
@@ -259,9 +219,6 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         )
         .await?;
     }
-
-    // Initialize music folders
-    ferrotune::init_music_folders(&pool, &config).await?;
 
     // Clean up orphaned queues (queues with no active session, older than 7 days)
     match db::queries::cleanup_orphaned_queues(&pool, 7).await {

@@ -20,7 +20,8 @@ HTTP 200
 jsonpath "$.serverName" exists
 jsonpath "$.serverHost" exists
 jsonpath "$.serverPort" isInteger
-jsonpath "$.adminUser" exists
+jsonpath "$.databasePath" exists
+jsonpath "$.cachePath" exists
 jsonpath "$.readonlyTags" isBoolean
 jsonpath "$.allowFileDeletion" isBoolean
 jsonpath "$.configured" isBoolean
