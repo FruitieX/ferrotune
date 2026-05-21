@@ -37,7 +37,12 @@ import {
   effectivePlaybackStateAtom,
   currentTimeAtom,
 } from "@/lib/store/player";
-import { initializeClient, getClient, getClientName } from "@/lib/api/client";
+import {
+  FerrotuneClient,
+  initializeClient,
+  getClient,
+  getClientName,
+} from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { hasNativeAudio } from "@/lib/tauri";
 import { isCastClientName } from "@/lib/cast/constants";
@@ -190,10 +195,11 @@ export function AccountMenuItems({
     if (key === currentKey) return;
 
     try {
-      const client = initializeClient(account);
+      const client = new FerrotuneClient(account);
       setConnectionStatus("connecting");
       await client.ping();
 
+      initializeClient(account);
       setConnection(account);
       setConnectionStatus("connected");
 

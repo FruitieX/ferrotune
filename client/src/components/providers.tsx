@@ -11,7 +11,7 @@ import {
 } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { useEffect, useRef, useState, Suspense } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, Suspense } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
@@ -44,6 +44,14 @@ import {
 } from "@/lib/store/ui";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import { starredItemsAtom } from "@/lib/store/starred";
+import { resetLocalQueueAtom } from "@/lib/store/server-queue";
+import {
+  bufferedAtom,
+  currentTimeAtom,
+  durationAtom,
+  hasScrobbledAtom,
+  playbackStateAtom,
+} from "@/lib/store/player";
 import {
   resetServerPreferences,
   refreshServerPreferences,
@@ -143,8 +151,14 @@ function AccountSwitchStateResetter() {
   const setIsCacheRestored = useSetAtom(isCacheRestoredAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const setFullscreenPlayerOpen = useSetAtom(fullscreenPlayerOpenAtom);
+  const resetLocalQueue = useSetAtom(resetLocalQueueAtom);
+  const setPlaybackState = useSetAtom(playbackStateAtom);
+  const setCurrentTime = useSetAtom(currentTimeAtom);
+  const setDuration = useSetAtom(durationAtom);
+  const setBuffered = useSetAtom(bufferedAtom);
+  const setHasScrobbled = useSetAtom(hasScrobbledAtom);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousAccountKeyRef.current === undefined) {
       previousAccountKeyRef.current = currentAccountKey;
       return;
@@ -161,6 +175,12 @@ function AccountSwitchStateResetter() {
     setIsCacheRestored(false);
     setQueuePanelOpen(false);
     setFullscreenPlayerOpen(false);
+    resetLocalQueue();
+    setPlaybackState("idle");
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+    setHasScrobbled(false);
 
     // Reset and reload server-stored preferences for the new account
     resetServerPreferences();
@@ -171,6 +191,12 @@ function AccountSwitchStateResetter() {
     setIsCacheRestored,
     setQueuePanelOpen,
     setFullscreenPlayerOpen,
+    resetLocalQueue,
+    setPlaybackState,
+    setCurrentTime,
+    setDuration,
+    setBuffered,
+    setHasScrobbled,
   ]);
 
   return null;

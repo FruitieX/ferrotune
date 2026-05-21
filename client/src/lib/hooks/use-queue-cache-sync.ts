@@ -86,6 +86,8 @@ export function useQueueCacheSync(isCacheRestored: boolean) {
 
   // Sync: atoms → cache (keep IndexedDB up to date)
   useEffect(() => {
+    if (!isCacheRestored) return;
+
     if (queueState) {
       queryClient.setQueryData(QUEUE_STATE_KEY, queueState);
     } else {
@@ -93,9 +95,11 @@ export function useQueueCacheSync(isCacheRestored: boolean) {
         queryKey: QUEUE_STATE_KEY as unknown as readonly string[],
       });
     }
-  }, [queueState, queryClient]);
+  }, [isCacheRestored, queueState, queryClient]);
 
   useEffect(() => {
+    if (!isCacheRestored) return;
+
     if (queueWindow) {
       queryClient.setQueryData(QUEUE_WINDOW_KEY, queueWindow);
     } else {
@@ -103,5 +107,5 @@ export function useQueueCacheSync(isCacheRestored: boolean) {
         queryKey: QUEUE_WINDOW_KEY as unknown as readonly string[],
       });
     }
-  }, [queueWindow, queryClient]);
+  }, [isCacheRestored, queueWindow, queryClient]);
 }

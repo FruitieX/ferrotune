@@ -199,6 +199,17 @@ export const isRestoringQueueAtom = atom<boolean>(true);
 // Incremented when current track changes (not just position updates)
 export const trackChangeSignalAtom = atom<number>(0);
 
+// Clear only client-side queue state. Account switches use this before the
+// newly selected account has an effective server session to talk to.
+export const resetLocalQueueAtom = atom(null, (_get, set) => {
+  pendingPlaybackPositionMs.value = 0;
+  set(isQueueLoadingAtom, false);
+  set(isQueueOperationPendingAtom, false);
+  set(isRestoringQueueAtom, true);
+  set(serverQueueStateAtom, null);
+  set(queueWindowAtom, null);
+});
+
 // ============================================================================
 // Derived Atoms
 // ============================================================================
