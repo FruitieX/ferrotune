@@ -1,10 +1,14 @@
 package com.ferrotune.audio
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -30,10 +34,11 @@ import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer.MediaItemData
 import androidx.media3.common.SimpleBasePlayer.PeriodData
 import androidx.media3.common.Timeline
+import androidx.media3.common.util.BitmapLoader
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
-import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -51,20 +56,29 @@ import androidx.media3.exoplayer.source.WrappingMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaNotification
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
+import androidx.core.app.NotificationCompat
 import app.tauri.plugin.JSObject
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
 
 /**
@@ -117,9 +131,14 @@ class PlaybackService : MediaSessionService() {
         private const val AUDIO_ROUTE_SETTLE_DELAY_MS = 500L
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
-        private const val NOTIFICATION_ARTWORK_MAX_DIMENSION_PX = 512
-        private const val LEGACY_ARTWORK_EMBEDDED_SIZE_PX = 1024
-        private const val LEGACY_ARTWORK_MAX_BYTES = 768 * 1024
+        private const val MEDIA_NOTIFICATION_ID = 1001
+        private const val MEDIA_NOTIFICATION_CHANNEL_ID = "default_channel_id"
+        private const val MEDIA_NOTIFICATION_GROUP_KEY = "media3_group_key"
+        private const val NOTIFICATION_ARTWORK_MAX_DIMENSION_PX = 1024
+        private const val NOTIFICATION_ARTWORK_JPEG_QUALITY = 92
+        private const val NOTIFICATION_ARTWORK_CACHE_MAX_FILES = 8
+        private const val WEAR_ARTWORK_FALLBACK_DIMENSION_PX = 256
+        private const val WEAR_ARTWORK_FALLBACK_MAX_BYTES = 128 * 1024
         // SimpleCache is a singleton — only one instance may exist per cache directory.
         // We keep it in the companion object so it survives service re-creation.
         private var streamCache: SimpleCache? = null
@@ -129,6 +148,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private var sessionPlayer: ForwardingSimpleBasePlayer? = null
+    private var notificationBitmapLoader: BitmapLoader? = null
     private var invalidateSessionPlayerState: (() -> Unit)? = null
     private var lastSessionExportLog: String? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -168,15 +188,21 @@ class PlaybackService : MediaSessionService() {
     private var httpDataSourceFactory: DefaultHttpDataSource.Factory? = null
     @OptIn(UnstableApi::class)
     private var artworkDataSourceFactory: DefaultHttpDataSource.Factory? = null
-    private data class LegacyArtworkData(
+    private data class NotificationArtworkData(
         val trackId: String,
         val coverArtUrl: String,
         val requestUrl: String,
-        val bytes: ByteArray,
+        val bitmap: Bitmap,
+        val contentUri: Uri?,
+        val wearFallbackArtworkData: ByteArray?,
     )
-    private var legacyArtworkData: LegacyArtworkData? = null
-    private var legacyArtworkLoadGeneration: Int = 0
-    private var legacyArtworkLoadingKey: String? = null
+    private data class PreparedNotificationArtwork(
+        val contentUri: Uri?,
+        val wearFallbackArtworkData: ByteArray?,
+    )
+    private var notificationArtworkData: NotificationArtworkData? = null
+    private var notificationArtworkLoadGeneration: Int = 0
+    private var notificationArtworkLoadingKey: String? = null
     // Server queue state
     private var serverQueueIndex: Int = 0
     private var serverTotalCount: Int = 0
@@ -556,11 +582,7 @@ class PlaybackService : MediaSessionService() {
                     val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
                         val itemTrack = this@PlaybackService.resolveSessionTrack(item, idx)
                         if (itemTrack != null && itemTrack.durationMs > 0) {
-                            createSessionMediaItemData(
-                                item,
-                                itemTrack,
-                                includeLegacyArtworkData = idx == currentIdx,
-                            )
+                            createSessionMediaItemData(item, itemTrack)
                         } else {
                             item
                         }
@@ -644,16 +666,19 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val bitmapLoader = DataSourceBitmapLoader.Builder(this)
+            .setDataSourceFactory(artworkDataSourceFactory!!)
+            .setMaximumOutputDimension(NOTIFICATION_ARTWORK_MAX_DIMENSION_PX)
+            .build()
+        notificationBitmapLoader = bitmapLoader
+
+        setMediaNotificationProvider(HighResolutionArtworkNotificationProvider())
+
         // Create media session using ForwardingPlayer for notification controls
         @OptIn(UnstableApi::class)
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
-            .setBitmapLoader(
-                DataSourceBitmapLoader.Builder(this)
-                    .setDataSourceFactory(artworkDataSourceFactory!!)
-                    .setMaximumOutputDimension(NOTIFICATION_ARTWORK_MAX_DIMENSION_PX)
-                    .build()
-            )
+            .setBitmapLoader(bitmapLoader)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
                     session: MediaSession,
@@ -2881,28 +2906,171 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
-    private fun setCurrentTrack(track: TrackInfo?) {
-        currentTrack = track
-        preloadLegacyArtwork(track)
+    private inner class HighResolutionArtworkNotificationProvider : MediaNotification.Provider {
+        private val actionDelegate = NotificationActionDelegate()
+
+        override fun createNotification(
+            session: MediaSession,
+            customLayout: ImmutableList<CommandButton>,
+            actionFactory: MediaNotification.ActionFactory,
+            callback: MediaNotification.Provider.Callback,
+        ): MediaNotification {
+            ensureMediaNotificationChannel()
+
+            val player = session.player
+            val notificationBuilder = NotificationCompat.Builder(
+                this@PlaybackService,
+                MEDIA_NOTIFICATION_CHANNEL_ID,
+            )
+            val mediaStyle = MediaStyleNotificationHelper.MediaStyle(session)
+            val mediaButtons = actionDelegate.mediaButtons(
+                session,
+                player.availableCommands,
+                customLayout,
+                !Util.shouldShowPlayButton(player),
+            )
+            val compactViewIndices = actionDelegate.addActions(
+                session,
+                mediaButtons,
+                notificationBuilder,
+                actionFactory,
+            )
+            mediaStyle.setShowActionsInCompactView(*compactViewIndices)
+
+            if (player.isCommandAvailable(Player.COMMAND_GET_METADATA)) {
+                val metadata = player.mediaMetadata
+                notificationBuilder
+                    .setContentTitle(metadata.title)
+                    .setContentText(metadata.artist)
+            }
+
+            val artworkBitmap = notificationArtworkBitmapFor(currentTrack)
+            if (artworkBitmap != null) {
+                notificationBuilder.setLargeIcon(artworkBitmap)
+            }
+
+            val playbackStartTimeMs = notificationPlaybackStartTimeMs(player)
+            notificationBuilder
+                .setWhen(playbackStartTimeMs ?: 0L)
+                .setShowWhen(playbackStartTimeMs != null)
+                .setUsesChronometer(playbackStartTimeMs != null)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                notificationBuilder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+            }
+
+            val notification = notificationBuilder
+                .setContentIntent(session.sessionActivity)
+                .setDeleteIntent(actionFactory.createNotificationDismissalIntent(session))
+                .setOnlyAlertOnce(true)
+                .setSmallIcon(androidx.media3.session.R.drawable.media3_notification_small_icon)
+                .setStyle(mediaStyle)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(false)
+                .setGroup(MEDIA_NOTIFICATION_GROUP_KEY)
+                .build()
+
+            return MediaNotification(MEDIA_NOTIFICATION_ID, notification)
+        }
+
+        override fun handleCustomCommand(
+            session: MediaSession,
+            action: String,
+            extras: Bundle,
+        ): Boolean {
+            return false
+        }
     }
 
-    private fun preloadLegacyArtwork(track: TrackInfo?) {
+    private inner class NotificationActionDelegate : DefaultMediaNotificationProvider(this@PlaybackService) {
+        fun mediaButtons(
+            session: MediaSession,
+            playerCommands: Player.Commands,
+            mediaButtonPreferences: ImmutableList<CommandButton>,
+            showPauseButton: Boolean,
+        ): ImmutableList<CommandButton> {
+            return getMediaButtons(session, playerCommands, mediaButtonPreferences, showPauseButton)
+        }
+
+        fun addActions(
+            session: MediaSession,
+            mediaButtons: ImmutableList<CommandButton>,
+            builder: NotificationCompat.Builder,
+            actionFactory: MediaNotification.ActionFactory,
+        ): IntArray {
+            return addNotificationActions(session, mediaButtons, builder, actionFactory)
+        }
+    }
+
+    private fun notificationPlaybackStartTimeMs(player: Player): Long? {
+        return if (player.isPlaying && !player.isPlayingAd && !player.isCurrentMediaItemDynamic &&
+            player.playbackParameters.speed == 1f
+        ) {
+            System.currentTimeMillis() - player.contentPosition
+        } else {
+            null
+        }
+    }
+
+    private fun ensureMediaNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (notificationManager.getNotificationChannel(MEDIA_NOTIFICATION_CHANNEL_ID) != null) return
+
+        val channelName = getString(androidx.media3.session.R.string.default_notification_channel_name)
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                MEDIA_NOTIFICATION_CHANNEL_ID,
+                channelName,
+                NotificationManager.IMPORTANCE_LOW,
+            )
+        )
+    }
+
+    private fun setCurrentTrack(track: TrackInfo?) {
+        currentTrack = track
+        preloadNotificationArtwork(track)
+    }
+
+    private fun buildCoverArtRequestUrl(track: TrackInfo, size: Int): String? {
+        val coverArtUrl = track.coverArtUrl ?: return null
+        if (!apiClient.hasSessionConfig()) return null
+
+        val coverArtId = try {
+            Uri.parse(coverArtUrl).getQueryParameter("id")
+        } catch (exception: Exception) {
+            Log.w(TAG, "cover artwork: failed to parse cover art URL for track=${track.id}", exception)
+            null
+        }
+
+        if (coverArtId.isNullOrBlank()) return null
+
+        return try {
+            apiClient.buildCoverArtUrl(coverArtId, size)
+        } catch (exception: Exception) {
+            Log.w(TAG, "cover artwork: failed to build thumbnail URL for track=${track.id}", exception)
+            null
+        }
+    }
+
+    private fun preloadNotificationArtwork(track: TrackInfo?) {
         val coverArtUrl = track?.coverArtUrl
         if (track == null || coverArtUrl.isNullOrBlank()) {
-            legacyArtworkLoadGeneration += 1
-            legacyArtworkLoadingKey = null
-            legacyArtworkData = null
+            notificationArtworkLoadGeneration += 1
+            notificationArtworkLoadingKey = null
+            notificationArtworkData = null
             return
         }
 
-        val requestUrl = buildLegacyArtworkRequestUrl(track) ?: run {
-            legacyArtworkLoadGeneration += 1
-            legacyArtworkLoadingKey = null
-            legacyArtworkData = null
+        val requestUrl = buildCoverArtRequestUrl(track, NOTIFICATION_ARTWORK_MAX_DIMENSION_PX) ?: run {
+            notificationArtworkLoadGeneration += 1
+            notificationArtworkLoadingKey = null
+            notificationArtworkData = null
             return
         }
 
-        val existingArtwork = legacyArtworkData
+        val existingArtwork = notificationArtworkData
         if (existingArtwork != null &&
             existingArtwork.trackId == track.id &&
             existingArtwork.coverArtUrl == coverArtUrl &&
@@ -2912,130 +3080,185 @@ class PlaybackService : MediaSessionService() {
         }
 
         val loadingKey = "${track.id}\n$requestUrl"
-        if (legacyArtworkLoadingKey == loadingKey) return
+        if (notificationArtworkLoadingKey == loadingKey) return
 
-        legacyArtworkLoadGeneration += 1
-        val generation = legacyArtworkLoadGeneration
-        legacyArtworkLoadingKey = loadingKey
-        legacyArtworkData = null
+        notificationArtworkLoadGeneration += 1
+        val generation = notificationArtworkLoadGeneration
+        notificationArtworkLoadingKey = loadingKey
+        notificationArtworkData = null
 
         apiExecutor.execute {
-            val artworkBytes = fetchLegacyArtworkData(requestUrl, track.id)
+            val bitmap = fetchNotificationArtworkBitmap(requestUrl, track.id)
+            val preparedArtwork = bitmap?.let {
+                prepareNotificationArtwork(track.id, requestUrl, it)
+            }
             handler.post {
-                if (generation != legacyArtworkLoadGeneration) return@post
-                legacyArtworkLoadingKey = null
+                if (generation != notificationArtworkLoadGeneration) return@post
+                notificationArtworkLoadingKey = null
 
                 if (currentTrack?.id != track.id || currentTrack?.coverArtUrl != coverArtUrl) {
                     return@post
                 }
 
-                legacyArtworkData = artworkBytes?.let {
-                    LegacyArtworkData(track.id, coverArtUrl, requestUrl, it)
+                notificationArtworkData = bitmap?.let {
+                    NotificationArtworkData(
+                        track.id,
+                        coverArtUrl,
+                        requestUrl,
+                        it,
+                        preparedArtwork?.contentUri,
+                        preparedArtwork?.wearFallbackArtworkData,
+                    )
                 }
-                if (artworkBytes != null) {
-                    Log.d(TAG, "legacy artwork loaded: track=${track.id} bytes=${artworkBytes.size}")
+                if (bitmap != null) {
+                    Log.d(TAG, "notification artwork loaded: track=${track.id} ${bitmap.width}x${bitmap.height}")
+                    invalidateSessionExport()
+                    triggerNotificationUpdate()
                 }
-                invalidateSessionExport()
             }
         }
     }
 
-    private fun buildLegacyArtworkRequestUrl(track: TrackInfo): String? {
-        val coverArtUrl = track.coverArtUrl ?: return null
-        if (!apiClient.hasSessionConfig()) return null
-
-        val coverArtId = try {
-            Uri.parse(coverArtUrl).getQueryParameter("id")
-        } catch (exception: Exception) {
-            Log.w(TAG, "legacy artwork: failed to parse cover art URL for track=${track.id}", exception)
-            null
-        }
-
-        if (coverArtId.isNullOrBlank()) return null
-
+    private fun fetchNotificationArtworkBitmap(requestUrl: String, trackId: String): Bitmap? {
+        val loader = notificationBitmapLoader ?: return null
         return try {
-            apiClient.buildCoverArtUrl(coverArtId, LEGACY_ARTWORK_EMBEDDED_SIZE_PX)
+            loader.loadBitmap(Uri.parse(requestUrl)).get()
         } catch (exception: Exception) {
-            Log.w(TAG, "legacy artwork: failed to build thumbnail URL for track=${track.id}", exception)
+            Log.w(TAG, "notification artwork load failed: track=$trackId", exception)
             null
         }
     }
 
-    @OptIn(UnstableApi::class)
-    private fun fetchLegacyArtworkData(requestUrl: String, trackId: String): ByteArray? {
-        val dataSource = artworkDataSourceFactory?.createDataSource() ?: return null
-
-        try {
-            val contentLength = dataSource.open(DataSpec(Uri.parse(requestUrl)))
-            if (contentLength > LEGACY_ARTWORK_MAX_BYTES) {
-                Log.w(
-                    TAG,
-                    "legacy artwork too large before read: track=$trackId bytes=$contentLength"
-                )
-                return null
-            }
-
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(16 * 1024)
-            var totalBytes = 0
-
-            while (true) {
-                val bytesRead = dataSource.read(buffer, 0, buffer.size)
-                if (bytesRead == C.RESULT_END_OF_INPUT) break
-                if (bytesRead <= 0) continue
-
-                totalBytes += bytesRead
-                if (totalBytes > LEGACY_ARTWORK_MAX_BYTES) {
-                    Log.w(TAG, "legacy artwork too large: track=$trackId bytes=$totalBytes")
-                    return null
-                }
-
-                output.write(buffer, 0, bytesRead)
-            }
-
-            return output.toByteArray().takeIf { it.isNotEmpty() }
-        } catch (exception: Exception) {
-            Log.w(TAG, "legacy artwork load failed: track=$trackId", exception)
-            return null
-        } finally {
-            try {
-                dataSource.close()
-            } catch (exception: Exception) {
-                Log.w(TAG, "legacy artwork data source close failed", exception)
-            }
-        }
-    }
-
-    private fun legacyArtworkBytesFor(track: TrackInfo): ByteArray? {
-        val artwork = legacyArtworkData ?: return null
+    private fun notificationArtworkBitmapFor(track: TrackInfo?): Bitmap? {
+        if (track == null) return null
+        val artwork = notificationArtworkData ?: return null
         return if (artwork.trackId == track.id && artwork.coverArtUrl == track.coverArtUrl) {
-            artwork.bytes
+            artwork.bitmap
         } else {
             null
         }
     }
 
+    private fun notificationArtworkFor(track: TrackInfo): NotificationArtworkData? {
+        val artwork = notificationArtworkData ?: return null
+        return if (artwork.trackId == track.id && artwork.coverArtUrl == track.coverArtUrl) {
+            artwork
+        } else {
+            null
+        }
+    }
+
+    private fun prepareNotificationArtwork(
+        trackId: String,
+        requestUrl: String,
+        bitmap: Bitmap,
+    ): PreparedNotificationArtwork {
+        return PreparedNotificationArtwork(
+            contentUri = cacheNotificationArtwork(trackId, requestUrl, bitmap),
+            wearFallbackArtworkData = encodeWearFallbackArtwork(bitmap),
+        )
+    }
+
+    private fun cacheNotificationArtwork(trackId: String, requestUrl: String, bitmap: Bitmap): Uri? {
+        return try {
+            val artworkCacheDir = File(cacheDir, ArtworkContentProvider.ARTWORK_CACHE_DIR_NAME).apply { mkdirs() }
+            val fileName = notificationArtworkFileName(trackId, requestUrl)
+            val artworkFile = File(artworkCacheDir, fileName)
+
+            FileOutputStream(artworkFile).use { output ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, NOTIFICATION_ARTWORK_JPEG_QUALITY, output)) {
+                    return null
+                }
+            }
+            cleanupNotificationArtworkCache(artworkCacheDir)
+
+            Uri.Builder()
+                .scheme("content")
+                .authority(ArtworkContentProvider.ARTWORK_CONTENT_AUTHORITY)
+                .appendPath(ArtworkContentProvider.ARTWORK_CACHE_DIR_NAME)
+                .appendPath(fileName)
+                .build()
+        } catch (exception: Exception) {
+            Log.w(TAG, "notification artwork cache failed: track=$trackId", exception)
+            null
+        }
+    }
+
+    private fun cleanupNotificationArtworkCache(cacheDir: File) {
+        val files = cacheDir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".jpg") }
+            ?.sortedByDescending { it.lastModified() }
+            ?: return
+
+        files.drop(NOTIFICATION_ARTWORK_CACHE_MAX_FILES).forEach { file ->
+            if (!file.delete()) {
+                Log.d(TAG, "notification artwork cache cleanup skipped: ${file.name}")
+            }
+        }
+    }
+
+    private fun notificationArtworkFileName(trackId: String, requestUrl: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$trackId\n$requestUrl".toByteArray(StandardCharsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it.toInt() and 0xff) } + ".jpg"
+    }
+
+    private fun encodeWearFallbackArtwork(bitmap: Bitmap): ByteArray? {
+        val scaledBitmap = scaleBitmapToMaxDimension(bitmap, WEAR_ARTWORK_FALLBACK_DIMENSION_PX)
+        try {
+            for (quality in intArrayOf(85, 75, 65, 55)) {
+                val output = ByteArrayOutputStream()
+                if (!scaledBitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)) continue
+
+                val bytes = output.toByteArray()
+                if (bytes.size <= WEAR_ARTWORK_FALLBACK_MAX_BYTES) {
+                    return bytes
+                }
+            }
+
+            Log.w(TAG, "wear artwork fallback exceeded ${WEAR_ARTWORK_FALLBACK_MAX_BYTES} bytes")
+            return null
+        } finally {
+            if (scaledBitmap !== bitmap) {
+                scaledBitmap.recycle()
+            }
+        }
+    }
+
+    private fun scaleBitmapToMaxDimension(bitmap: Bitmap, maxDimensionPx: Int): Bitmap {
+        val largestDimension = maxOf(bitmap.width, bitmap.height)
+        if (largestDimension <= maxDimensionPx) return bitmap
+
+        val scale = maxDimensionPx.toFloat() / largestDimension.toFloat()
+        val targetWidth = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
+        val targetHeight = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+    }
+
     private fun createTrackMetadata(
         track: TrackInfo,
         baseMetadata: MediaMetadata? = null,
-        includeLegacyArtworkData: Boolean = false,
     ): MediaMetadata {
+        val artwork = notificationArtworkFor(track)
         val metadataBuilder = baseMetadata?.buildUpon() ?: MediaMetadata.Builder()
         metadataBuilder
             .setTitle(track.title)
             .setArtist(track.artist)
             .setAlbumTitle(track.album)
             .setDurationMs(track.durationMs)
-            .setArtworkData(null)
+            .setArtworkData(null, null)
 
-        // Keep the high-resolution artwork as a URI for Media3's notification loader.
-        // Wear OS mirrors legacy session metadata, so the current item may also carry
-        // a bounded 1024px encoded copy once it has loaded.
-        if (track.coverArtUrl != null) {
+        if (artwork?.contentUri != null) {
+            metadataBuilder.setArtworkUri(artwork.contentUri)
+        } else if (track.coverArtUrl != null) {
             metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
         }
-        if (includeLegacyArtworkData) {
-            legacyArtworkBytesFor(track)?.let { metadataBuilder.setArtworkData(it) }
+
+        if (artwork?.wearFallbackArtworkData != null) {
+            metadataBuilder.setArtworkData(
+                artwork.wearFallbackArtworkData,
+                MediaMetadata.PICTURE_TYPE_FRONT_COVER,
+            )
         }
 
         return metadataBuilder.build()
@@ -3044,7 +3267,6 @@ class PlaybackService : MediaSessionService() {
     private fun createSessionMediaItemData(
         item: MediaItemData,
         track: TrackInfo,
-        includeLegacyArtworkData: Boolean = false,
     ): MediaItemData {
         val durationUs = track.durationMs * 1000L
         val periodUid = item.periods.firstOrNull()?.uid ?: item.uid
@@ -3054,7 +3276,6 @@ class PlaybackService : MediaSessionService() {
                 createTrackMetadata(
                     track,
                     item.mediaMetadata ?: item.mediaItem.mediaMetadata,
-                    includeLegacyArtworkData,
                 )
             )
             .setDurationUs(durationUs)

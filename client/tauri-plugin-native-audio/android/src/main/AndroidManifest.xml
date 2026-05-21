@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application>
+        <provider
+            android:name=".ArtworkContentProvider"
+            android:authorities="com.ferrotune.audio.artwork"
+            android:exported="true"
+            android:grantUriPermissions="true" />
+
         <!-- Media playback service -->
         <service
             android:name=".PlaybackService"

@@ -193,7 +193,7 @@ class FerrotuneApiClient {
     /**
      * Build a cover art URL for a song.
      */
-    fun buildCoverArtUrl(coverArtId: String, size: Int = 512): String {
+    fun buildCoverArtUrl(coverArtId: String, size: Int = 1024): String {
         val config = getConfig()
         val uriBuilder = Uri.parse("${config.serverUrl}/ferrotune/cover-art").buildUpon()
         appendCommonParams(uriBuilder)
