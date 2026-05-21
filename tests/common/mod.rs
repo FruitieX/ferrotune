@@ -5,11 +5,14 @@
 
 #![allow(dead_code)]
 
+use ferrotune::config::DATABASE_URL_ENV;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
+
+const TEST_DATABASE_GUARD_ENV: &str = "FERROTUNE_TEST_DATABASE_GUARD";
 
 /// Counter for generating unique test instance IDs.
 /// Combined with process ID to ensure uniqueness across parallel test processes.
@@ -171,7 +174,9 @@ impl TestServer {
             );
             */
 
-            let mut child = match Command::new(&binary)
+            let mut command = Command::new(&binary);
+            prepare_ferrotune_test_command(&mut command);
+            let mut child = match command
                 .arg("--config")
                 .arg(&config_path)
                 .arg("serve")
@@ -281,7 +286,9 @@ impl TestServer {
     pub fn scan_library(&self) -> Result<(), TestServerError> {
         let binary = find_binary()?;
 
-        let output = Command::new(&binary)
+        let mut command = Command::new(&binary);
+        prepare_ferrotune_test_command(&mut command);
+        let output = command
             .arg("--config")
             .arg(&self.config_path)
             .arg("scan")
@@ -306,6 +313,14 @@ impl TestServer {
             "API key creation not yet implemented".to_string(),
         ))
     }
+}
+
+pub fn prepare_ferrotune_test_command(command: &mut Command) {
+    // The generated test config always points at a temp SQLite database or a
+    // testcontainer PostgreSQL database. A stale production DATABASE_URL in the
+    // parent shell must not override that config in spawned test servers.
+    command.env_remove(DATABASE_URL_ENV);
+    command.env(TEST_DATABASE_GUARD_ENV, "1");
 }
 
 /// Wait for the server to become ready by polling the ping endpoint.

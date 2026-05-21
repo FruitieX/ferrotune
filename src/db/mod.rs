@@ -210,6 +210,7 @@ fn get_busy_timeout() -> Option<Duration> {
 
 pub async fn create_pool(database: &DatabaseConfig) -> crate::error::Result<Database> {
     database.validate()?;
+    guard_against_nonlocal_postgres_test_database(database)?;
 
     match database.backend {
         DatabaseBackend::Sqlite => {
@@ -229,6 +230,101 @@ pub async fn create_pool(database: &DatabaseConfig) -> crate::error::Result<Data
             Ok(Database::Postgres { pool, conn })
         }
     }
+}
+
+const TEST_DATABASE_GUARD_ENV: &str = "FERROTUNE_TEST_DATABASE_GUARD";
+const ALLOW_NONLOCAL_TEST_DATABASE_ENV: &str = "FERROTUNE_ALLOW_NONLOCAL_TEST_DATABASE";
+
+fn guard_against_nonlocal_postgres_test_database(
+    database: &DatabaseConfig,
+) -> crate::error::Result<()> {
+    if !test_database_guard_enabled() {
+        return Ok(());
+    }
+
+    if database.backend != DatabaseBackend::Postgres {
+        return Ok(());
+    }
+
+    if test_env_flag(ALLOW_NONLOCAL_TEST_DATABASE_ENV) {
+        return Ok(());
+    }
+
+    let Some(database_url) = database.url.as_deref() else {
+        return Ok(());
+    };
+    let Some(host) = postgres_url_host(database_url) else {
+        return Err(crate::error::Error::Config(config::ConfigError::Message(
+            format!(
+                "Refusing to use unparsable PostgreSQL database URL in tests: {}",
+                database.connection_label()
+            ),
+        )));
+    };
+
+    if is_local_postgres_host(host) {
+        return Ok(());
+    }
+
+    Err(crate::error::Error::Config(config::ConfigError::Message(
+        format!(
+            "Refusing to use non-local PostgreSQL database in tests: {}. Use a local/testcontainer database, or set {ALLOW_NONLOCAL_TEST_DATABASE_ENV}=1 if this is intentional.",
+            database.connection_label()
+        ),
+    )))
+}
+
+fn test_database_guard_enabled() -> bool {
+    cfg!(test) || test_env_flag(TEST_DATABASE_GUARD_ENV) || current_process_looks_like_test()
+}
+
+fn current_process_looks_like_test() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+
+    exe.components()
+        .any(|component| component.as_os_str() == "deps")
+        && exe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.contains('-'))
+            .unwrap_or(false)
+}
+
+fn test_env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn postgres_url_host(database_url: &str) -> Option<&str> {
+    let after_scheme = database_url.split_once("://")?.1;
+    let authority_and_path = after_scheme
+        .rsplit_once('@')
+        .map_or(after_scheme, |(_, rest)| rest);
+
+    if let Some(rest) = authority_and_path.strip_prefix('[') {
+        return rest.split_once(']').map(|(host, _)| host);
+    }
+
+    let authority_end = authority_and_path
+        .find(['/', '?', '#'])
+        .unwrap_or(authority_and_path.len());
+    let authority = &authority_and_path[..authority_end];
+    authority
+        .split_once(':')
+        .map_or(Some(authority), |(host, _)| Some(host))
+}
+
+fn is_local_postgres_host(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    host == "localhost" || host == "::1" || host == "0.0.0.0" || host.starts_with("127.")
 }
 
 async fn create_postgres_pool(database_url: &str) -> crate::error::Result<PgPool> {
@@ -344,8 +440,41 @@ async fn create_sqlite_pool(database_path: &Path) -> crate::error::Result<Sqlite
 
 #[cfg(test)]
 mod tests {
-    use super::Database;
+    use super::{guard_against_nonlocal_postgres_test_database, Database};
+    use crate::config::{DatabaseConfig, DATABASE_URL_ENV};
     use sqlx::sqlite::SqlitePool;
+    use std::ffi::OsString;
+    use std::sync::{LazyLock, Mutex};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl EnvGuard {
+        fn clear(vars: &[&'static str]) -> Self {
+            let saved = vars
+                .iter()
+                .map(|&var| (var, std::env::var_os(var)))
+                .collect::<Vec<_>>();
+            for var in vars {
+                std::env::remove_var(var);
+            }
+            Self { saved }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (var, value) in &self.saved {
+                match value {
+                    Some(value) => std::env::set_var(var, value),
+                    None => std::env::remove_var(var),
+                }
+            }
+        }
+    }
 
     #[tokio::test]
     async fn database_sqlite_pool_accessors_work() {
@@ -372,5 +501,46 @@ mod tests {
             .await
             .expect("cloned pool query should succeed");
         assert_eq!(cloned_value, 1);
+    }
+
+    #[test]
+    fn test_guard_rejects_nonlocal_postgres_database_in_tests() {
+        let _lock = ENV_LOCK.lock().expect("env lock should not be poisoned");
+        let _env = EnvGuard::clear(&[super::ALLOW_NONLOCAL_TEST_DATABASE_ENV]);
+        let config =
+            DatabaseConfig::postgres("postgres://user:secret@postgres.fruitiex.org/ferrotune");
+
+        let error = guard_against_nonlocal_postgres_test_database(&config)
+            .expect_err("non-local test database should be rejected");
+        let message = error.to_string();
+        assert!(message.contains("Refusing to use non-local PostgreSQL database in tests"));
+        assert!(message.contains("postgres://[REDACTED]@postgres.fruitiex.org/ferrotune"));
+        assert!(!message.contains("secret"));
+    }
+
+    #[test]
+    fn test_guard_allows_local_postgres_database_in_tests() {
+        let _lock = ENV_LOCK.lock().expect("env lock should not be poisoned");
+        let _env = EnvGuard::clear(&[super::ALLOW_NONLOCAL_TEST_DATABASE_ENV]);
+        let config =
+            DatabaseConfig::postgres("postgres://postgres:postgres@127.0.0.1:5432/postgres");
+
+        guard_against_nonlocal_postgres_test_database(&config)
+            .expect("local test database should be allowed");
+    }
+
+    #[test]
+    fn test_guard_rejects_stale_database_env_in_configless_tests() {
+        let _lock = ENV_LOCK.lock().expect("env lock should not be poisoned");
+        let _env = EnvGuard::clear(&[super::ALLOW_NONLOCAL_TEST_DATABASE_ENV]);
+        let config = DatabaseConfig::postgres(format!(
+            "postgres://postgres:secret@example.com/ferrotune?source={DATABASE_URL_ENV}"
+        ));
+
+        let error = guard_against_nonlocal_postgres_test_database(&config)
+            .expect_err("stale non-local env database should be rejected");
+        assert!(error
+            .to_string()
+            .contains("Refusing to use non-local PostgreSQL database in tests"));
     }
 }

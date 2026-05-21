@@ -10,6 +10,7 @@ use crate::db::queries;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
+    http::HeaderMap,
     response::sse::{Event, Sse},
     Extension, Json,
 };
@@ -458,6 +459,7 @@ pub async fn session_events(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Query(query): Query<SessionEventsQuery>,
+    headers: HeaderMap,
     connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
 ) -> FerrotuneApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Verify session belongs to user
@@ -471,7 +473,8 @@ pub async fn session_events(
     // opened tab also receives the ClientListChanged event for itself.
     if let Some(ref client_id) = query.client_id {
         let client_name = query.client_name.as_deref().unwrap_or("ferrotune-web");
-        let remote_ip = connect_info.map(|Extension(ConnectInfo(remote_addr))| remote_addr.ip());
+        let peer_ip = connect_info.map(|Extension(ConnectInfo(remote_addr))| remote_addr.ip());
+        let remote_ip = crate::api::client_ip::resolve_client_ip(peer_ip, &headers);
         let metadata = ConnectedClientMetadata {
             remote_ip,
             hostname: None,

@@ -1,6 +1,6 @@
 mod common;
 
-use common::{TestDatabaseConfig, TestServer, TestServerConfig};
+use common::{prepare_ferrotune_test_command, TestDatabaseConfig, TestServer, TestServerConfig};
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -151,7 +151,9 @@ fn test_postgres_song_matching_smoke() {
         ..Default::default()
     })
     .expect("postgres-backed test server should start");
-    let scan_output = Command::new(find_binary())
+    let mut scan_command = Command::new(find_binary());
+    prepare_ferrotune_test_command(&mut scan_command);
+    let scan_output = scan_command
         .arg("--config")
         .arg(&server.config_path)
         .arg("scan")

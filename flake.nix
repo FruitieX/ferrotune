@@ -38,6 +38,8 @@
           "i686-linux-android"
         ];
       };
+
+      postgresqlPackage = pkgs.postgresql_16;
     in {
       devShells = {
         default = pkgs.mkShell {
@@ -45,7 +47,7 @@
           buildInputs = [
             rustToolchain
             pkgs.pkg-config
-            pkgs.postgresql
+            postgresqlPackage
             pkgs.openssl
             pkgs.nodejs_24
             pkgs.pnpm
@@ -71,6 +73,7 @@
             pkgs.libsoup_3
           ];
           shellHook = ''
+            export PATH="${postgresqlPackage}/bin:$PATH"
             export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
             echo "Loaded ferrotune dev shell (server + ui)"
             echo "Test tools: hurl, ffmpeg, moon available"
@@ -83,7 +86,7 @@
           buildInputs = [
             rustToolchain
             pkgs.pkg-config
-            pkgs.postgresql
+            postgresqlPackage
             pkgs.openssl
             pkgs.nodejs_24
             pkgs.docker-compose
@@ -104,6 +107,7 @@
           NDK_HOME = "${androidSdk}/share/android-sdk/ndk/27.2.12479018";
           JAVA_HOME = "${pkgs.jdk17}";
           shellHook = ''
+            export PATH="${postgresqlPackage}/bin:$PATH"
             echo "Loaded ferrotune Android dev shell"
             echo "ANDROID_HOME=$ANDROID_HOME"
             echo "NDK_HOME=$NDK_HOME"
