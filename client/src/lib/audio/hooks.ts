@@ -355,7 +355,15 @@ export function useAudioEngine() {
     const client = getClient();
     if (!client) return;
     try {
-      await client.sendSessionCommand(targetSessionId, action, positionMs);
+      await client.sendSessionCommand(
+        targetSessionId,
+        action,
+        positionMs,
+        undefined,
+        undefined,
+        getClientName(),
+        clientId || undefined,
+      );
     } catch (error) {
       console.error(`Failed to send remote command '${action}':`, error);
     }

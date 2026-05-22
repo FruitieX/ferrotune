@@ -171,6 +171,25 @@ export function loadTrackNative(
     transcodingChanged,
   );
 
+  if (
+    currentLoadedTrackId !== null &&
+    currentSong.id !== currentLoadedTrackId &&
+    !signalChanged &&
+    !transcodingChanged &&
+    !isRestoringQueue
+  ) {
+    console.warn(
+      "[NativeAudio] Skipping passive currentSong drift without playback intent",
+      {
+        currentSongId: currentSong.id,
+        currentLoadedTrackId,
+        trackChangeSignal,
+      },
+    );
+    refs.lastProcessedSignalRef.current = trackChangeSignal;
+    return true;
+  }
+
   // Skip if same track is already loaded AND there's no forced reload.
   if (
     currentSong.id === currentLoadedTrackId &&

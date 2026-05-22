@@ -259,6 +259,7 @@ class PlaybackService : MediaSessionService() {
     // Invalidates asynchronous queue fetches when a newer account/session or
     // playback command supersedes them.
     private var queueLoadGeneration = 0
+    private var playbackIntentGeneration = 0
     private var activeSessionIdentity: String? = null
 
     // Whether the service is actively managing playback
@@ -820,11 +821,14 @@ class PlaybackService : MediaSessionService() {
 
     fun pause() {
         Log.d(TAG, "pause()")
+        markPlaybackPauseIntent("explicit pause()")
+        clearPendingNetworkRetry("explicit pause()")
         player.pause()
     }
 
     fun stop() {
         Log.d(TAG, "stop()")
+        markPlaybackPauseIntent("explicit stop()")
         nextQueueLoadGeneration("stop")
         clearPendingNetworkRetry("stop")
         player.stop()
@@ -854,6 +858,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun resetSessionBoundary(reason: String, clearConfig: Boolean) {
         Log.d(TAG, "resetSessionBoundary: $reason")
+        markPlaybackPauseIntent(reason)
         nextQueueLoadGeneration(reason)
         clearPendingNetworkRetry(reason)
         nativeOwnsSession = false
@@ -997,6 +1002,7 @@ class PlaybackService : MediaSessionService() {
                     }
 
                     Log.d(TAG, "Remote takeOver received; pausing native playback")
+                    markPlaybackPauseIntent("remote takeover")
                     nativeOwnsSession = false
                     clearPendingNetworkRetry("remote takeover")
                     handler.removeCallbacks(positionSyncRunnable)
@@ -1016,7 +1022,11 @@ class PlaybackService : MediaSessionService() {
                         clearAudioOutputLossPause("SSE play command")
                         player.playWhenReady = true
                     }
-                    "pause" -> { player.playWhenReady = false }
+                    "pause" -> {
+                        markPlaybackPauseIntent("SSE pause command")
+                        clearPendingNetworkRetry("SSE pause command")
+                        player.playWhenReady = false
+                    }
                     "next" -> {
                         clearAudioOutputLossPause("SSE next command")
                         autonomousSkipNext()
@@ -1039,6 +1049,8 @@ class PlaybackService : MediaSessionService() {
                 }
                 Log.d(TAG, "SSE QueueChanged: refetching queue")
                 val generation = nextQueueLoadGeneration("SSE QueueChanged")
+                val playbackIntentGenerationAtStart = playbackIntentGeneration
+                val shouldContinuePlayback = player.playWhenReady || player.isPlaying
                 apiExecutor.execute {
                     try {
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
@@ -1055,9 +1067,15 @@ class PlaybackService : MediaSessionService() {
                             if (isCurrentTrackAtTarget(response, response.currentIndex)) {
                                 syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
                             } else {
-                                // Different track — always start from beginning (position 0),
-                                // not response.positionMs which may be stale
-                                handleQueueWindowResponse(response, response.currentIndex, 0, true)
+                                // Different track: keep the current paused/playing state.
+                                // QueueChanged is a queue refresh signal, not by itself a play intent.
+                                handleQueueWindowResponse(
+                                    response,
+                                    response.currentIndex,
+                                    0,
+                                    shouldContinuePlayback,
+                                    playbackIntentGenerationAtStart,
+                                )
                             }
                         }
                     } catch (e: Exception) {
@@ -1172,6 +1190,7 @@ class PlaybackService : MediaSessionService() {
 
         if (player.playWhenReady || player.isPlaying) {
             Log.d(TAG, "Lost session ownership; pausing native playback")
+            markPlaybackPauseIntent("ownership lost")
             clearPendingNetworkRetry("ownership lost")
             handler.removeCallbacks(positionSyncRunnable)
             handler.removeCallbacks(preApplyGainRunnable)
@@ -1179,6 +1198,7 @@ class PlaybackService : MediaSessionService() {
             emitStateChange()
         } else if (wasOwner) {
             Log.d(TAG, "Session owner cleared while native playback is inactive")
+            markPlaybackPauseIntent("ownership cleared while inactive")
             emitStateChange()
         }
     }
@@ -1291,7 +1311,6 @@ class PlaybackService : MediaSessionService() {
         if (sessionId != null) {
             apiClient.updateSessionId(sessionId)
         }
-        nativeOwnsSession = playWhenReady
         if (playWhenReady) {
             claimNativeSessionOwnership("startPlayback", startPositionMs, currentIndex)
         }
@@ -1314,6 +1333,7 @@ class PlaybackService : MediaSessionService() {
 
         handler.removeCallbacks(inactivityTimeoutRunnable)
         val generation = nextQueueLoadGeneration("startPlayback")
+        val playbackIntentGenerationAtStart = playbackIntentGeneration
 
         // Fetch initial window and start playback
         apiExecutor.execute {
@@ -1321,9 +1341,6 @@ class PlaybackService : MediaSessionService() {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "startPlayback")) return@post
-                    // Preserve playWhenReady if already true (e.g. invalidateQueue
-                    // started playback before this handler.post ran)
-                    val effectivePlay = playWhenReady || player.playWhenReady
                     val effectiveStartPositionMs = if (response.currentIndex == currentIndex) {
                         startPositionMs
                     } else {
@@ -1334,10 +1351,11 @@ class PlaybackService : MediaSessionService() {
                         Log.d(TAG, "startPlayback: target track already loaded, syncing queue without restart")
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
                         seekLoadedCurrentTrackTo(effectiveStartPositionMs, "startPlayback existing target")
-                        if (effectivePlay && !player.playWhenReady) {
+                        if (playWhenReady && !player.playWhenReady) {
                             player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
                                 true,
-                                "startPlayback existing target"
+                                "startPlayback existing target",
+                                playbackIntentGenerationAtStart,
                             )
                         }
                     } else {
@@ -1347,7 +1365,8 @@ class PlaybackService : MediaSessionService() {
                             response,
                             response.currentIndex,
                             effectiveStartPositionMs,
-                            effectivePlay,
+                            playWhenReady,
+                            playbackIntentGenerationAtStart,
                         )
                     }
                     // Start position sync
@@ -1393,11 +1412,13 @@ class PlaybackService : MediaSessionService() {
         targetIndex: Int,
         startPositionMs: Long,
         playWhenReady: Boolean,
+        playbackIntentGenerationAtRequest: Int = playbackIntentGeneration,
     ) {
         clearPendingNetworkRetry("queue window reload")
         val effectivePlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
             playWhenReady,
-            "queue window load target=$targetIndex"
+            "queue window load target=$targetIndex",
+            playbackIntentGenerationAtRequest,
         )
         serverTotalCount = response.totalCount
         this.isShuffled = response.isShuffled
@@ -2389,6 +2410,7 @@ class PlaybackService : MediaSessionService() {
         positionMsAtError: Long,
     ) {
         clearPendingNetworkRetry("reschedule for ${trackAtError.id}")
+        val playbackIntentGenerationAtSchedule = playbackIntentGeneration
 
         val retryRunnable = object : Runnable {
             override fun run() {
@@ -2416,7 +2438,8 @@ class PlaybackService : MediaSessionService() {
 
                 val retryPlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
                     true,
-                    "network retry for ${track.id}"
+                    "network retry for ${track.id}",
+                    playbackIntentGenerationAtSchedule,
                 )
 
                 val livePositionMs = getAbsolutePlaybackPositionMs()
@@ -2857,11 +2880,26 @@ class PlaybackService : MediaSessionService() {
         pausedForAudioOutputLoss = false
     }
 
+    private fun markPlaybackPauseIntent(reason: String) {
+        playbackIntentGeneration += 1
+        Log.d(TAG, "Playback pause intent generation=$playbackIntentGeneration: $reason")
+    }
+
     private fun shouldStartPlaybackAfterAudioOutputLoss(
         requestedPlayWhenReady: Boolean,
         reason: String,
+        playbackIntentGenerationAtRequest: Int = playbackIntentGeneration,
     ): Boolean {
         if (!requestedPlayWhenReady) {
+            return false
+        }
+        if (playbackIntentGenerationAtRequest != playbackIntentGeneration) {
+            Log.d(
+                TAG,
+                "Suppressing automatic playback after newer pause: $reason " +
+                    "(requestGeneration=$playbackIntentGenerationAtRequest, " +
+                    "currentGeneration=$playbackIntentGeneration)"
+            )
             return false
         }
         if (!pausedForAudioOutputLoss) {
@@ -3544,6 +3582,12 @@ class PlaybackService : MediaSessionService() {
                     sendPlaybackStateHeartbeat(true)
                 }
             } else {
+                markPlaybackPauseIntent(
+                    "playWhenReady=false reason=${playWhenReadyChangeReasonName(reason)}"
+                )
+                clearPendingNetworkRetry(
+                    "playWhenReady=false reason=${playWhenReadyChangeReasonName(reason)}"
+                )
                 lastProgressTimestamp = 0
                 handler.removeCallbacks(progressRunnable)
                 handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)

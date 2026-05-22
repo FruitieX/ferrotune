@@ -20,6 +20,7 @@ import {
   serverQueueStateAtom,
   fetchQueueAtom,
   fetchQueueSilentAtom,
+  syncQueueFromNativeResumeAtom,
   isRestoringQueueAtom,
   queueWindowAtom,
 } from "@/lib/store/server-queue";
@@ -65,6 +66,7 @@ export function useAudioLifecycle({
   const queueWindow = useAtomValue(queueWindowAtom);
   const fetchQueue = useSetAtom(fetchQueueAtom);
   const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
+  const syncQueueFromNativeResume = useSetAtom(syncQueueFromNativeResumeAtom);
 
   // Ref to avoid stale closure in event listeners
   const currentSessionIdRef = useRef(currentSessionId);
@@ -108,6 +110,7 @@ export function useAudioLifecycle({
 
     const handleResume = async () => {
       const sessionIdAtResumeStart = currentSessionIdRef.current;
+      let syncedNativeResumeState = false;
       if (usingNativeAudio) {
         try {
           const nativeState = await nativeGetState();
@@ -128,29 +131,29 @@ export function useAudioLifecycle({
 
           if (!nativeStateMatchesCurrentQueue) {
             console.warn(
-              "[Audio] Ignoring native resume state that does not match the active queue",
+              "[Audio] Native resume state does not match the active queue; native state will be reconciled against the server window",
               {
                 nativeTrackId: nativeState.trackId,
                 nativeQueueIndex: nativeState.queueIndex,
                 expectedTrackId: entry?.song.id,
               },
             );
-            fetchQueueSilent();
-            return;
           }
 
           settersRef.current.setPlaybackState(nativeState.state);
           settersRef.current.setCurrentTime(nativeState.positionSeconds);
           settersRef.current.setDuration(nativeState.durationSeconds);
-          settersRef.current.setServerQueueState((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  currentIndex: nativeState.queueIndex,
-                  positionMs: nativeState.positionSeconds * 1000,
-                }
-              : prev,
-          );
+          if (nativeStateMatchesCurrentQueue) {
+            settersRef.current.setServerQueueState((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    currentIndex: nativeState.queueIndex,
+                    positionMs: nativeState.positionSeconds * 1000,
+                  }
+                : prev,
+            );
+          }
 
           // The native player is the source of truth.
           // Sync its position to the server before refreshing the queue so the
@@ -178,18 +181,27 @@ export function useAudioLifecycle({
               }
             }
           }
+          await syncQueueFromNativeResume({
+            trackId: nativeState.trackId,
+            queueIndex: nativeState.queueIndex,
+            positionMs: Math.round(nativeState.positionSeconds * 1000),
+            playbackState: nativeState.state,
+          });
+          syncedNativeResumeState = true;
         } catch (e) {
           console.warn("[Audio] Failed to sync native state on resume:", e);
         }
       }
-      fetchQueueSilent();
+      if (!syncedNativeResumeState) {
+        fetchQueueSilent();
+      }
     };
 
     window.addEventListener(appResumeRepaintEvent, handleResume);
     return () => {
       window.removeEventListener(appResumeRepaintEvent, handleResume);
     };
-  }, [fetchQueueSilent, settersRef]);
+  }, [fetchQueueSilent, settersRef, syncQueueFromNativeResume]);
 
   // Reset playback and queue when user account changes (user switch)
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);

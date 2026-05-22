@@ -43,7 +43,7 @@ import {
   ownerClientNameAtom,
   selfTakeoverPending,
 } from "./session";
-import { playbackStateAtom } from "./player";
+import { playbackStateAtom, type PlaybackState } from "./player";
 
 // Module-level signal: position in milliseconds to seek to when starting
 // playback (e.g. after session takeover). Read and consumed by the audio
@@ -91,6 +91,13 @@ export interface ServerQueueState {
   isShuffled: boolean;
   repeatMode: RepeatMode;
   source: QueueSourceInfo;
+}
+
+export interface NativeResumeQueueState {
+  trackId?: string;
+  queueIndex: number;
+  positionMs: number;
+  playbackState: PlaybackState;
 }
 
 function getWindowSongIdAtPosition(
@@ -601,6 +608,99 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
     console.error("Failed to silently fetch queue:", error);
   }
 });
+
+/**
+ * Reconcile Android native playback state with the server queue after the
+ * WebView resumes. Native playback may have advanced while JS was suspended,
+ * so never apply a stale server currentIndex that points at a different song.
+ */
+export const syncQueueFromNativeResumeAtom = atom(
+  null,
+  async (get, set, nativeState: NativeResumeQueueState) => {
+    const client = getClient();
+    if (!client) return;
+
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+    if (!sessionId) return;
+    const stateBefore = get(serverQueueStateAtom);
+
+    try {
+      const response = await getQueueCurrentWindowCoalesced(client, sessionId);
+
+      if (get(effectiveSessionIdAtom) !== sessionId) {
+        console.log(
+          "syncQueueFromNativeResumeAtom: discarding stale response (session changed during fetch)",
+        );
+        return;
+      }
+
+      if (get(serverQueueStateAtom) !== stateBefore) {
+        console.log(
+          "syncQueueFromNativeResumeAtom: discarding stale response (state changed during fetch)",
+        );
+        return;
+      }
+
+      if (response.totalCount === 0) {
+        set(serverQueueStateAtom, null);
+        set(queueWindowAtom, null);
+        return;
+      }
+
+      let currentIndex = response.currentIndex;
+      let positionMs = Number(response.positionMs);
+
+      if (nativeState.playbackState !== "idle" && nativeState.trackId) {
+        const responseCurrentSongId = getWindowSongIdAtPosition(
+          response.window,
+          response.currentIndex,
+        );
+        const nativeEntry = response.window.songs.find(
+          (entry) => entry.song.id === nativeState.trackId,
+        );
+
+        if (responseCurrentSongId === nativeState.trackId) {
+          positionMs = nativeState.positionMs;
+        } else if (nativeEntry) {
+          console.warn(
+            "syncQueueFromNativeResumeAtom: using native track over stale server currentIndex",
+            {
+              nativeTrackId: nativeState.trackId,
+              nativeQueueIndex: nativeState.queueIndex,
+              serverCurrentIndex: response.currentIndex,
+              serverCurrentSongId: responseCurrentSongId,
+            },
+          );
+          currentIndex = nativeEntry.position;
+          positionMs = nativeState.positionMs;
+        } else {
+          console.warn(
+            "syncQueueFromNativeResumeAtom: ignoring server queue window that does not contain native track",
+            {
+              nativeTrackId: nativeState.trackId,
+              nativeQueueIndex: nativeState.queueIndex,
+              serverCurrentIndex: response.currentIndex,
+              serverCurrentSongId: responseCurrentSongId,
+            },
+          );
+          return;
+        }
+      }
+
+      set(serverQueueStateAtom, {
+        totalCount: response.totalCount,
+        currentIndex,
+        positionMs,
+        isShuffled: response.isShuffled,
+        repeatMode: response.repeatMode as RepeatMode,
+        source: response.source,
+      });
+      set(queueWindowAtom, response.window);
+    } catch (error) {
+      console.error("Failed to reconcile native resume queue:", error);
+    }
+  },
+);
 
 /**
  * Fetch queue and trigger playback (for external queue changes via SSE).
