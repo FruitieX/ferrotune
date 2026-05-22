@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   useSessionEvents,
@@ -33,6 +33,8 @@ import {
 import { getClient } from "@/lib/api/client";
 import { useSessionOwnerState } from "@/lib/hooks/use-session-owner-state";
 
+const CLIENT_LIST_CHANGE_DEBOUNCE_MS = 150;
+
 /**
  * Receives SSE events for the current session and dispatches
  * playback commands to the local audio engine.
@@ -62,6 +64,99 @@ export function SessionEventHandler() {
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setConnectedClients = useSetAtom(connectedClientsAtom);
   const { applyOwnerSnapshot } = useSessionOwnerState();
+  const clientListRefreshTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const ownerHeartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const ownerHeartbeatSnapshotRef = useRef({
+    isAudioOwner,
+    isRemoteControlling,
+    sessionId,
+    currentSong,
+    queueState,
+    playbackState,
+    currentTime,
+    clientId,
+  });
+
+  useEffect(() => {
+    ownerHeartbeatSnapshotRef.current = {
+      isAudioOwner,
+      isRemoteControlling,
+      sessionId,
+      currentSong,
+      queueState,
+      playbackState,
+      currentTime,
+      clientId,
+    };
+  });
+
+  useEffect(() => {
+    return () => {
+      if (clientListRefreshTimerRef.current) {
+        clearTimeout(clientListRefreshTimerRef.current);
+      }
+      if (ownerHeartbeatTimerRef.current) {
+        clearTimeout(ownerHeartbeatTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleClientListRefresh = () => {
+    if (clientListRefreshTimerRef.current) {
+      clearTimeout(clientListRefreshTimerRef.current);
+    }
+
+    clientListRefreshTimerRef.current = setTimeout(() => {
+      clientListRefreshTimerRef.current = null;
+      const client = getClient();
+      if (!client) return;
+
+      client
+        .listClients()
+        .then((response) => setConnectedClients(response.clients))
+        .catch(() => {});
+    }, CLIENT_LIST_CHANGE_DEBOUNCE_MS);
+  };
+
+  const scheduleOwnerHeartbeat = () => {
+    if (ownerHeartbeatTimerRef.current) {
+      clearTimeout(ownerHeartbeatTimerRef.current);
+    }
+
+    ownerHeartbeatTimerRef.current = setTimeout(() => {
+      ownerHeartbeatTimerRef.current = null;
+      const client = getClient();
+      if (!client) return;
+
+      const snapshot = ownerHeartbeatSnapshotRef.current;
+      if (
+        !snapshot.isAudioOwner ||
+        snapshot.isRemoteControlling ||
+        hasNativeAudio() ||
+        !snapshot.sessionId ||
+        !snapshot.currentSong ||
+        !snapshot.queueState
+      ) {
+        return;
+      }
+
+      client
+        .sessionHeartbeat(snapshot.sessionId, {
+          clientId: snapshot.clientId || undefined,
+          isPlaying: snapshot.playbackState === "playing",
+          currentIndex: snapshot.queueState.currentIndex,
+          positionMs: Math.round(snapshot.currentTime * 1000),
+          currentSongId: snapshot.currentSong.id,
+          currentSongTitle: snapshot.currentSong.title,
+          currentSongArtist: snapshot.currentSong.artist,
+        })
+        .catch(() => {});
+    }, CLIENT_LIST_CHANGE_DEBOUNCE_MS);
+  };
 
   const syncQueueForPosition = (event: SessionEvent) => {
     if (event.currentIndex === undefined) return;
@@ -215,35 +310,8 @@ export function SessionEventHandler() {
         break;
       }
       case "clientListChanged": {
-        // Refresh the client list from the server
-        const client = getClient();
-        if (client) {
-          client
-            .listClients()
-            .then((response) => setConnectedClients(response.clients))
-            .catch(() => {});
-
-          if (
-            isAudioOwner &&
-            !isRemoteControlling &&
-            !hasNativeAudio() &&
-            sessionId &&
-            currentSong &&
-            queueState
-          ) {
-            client
-              .sessionHeartbeat(sessionId, {
-                clientId: clientId || undefined,
-                isPlaying: playbackState === "playing",
-                currentIndex: queueState.currentIndex,
-                positionMs: Math.round(currentTime * 1000),
-                currentSongId: currentSong.id,
-                currentSongTitle: currentSong.title,
-                currentSongArtist: currentSong.artist,
-              })
-              .catch(() => {});
-          }
-        }
+        scheduleClientListRefresh();
+        scheduleOwnerHeartbeat();
         break;
       }
       case "ownerChanged": {

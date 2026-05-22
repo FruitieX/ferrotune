@@ -6,7 +6,14 @@
  * visited view renders instantly from cache.
  */
 
-import { cacheGet, cacheSet, cacheDelByPrefix } from "@/lib/cache-store";
+import {
+  cacheGet,
+  cacheSet,
+  cacheDelByPrefix,
+  cacheGetForAccount,
+  cacheSetForAccount,
+  cacheDelByPrefixForAccount,
+} from "@/lib/cache-store";
 
 /** Data stored per cached page. */
 export interface CachedPageData<T> {
@@ -33,6 +40,17 @@ export async function getCachedPage<T>(
   return cacheGet<CachedPageData<T>>(pageKey(queryKey, pageIndex));
 }
 
+export async function getCachedPageForAccount<T>(
+  accountKey: string,
+  queryKey: readonly unknown[],
+  pageIndex: number,
+): Promise<CachedPageData<T> | undefined> {
+  return cacheGetForAccount<CachedPageData<T>>(
+    accountKey,
+    pageKey(queryKey, pageIndex),
+  );
+}
+
 /** Store a single page in the cache. */
 export async function setCachedPage<T>(
   queryKey: readonly unknown[],
@@ -45,9 +63,28 @@ export async function setCachedPage<T>(
   });
 }
 
+export async function setCachedPageForAccount<T>(
+  accountKey: string,
+  queryKey: readonly unknown[],
+  pageIndex: number,
+  data: Omit<CachedPageData<T>, "cachedAt">,
+): Promise<void> {
+  await cacheSetForAccount(accountKey, pageKey(queryKey, pageIndex), {
+    ...data,
+    cachedAt: Date.now(),
+  });
+}
+
 /** Remove all cached pages for a given query key. */
 export async function clearCachedPages(
   queryKey: readonly unknown[],
 ): Promise<void> {
   await cacheDelByPrefix(pageKeyPrefix(queryKey));
+}
+
+export async function clearCachedPagesForAccount(
+  accountKey: string,
+  queryKey: readonly unknown[],
+): Promise<void> {
+  await cacheDelByPrefixForAccount(accountKey, pageKeyPrefix(queryKey));
 }

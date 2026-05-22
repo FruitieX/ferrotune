@@ -141,6 +141,14 @@ export function loadTrackNative(
     return true;
   }
 
+  const sessionIdAtStart = refs.stateRef.current.currentSessionId;
+  if (!sessionIdAtStart || !refs.stateRef.current.serverConnection) {
+    console.warn(
+      "[NativeAudio] Skipping native load until session credentials are ready",
+    );
+    return true;
+  }
+
   // Check if signal changed (new queue started, shuffle, playAtIndex, etc.)
   const signalChanged =
     trackChangeSignal !== refs.lastProcessedSignalRef.current;
@@ -175,7 +183,6 @@ export function loadTrackNative(
   }
   refs.lastProcessedSignalRef.current = trackChangeSignal;
 
-  const sessionIdAtStart = refs.stateRef.current.currentSessionId;
   const queueStateAtStart =
     params.queueState ?? refs.stateRef.current.queueState;
   const queueKeyAtStart = queueRuntimeKey(queueStateAtStart);
@@ -216,10 +223,9 @@ export function loadTrackNative(
     }
     if (!loadStillCurrent()) return;
 
-    // Wait for session init (API credentials) before making any API calls
-    if (nativeSessionReady) {
-      await nativeSessionReady;
-    }
+    // Wait for session init (API credentials) before making any API calls.
+    if (!nativeSessionReady) return;
+    await nativeSessionReady;
     if (!loadStillCurrent()) return;
 
     // Kotlin manages the queue itself — tell it to fetch & play
@@ -289,6 +295,8 @@ export function loadTrackNative(
 
     if (!loadStillCurrent()) return;
 
+    setters.setPlaybackState("loading");
+
     await nativeStartPlayback({
       totalCount: qs.totalCount,
       currentIndex: qs.currentIndex,
@@ -304,12 +312,6 @@ export function loadTrackNative(
     if (!loadStillCurrent()) return;
 
     setCurrentLoadedTrackId(currentSong.id);
-
-    if (!shouldPlay) {
-      setters.setPlaybackState("paused");
-    } else {
-      setters.setPlaybackState("loading");
-    }
 
     const isStarred =
       refs.stateRef.current.starredItems.get(

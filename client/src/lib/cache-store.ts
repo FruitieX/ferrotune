@@ -27,6 +27,8 @@ let metaMap = new Map<string, EntryMeta>();
 /** Current account key prefix for scoping */
 let currentAccountPrefix = "";
 
+let cacheInitVersion = 0;
+
 /** Dedicated IndexedDB store (separate from idb-keyval default) */
 const cacheIdbStore = createStore("ferrotune-cache", "cache-store");
 
@@ -35,19 +37,22 @@ const cacheIdbStore = createStore("ferrotune-cache", "cache-store");
  * Loads size metadata from IndexedDB so LRU eviction works across sessions.
  */
 export async function cacheInit(accountKey: string): Promise<void> {
-  currentAccountPrefix = `${accountKey}:`;
+  const accountPrefix = `${accountKey}:`;
+  const initVersion = ++cacheInitVersion;
+  currentAccountPrefix = accountPrefix;
   metaMap = new Map();
+  const nextMetaMap = new Map<string, EntryMeta>();
 
   try {
     const allEntries = await entries(cacheIdbStore);
     for (const [key, value] of allEntries) {
       const keyStr = key as string;
-      if (!keyStr.startsWith(currentAccountPrefix)) continue;
+      if (!keyStr.startsWith(accountPrefix)) continue;
 
       const serialized =
         typeof value === "string" ? value : JSON.stringify(value);
       const sizeBytes = new Blob([serialized]).size;
-      metaMap.set(keyStr, {
+      nextMetaMap.set(keyStr, {
         sizeBytes,
         lastAccessedMs: Date.now(),
         pinned: keyStr.endsWith(":rq-blob"),
@@ -56,6 +61,20 @@ export async function cacheInit(accountKey: string): Promise<void> {
   } catch {
     // IndexedDB may be unavailable (e.g. private browsing in some browsers)
   }
+
+  if (
+    cacheInitVersion !== initVersion ||
+    currentAccountPrefix !== accountPrefix
+  ) {
+    return;
+  }
+
+  for (const [key, meta] of metaMap) {
+    if (key.startsWith(accountPrefix) && !nextMetaMap.has(key)) {
+      nextMetaMap.set(key, meta);
+    }
+  }
+  metaMap = nextMetaMap;
 }
 
 /** Get total size of all cached entries in bytes. */
@@ -96,6 +115,10 @@ function scopedKey(key: string): string {
   return `${currentAccountPrefix}${key}`;
 }
 
+function scopedKeyForAccount(accountKey: string, key: string): string {
+  return `${accountKey}:${key}`;
+}
+
 export interface CacheSetOptions {
   /** If true, entry is never evicted by LRU (use for React Query blob). */
   pinned?: boolean;
@@ -104,6 +127,17 @@ export interface CacheSetOptions {
 /** Retrieve a value from the cache. Returns undefined on miss. */
 export async function cacheGet<T>(key: string): Promise<T | undefined> {
   const fullKey = scopedKey(key);
+  return cacheGetByFullKey<T>(fullKey);
+}
+
+export async function cacheGetForAccount<T>(
+  accountKey: string,
+  key: string,
+): Promise<T | undefined> {
+  return cacheGetByFullKey<T>(scopedKeyForAccount(accountKey, key));
+}
+
+async function cacheGetByFullKey<T>(fullKey: string): Promise<T | undefined> {
   try {
     const value = await get<T>(fullKey, cacheIdbStore);
     if (value !== undefined) {
@@ -126,6 +160,23 @@ export async function cacheSet<T>(
   options?: CacheSetOptions,
 ): Promise<void> {
   const fullKey = scopedKey(key);
+  await cacheSetByFullKey(fullKey, value, options);
+}
+
+export async function cacheSetForAccount<T>(
+  accountKey: string,
+  key: string,
+  value: T,
+  options?: CacheSetOptions,
+): Promise<void> {
+  await cacheSetByFullKey(scopedKeyForAccount(accountKey, key), value, options);
+}
+
+async function cacheSetByFullKey<T>(
+  fullKey: string,
+  value: T,
+  options?: CacheSetOptions,
+): Promise<void> {
   const serialized = typeof value === "string" ? value : JSON.stringify(value);
   const sizeBytes = new Blob([serialized]).size;
 
@@ -152,6 +203,17 @@ export async function cacheSet<T>(
 /** Delete a specific key from the cache. */
 export async function cacheDel(key: string): Promise<void> {
   const fullKey = scopedKey(key);
+  await cacheDelByFullKey(fullKey);
+}
+
+export async function cacheDelForAccount(
+  accountKey: string,
+  key: string,
+): Promise<void> {
+  await cacheDelByFullKey(scopedKeyForAccount(accountKey, key));
+}
+
+async function cacheDelByFullKey(fullKey: string): Promise<void> {
   try {
     await del(fullKey, cacheIdbStore);
   } catch {
@@ -163,6 +225,17 @@ export async function cacheDel(key: string): Promise<void> {
 /** Delete all keys matching a prefix (scoped to current account). */
 export async function cacheDelByPrefix(prefix: string): Promise<void> {
   const fullPrefix = scopedKey(prefix);
+  await cacheDelByFullKeyPrefix(fullPrefix);
+}
+
+export async function cacheDelByPrefixForAccount(
+  accountKey: string,
+  prefix: string,
+): Promise<void> {
+  await cacheDelByFullKeyPrefix(scopedKeyForAccount(accountKey, prefix));
+}
+
+async function cacheDelByFullKeyPrefix(fullPrefix: string): Promise<void> {
   const toDelete: string[] = [];
   for (const key of metaMap.keys()) {
     if (key.startsWith(fullPrefix)) {

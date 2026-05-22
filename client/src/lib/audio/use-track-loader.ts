@@ -27,7 +27,10 @@ import {
   isRestoringQueueAtom,
   trackChangeSignalAtom,
 } from "@/lib/store/server-queue";
-import { isRemoteControllingAtom } from "@/lib/store/session";
+import {
+  effectiveSessionIdAtom,
+  isRemoteControllingAtom,
+} from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
 import { loadTrackNative, loadTrackWeb } from "@/lib/audio/track-loader";
 import { usingNativeAudio } from "@/lib/audio/engine-state";
@@ -67,6 +70,7 @@ export function useTrackLoader({
   const trackChangeSignal = useAtomValue(trackChangeSignalAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
+  const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
   const transcodingBitrate = useAtomValue(transcodingBitrateAtom);
   const replayGainMode = useAtomValue(replayGainModeAtom);
@@ -80,6 +84,7 @@ export function useTrackLoader({
     // Don't load audio when remote-controlling another session
     if (isRemoteControlling) return;
     if (!isClientInitialized) return;
+    if (isNativePlatform && !currentSessionId) return;
 
     // Restored native queues are handled by the dedicated preload effect below.
     // That path waits for the native engine/session and materializes the queue
@@ -169,6 +174,7 @@ export function useTrackLoader({
     trackChangeSignal,
     isNativePlatform,
     isClientInitialized,
+    currentSessionId,
     isRestoringQueue,
     isRemoteControlling,
     queueState,
@@ -187,6 +193,7 @@ export function useTrackLoader({
   useEffect(() => {
     if (!isNativePlatform || isRemoteControlling) return;
     if (!isClientInitialized) return;
+    if (!currentSessionId) return;
     if (!isRestoringQueue || !currentSong || !queueState) return;
 
     const client = getClient();
@@ -218,6 +225,7 @@ export function useTrackLoader({
     trackChangeSignal,
     isNativePlatform,
     isClientInitialized,
+    currentSessionId,
     isRestoringQueue,
     isRemoteControlling,
     queueState,

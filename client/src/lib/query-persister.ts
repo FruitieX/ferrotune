@@ -1,6 +1,10 @@
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { del } from "idb-keyval";
-import { cacheGet, cacheSet, cacheDel } from "@/lib/cache-store";
+import {
+  cacheGetForAccount,
+  cacheSetForAccount,
+  cacheDelForAccount,
+} from "@/lib/cache-store";
 
 /**
  * Persists React Query cache to IndexedDB via the unified cache store so the
@@ -45,16 +49,18 @@ export function shouldPersistQuery(queryKey: readonly unknown[]): boolean {
   return typeof prefix === "string" && PERSISTED_QUERY_PREFIXES.has(prefix);
 }
 
-/** Storage adapter backed by the unified cache store (pinned = never LRU-evicted). */
-const cacheBackedStorage = {
-  getItem: async (key: string) => (await cacheGet<string>(key)) ?? null,
-  setItem: async (key: string, value: string) => {
-    await cacheSet(key, value, { pinned: true });
-  },
-  removeItem: async (key: string) => {
-    await cacheDel(key);
-  },
-};
+function createAccountBackedStorage(accountKeyStr: string) {
+  return {
+    getItem: async (key: string) =>
+      (await cacheGetForAccount<string>(accountKeyStr, key)) ?? null,
+    setItem: async (key: string, value: string) => {
+      await cacheSetForAccount(accountKeyStr, key, value, { pinned: true });
+    },
+    removeItem: async (key: string) => {
+      await cacheDelForAccount(accountKeyStr, key);
+    },
+  };
+}
 
 const persisterCache = new Map<
   string,
@@ -69,7 +75,7 @@ export function getAccountPersister(accountKeyStr: string) {
   let persister = persisterCache.get(accountKeyStr);
   if (!persister) {
     persister = createAsyncStoragePersister({
-      storage: cacheBackedStorage,
+      storage: createAccountBackedStorage(accountKeyStr),
       key: `rq-blob`,
       throttleTime: 2000,
     });

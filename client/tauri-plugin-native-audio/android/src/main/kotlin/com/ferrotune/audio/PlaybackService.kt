@@ -618,13 +618,11 @@ class PlaybackService : MediaSessionService() {
             ): ListenableFuture<*> {
                 when (seekCommand) {
                     COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
-                        clearAudioOutputLossPause("media session next command")
-                        autonomousSkipNext()
+                        nextTrack()
                         return Futures.immediateVoidFuture()
                     }
                     COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
-                        clearAudioOutputLossPause("media session previous command")
-                        autonomousSkipPrevious()
+                        previousTrack()
                         return Futures.immediateVoidFuture()
                     }
                     COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM -> {
@@ -775,7 +773,7 @@ class PlaybackService : MediaSessionService() {
 
     fun play() {
         Log.d(TAG, "play()")
-        nativeOwnsSession = true
+        claimNativeSessionOwnership("explicit play", getAbsolutePlaybackPositionMs(), serverQueueIndex)
         clearAudioOutputLossPause("explicit play()")
         if (player.mediaItemCount == 0 && apiClient.hasSessionConfig()) {
             Log.d(TAG, "play(): no media loaded, bootstrapping from server queue")
@@ -1172,13 +1170,39 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
-        if (wasOwner || player.playWhenReady || player.isPlaying) {
+        if (player.playWhenReady || player.isPlaying) {
             Log.d(TAG, "Lost session ownership; pausing native playback")
             clearPendingNetworkRetry("ownership lost")
             handler.removeCallbacks(positionSyncRunnable)
             handler.removeCallbacks(preApplyGainRunnable)
             player.pause()
             emitStateChange()
+        } else if (wasOwner) {
+            Log.d(TAG, "Session owner cleared while native playback is inactive")
+            emitStateChange()
+        }
+    }
+
+    private fun claimNativeSessionOwnership(
+        reason: String,
+        positionMs: Long? = null,
+        currentIndex: Int? = null,
+    ) {
+        if (!apiClient.hasSessionConfig()) {
+            Log.w(TAG, "Cannot claim session ownership for $reason: session is not configured")
+            return
+        }
+        if (!nativeOwnsSession) {
+            Log.d(TAG, "Claiming session ownership for $reason")
+        }
+        nativeOwnsSession = true
+        handler.removeCallbacks(inactivityTimeoutRunnable)
+        apiExecutor.execute {
+            try {
+                apiClient.takeOver(positionMs, currentIndex)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to claim session ownership for $reason", e)
+            }
         }
     }
 
@@ -1260,16 +1284,21 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "startPlayback(total=$totalCount, index=$currentIndex, " +
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
             "sourceType=$sourceType, sourceId=$sourceId)")
-        nativeOwnsSession = true
+        if (!apiClient.hasSessionConfig()) {
+            Log.w(TAG, "startPlayback ignored: session is not configured yet")
+            return
+        }
+        if (sessionId != null) {
+            apiClient.updateSessionId(sessionId)
+        }
+        nativeOwnsSession = playWhenReady
+        if (playWhenReady) {
+            claimNativeSessionOwnership("startPlayback", startPositionMs, currentIndex)
+        }
         clearPendingNetworkRetry("startPlayback")
 
         if (playWhenReady) {
             clearAudioOutputLossPause("startPlayback(playWhenReady=true)")
-        }
-
-        // Update session ID on the API client if provided
-        if (sessionId != null) {
-            apiClient.updateSessionId(sessionId)
         }
 
         queueSourceType = sourceType
@@ -2523,6 +2552,8 @@ class PlaybackService : MediaSessionService() {
 
     fun nextTrack() {
         Log.d(TAG, "nextTrack()")
+        val nextIndex = (serverQueueIndex + 1).takeIf { serverTotalCount <= 0 || it < serverTotalCount }
+        claimNativeSessionOwnership("explicit nextTrack", 0, nextIndex)
         clearAudioOutputLossPause("explicit nextTrack()")
         autonomousSkipNext()
     }
@@ -2546,6 +2577,8 @@ class PlaybackService : MediaSessionService() {
         if (serverTotalCount == 0) {
             Log.d(TAG, "playAtIndex: bootstrapping without known serverTotalCount")
         }
+
+        claimNativeSessionOwnership("playAtIndex", 0, index)
 
         seekTimeOffsetMs = 0
         serverQueueIndex = index
@@ -2591,6 +2624,8 @@ class PlaybackService : MediaSessionService() {
 
     fun previousTrack() {
         Log.d(TAG, "previousTrack()")
+        val previousIndex = (serverQueueIndex - 1).takeIf { it >= 0 }
+        claimNativeSessionOwnership("explicit previousTrack", 0, previousIndex)
         clearAudioOutputLossPause("explicit previousTrack()")
         autonomousSkipPrevious()
     }

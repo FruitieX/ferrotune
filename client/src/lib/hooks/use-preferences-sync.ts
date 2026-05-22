@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getClient } from "@/lib/api/client";
 import {
   accountKey,
@@ -20,12 +19,9 @@ import {
 import {
   loadServerPreferences,
   resetServerPreferences,
+  refreshServerStorageCacheAtom,
   serverPreferencesLoadedAtom,
 } from "@/lib/store/server-storage";
-import type {
-  UpdatePreferencesRequest,
-  PreferencesResponse,
-} from "@/lib/api/types";
 
 // Debounce timeout for custom color changes (ms)
 const CUSTOM_COLOR_DEBOUNCE_MS = 500;
@@ -39,21 +35,13 @@ const CUSTOM_COLOR_DEBOUNCE_MS = 500;
  * - Uses React Query for caching and optimistic updates
  */
 export function usePreferencesSync() {
-  const queryClient = useQueryClient();
   const connection = useAtomValue(serverConnectionAtom);
   const currentAccountKey = connection ? accountKey(connection) : null;
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
-  const [accentColor, setAccentColor] = useAtom(accentColorAtom);
-  const [customHue, setCustomHue] = useAtom(customAccentHueAtom);
-  const [customLightness, setCustomLightness] = useAtom(
-    customAccentLightnessAtom,
-  );
-  const [customChroma, setCustomChroma] = useAtom(customAccentChromaAtom);
   const setPreferencesLoaded = useSetAtom(preferencesLoadedAtom);
   const setServerPreferencesLoaded = useSetAtom(serverPreferencesLoadedAtom);
+  const refreshServerStorageCache = useSetAtom(refreshServerStorageCacheAtom);
 
-  // Track if we're currently applying server values to prevent feedback loops
-  const isApplyingServerValues = useRef(false);
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
   // Track if we've already loaded preferences for this session - use state so it can be read during render
   const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
@@ -62,110 +50,32 @@ export function usePreferencesSync() {
   // We check isClientInitialized (not just connection) because the client singleton
   // is only set after useAuth calls initializeClient()
   useEffect(() => {
-    if (isClientInitialized && !hasLoadedFromServer) {
-      loadServerPreferences(() => {
-        setServerPreferencesLoaded(true);
-      });
-    }
-  }, [isClientInitialized, hasLoadedFromServer, setServerPreferencesLoaded]);
+    if (!isClientInitialized || hasLoadedFromServer) return;
 
-  // Query to fetch preferences from server
-  const { data: serverPreferences, isSuccess } = useQuery<PreferencesResponse>({
-    queryKey: ["preferences", currentAccountKey],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.getPreferences();
-    },
-    enabled:
-      isClientInitialized && !hasLoadedFromServer && currentAccountKey !== null,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
-    retry: 1,
-  });
+    let cancelled = false;
 
-  // Mutation to update preferences on server
-  const { mutate: updateServerPreferences } = useMutation({
-    mutationFn: async (prefs: UpdatePreferencesRequest) => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.updatePreferences(prefs);
-    },
-    onSuccess: (data) => {
-      // Update cache with new values
-      if (currentAccountKey !== null) {
-        queryClient.setQueryData(["preferences", currentAccountKey], data);
+    loadServerPreferences(() => {
+      if (!cancelled) {
+        refreshServerStorageCache();
       }
-    },
-    onError: (error) => {
-      // Silently fail - preferences are still stored locally
-      console.warn("Failed to sync preferences to server:", error);
-    },
-  });
-
-  // Apply server preferences to local state when loaded
-  useEffect(() => {
-    if (isSuccess && serverPreferences && !hasLoadedFromServer) {
-      isApplyingServerValues.current = true;
-
-      // Schedule state updates to avoid synchronous setState in effect
-      const timeoutId = setTimeout(() => {
+    }).finally(() => {
+      if (!cancelled) {
         setHasLoadedFromServer(true);
-
-        if (serverPreferences.accentColor) {
-          setAccentColor(serverPreferences.accentColor as AccentColor);
-        }
-        if (
-          serverPreferences.customAccentHue !== undefined &&
-          serverPreferences.customAccentHue !== null
-        ) {
-          setCustomHue(serverPreferences.customAccentHue);
-        }
-        if (
-          serverPreferences.customAccentLightness !== undefined &&
-          serverPreferences.customAccentLightness !== null
-        ) {
-          setCustomLightness(serverPreferences.customAccentLightness);
-        }
-        if (
-          serverPreferences.customAccentChroma !== undefined &&
-          serverPreferences.customAccentChroma !== null
-        ) {
-          setCustomChroma(serverPreferences.customAccentChroma);
-        }
-
         setPreferencesLoaded(true);
-
-        // Reset flag after updates are applied
-        setTimeout(() => {
-          isApplyingServerValues.current = false;
-        }, 100);
-      }, 0);
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [
-    isSuccess,
-    serverPreferences,
-    hasLoadedFromServer,
-    setAccentColor,
-    setCustomHue,
-    setCustomLightness,
-    setCustomChroma,
-    setPreferencesLoaded,
-  ]);
-
-  // Function to sync current preferences to server
-  const syncToServer = () => {
-    if (!connection || isApplyingServerValues.current) return;
-
-    updateServerPreferences({
-      accentColor,
-      customAccentHue: accentColor === "custom" ? customHue : null,
-      customAccentLightness: accentColor === "custom" ? customLightness : null,
-      customAccentChroma: accentColor === "custom" ? customChroma : null,
+        setServerPreferencesLoaded(true);
+      }
     });
-  };
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isClientInitialized,
+    hasLoadedFromServer,
+    refreshServerStorageCache,
+    setPreferencesLoaded,
+    setServerPreferencesLoaded,
+  ]);
 
   // Reset loaded state whenever account identity changes.
   useEffect(() => {
@@ -179,18 +89,19 @@ export function usePreferencesSync() {
     }
 
     previousAccountKeyRef.current = currentAccountKey;
-    const timeoutId = setTimeout(() => {
-      setHasLoadedFromServer(false);
-      setPreferencesLoaded(false);
-      setServerPreferencesLoaded(false);
-      resetServerPreferences();
-    }, 0);
-
-    return () => clearTimeout(timeoutId);
-  }, [currentAccountKey, setPreferencesLoaded, setServerPreferencesLoaded]);
+    setHasLoadedFromServer(false);
+    setPreferencesLoaded(false);
+    setServerPreferencesLoaded(false);
+    resetServerPreferences();
+    refreshServerStorageCache();
+  }, [
+    currentAccountKey,
+    refreshServerStorageCache,
+    setPreferencesLoaded,
+    setServerPreferencesLoaded,
+  ]);
 
   return {
-    syncToServer,
     isLoaded: hasLoadedFromServer,
   };
 }

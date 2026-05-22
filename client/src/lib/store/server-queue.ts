@@ -120,6 +120,32 @@ function canRefreshQueueWithoutRestart(
   );
 }
 
+const currentWindowRequests = new Map<string, Promise<GetQueueResponse>>();
+
+function getCurrentWindowRequestKey(sessionId: string): string {
+  return `session:${sessionId}`;
+}
+
+function getQueueCurrentWindowCoalesced(
+  client: FerrotuneClient,
+  sessionId: string,
+): Promise<GetQueueResponse> {
+  const key = getCurrentWindowRequestKey(sessionId);
+  const existingRequest = currentWindowRequests.get(key);
+  if (existingRequest) return existingRequest;
+
+  const request = client
+    .getQueueCurrentWindow(20, "small", sessionId)
+    .finally(() => {
+      if (currentWindowRequests.get(key) === request) {
+        currentWindowRequests.delete(key);
+      }
+    });
+
+  currentWindowRequests.set(key, request);
+  return request;
+}
+
 type QueueGetter = <Value>(atom: Atom<Value>) => Value;
 
 function isCurrentSession(
@@ -439,7 +465,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   const stateBefore = get(serverQueueStateAtom);
 
   try {
-    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+    const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
     if (get(effectiveSessionIdAtom) !== sessionId) {
       console.log(
@@ -497,7 +523,7 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
   if (!sessionId) return;
 
   try {
-    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+    const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
     if (get(effectiveSessionIdAtom) !== sessionId) {
       return;
@@ -539,7 +565,7 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
   const stateBefore = get(serverQueueStateAtom);
 
   try {
-    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+    const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
     if (get(effectiveSessionIdAtom) !== sessionId) {
       console.log(
@@ -595,11 +621,7 @@ export const fetchQueueAndPlayAtom = atom(
     if (!sessionId) return; // Session not initialized yet
 
     try {
-      const response = await client.getQueueCurrentWindow(
-        20,
-        "small",
-        sessionId,
-      );
+      const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
       if (get(effectiveSessionIdAtom) !== sessionId) {
         return;

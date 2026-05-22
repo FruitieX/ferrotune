@@ -394,6 +394,38 @@ class FerrotuneApiClient {
         }
     }
 
+    /**
+     * POST /ferrotune/sessions/:id/command with action=takeOver.
+     * Used by native media controls when the WebView is not initiating playback.
+     */
+    fun takeOver(positionMs: Long? = null, currentIndex: Int? = null) {
+        val config = sessionConfig ?: return
+        val sessionId = config.sessionId ?: return
+        val clientId = config.clientId ?: return
+        val json = JSONObject().apply {
+            put("action", "takeOver")
+            put("clientName", "ferrotune-mobile")
+            put("clientId", clientId)
+            if (positionMs != null) put("positionMs", positionMs)
+            if (currentIndex != null) put("currentIndex", currentIndex)
+        }
+        val url = buildApiUrl("/ferrotune/sessions/$sessionId/command")
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .also { addAuthHeaders(it) }
+            .build()
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "takeOver failed: ${response.code}")
+                }
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "takeOver network error", e)
+        }
+    }
+
     private fun <T> executeRequest(request: Request, parser: (String) -> T): T {
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {

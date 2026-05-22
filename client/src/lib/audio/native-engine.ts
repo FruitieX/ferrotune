@@ -131,9 +131,10 @@ async function waitForNativeSession(): Promise<void> {
   if (nativeAudioReady) {
     await nativeAudioReady;
   }
-  if (nativeSessionReady) {
-    await nativeSessionReady;
+  if (!nativeSessionReady) {
+    throw new Error("Native session is not configured yet");
   }
+  await nativeSessionReady;
 }
 
 /**

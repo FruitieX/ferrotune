@@ -52,6 +52,12 @@ export const serverPreferencesLoadedAtom = atom(false);
 // Counter to trigger re-renders when cache changes
 const cacheVersionAtom = atom(0);
 
+export const refreshServerStorageCacheAtom = atom(null, (_get, set) => {
+  const state = getServerStorageState();
+  state.cacheVersion++;
+  set(cacheVersionAtom, state.cacheVersion);
+});
+
 /**
  * Load all preferences from server in a single call
  */
@@ -69,6 +75,28 @@ async function loadAllPreferencesFromServer(): Promise<Map<string, unknown>> {
       for (const [key, value] of Object.entries(response.preferences)) {
         prefs.set(key, value);
       }
+    }
+
+    if (response.accentColor !== undefined) {
+      prefs.set("accent-color", response.accentColor);
+    }
+    if (
+      response.customAccentHue !== undefined &&
+      response.customAccentHue !== null
+    ) {
+      prefs.set("custom-accent-hue", response.customAccentHue);
+    }
+    if (
+      response.customAccentLightness !== undefined &&
+      response.customAccentLightness !== null
+    ) {
+      prefs.set("custom-accent-lightness", response.customAccentLightness);
+    }
+    if (
+      response.customAccentChroma !== undefined &&
+      response.customAccentChroma !== null
+    ) {
+      prefs.set("custom-accent-chroma", response.customAccentChroma);
     }
 
     return prefs;
@@ -146,6 +174,10 @@ export function atomWithServerStorage<T>(
         typeof update === "function"
           ? (update as (prev: T) => T)(currentValue)
           : update;
+
+      if (Object.is(newValue, currentValue)) {
+        return;
+      }
 
       // Update cache immediately (this is the single source of truth)
       state.valueCache.set(key, newValue);

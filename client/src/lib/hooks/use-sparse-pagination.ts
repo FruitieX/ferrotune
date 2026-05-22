@@ -2,11 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAtomValue } from "jotai";
 import {
-  getCachedPage,
-  setCachedPage,
-  clearCachedPages,
+  getCachedPageForAccount,
+  setCachedPageForAccount,
+  clearCachedPagesForAccount,
 } from "@/lib/content-cache";
+import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 
 interface PendingPageRequest {
   id: number;
@@ -97,6 +99,16 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
   fetchPage,
   enabled = true,
 }: SparsePaginationConfig<T, TMeta>): SparsePaginationResult<T, TMeta> {
+  const connection = useAtomValue(serverConnectionAtom);
+  const currentAccountKey = connection
+    ? accountKey(connection)
+    : "__no_account__";
+  const currentAccountKeyRef = useRef(currentAccountKey);
+
+  useEffect(() => {
+    currentAccountKeyRef.current = currentAccountKey;
+  }, [currentAccountKey]);
+
   // Track loaded pages: Map<pageIndex, T[]>
   const [pages, setPages] = useState<Map<number, T[]>>(new Map());
   const pagesRef = useRef(pages);
@@ -117,7 +129,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     useState<PendingPageRequest | null>(null);
 
   // Stable serialized query key for comparisons and IndexedDB cache key
-  const serializedQueryKey = JSON.stringify(queryKey);
+  const serializedQueryKey = JSON.stringify([currentAccountKey, queryKey]);
 
   // Reset when query key changes + try to restore from IndexedDB content cache
   const prevSerializedKeyRef = useRef(serializedQueryKey);
@@ -132,29 +144,47 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     fetchingPages.current.clear();
     setPendingRequest(null);
 
+    setTotalCount(initialTotalCount ?? 0);
+    setMetadata(null);
+    setHasLoadedOnce(false);
+
+    const restoreAccountKey = currentAccountKey;
+    const restoreSerializedKey = serializedQueryKey;
+
     // Try to restore first page from content cache for instant render
-    getCachedPage<T>(queryKey, 0).then((cached) => {
-      if (
-        cached &&
-        // Ensure the query key hasn't changed again while we were reading
-        JSON.stringify(queryKey) === prevSerializedKeyRef.current
-      ) {
-        setPages(new Map([[0, cached.items]]));
-        setTotalCount(cached.total);
-        if (cached.metadata) {
-          setMetadata(cached.metadata as TMeta);
+    getCachedPageForAccount<T>(restoreAccountKey, queryKey, 0).then(
+      (cached) => {
+        if (
+          currentAccountKeyRef.current !== restoreAccountKey ||
+          prevSerializedKeyRef.current !== restoreSerializedKey
+        ) {
+          return;
         }
-        setHasLoadedOnce(true);
-      }
-      // Cached data should render first, then be replaced by fresh server data.
-      requestIdRef.current += 1;
-      setPendingRequest({
-        id: requestIdRef.current,
-        pageIndexes: [0],
-        forceRefresh: true,
-      });
-    });
-  }, [serializedQueryKey, queryKey, pageSize]);
+
+        if (cached) {
+          setPages(new Map([[0, cached.items]]));
+          setTotalCount(cached.total);
+          if (cached.metadata) {
+            setMetadata(cached.metadata as TMeta);
+          }
+          setHasLoadedOnce(true);
+        }
+        // Cached data should render first, then be replaced by fresh server data.
+        requestIdRef.current += 1;
+        setPendingRequest({
+          id: requestIdRef.current,
+          pageIndexes: [0],
+          forceRefresh: true,
+        });
+      },
+    );
+  }, [
+    serializedQueryKey,
+    currentAccountKey,
+    queryKey,
+    pageSize,
+    initialTotalCount,
+  ]);
 
   // Calculate which pages need to be loaded for a given range
   const getRequiredPages = (startIndex: number, endIndex: number): number[] => {
@@ -199,6 +229,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
   // the loading state to get stuck.
   const { isLoading: _isLoading, isFetching } = useQuery({
     queryKey: [
+      currentAccountKey,
       ...queryKey,
       "sparse",
       pendingRequest?.forceRefresh ? "refresh" : "load",
@@ -215,6 +246,9 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
             !fetchingPages.current.has(pageIndex),
       );
       if (requestedPages.length === 0) return null;
+
+      const requestAccountKey = currentAccountKey;
+      const requestSerializedKey = serializedQueryKey;
 
       // Mark pages as fetching
       requestedPages.forEach((pageIndex) =>
@@ -234,6 +268,13 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
             return { pageIndex, items, total, metadata: pageMeta };
           }),
         );
+
+        if (
+          currentAccountKeyRef.current !== requestAccountKey ||
+          prevSerializedKeyRef.current !== requestSerializedKey
+        ) {
+          return null;
+        }
 
         // Update state with fetched pages
         setPages((prev) => {
@@ -267,7 +308,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
 
         // Write fetched pages to IndexedDB content cache (fire-and-forget)
         for (const { pageIndex, items, total, metadata: pageMeta } of results) {
-          void setCachedPage(queryKey, pageIndex, {
+          void setCachedPageForAccount(requestAccountKey, queryKey, pageIndex, {
             items,
             total,
             metadata: pageMeta,
@@ -302,12 +343,26 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     if (requiredPages.length === 0) return;
 
     // Try restoring from content cache first, then fetch remaining from network
+    const restoreAccountKey = currentAccountKey;
+    const restoreSerializedKey = serializedQueryKey;
+
     const cachePromises = requiredPages.map(async (pageIndex) => {
-      const cached = await getCachedPage<T>(queryKey, pageIndex);
+      const cached = await getCachedPageForAccount<T>(
+        restoreAccountKey,
+        queryKey,
+        pageIndex,
+      );
       return { pageIndex, cached };
     });
 
     void Promise.all(cachePromises).then((results) => {
+      if (
+        currentAccountKeyRef.current !== restoreAccountKey ||
+        prevSerializedKeyRef.current !== restoreSerializedKey
+      ) {
+        return;
+      }
+
       const restored = new Map<number, T[]>();
       const stillNeeded: number[] = [];
       let restoredTotal: number | null = null;
@@ -370,7 +425,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     fetchingPages.current.clear();
     setPendingRequest(null);
     // Clear content cache for this query key
-    void clearCachedPages(queryKey);
+    void clearCachedPagesForAccount(currentAccountKey, queryKey);
     // Trigger a refetch of the first page
     requestIdRef.current += 1;
     setPendingRequest({
@@ -402,28 +457,45 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
   useEffect(() => {
     if (enabled && !hasLoadedOnce && pages.size === 0) {
       // Try to restore from content cache before network fetch
-      getCachedPage<T>(queryKey, 0).then((cached) => {
-        if (
-          cached &&
-          JSON.stringify(queryKey) === prevSerializedKeyRef.current
-        ) {
-          setPages(new Map([[0, cached.items]]));
-          setTotalCount(cached.total);
-          if (cached.metadata) {
-            setMetadata(cached.metadata as TMeta);
+      const restoreAccountKey = currentAccountKey;
+      const restoreSerializedKey = serializedQueryKey;
+
+      getCachedPageForAccount<T>(restoreAccountKey, queryKey, 0).then(
+        (cached) => {
+          if (
+            currentAccountKeyRef.current !== restoreAccountKey ||
+            prevSerializedKeyRef.current !== restoreSerializedKey
+          ) {
+            return;
           }
-          setHasLoadedOnce(true);
-        }
-        // Always trigger network fetch for fresh data
-        requestIdRef.current += 1;
-        setPendingRequest({
-          id: requestIdRef.current,
-          pageIndexes: [0],
-          forceRefresh: true,
-        });
-      });
+
+          if (cached && restoreSerializedKey === prevSerializedKeyRef.current) {
+            setPages(new Map([[0, cached.items]]));
+            setTotalCount(cached.total);
+            if (cached.metadata) {
+              setMetadata(cached.metadata as TMeta);
+            }
+            setHasLoadedOnce(true);
+          }
+          // Always trigger network fetch for fresh data
+          requestIdRef.current += 1;
+          setPendingRequest({
+            id: requestIdRef.current,
+            pageIndexes: [0],
+            forceRefresh: true,
+          });
+        },
+      );
     }
-  }, [enabled, hasLoadedOnce, pages.size, pageSize, queryKey]);
+  }, [
+    enabled,
+    hasLoadedOnce,
+    pages.size,
+    pageSize,
+    queryKey,
+    currentAccountKey,
+    serializedQueryKey,
+  ]);
 
   return {
     items,

@@ -1,7 +1,15 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import {
+  type PersistQueryClientOptions,
+  persistQueryClientRestore,
+  persistQueryClientSubscribe,
+} from "@tanstack/react-query-persist-client";
 import {
   atom,
   Provider as JotaiProvider,
@@ -52,15 +60,26 @@ import {
   hasScrobbledAtom,
   playbackStateAtom,
 } from "@/lib/store/player";
-import {
-  resetServerPreferences,
-  refreshServerPreferences,
-} from "@/lib/store/server-storage";
+import { resetServerPreferences } from "@/lib/store/server-storage";
 import { needsDarkForeground } from "@/lib/utils/color";
 import { useQueueCacheSync } from "@/lib/hooks/use-queue-cache-sync";
 
-// Signals that the IndexedDB cache restore is done for the current account
-export const isCacheRestoredAtom = atom<boolean>(false);
+const NO_ACCOUNT_QUERY_KEY = "__no_account__";
+
+export const cacheRestoreStateAtom = atom({
+  accountKey: NO_ACCOUNT_QUERY_KEY,
+  restored: false,
+});
+
+// Signals that the IndexedDB cache restore is done for the current account.
+export const isCacheRestoredAtom = atom((get) => {
+  const connection = get(serverConnectionAtom);
+  const currentAccountKey = connection
+    ? accountKey(connection)
+    : NO_ACCOUNT_QUERY_KEY;
+  const restoreState = get(cacheRestoreStateAtom);
+  return restoreState.accountKey === currentAccountKey && restoreState.restored;
+});
 
 // Component that handles clearing selection on navigation
 // Wrapped in Suspense because useSearchParams triggers Suspense on initial render
@@ -148,7 +167,7 @@ function AccountSwitchStateResetter() {
   const currentAccountKey = connection ? accountKey(connection) : null;
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
   const setStarredItems = useSetAtom(starredItemsAtom);
-  const setIsCacheRestored = useSetAtom(isCacheRestoredAtom);
+  const setCacheRestoreState = useSetAtom(cacheRestoreStateAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const setFullscreenPlayerOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const resetLocalQueue = useSetAtom(resetLocalQueueAtom);
@@ -172,7 +191,10 @@ function AccountSwitchStateResetter() {
 
     // Reset user-specific Jotai atoms
     setStarredItems(new Map());
-    setIsCacheRestored(false);
+    setCacheRestoreState({
+      accountKey: currentAccountKey ?? NO_ACCOUNT_QUERY_KEY,
+      restored: false,
+    });
     setQueuePanelOpen(false);
     setFullscreenPlayerOpen(false);
     resetLocalQueue();
@@ -182,13 +204,13 @@ function AccountSwitchStateResetter() {
     setBuffered(0);
     setHasScrobbled(false);
 
-    // Reset and reload server-stored preferences for the new account
+    // Reset server-stored preferences; the account-scoped provider reloads
+    // them once after the new account cache has been restored.
     resetServerPreferences();
-    void refreshServerPreferences();
   }, [
     currentAccountKey,
     setStarredItems,
-    setIsCacheRestored,
+    setCacheRestoreState,
     setQueuePanelOpen,
     setFullscreenPlayerOpen,
     resetLocalQueue,
@@ -209,8 +231,8 @@ function AccountSwitchStateResetter() {
  * IndexedDB cache entry. When switching between accounts the in-memory
  * QueryClient is kept alive so switching back is instant.
  *
- * The React `key` on PersistQueryClientProvider forces a remount when the
- * account changes, which triggers a persistence restore for the new account.
+ * The custom persistence boundary restores whenever the account key changes
+ * without remounting the app shell.
  */
 
 // Module-level map of per-account QueryClients so switching back is instant
@@ -239,22 +261,18 @@ function AccountScopedQueryProvider({
   children: React.ReactNode;
 }) {
   const connection = useAtomValue(serverConnectionAtom);
-  const currentKey = connection ? accountKey(connection) : "__no_account__";
+  const currentKey = connection ? accountKey(connection) : NO_ACCOUNT_QUERY_KEY;
   const jotaiStore = useStore();
-  const [cacheReadyKey, setCacheReadyKey] = useState<string | null>(null);
-  const initKeyRef = useRef<string | null>(null);
 
   const queryClient = getOrCreateQueryClient(currentKey);
   const persister = getAccountPersister(currentKey);
 
-  // Initialize the unified cache store for this account before restoring
+  // Initialize LRU metadata for content-cache users. React Query persistence
+  // uses an account-scoped storage adapter, so the app can stay mounted while
+  // this finishes.
   useEffect(() => {
-    if (initKeyRef.current === currentKey) return;
-    initKeyRef.current = currentKey;
-    cacheInit(currentKey).then(() => setCacheReadyKey(currentKey));
+    cacheInit(currentKey);
   }, [currentKey]);
-
-  const cacheReady = cacheReadyKey === currentKey;
 
   // One-time cleanup of the legacy unified cache key
   useEffect(() => {
@@ -262,41 +280,99 @@ function AccountScopedQueryProvider({
   }, []);
 
   return (
-    // Outer QueryClientProvider ensures all app code resolves the same React
-    // context.  pnpm strict isolation can cause PersistQueryClientProvider's
-    // internal QueryClientProvider (resolved via react-query-persist-client's
-    // peer dep) to use a different context object than useQueryClient() in
-    // application code, breaking SSR prerendering.
-    <QueryClientProvider client={queryClient}>
-      {cacheReady ? (
-        <PersistQueryClientProvider
-          key={currentKey}
-          client={queryClient}
-          persistOptions={{
-            persister,
-            maxAge: PERSIST_MAX_AGE_MS,
-            dehydrateOptions: {
-              shouldDehydrateQuery: (query) =>
-                query.state.status === "success" &&
-                shouldPersistQuery(query.queryKey),
-            },
-          }}
-          onSuccess={() => {
-            // Signal that the IndexedDB cache has been restored so
-            // useQueueCacheSync can hydrate Jotai atoms from cached data.
-            jotaiStore.set(isCacheRestoredAtom, true);
+    <AccountPersistenceBoundary
+      accountKey={currentKey}
+      queryClient={queryClient}
+      persister={persister}
+      jotaiStore={jotaiStore}
+    >
+      {children}
+    </AccountPersistenceBoundary>
+  );
+}
 
-            // After restoring cached data from IndexedDB, trigger a
-            // background refetch of all active queries so the cache gets
-            // updated for the next visit.
-            queryClient.invalidateQueries();
-          }}
-        >
-          {children}
-        </PersistQueryClientProvider>
-      ) : (
-        children
-      )}
+function AccountPersistenceBoundary({
+  accountKey: currentKey,
+  queryClient,
+  persister,
+  jotaiStore,
+  children,
+}: {
+  accountKey: string;
+  queryClient: QueryClient;
+  persister: ReturnType<typeof getAccountPersister>;
+  jotaiStore: ReturnType<typeof useStore>;
+  children: React.ReactNode;
+}) {
+  const [restoreStatus, setRestoreStatus] = useState({
+    accountKey: currentKey,
+    isRestoring: true,
+  });
+  const isRestoring =
+    restoreStatus.accountKey !== currentKey || restoreStatus.isRestoring;
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    let invalidationTimer: ReturnType<typeof setTimeout> | undefined;
+    const persistOptions: PersistQueryClientOptions = {
+      queryClient,
+      persister,
+      maxAge: PERSIST_MAX_AGE_MS,
+      dehydrateOptions: {
+        shouldDehydrateQuery: (query) =>
+          query.state.status === "success" &&
+          shouldPersistQuery(query.queryKey),
+      },
+    };
+
+    setRestoreStatus({
+      accountKey: currentKey,
+      isRestoring: true,
+    });
+    jotaiStore.set(cacheRestoreStateAtom, {
+      accountKey: currentKey,
+      restored: false,
+    });
+
+    persistQueryClientRestore(persistOptions)
+      .catch(() => {
+        // Treat a failed restore as complete so the app can fetch fresh data.
+      })
+      .finally(() => {
+        if (cancelled) return;
+
+        jotaiStore.set(cacheRestoreStateAtom, {
+          accountKey: currentKey,
+          restored: true,
+        });
+        setRestoreStatus({
+          accountKey: currentKey,
+          isRestoring: false,
+        });
+
+        invalidationTimer = setTimeout(() => {
+          if (cancelled) return;
+          queryClient.invalidateQueries({
+            predicate: (query) => shouldPersistQuery(query.queryKey),
+          });
+        }, 250);
+
+        unsubscribe = persistQueryClientSubscribe(persistOptions);
+      });
+
+    return () => {
+      cancelled = true;
+      if (invalidationTimer) {
+        clearTimeout(invalidationTimer);
+      }
+      unsubscribe?.();
+    };
+  }, [currentKey, queryClient, persister, jotaiStore]);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <IsRestoringProvider value={isRestoring}>{children}</IsRestoringProvider>
     </QueryClientProvider>
   );
 }

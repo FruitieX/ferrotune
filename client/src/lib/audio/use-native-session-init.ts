@@ -7,7 +7,7 @@
  * Extracted from useAudioEngineInit — Effect 7.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { effectiveSessionIdAtom, clientIdAtom } from "@/lib/store/session";
@@ -35,6 +35,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
   const currentSessionId = useAtomValue(effectiveSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
   const isNativePlatform = hasNativeAudio() || usingNativeAudio;
+  const nativeSessionInitKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isNativePlatform || !serverConnection || !currentSessionId) {
@@ -42,13 +43,22 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
     }
 
     let cancelled = false;
+    const nativeSessionInitKey = [
+      serverConnection.serverUrl,
+      serverConnection.username ?? "",
+      currentSessionId,
+      clientId ?? "",
+    ].join("\u0000");
 
-    // Account switches clear the readiness gate, but the
-    // one-time audio init effect does not rerun. Recreate the gate here so
-    // restored queue loads keep waiting for fresh native credentials.
-    if (!nativeSessionReady) {
+    // Account/session changes need a fresh readiness gate so restored queue
+    // loads wait for credentials that match the current native session.
+    if (
+      !nativeSessionReady ||
+      nativeSessionInitKeyRef.current !== nativeSessionInitKey
+    ) {
       createNativeSessionReadyPromise();
     }
+    nativeSessionInitKeyRef.current = nativeSessionInitKey;
 
     const runtimeGeneration = getPlaybackRuntimeGeneration();
     const isCurrentInit = () =>

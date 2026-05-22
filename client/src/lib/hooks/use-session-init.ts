@@ -56,6 +56,8 @@ export function useSessionInit() {
   );
   const hasInitializedRef = useRef(false);
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
+  const initGenerationRef = useRef(0);
+  const accountKeyRef = useRef<string | null>(null);
 
   // Use refs for heartbeat data to avoid restarting the interval
   const currentSongRef = useRef(currentSong);
@@ -73,13 +75,29 @@ export function useSessionInit() {
     sessionIdRef.current = effectiveSessionId;
     isAudioOwnerRef.current = isAudioOwner;
     clientIdRef.current = clientId;
+    accountKeyRef.current = serverConnection
+      ? accountKey(serverConnection)
+      : null;
   });
 
-  const refreshClientsRef = useRef(async () => {
+  const refreshClientsRef = useRef(async (expectedAccountKey?: string) => {
+    if (
+      expectedAccountKey !== undefined &&
+      accountKeyRef.current !== expectedAccountKey
+    ) {
+      return;
+    }
+
     const client = getClient();
     if (!client) return;
     try {
       const response = await client.listClients();
+      if (
+        expectedAccountKey !== undefined &&
+        accountKeyRef.current !== expectedAccountKey
+      ) {
+        return;
+      }
       setConnectedClients(response.clients);
     } catch {
       // Silently ignore
@@ -137,6 +155,7 @@ export function useSessionInit() {
       previousAccountKeyRef.current = currentKey;
     } else if (previousAccountKeyRef.current !== currentKey) {
       hasInitializedRef.current = false;
+      initGenerationRef.current += 1;
       selfTakeoverPending.value = false;
       previousAccountKeyRef.current = currentKey;
       setSessionAccountKey(null);
@@ -149,6 +168,10 @@ export function useSessionInit() {
 
     if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
+    const initGeneration = ++initGenerationRef.current;
+    const isCurrentInit = () =>
+      initGenerationRef.current === initGeneration &&
+      accountKeyRef.current === currentKey;
 
     const initSession = async () => {
       const client = getClient();
@@ -157,6 +180,8 @@ export function useSessionInit() {
       try {
         // Connect to (or create) the user's single session
         const response = await client.connectSession(getClientName(), clientId);
+        if (!isCurrentInit()) return;
+
         setSessionAccountKey(currentKey);
         setSessionId(response.id);
         setOwnerClientId(response.ownerClientId);
@@ -167,7 +192,8 @@ export function useSessionInit() {
         if (
           !response.ownerClientId &&
           isAudioOwner &&
-          effectiveSessionId === response.id
+          effectiveSessionId === response.id &&
+          isCurrentInit()
         ) {
           await client.sendSessionCommand(
             response.id,
@@ -179,9 +205,12 @@ export function useSessionInit() {
             clientId,
             false,
           );
+          if (!isCurrentInit()) return;
           setOwnerClientId(clientId);
           setOwnerClientName(getClientName());
         }
+
+        if (!isCurrentInit()) return;
 
         // Determine ownership: if this client is the owner, or new session
         if (response.isNewSession || response.ownerClientId === clientId) {
@@ -197,9 +226,11 @@ export function useSessionInit() {
         }
 
         // Fetch initial client list
-        await refreshClientsRef.current();
+        await refreshClientsRef.current(currentKey);
       } catch (error) {
-        console.error("Failed to initialize playback session:", error);
+        if (isCurrentInit()) {
+          console.error("Failed to initialize playback session:", error);
+        }
       }
     };
 
@@ -288,7 +319,8 @@ export function useSessionInit() {
   // Skip entirely while the document is hidden; refresh on the next
   // visibilitychange back to visible.
   useEffect(() => {
-    if (!isClientInitialized) return;
+    if (!isClientInitialized || !serverConnection) return;
+    const currentKey = accountKey(serverConnection);
 
     let interval: ReturnType<typeof setInterval> | null = null;
 
@@ -297,7 +329,10 @@ export function useSessionInit() {
 
     const start = () => {
       if (interval) return;
-      interval = setInterval(() => refreshClientsRef.current(), 60_000);
+      interval = setInterval(
+        () => refreshClientsRef.current(currentKey),
+        60_000,
+      );
     };
 
     const stop = () => {
@@ -311,7 +346,7 @@ export function useSessionInit() {
 
     const handleVisibilityChange = () => {
       if (isVisible()) {
-        refreshClientsRef.current();
+        refreshClientsRef.current(currentKey);
         start();
       } else {
         stop();
@@ -331,7 +366,7 @@ export function useSessionInit() {
         );
       }
     };
-  }, [isClientInitialized]);
+  }, [isClientInitialized, serverConnection]);
 
   // Client deregistration on tab close is handled automatically by the SSE
   // connection's CleanupGuard on the server side (fires when EventSource closes).
