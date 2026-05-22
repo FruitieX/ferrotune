@@ -1,4 +1,14 @@
 import { expect, test } from "./fixtures";
+import type { Locator, Page } from "@playwright/test";
+
+async function openContextMenu(page: Page, element: Locator) {
+  await element.click({ button: "right" });
+  const contextMenu = page.locator(
+    '[data-slot="context-menu-content"][data-state="open"]',
+  );
+  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  return contextMenu;
+}
 
 function makeSong(id: string, title: string) {
   return {
@@ -283,6 +293,112 @@ test.describe("Home continue listening", () => {
     await expect(page.getByRole("heading", { name: radioName })).toBeVisible();
     await expect(
       page.getByText(`Based on ${seedSongTitle} by Test Artist`),
+    ).toBeVisible();
+  });
+
+  test("virtual source entries link correctly and expose context menus", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route("**/ferrotune/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: {
+            entries: [
+              {
+                type: "albumList",
+                lastPlayed: "2024-01-05T00:00:00Z",
+                album: null,
+                playlist: null,
+                source: {
+                  id: "random",
+                  name: "Discover Something New",
+                  sourceType: "albumList",
+                  coverArt: null,
+                },
+              },
+              {
+                type: "albumList",
+                lastPlayed: "2024-01-04T00:00:00Z",
+                album: null,
+                playlist: null,
+                source: {
+                  id: "newest",
+                  name: "Recently Added",
+                  sourceType: "albumList",
+                  coverArt: null,
+                },
+              },
+              {
+                type: "forgottenFavorites",
+                lastPlayed: "2024-01-03T00:00:00Z",
+                album: null,
+                playlist: null,
+                source: {
+                  id: "forgottenFavorites",
+                  name: "Forgotten Favorites",
+                  sourceType: "forgottenFavorites",
+                  coverArt: null,
+                },
+              },
+              {
+                type: "mostPlayedRecently",
+                lastPlayed: "2024-01-02T00:00:00Z",
+                album: null,
+                playlist: null,
+                source: {
+                  id: "mostPlayedRecently",
+                  name: "Most Played Recently",
+                  sourceType: "mostPlayedRecently",
+                  coverArt: null,
+                },
+              },
+            ],
+            total: 4,
+          },
+          mostPlayedRecently: { song: [], total: 0 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+        },
+      });
+    });
+
+    await page.goto("/");
+
+    await expect(
+      page.getByRole("heading", { name: /continue listening/i }),
+    ).toBeVisible();
+
+    await expect(
+      page.getByRole("link", { name: "Discover Something New" }).first(),
+    ).toHaveAttribute("href", "/home/discover");
+    await expect(
+      page.getByRole("link", { name: "Recently Added" }).first(),
+    ).toHaveAttribute("href", "/home/recently-added");
+    await expect(
+      page.getByRole("link", { name: "Forgotten Favorites" }).first(),
+    ).toHaveAttribute("href", "/home/forgotten-favorites");
+    await expect(
+      page.getByRole("link", { name: "Most Played Recently" }).first(),
+    ).toHaveAttribute("href", "/home/most-played-recently");
+
+    const forgottenFavoritesCard = page
+      .getByTestId("media-card")
+      .filter({ hasText: "Forgotten Favorites" })
+      .first();
+    const contextMenu = await openContextMenu(page, forgottenFavoritesCard);
+
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /^play$/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /shuffle/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /play next/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /add to queue/i }),
     ).toBeVisible();
   });
 });

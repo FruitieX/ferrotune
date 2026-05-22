@@ -52,6 +52,10 @@ interface MediaRowProps {
     | "playlist"
     | "smartPlaylist"
     | "favorites"
+    | "mostPlayedRecently"
+    | "discover"
+    | "recentlyAdded"
+    | "albumList"
     | "genre";
   /** Whether this row is currently active/selected */
   isActive?: boolean;

@@ -14,9 +14,14 @@ use crate::db::repo::users;
 use crate::db::Database;
 use crate::error::Result;
 
-const ID_BACKED_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 3] =
-    ["playlist", "smartPlaylist", "songRadio"];
-const SINGLETON_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 2] = ["favorites", "history"];
+const ID_BACKED_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 4] =
+    ["playlist", "smartPlaylist", "songRadio", "albumList"];
+const SINGLETON_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 4] = [
+    "favorites",
+    "history",
+    "forgottenFavorites",
+    "mostPlayedRecently",
+];
 
 fn album_select() -> sea_orm::Select<entity::albums::Entity> {
     entity::albums::Entity::find()
@@ -758,7 +763,7 @@ fn singleton_continue_listening_source_condition() -> Condition {
 }
 
 /// Build a sea_query expression evaluating to the continue-listening source
-/// type for a scrobble row. Playlists / smart playlists / song-radio queue
+/// type for a scrobble row. Playlists / smart playlists / song-radio / album-list queue
 /// sources keep their original type when they have an id; stable singleton
 /// sources like favorites and history become one source entry. Everything else
 /// falls back to album.
@@ -868,12 +873,7 @@ fn continue_listening_subquery(user_id: i64) -> sea_orm::sea_query::SelectStatem
                 ))
                 .if_null(""),
             )
-            .is_not_in([
-                "albumList",
-                "continueListening",
-                "forgottenFavorites",
-                "mostPlayedRecently",
-            ]),
+            .is_not_in(["continueListening"]),
         );
 
     let mut outer = SqQuery::select();

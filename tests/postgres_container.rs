@@ -5386,11 +5386,37 @@ fn test_postgres_continue_listening_handler_works() {
         .expect("postgres continue listening handler should succeed")
         .0;
 
-        assert_eq!(response.total, 2);
-        assert_eq!(response.entries.len(), 2);
-        assert_eq!(response.entries[0].entry_type, "smartPlaylist");
+        assert_eq!(response.total, 4);
+        assert_eq!(response.entries.len(), 4);
+        assert_eq!(response.entries[0].entry_type, "albumList");
         assert_eq!(
             response.entries[0]
+                .source
+                .as_ref()
+                .expect("album list entry should include source payload")
+                .id,
+            "frequent"
+        );
+        assert_eq!(
+            response.entries[0]
+                .source
+                .as_ref()
+                .expect("album list entry should include source payload")
+                .name,
+            "Frequently Played Albums"
+        );
+        assert_eq!(response.entries[1].entry_type, "mostPlayedRecently");
+        assert_eq!(
+            response.entries[1]
+                .source
+                .as_ref()
+                .expect("most played entry should include source payload")
+                .id,
+            "mostPlayedRecently"
+        );
+        assert_eq!(response.entries[2].entry_type, "smartPlaylist");
+        assert_eq!(
+            response.entries[2]
                 .playlist
                 .as_ref()
                 .expect("smart playlist entry should include playlist payload")
@@ -5398,7 +5424,7 @@ fn test_postgres_continue_listening_handler_works() {
             smart_playlist_id
         );
         assert_eq!(
-            response.entries[0]
+            response.entries[2]
                 .playlist
                 .as_ref()
                 .expect("smart playlist entry should include playlist payload")

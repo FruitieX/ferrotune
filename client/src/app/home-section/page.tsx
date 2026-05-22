@@ -60,14 +60,36 @@ type ContinueListeningSourceItem = NonNullable<
   ContinueListeningEntry["source"]
 >;
 
-function getContinueListeningSourceIcon(sourceType: string): LucideIcon | null {
+function getContinueListeningSourceIcon(
+  sourceType: string,
+  sourceId?: string | null,
+): LucideIcon | null {
   switch (sourceType) {
+    case "albumList":
+      switch (sourceId) {
+        case "random":
+          return Sparkles;
+        case "newest":
+        case "recent":
+          return Clock;
+        case "starred":
+          return Heart;
+        case "frequent":
+        case "highest":
+          return TrendingUp;
+        default:
+          return ListMusic;
+      }
     case "favorites":
       return Heart;
     case "history":
       return Clock;
     case "songRadio":
       return Radio;
+    case "forgottenFavorites":
+      return Heart;
+    case "mostPlayedRecently":
+      return TrendingUp;
     default:
       return null;
   }
@@ -356,12 +378,18 @@ function ContinueListeningRow({
 
   if (entry.source) {
     const source = entry.source;
-    const details = getContinueListeningSourceDetails(source.sourceType);
+    const details = getContinueListeningSourceDetails(
+      source.sourceType,
+      source.id,
+    );
     if (!details) {
       return null;
     }
 
-    const SourceIcon = getContinueListeningSourceIcon(details.queueSourceType);
+    const SourceIcon = getContinueListeningSourceIcon(
+      details.queueSourceType,
+      source.id,
+    );
     if (!SourceIcon) {
       return null;
     }
@@ -671,7 +699,10 @@ export default function HomeSectionPage() {
   };
 
   const handlePlaySource = (source: ContinueListeningSourceItem) => {
-    const details = getContinueListeningSourceDetails(source.sourceType);
+    const details = getContinueListeningSourceDetails(
+      source.sourceType,
+      source.id,
+    );
     if (!details) {
       return;
     }
@@ -682,6 +713,7 @@ export default function HomeSectionPage() {
       sourceName: source.name,
       startIndex: 0,
       shuffle: false,
+      filters: details.filters,
     });
   };
 

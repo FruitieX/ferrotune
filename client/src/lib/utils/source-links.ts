@@ -1,3 +1,5 @@
+import { homeSectionHrefs } from "@/lib/utils/home-sections";
+
 export function getPlaylistDetailsHref(
   playlistType: string,
   playlistId: string,
@@ -34,6 +36,19 @@ export function getQueueSourceHref(source: {
       return "/favorites";
     case "history":
       return "/history";
+    case "forgottenFavorites":
+      return homeSectionHrefs.forgottenFavorites;
+    case "mostPlayedRecently":
+      return homeSectionHrefs.mostPlayedRecently;
+    case "albumList":
+      switch (source.id) {
+        case "random":
+          return homeSectionHrefs.discover;
+        case "newest":
+          return homeSectionHrefs.recentlyAdded;
+        default:
+          return "/library/albums";
+      }
     case "genre":
       return source.name
         ? `/library/genres/details?name=${encodeURIComponent(source.name)}`

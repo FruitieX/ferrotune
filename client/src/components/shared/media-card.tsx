@@ -33,7 +33,11 @@ interface MediaCardProps {
     | "song"
     | "playlist"
     | "smartPlaylist"
-    | "favorites";
+    | "favorites"
+    | "mostPlayedRecently"
+    | "discover"
+    | "recentlyAdded"
+    | "albumList";
   /** Called when play button is clicked */
   onPlay?: () => void;
   /** Whether this card represents the current active item */

@@ -9,6 +9,8 @@ import {
   Disc,
   ListMusic,
   Heart,
+  Clock,
+  TrendingUp,
   Tag,
   Folder,
   Sparkles,
@@ -28,6 +30,10 @@ interface CoverImageProps {
     | "playlist"
     | "smartPlaylist"
     | "favorites"
+    | "mostPlayedRecently"
+    | "discover"
+    | "recentlyAdded"
+    | "albumList"
     | "genre"
     | "folder";
   size?: "sm" | "md" | "lg" | "xl" | "full";
@@ -101,15 +107,21 @@ export function CoverImage({
         ? ListMusic
         : type === "favorites"
           ? Heart
-          : type === "smartPlaylist"
-            ? Sparkles
-            : type === "song"
-              ? Music
-              : type === "genre"
-                ? Tag
-                : type === "folder"
-                  ? Folder
-                  : Disc;
+          : type === "mostPlayedRecently"
+            ? TrendingUp
+            : type === "discover"
+              ? Sparkles
+              : type === "recentlyAdded"
+                ? Clock
+                : type === "smartPlaylist"
+                  ? Sparkles
+                  : type === "song"
+                    ? Music
+                    : type === "genre"
+                      ? Tag
+                      : type === "folder"
+                        ? Folder
+                        : Disc;
   const isRound = type === "artist";
 
   // Reset state when src or inlineData changes (React-recommended pattern for adjusting state when props change)
@@ -129,7 +141,13 @@ export function CoverImage({
   const placeholderBackground =
     type === "favorites"
       ? "linear-gradient(135deg, rgb(239 68 68) 0%, rgb(153 27 27) 100%)"
-      : `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`;
+      : type === "mostPlayedRecently"
+        ? "linear-gradient(135deg, rgb(244 63 94) 0%, rgb(217 119 6) 100%)"
+        : type === "discover"
+          ? "linear-gradient(135deg, rgb(139 92 246) 0%, rgb(162 28 175) 100%)"
+          : type === "recentlyAdded"
+            ? "linear-gradient(135deg, rgb(14 165 233) 0%, rgb(29 78 216) 100%)"
+            : `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`;
 
   // Use IntersectionObserver for true lazy loading
   useEffect(() => {
@@ -250,6 +268,7 @@ export function CoverImage({
               className={cn(
                 "text-white/70",
                 type === "favorites" && "fill-white/70 text-white/80",
+                type === "discover" && "fill-white/40 text-white/80",
                 iconSizes[size],
               )}
             />

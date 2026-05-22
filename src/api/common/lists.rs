@@ -796,12 +796,12 @@ pub async fn get_forgotten_favorites_logic(
 
 /// A single entry in the "continue listening" section.
 /// Can be an album, playlist, smart playlist, or source-specific item like
-/// song radio, favorites, or history.
+/// song radio, album lists, favorites, history, or generated home sections.
 #[derive(Debug, Serialize, Clone, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ContinueListeningEntry {
-    /// "album" | "playlist" | "smartPlaylist" | "songRadio" | "favorites" | "history"
+    /// "album" | "playlist" | "smartPlaylist" | "songRadio" | "albumList" | "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently"
     #[serde(rename = "type")]
     pub entry_type: String,
     /// ISO 8601 timestamp of the last scrobble from this source
@@ -840,7 +840,7 @@ pub struct ContinueListeningPlaylist {
 pub struct ContinueListeningSource {
     pub id: String,
     pub name: String,
-    /// "songRadio", "favorites", or "history"
+    /// "songRadio", "albumList", "favorites", "history", "forgottenFavorites", or "mostPlayedRecently"
     pub source_type: String,
     pub cover_art: Option<String>,
 }
@@ -947,19 +947,38 @@ pub async fn get_continue_listening_source_refs(
         .collect())
 }
 
-fn singleton_continue_listening_source(
+fn album_list_continue_listening_name(source_id: &str) -> String {
+    match source_id {
+        "random" => "Discover Something New".to_string(),
+        "newest" => "Recently Added".to_string(),
+        "highest" => "Top Rated Albums".to_string(),
+        "frequent" => "Frequently Played Albums".to_string(),
+        "recent" => "Recently Played Albums".to_string(),
+        "starred" => "Favorite Albums".to_string(),
+        "alphabeticalByName" => "Albums by Name".to_string(),
+        "alphabeticalByArtist" => "Albums by Artist".to_string(),
+        "byYear" => "Albums by Year".to_string(),
+        "byGenre" => "Albums by Genre".to_string(),
+        _ => format!("Album List: {source_id}"),
+    }
+}
+
+fn virtual_continue_listening_source(
     source_type: &str,
     source_id: &str,
 ) -> Option<ContinueListeningSource> {
     let name = match source_type {
-        "favorites" => "Favorites",
-        "history" => "Recently Played",
+        "albumList" => album_list_continue_listening_name(source_id),
+        "favorites" => "Favorites".to_string(),
+        "history" => "Recently Played".to_string(),
+        "forgottenFavorites" => "Forgotten Favorites".to_string(),
+        "mostPlayedRecently" => "Most Played Recently".to_string(),
         _ => return None,
     };
 
     Some(ContinueListeningSource {
         id: source_id.to_string(),
-        name: name.to_string(),
+        name,
         source_type: source_type.to_string(),
         cover_art: None,
     })
@@ -1013,6 +1032,7 @@ pub async fn get_continue_listening_logic(
     let mut playlist_ids: Vec<String> = Vec::new();
     let mut smart_playlist_ids: Vec<String> = Vec::new();
     let mut song_radio_ids: Vec<String> = Vec::new();
+    let mut album_list_ids: Vec<String> = Vec::new();
 
     for source in &sources {
         match source.source_type.as_str() {
@@ -1020,6 +1040,7 @@ pub async fn get_continue_listening_logic(
             "playlist" => playlist_ids.push(source.source_id.clone()),
             "smartPlaylist" => smart_playlist_ids.push(source.source_id.clone()),
             "songRadio" => song_radio_ids.push(source.source_id.clone()),
+            "albumList" => album_list_ids.push(source.source_id.clone()),
             _ => {}
         }
     }
@@ -1141,6 +1162,13 @@ pub async fn get_continue_listening_logic(
             std::collections::HashMap::new()
         };
 
+    let album_list_map: std::collections::HashMap<String, ContinueListeningSource> = album_list_ids
+        .into_iter()
+        .filter_map(|id| {
+            virtual_continue_listening_source("albumList", &id).map(|source| (id, source))
+        })
+        .collect();
+
     // Step 8: Assemble entries in source order (already sorted by last_played DESC)
     let mut entries: Vec<ContinueListeningEntry> = sources
         .into_iter()
@@ -1191,8 +1219,18 @@ pub async fn get_continue_listening_logic(
                         source: Some(source),
                     })
                 }
-                "favorites" | "history" => {
-                    let source = singleton_continue_listening_source(&source_type, &source_id)?;
+                "albumList" => {
+                    let source = album_list_map.get(&source_id).cloned()?;
+                    Some(ContinueListeningEntry {
+                        entry_type: source_type,
+                        last_played,
+                        album: None,
+                        playlist: None,
+                        source: Some(source),
+                    })
+                }
+                "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently" => {
+                    let source = virtual_continue_listening_source(&source_type, &source_id)?;
                     Some(ContinueListeningEntry {
                         entry_type: source_type,
                         last_played,
@@ -1310,13 +1348,23 @@ mod tests {
         source_type: &str,
         played_at: chrono::DateTime<Utc>,
     ) {
+        insert_source_scrobble_with_id(database, song_id, source_type, None, played_at).await;
+    }
+
+    async fn insert_source_scrobble_with_id(
+        database: &Database,
+        song_id: &str,
+        source_type: &str,
+        source_id: Option<&str>,
+        played_at: chrono::DateTime<Utc>,
+    ) {
         entity::scrobbles::ActiveModel {
             user_id: Set(USER_ID),
             song_id: Set(song_id.to_string()),
             played_at: Set(Some(played_at.fixed_offset())),
             submission: Set(true),
             queue_source_type: Set(Some(source_type.to_string())),
-            queue_source_id: Set(None),
+            queue_source_id: Set(source_id.map(str::to_string)),
             ..Default::default()
         }
         .insert(database.conn())
@@ -1346,6 +1394,28 @@ mod tests {
             first_play + Duration::minutes(2),
         )
         .await;
+        insert_source_scrobble(
+            &database,
+            "song-1",
+            "forgottenFavorites",
+            first_play + Duration::minutes(3),
+        )
+        .await;
+        insert_source_scrobble(
+            &database,
+            "song-2",
+            "mostPlayedRecently",
+            first_play + Duration::minutes(4),
+        )
+        .await;
+        insert_source_scrobble_with_id(
+            &database,
+            "song-1",
+            "albumList",
+            Some("random"),
+            first_play + Duration::minutes(5),
+        )
+        .await;
 
         let result = get_continue_listening_logic(
             &database,
@@ -1358,10 +1428,58 @@ mod tests {
         .await
         .expect("get continue listening");
 
-        assert_eq!(result.total, 2);
-        assert_eq!(result.entries.len(), 2);
+        assert_eq!(result.total, 5);
+        assert_eq!(result.entries.len(), 5);
 
-        let history = &result.entries[0];
+        let album_list = &result.entries[0];
+        assert_eq!(album_list.entry_type, "albumList");
+        assert_eq!(
+            album_list.source.as_ref().map(|source| source.id.as_str()),
+            Some("random")
+        );
+        assert_eq!(
+            album_list
+                .source
+                .as_ref()
+                .map(|source| source.name.as_str()),
+            Some("Discover Something New")
+        );
+
+        let most_played_recently = &result.entries[1];
+        assert_eq!(most_played_recently.entry_type, "mostPlayedRecently");
+        assert_eq!(
+            most_played_recently
+                .source
+                .as_ref()
+                .map(|source| source.id.as_str()),
+            Some("mostPlayedRecently")
+        );
+        assert_eq!(
+            most_played_recently
+                .source
+                .as_ref()
+                .map(|source| source.name.as_str()),
+            Some("Most Played Recently")
+        );
+
+        let forgotten_favorites = &result.entries[2];
+        assert_eq!(forgotten_favorites.entry_type, "forgottenFavorites");
+        assert_eq!(
+            forgotten_favorites
+                .source
+                .as_ref()
+                .map(|source| source.id.as_str()),
+            Some("forgottenFavorites")
+        );
+        assert_eq!(
+            forgotten_favorites
+                .source
+                .as_ref()
+                .map(|source| source.name.as_str()),
+            Some("Forgotten Favorites")
+        );
+
+        let history = &result.entries[3];
         assert_eq!(history.entry_type, "history");
         assert_eq!(
             history.source.as_ref().map(|source| source.id.as_str()),
@@ -1372,7 +1490,7 @@ mod tests {
             Some("Recently Played")
         );
 
-        let favorites = &result.entries[1];
+        let favorites = &result.entries[4];
         assert_eq!(favorites.entry_type, "favorites");
         assert_eq!(
             favorites.source.as_ref().map(|source| source.id.as_str()),

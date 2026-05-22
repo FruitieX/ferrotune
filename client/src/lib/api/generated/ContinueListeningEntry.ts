@@ -6,11 +6,11 @@ import type { ContinueListeningSource } from "./ContinueListeningSource";
 /**
  * A single entry in the "continue listening" section.
  * Can be an album, playlist, smart playlist, or source-specific item like
- * song radio, favorites, or history.
+ * song radio, album lists, favorites, history, or generated home sections.
  */
 export type ContinueListeningEntry = { 
 /**
- * "album" | "playlist" | "smartPlaylist" | "songRadio" | "favorites" | "history"
+ * "album" | "playlist" | "smartPlaylist" | "songRadio" | "albumList" | "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently"
  */
 type: string, 
 /**

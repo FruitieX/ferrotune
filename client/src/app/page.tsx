@@ -83,14 +83,36 @@ type ContinueListeningSourceItem = NonNullable<
   ContinueListeningEntry["source"]
 >;
 
-function getContinueListeningSourceIcon(sourceType: string): LucideIcon | null {
+function getContinueListeningSourceIcon(
+  sourceType: string,
+  sourceId?: string | null,
+): LucideIcon | null {
   switch (sourceType) {
+    case "albumList":
+      switch (sourceId) {
+        case "random":
+          return Sparkles;
+        case "newest":
+        case "recent":
+          return Clock;
+        case "starred":
+          return Heart;
+        case "frequent":
+        case "highest":
+          return TrendingUp;
+        default:
+          return ListMusic;
+      }
     case "favorites":
       return Heart;
     case "history":
       return History;
     case "songRadio":
       return Radio;
+    case "forgottenFavorites":
+      return Heart;
+    case "mostPlayedRecently":
+      return TrendingUp;
     default:
       return null;
   }
@@ -401,7 +423,10 @@ function HomeSourceCard({
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
-  const details = getContinueListeningSourceDetails(source.sourceType);
+  const details = getContinueListeningSourceDetails(
+    source.sourceType,
+    source.id,
+  );
   const href = details
     ? getQueueSourceHref({
         type: details.queueSourceType,
@@ -414,7 +439,10 @@ function HomeSourceCard({
     return null;
   }
 
-  const SourceIcon = getContinueListeningSourceIcon(details.queueSourceType);
+  const SourceIcon = getContinueListeningSourceIcon(
+    details.queueSourceType,
+    source.id,
+  );
   if (!SourceIcon) {
     return null;
   }
@@ -430,6 +458,7 @@ function HomeSourceCard({
       sourceName: source.name,
       startIndex: 0,
       shuffle,
+      filters: details.filters,
     });
   };
 
@@ -954,7 +983,10 @@ export default function HomePage() {
   };
 
   const handlePlaySource = (source: ContinueListeningSourceItem) => {
-    const details = getContinueListeningSourceDetails(source.sourceType);
+    const details = getContinueListeningSourceDetails(
+      source.sourceType,
+      source.id,
+    );
     if (!details) {
       return;
     }
@@ -965,6 +997,7 @@ export default function HomePage() {
       sourceName: source.name,
       startIndex: 0,
       shuffle: false,
+      filters: details.filters,
     });
   };
 

@@ -1915,6 +1915,143 @@ async fn materialize_history_songs(
     ))
 }
 
+async fn materialize_album_list_queue_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+    source_id: Option<&str>,
+    filters: Option<&serde_json::Value>,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    // If albumIds are provided in filters, use those directly (backward compat)
+    let album_ids: Option<Vec<String>> = filters
+        .and_then(|f| f.get("albumIds"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
+
+    let album_ids = if let Some(ids) = album_ids {
+        ids
+    } else {
+        let list_type_str = source_id
+            .ok_or_else(|| Error::InvalidRequest("Album list type required".to_string()))?;
+        let list_type: crate::api::common::lists::AlbumListType =
+            serde_json::from_value(serde_json::Value::String(list_type_str.to_string())).map_err(
+                |_| Error::InvalidRequest(format!("Invalid album list type: {}", list_type_str)),
+            )?;
+        let since = filters
+            .and_then(|f| f.get("since"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
+        let result = crate::api::common::lists::get_album_list_logic(
+            database,
+            user_id,
+            list_type,
+            500,
+            0,
+            None,
+            None,
+            None,
+            None,
+            since,
+            seed,
+            text_filter,
+            sort_field,
+            sort_dir,
+        )
+        .await?;
+        result.albums.into_iter().map(|a| a.id).collect()
+    };
+
+    // Fetch songs for each album, capping total at 1000
+    let mut songs = Vec::new();
+    for album_id in &album_ids {
+        if songs.len() >= 1000 {
+            break;
+        }
+        let album_songs =
+            repo::browse::get_songs_by_album_for_user(database, album_id, user_id).await?;
+        songs.extend(album_songs);
+    }
+    songs.truncate(1000);
+    Ok(songs)
+}
+
+async fn materialize_forgotten_favorites_queue_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+    filters: Option<&serde_json::Value>,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
+    let min_plays = filters
+        .and_then(|f| f.get("minPlays"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(10);
+    let not_played_since_days = filters
+        .and_then(|f| f.get("notPlayedSinceDays"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(90);
+
+    let result = crate::api::common::lists::get_forgotten_favorites_logic(
+        database,
+        user_id,
+        1000,
+        0,
+        min_plays,
+        not_played_since_days,
+        None,
+        seed,
+        crate::api::common::lists::ListViewOptions {
+            filter: text_filter,
+            sort: sort_field,
+            sort_dir,
+        },
+    )
+    .await?;
+
+    let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
+    Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+}
+
+async fn materialize_most_played_recently_queue_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+    filters: Option<&serde_json::Value>,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let since = filters
+        .and_then(|f| f.get("since"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let result = crate::api::common::lists::get_most_played_recently_logic(
+        database,
+        user_id,
+        1000,
+        0,
+        None,
+        since,
+        crate::api::common::lists::ListViewOptions {
+            filter: text_filter,
+            sort: sort_field,
+            sort_dir,
+        },
+    )
+    .await?;
+
+    let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
+    Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+}
+
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
     database: &crate::db::Database,
@@ -2065,66 +2202,16 @@ async fn materialize_queue_songs(
             materialize_song_radio_songs(database, user_id, song_id).await
         }
         QueueSourceType::AlbumList => {
-            // If albumIds are provided in filters, use those directly (backward compat)
-            let album_ids: Option<Vec<String>> = filters
-                .and_then(|f| f.get("albumIds"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                });
-
-            let album_ids = if let Some(ids) = album_ids {
-                ids
-            } else {
-                let list_type_str = source_id
-                    .ok_or_else(|| Error::InvalidRequest("Album list type required".to_string()))?;
-                let list_type: crate::api::common::lists::AlbumListType =
-                    serde_json::from_value(serde_json::Value::String(list_type_str.to_string()))
-                        .map_err(|_| {
-                            Error::InvalidRequest(format!(
-                                "Invalid album list type: {}",
-                                list_type_str
-                            ))
-                        })?;
-                let since = filters
-                    .and_then(|f| f.get("since"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
-                let result = crate::api::common::lists::get_album_list_logic(
-                    database,
-                    user_id,
-                    list_type,
-                    500,
-                    0,
-                    None,
-                    None,
-                    None,
-                    None,
-                    since,
-                    seed,
-                    text_filter,
-                    sort_field.as_deref(),
-                    sort_dir.as_deref(),
-                )
-                .await?;
-                result.albums.into_iter().map(|a| a.id).collect()
-            };
-
-            // Fetch songs for each album, capping total at 1000
-            let mut songs = Vec::new();
-            for album_id in &album_ids {
-                if songs.len() >= 1000 {
-                    break;
-                }
-                let album_songs =
-                    repo::browse::get_songs_by_album_for_user(database, album_id, user_id).await?;
-                songs.extend(album_songs);
-            }
-            songs.truncate(1000);
-            Ok(songs)
+            materialize_album_list_queue_songs(
+                database,
+                user_id,
+                source_id,
+                filters,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            )
+            .await
         }
         QueueSourceType::ContinueListening => {
             let continue_listening = crate::api::common::lists::get_continue_listening_logic(
@@ -2188,6 +2275,22 @@ async fn materialize_queue_songs(
                             materialize_song_radio_songs(database, user_id, &source.id).await?;
                         songs.extend(radio_songs);
                     }
+                    "albumList" => {
+                        let Some(source) = item.source else {
+                            continue;
+                        };
+                        let album_list_songs = materialize_album_list_queue_songs(
+                            database,
+                            user_id,
+                            Some(&source.id),
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                        .await?;
+                        songs.extend(album_list_songs);
+                    }
                     "favorites" => {
                         let favorite_songs =
                             materialize_favorites_songs(database, user_id, None, None, None)
@@ -2199,6 +2302,21 @@ async fn materialize_queue_songs(
                             materialize_history_songs(database, user_id, None, None, None).await?;
                         songs.extend(history_songs);
                     }
+                    "forgottenFavorites" => {
+                        let forgotten_favorite_songs = materialize_forgotten_favorites_queue_songs(
+                            database, user_id, None, None, None, None,
+                        )
+                        .await?;
+                        songs.extend(forgotten_favorite_songs);
+                    }
+                    "mostPlayedRecently" => {
+                        let most_played_recently_songs =
+                            materialize_most_played_recently_queue_songs(
+                                database, user_id, None, None, None, None,
+                            )
+                            .await?;
+                        songs.extend(most_played_recently_songs);
+                    }
                     _ => {}
                 }
             }
@@ -2206,59 +2324,26 @@ async fn materialize_queue_songs(
             Ok(songs)
         }
         QueueSourceType::ForgottenFavorites => {
-            let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
-            let min_plays = filters
-                .and_then(|f| f.get("minPlays"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(10);
-            let not_played_since_days = filters
-                .and_then(|f| f.get("notPlayedSinceDays"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(90);
-
-            let result = crate::api::common::lists::get_forgotten_favorites_logic(
+            materialize_forgotten_favorites_queue_songs(
                 database,
                 user_id,
-                1000,
-                0,
-                min_plays,
-                not_played_since_days,
-                None,
-                seed,
-                crate::api::common::lists::ListViewOptions {
-                    filter: text_filter,
-                    sort: sort_field.as_deref(),
-                    sort_dir: sort_dir.as_deref(),
-                },
+                filters,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
             )
-            .await?;
-
-            // Re-fetch as Song models in the same shuffled order
-            let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
-            Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+            .await
         }
         QueueSourceType::MostPlayedRecently => {
-            let since = filters
-                .and_then(|f| f.get("since"))
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let result = crate::api::common::lists::get_most_played_recently_logic(
+            materialize_most_played_recently_queue_songs(
                 database,
                 user_id,
-                1000,
-                0,
-                None,
-                since,
-                crate::api::common::lists::ListViewOptions {
-                    filter: text_filter,
-                    sort: sort_field.as_deref(),
-                    sort_dir: sort_dir.as_deref(),
-                },
+                filters,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
             )
-            .await?;
-
-            let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
-            Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+            .await
         }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
