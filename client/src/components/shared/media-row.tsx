@@ -51,6 +51,7 @@ interface MediaRowProps {
     | "song"
     | "playlist"
     | "smartPlaylist"
+    | "favorites"
     | "genre";
   /** Whether this row is currently active/selected */
   isActive?: boolean;

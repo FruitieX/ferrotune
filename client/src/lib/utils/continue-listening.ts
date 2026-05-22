@@ -3,7 +3,7 @@ import type { QueueSourceType } from "@/lib/store/server-queue";
 export interface ContinueListeningSourceDetails {
   queueSourceType: QueueSourceType;
   subtitle: string;
-  coverType: "playlist" | "song";
+  coverType: "playlist" | "song" | "favorites";
 }
 
 export function getContinueListeningSourceDetails(
@@ -14,7 +14,7 @@ export function getContinueListeningSourceDetails(
       return {
         queueSourceType: "favorites",
         subtitle: "Favorite songs",
-        coverType: "playlist",
+        coverType: "favorites",
       };
     case "history":
       return {

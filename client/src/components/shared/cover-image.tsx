@@ -8,6 +8,7 @@ import {
   User,
   Disc,
   ListMusic,
+  Heart,
   Tag,
   Folder,
   Sparkles,
@@ -26,6 +27,7 @@ interface CoverImageProps {
     | "song"
     | "playlist"
     | "smartPlaylist"
+    | "favorites"
     | "genre"
     | "folder";
   size?: "sm" | "md" | "lg" | "xl" | "full";
@@ -97,15 +99,17 @@ export function CoverImage({
       ? User
       : type === "playlist"
         ? ListMusic
-        : type === "smartPlaylist"
-          ? Sparkles
-          : type === "song"
-            ? Music
-            : type === "genre"
-              ? Tag
-              : type === "folder"
-                ? Folder
-                : Disc;
+        : type === "favorites"
+          ? Heart
+          : type === "smartPlaylist"
+            ? Sparkles
+            : type === "song"
+              ? Music
+              : type === "genre"
+                ? Tag
+                : type === "folder"
+                  ? Folder
+                  : Disc;
   const isRound = type === "artist";
 
   // Reset state when src or inlineData changes (React-recommended pattern for adjusting state when props change)
@@ -122,6 +126,10 @@ export function CoverImage({
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
   const placeholderHue = stringToHue(colorSeed || alt || "");
+  const placeholderBackground =
+    type === "favorites"
+      ? "linear-gradient(135deg, rgb(239 68 68) 0%, rgb(153 27 27) 100%)"
+      : `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`;
 
   // Use IntersectionObserver for true lazy loading
   useEffect(() => {
@@ -230,14 +238,22 @@ export function CoverImage({
         <div
           className="absolute inset-0 flex items-center justify-center"
           style={{
-            background: `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`,
+            background: placeholderBackground,
           }}
         >
           {/* Don't show icon if we're showing the type overlay (avoids duplicate icons) */}
           {!(
             showTypeOverlay &&
             (type === "smartPlaylist" || type === "folder")
-          ) && <Icon className={cn("text-white/70", iconSizes[size])} />}
+          ) && (
+            <Icon
+              className={cn(
+                "text-white/70",
+                type === "favorites" && "fill-white/70 text-white/80",
+                iconSizes[size],
+              )}
+            />
+          )}
         </div>
       )}
 

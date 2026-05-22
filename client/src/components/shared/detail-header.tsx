@@ -108,7 +108,7 @@ export function DetailHeader({
     <div className="relative">
       {/* Gradient background - always shown */}
       <div
-        className="absolute inset-0"
+        className="pointer-events-none absolute inset-0"
         style={{
           height: `${backgroundHeight}px`,
           background: `linear-gradient(180deg, ${backgroundGradient} 0%, var(--background) 100%)`,
@@ -118,7 +118,7 @@ export function DetailHeader({
       {/* Blurred cover overlay - only when cover exists and blur is enabled */}
       {shouldBlur && (
         <div
-          className="absolute inset-0 overflow-hidden"
+          className="pointer-events-none absolute inset-0 overflow-hidden"
           style={{ height: `${backgroundHeight}px` }}
         >
           <div

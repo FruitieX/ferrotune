@@ -27,7 +27,13 @@ interface MediaCardProps {
   coverShape?: "square" | "circle";
   /** Cover art color seed for placeholder */
   colorSeed?: string;
-  coverType?: "album" | "artist" | "song" | "playlist" | "smartPlaylist";
+  coverType?:
+    | "album"
+    | "artist"
+    | "song"
+    | "playlist"
+    | "smartPlaylist"
+    | "favorites";
   /** Called when play button is clicked */
   onPlay?: () => void;
   /** Whether this card represents the current active item */

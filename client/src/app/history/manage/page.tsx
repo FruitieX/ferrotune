@@ -596,7 +596,7 @@ export default function ManageHistoryPage() {
         subtitle={`${formatCount(total, "entry")} matching current filters`}
       />
 
-      <div className="border-b border-border px-4 lg:px-6 py-4">
+      <div className="relative z-10 border-b border-border bg-background/80 px-4 lg:px-6 py-4 backdrop-blur-sm">
         <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-2">

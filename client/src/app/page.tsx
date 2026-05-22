@@ -18,13 +18,20 @@ import {
   TrendingUp,
   Shuffle,
   Search,
+  ListPlus,
+  ListEnd,
   ListMusic,
   Heart,
   History,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { startQueueAtom } from "@/lib/store/server-queue";
+import {
+  addToQueueAtom,
+  serverQueueStateAtom,
+  startQueueAtom,
+} from "@/lib/store/server-queue";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,6 +45,11 @@ import {
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { MediaCard } from "@/components/shared/media-card";
+import { ResponsiveContextMenu } from "@/components/shared/responsive-context-menu";
+import {
+  renderMenuItem,
+  type MenuComponents,
+} from "@/components/shared/media-menu-items";
 import { PlaylistContextMenu } from "@/components/playlists/playlist-context-menu";
 import { SmartPlaylistContextMenu } from "@/components/playlists/smart-playlist-context-menu";
 import { VirtualizedHorizontalScroll } from "@/components/shared/virtualized-horizontal-scroll";
@@ -386,6 +398,9 @@ function HomeSourceCard({
   source: ContinueListeningSourceItem;
   onPlay: (source: ContinueListeningSourceItem) => void;
 }) {
+  const startQueue = useSetAtom(startQueueAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   const details = getContinueListeningSourceDetails(source.sourceType);
   const href = details
     ? getQueueSourceHref({
@@ -408,6 +423,72 @@ function HomeSourceCard({
     ? getClient()?.getCoverArtUrl(source.coverArt, "medium")
     : undefined;
 
+  const startSource = (shuffle: boolean) => {
+    startQueue({
+      sourceType: details.queueSourceType,
+      sourceId: source.id,
+      sourceName: source.name,
+      startIndex: 0,
+      shuffle,
+    });
+  };
+
+  const handleShuffle = () => {
+    startSource(true);
+  };
+
+  const handleAddToQueue = async (position: "next" | "end") => {
+    if (!queueState || queueState.totalCount === 0) {
+      startSource(false);
+      toast.success(`Playing "${source.name}"`);
+      return;
+    }
+
+    const result = await addToQueue({
+      position,
+      sourceType: details.queueSourceType,
+      sourceId: source.id,
+    });
+
+    if (result.success) {
+      toast.success(
+        position === "next" ? "Added to play next" : "Added to queue",
+      );
+    } else {
+      toast.error("Failed to add to queue");
+    }
+  };
+
+  const renderSourceMenu = (components: MenuComponents) => {
+    const { Separator } = components;
+
+    return (
+      <>
+        {renderMenuItem(components, {
+          icon: Play,
+          label: "Play",
+          onClick: () => onPlay(source),
+        })}
+        {renderMenuItem(components, {
+          icon: Shuffle,
+          label: "Shuffle",
+          onClick: handleShuffle,
+        })}
+        <Separator />
+        {renderMenuItem(components, {
+          icon: ListPlus,
+          label: "Play Next",
+          onClick: () => void handleAddToQueue("next"),
+        })}
+        {renderMenuItem(components, {
+          icon: ListEnd,
+          label: "Add to Queue",
+          onClick: () => void handleAddToQueue("end"),
+        })}
+      </>
+    );
+  };
+
   return (
     <MediaCard
       coverArt={coverArtUrl}
@@ -420,6 +501,16 @@ function HomeSourceCard({
       coverType={details.coverType}
       colorSeed={source.name}
       onPlay={() => onPlay(source)}
+      contextMenu={(children) => (
+        <ResponsiveContextMenu
+          drawerTitle={source.name}
+          drawerSubtitle={details.subtitle}
+          drawerThumbnail={coverArtUrl}
+          renderMenuContent={renderSourceMenu}
+        >
+          {children}
+        </ResponsiveContextMenu>
+      )}
     />
   );
 }
@@ -1127,6 +1218,7 @@ export default function HomePage() {
                   filters: getMostPlayedRecentlyFilters(),
                 }}
                 inlineImagesRequested
+                className="ring-0"
               />
             )}
             renderSkeleton={() => <SongCardSkeleton />}
@@ -1210,6 +1302,7 @@ export default function HomePage() {
                     },
                   }}
                   inlineImagesRequested
+                  className="ring-0"
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
