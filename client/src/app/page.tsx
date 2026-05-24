@@ -32,8 +32,15 @@ import {
   serverQueueStateAtom,
   startQueueAtom,
 } from "@/lib/store/server-queue";
-import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
-import { getClient } from "@/lib/api/client";
+import {
+  accountKey,
+  accountLabel,
+  connectionStatusAtom,
+  savedAccountsAtom,
+  serverConnectionAtom,
+} from "@/lib/store/auth";
+import { FerrotuneClient, getClient, initializeClient } from "@/lib/api/client";
+import { homeSectionsAtom, homeTilesAtom } from "@/lib/store/ui";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,10 +68,27 @@ import {
   getQueueSourceHref,
 } from "@/lib/utils/source-links";
 import {
+  getEnabledHomeSections,
+  getForgottenFavoritesFilters,
+  getForgottenFavoritesMinPlays,
+  getForgottenFavoritesNotPlayedDays,
+  getHomeSectionOption,
   getMostPlayedRecentlyFilters,
-  homeSectionHrefs,
+  getMostPlayedRecentlyDays,
+  getTopAlbumsDays,
+  getTopAlbumsFilters,
+  normalizeHomeSections,
+  type HomeSectionConfig,
+  type HomeSectionKind,
 } from "@/lib/utils/home-sections";
 import { getContinueListeningSourceDetails } from "@/lib/utils/continue-listening";
+import {
+  getHomeTilePresentation,
+  normalizeHomeTiles,
+  type HomeTileConfig,
+  type HomeTilePresentation,
+} from "@/lib/utils/home-tiles";
+import { cn } from "@/lib/utils";
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
 import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
@@ -110,7 +134,7 @@ function getContinueListeningSourceIcon(
     case "songRadio":
       return Radio;
     case "forgottenFavorites":
-      return Heart;
+      return History;
     case "mostPlayedRecently":
       return TrendingUp;
     default:
@@ -257,6 +281,105 @@ function SectionHeader({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function HomeQuickTile({
+  tile,
+  onQueueAction,
+  onAccountAction,
+}: {
+  tile: HomeTilePresentation;
+  onQueueAction: (
+    action: Extract<HomeTilePresentation["action"], { type: "queue" }>,
+  ) => void;
+  onAccountAction: (
+    action: Extract<HomeTilePresentation["action"], { type: "account" }>,
+  ) => void;
+}) {
+  const Icon = tile.icon;
+  const content = (
+    <>
+      <span
+        className={cn(
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted/50",
+          tile.iconClassName,
+        )}
+      >
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 text-left">
+        <span className="block truncate text-sm font-semibold">
+          {tile.label}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {tile.subtitle}
+        </span>
+      </span>
+    </>
+  );
+  const className = cn(
+    "flex min-h-14 items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2.5",
+    "text-left transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    tile.isIncomplete && "opacity-60",
+  );
+
+  if (tile.action.type === "link" && !tile.isIncomplete) {
+    return (
+      <Link href={tile.action.href} className={className} prefetch={false}>
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      disabled={tile.isIncomplete}
+      onClick={() => {
+        if (tile.action.type === "queue") {
+          onQueueAction(tile.action);
+        } else if (tile.action.type === "account") {
+          onAccountAction(tile.action);
+        }
+      }}
+    >
+      {content}
+    </button>
+  );
+}
+
+function HomeQuickTiles({
+  tiles,
+  onQueueAction,
+  onAccountAction,
+}: {
+  tiles: HomeTileConfig[];
+  onQueueAction: (
+    action: Extract<HomeTilePresentation["action"], { type: "queue" }>,
+  ) => void;
+  onAccountAction: (
+    action: Extract<HomeTilePresentation["action"], { type: "account" }>,
+  ) => void;
+}) {
+  const presentations = normalizeHomeTiles(tiles).map(getHomeTilePresentation);
+
+  if (presentations.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2 px-3 sm:px-4 md:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] lg:px-6">
+      {presentations.map((tile) => (
+        <HomeQuickTile
+          key={tile.id}
+          tile={tile}
+          onQueueAction={onQueueAction}
+          onAccountAction={onAccountAction}
+        />
+      ))}
     </div>
   );
 }
@@ -550,6 +673,11 @@ export default function HomePage() {
     redirectToLogin: true,
   });
   const connection = useAtomValue(serverConnectionAtom);
+  const setConnection = useSetAtom(serverConnectionAtom);
+  const savedAccounts = useAtomValue(savedAccountsAtom);
+  const setConnectionStatus = useSetAtom(connectionStatusAtom);
+  const homeTiles = useAtomValue(homeTilesAtom);
+  const homeSections = useAtomValue(homeSectionsAtom);
   const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
   const [searchQuery, setSearchQuery] = useState("");
@@ -562,15 +690,40 @@ export default function HomePage() {
   // Store the random seed for Forgotten Favorites for consistent pagination
   const forgottenFavSeedRef = useRef<number | undefined>(undefined);
 
-  useEffect(() => {
-    discoverSeedRef.current = undefined;
-    forgottenFavSeedRef.current = undefined;
-  }, [currentAccountKey]);
-
   // Responsive item dimensions
   const itemWidth = isSmallScreen ? 130 : 180;
   const itemGap = isSmallScreen ? 8 : 16;
   const paddingX = isSmallScreen ? 12 : 24;
+
+  const normalizedHomeSections = normalizeHomeSections(homeSections);
+  const enabledHomeSections = getEnabledHomeSections(normalizedHomeSections);
+  const getSectionConfig = (kind: HomeSectionKind) =>
+    normalizedHomeSections.find((section) => section.kind === kind);
+  const isSectionEnabled = (kind: HomeSectionKind) =>
+    enabledHomeSections.some((section) => section.kind === kind);
+  const mostPlayedRecentlySection = getSectionConfig("mostPlayedRecently");
+  const forgottenFavoritesSection = getSectionConfig("forgottenFavorites");
+  const topAlbumsSection = getSectionConfig("topAlbums");
+  const mostPlayedRecentlyDays = getMostPlayedRecentlyDays(
+    mostPlayedRecentlySection,
+  );
+  const mostPlayedRecentlyFilters = getMostPlayedRecentlyFilters(
+    mostPlayedRecentlyDays,
+  );
+  const forgottenFavoritesFilters = getForgottenFavoritesFilters(
+    forgottenFavoritesSection,
+  );
+  const topAlbumsDays = getTopAlbumsDays(topAlbumsSection);
+  const topAlbumsFilters = getTopAlbumsFilters(topAlbumsDays);
+
+  useEffect(() => {
+    discoverSeedRef.current = undefined;
+    forgottenFavSeedRef.current = undefined;
+  }, [
+    currentAccountKey,
+    forgottenFavoritesFilters.minPlays,
+    forgottenFavoritesFilters.notPlayedSinceDays,
+  ]);
 
   // Dynamic page size based on viewport width
   const pageSize =
@@ -581,6 +734,54 @@ export default function HomePage() {
   // Navigate to search when user starts typing
   const handleSearchFocus = () => {
     router.push("/search");
+  };
+
+  const handleHomeTileQueueAction = (
+    action: Extract<HomeTilePresentation["action"], { type: "queue" }>,
+  ) => {
+    startQueue({
+      sourceType: action.sourceType,
+      sourceId: action.sourceId,
+      sourceName: action.sourceName,
+      startIndex: 0,
+      shuffle: action.shuffle,
+      filters: action.filters,
+    });
+  };
+
+  const handleHomeTileAccountAction = async (
+    action: Extract<HomeTilePresentation["action"], { type: "account" }>,
+  ) => {
+    if (!action.accountKey) {
+      toast.error("Choose an account for this tile in Settings");
+      return;
+    }
+
+    if (action.accountKey === currentAccountKey) {
+      toast.info("Already using this account");
+      return;
+    }
+
+    const account = savedAccounts.find(
+      (savedAccount) => accountKey(savedAccount) === action.accountKey,
+    );
+    if (!account) {
+      toast.error("Saved account not found");
+      return;
+    }
+
+    try {
+      setConnectionStatus("connecting");
+      const client = new FerrotuneClient(account);
+      await client.ping();
+      initializeClient(account);
+      setConnection(account);
+      setConnectionStatus("connected");
+      toast.success(`Switched to ${account.label || accountLabel(account)}`);
+    } catch {
+      setConnectionStatus("error");
+      toast.error("Failed to connect. The account may have expired.");
+    }
   };
 
   const newestQueryKey = [
@@ -600,37 +801,72 @@ export default function HomePage() {
     "most-played-recently",
     "home",
     currentAccountKey,
+    mostPlayedRecentlyDays,
   ] as const;
   const forgottenFavoritesQueryKey = [
     "songs",
     "forgotten-favorites",
     "home",
     currentAccountKey,
+    forgottenFavoritesFilters.minPlays,
+    forgottenFavoritesFilters.notPlayedSinceDays,
   ] as const;
   const continueListeningQueryKey = [
     "continue-listening",
     "home",
     currentAccountKey,
   ] as const;
+  const topAlbumsQueryKey = [
+    "albums",
+    "top",
+    "home",
+    currentAccountKey,
+    topAlbumsDays,
+  ] as const;
+  const recentAlbumsQueryKey = [
+    "albums",
+    "recent",
+    "home",
+    currentAccountKey,
+  ] as const;
+  const batchSectionsKey = [
+    isSectionEnabled("continueListening") ? "continue" : "no-continue",
+    isSectionEnabled("recentlyAdded") ? "newest" : "no-newest",
+    isSectionEnabled("discover") ? "discover" : "no-discover",
+  ].join("|");
 
   // --- Batch fetch for initial home page load ---
-  // All initial page fetches (page 0) go through one HTTP request to /ferrotune/home.
-  // Subsequent pages (infinite scroll) use individual endpoints.
+  // Initial page fetches for batch-backed sections go through one HTTP request.
+  // Configurable song sections use their own endpoints so custom filters are respected.
   const batchPromiseRef = useRef<{
     accountKey: string;
+    sectionsKey: string;
+    pageSize: number;
     promise: Promise<HomePageResponse>;
   } | null>(null);
   const fetchBatch = (): Promise<HomePageResponse> => {
     const cachedBatch = batchPromiseRef.current;
-    if (!cachedBatch || cachedBatch.accountKey !== currentAccountKey) {
+    if (
+      !cachedBatch ||
+      cachedBatch.accountKey !== currentAccountKey ||
+      cachedBatch.sectionsKey !== batchSectionsKey ||
+      cachedBatch.pageSize !== pageSize
+    ) {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const promise = client.getHomePage({
         size: pageSize,
         inlineImages: "medium",
+        includeContinueListening: isSectionEnabled("continueListening"),
+        includeMostPlayedRecently: false,
+        includeRecentlyAdded: isSectionEnabled("recentlyAdded"),
+        includeForgottenFavorites: false,
+        includeDiscover: isSectionEnabled("discover"),
       });
       batchPromiseRef.current = {
         accountKey: currentAccountKey,
+        sectionsKey: batchSectionsKey,
+        pageSize,
         promise,
       };
       // After the batch resolves, clear the ref so that future resets
@@ -640,6 +876,8 @@ export default function HomePage() {
           const activeBatch = batchPromiseRef.current;
           if (
             activeBatch?.accountKey === currentAccountKey &&
+            activeBatch.sectionsKey === batchSectionsKey &&
+            activeBatch.pageSize === pageSize &&
             activeBatch.promise === promise
           ) {
             batchPromiseRef.current = null;
@@ -657,7 +895,7 @@ export default function HomePage() {
 
   useEffect(() => {
     batchPromiseRef.current = null;
-  }, [currentAccountKey]);
+  }, [currentAccountKey, batchSectionsKey, pageSize]);
 
   // --- Infinite queries for album sections ---
 
@@ -708,7 +946,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady,
+    enabled: isReady && isSectionEnabled("recentlyAdded"),
   });
 
   const {
@@ -767,7 +1005,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady,
+    enabled: isReady && isSectionEnabled("discover"),
   });
 
   const {
@@ -780,10 +1018,17 @@ export default function HomePage() {
     queryKey: mostPlayedRecentlyQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
-        const batch = await fetchBatch();
+        const client = getClient();
+        if (!client) throw new Error("Not connected");
+        const response = await client.getMostPlayedRecently({
+          size: pageSize,
+          offset: 0,
+          inlineImages: "medium",
+          ...mostPlayedRecentlyFilters,
+        });
         return {
-          songs: batch.mostPlayedRecently.song,
-          total: batch.mostPlayedRecently.total,
+          songs: response.song ?? [],
+          total: response.total,
           nextOffset: pageSize,
           pageSize,
         };
@@ -794,7 +1039,7 @@ export default function HomePage() {
         size: pageSize,
         offset: pageParam,
         inlineImages: "medium",
-        ...getMostPlayedRecentlyFilters(),
+        ...mostPlayedRecentlyFilters,
       });
       return {
         songs: response.song ?? [],
@@ -817,7 +1062,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady,
+    enabled: isReady && isSectionEnabled("mostPlayedRecently"),
   });
 
   // --- Forgotten Favorites: songs played a lot long ago but not recently ---
@@ -831,14 +1076,21 @@ export default function HomePage() {
     queryKey: forgottenFavoritesQueryKey,
     queryFn: async ({ pageParam }) => {
       if (pageParam === 0) {
-        const batch = await fetchBatch();
+        const client = getClient();
+        if (!client) throw new Error("Not connected");
+        const response = await client.getForgottenFavorites({
+          size: pageSize,
+          offset: 0,
+          inlineImages: "medium",
+          ...forgottenFavoritesFilters,
+        });
         if (forgottenFavSeedRef.current === undefined) {
-          forgottenFavSeedRef.current = batch.forgottenFavorites.seed;
+          forgottenFavSeedRef.current = response.seed;
         }
         return {
-          songs: batch.forgottenFavorites.song,
-          total: batch.forgottenFavorites.total,
-          seed: batch.forgottenFavorites.seed,
+          songs: response.song ?? [],
+          total: response.total,
+          seed: response.seed,
           nextOffset: pageSize,
           pageSize,
         };
@@ -850,6 +1102,7 @@ export default function HomePage() {
         offset: pageParam,
         inlineImages: "medium",
         seed: forgottenFavSeedRef.current,
+        ...forgottenFavoritesFilters,
       });
       return {
         songs: response.song ?? [],
@@ -865,7 +1118,7 @@ export default function HomePage() {
       const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady,
+    enabled: isReady && isSectionEnabled("forgottenFavorites"),
   });
 
   // --- Continue Listening: unified endpoint with albums + playlists ---
@@ -907,7 +1160,90 @@ export default function HomePage() {
       const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady,
+    enabled: isReady && isSectionEnabled("continueListening"),
+  });
+
+  const {
+    data: topAlbumsData,
+    isLoading: loadingTopAlbums,
+    hasNextPage: hasNextTopAlbums,
+    isFetchingNextPage: fetchingNextTopAlbums,
+    fetchNextPage: fetchNextTopAlbums,
+  } = useInfiniteQuery({
+    queryKey: topAlbumsQueryKey,
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getAlbumList2({
+        type: "frequent",
+        size: pageSize,
+        offset: pageParam,
+        inlineImages: "medium",
+        ...topAlbumsFilters,
+      });
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.albums.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
+    },
+    enabled: isReady && isSectionEnabled("topAlbums"),
+  });
+
+  const {
+    data: recentAlbumsData,
+    isLoading: loadingRecentAlbums,
+    hasNextPage: hasNextRecentAlbums,
+    isFetchingNextPage: fetchingNextRecentAlbums,
+    fetchNextPage: fetchNextRecentAlbums,
+  } = useInfiniteQuery({
+    queryKey: recentAlbumsQueryKey,
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getAlbumList2({
+        type: "recent",
+        size: pageSize,
+        offset: pageParam,
+        inlineImages: "medium",
+      });
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.albums.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
+    },
+    enabled: isReady && isSectionEnabled("recentAlbums"),
   });
 
   const stickyRandomData = useStickyHomeSection(
@@ -954,6 +1290,16 @@ export default function HomePage() {
   const continueListeningTotal =
     continueListeningData?.pages[0]?.total != null
       ? Math.min(continueListeningData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const topAlbums = topAlbumsData?.pages.flatMap((p) => p.albums) ?? [];
+  const topAlbumsTotal =
+    topAlbumsData?.pages[0]?.total != null
+      ? Math.min(topAlbumsData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const recentAlbums = recentAlbumsData?.pages.flatMap((p) => p.albums) ?? [];
+  const recentAlbumsTotal =
+    recentAlbumsData?.pages[0]?.total != null
+      ? Math.min(recentAlbumsData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
 
   // Play album - uses server-side queue (always disables shuffle)
@@ -1108,6 +1454,317 @@ export default function HomePage() {
     return null;
   };
 
+  const getHomeSectionHref = (section: HomeSectionConfig) => {
+    const href = getHomeSectionOption(section.kind).href;
+    if (!href) return undefined;
+
+    if (section.kind === "mostPlayedRecently") {
+      const params = new URLSearchParams({
+        days: String(getMostPlayedRecentlyDays(section)),
+      });
+      return `${href}?${params.toString()}`;
+    }
+
+    if (section.kind === "forgottenFavorites") {
+      const params = new URLSearchParams({
+        minPlays: String(getForgottenFavoritesMinPlays(section)),
+        notPlayedSinceDays: String(getForgottenFavoritesNotPlayedDays(section)),
+      });
+      return `${href}?${params.toString()}`;
+    }
+
+    return href;
+  };
+
+  const renderHomeSection = (section: HomeSectionConfig) => {
+    const sectionOption = getHomeSectionOption(section.kind);
+
+    switch (section.kind) {
+      case "continueListening":
+        return (
+          <section key={section.id} className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title={sectionOption.label}
+              icon={sectionOption.icon}
+              hasItems={continueListeningItems.length > 0}
+              isLoading={loadingContinueListening}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "continueListening",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: false,
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "continueListening",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: true,
+                })
+              }
+              viewAllHref={getHomeSectionHref(section)}
+            />
+            <VirtualizedHorizontalScroll<ContinueListeningEntry>
+              items={continueListeningItems}
+              totalCount={continueListeningTotal}
+              isLoading={loadingContinueListening}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              hasNextPage={hasNextContinueListening}
+              isFetchingNextPage={fetchingNextContinueListening}
+              fetchNextPage={fetchNextContinueListening}
+              renderItem={(item) => renderContinueListeningItem(item)}
+              renderSkeleton={() => <AlbumCardSkeleton />}
+              getItemKey={(item) => {
+                if (item.type === "playlist" || item.type === "smartPlaylist") {
+                  return `pl-${item.playlist?.id}`;
+                }
+                if (item.source) {
+                  return `${item.source.sourceType}-${item.source.id}`;
+                }
+                return `al-${item.album?.id}`;
+              }}
+              emptyMessage="No recently played items"
+            />
+          </section>
+        );
+      case "mostPlayedRecently":
+        return (
+          <section key={section.id} className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title={sectionOption.label}
+              icon={sectionOption.icon}
+              hasItems={mostPlayedRecentlySongs.length > 0}
+              isLoading={loadingMostPlayedRecently}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "mostPlayedRecently",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: false,
+                  filters: mostPlayedRecentlyFilters,
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "mostPlayedRecently",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: true,
+                  filters: mostPlayedRecentlyFilters,
+                })
+              }
+              viewAllHref={getHomeSectionHref(section)}
+            />
+            <VirtualizedHorizontalScroll<Song>
+              items={mostPlayedRecentlySongs}
+              totalCount={mostPlayedRecentlyTotal}
+              isLoading={loadingMostPlayedRecently}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              hasNextPage={hasNextMostPlayedRecently}
+              isFetchingNextPage={fetchingNextMostPlayedRecently}
+              fetchNextPage={fetchNextMostPlayedRecently}
+              renderItem={(song, index) => (
+                <SongCard
+                  song={song}
+                  index={index}
+                  songIndex={index}
+                  queueSource={{
+                    type: "mostPlayedRecently",
+                    name: sectionOption.label,
+                    filters: mostPlayedRecentlyFilters,
+                  }}
+                  inlineImagesRequested
+                  className="ring-0"
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+              emptyMessage="No recently played songs"
+            />
+          </section>
+        );
+      case "recentlyAdded":
+        return (
+          <AlbumSection
+            key={section.id}
+            title={sectionOption.label}
+            icon={sectionOption.icon}
+            albums={newestAlbums}
+            totalCount={newestTotal}
+            isLoading={loadingNewest}
+            hasNextPage={hasNextNewest}
+            isFetchingNextPage={fetchingNextNewest}
+            fetchNextPage={fetchNextNewest}
+            onPlayAlbum={handlePlayAlbum}
+            onPlayAll={() => handlePlayAllAlbums("newest", sectionOption.label)}
+            onShuffleAll={() =>
+              handleShuffleAllAlbums("newest", sectionOption.label)
+            }
+            viewAllHref={getHomeSectionHref(section)}
+            itemWidth={itemWidth}
+            itemGap={itemGap}
+            paddingX={paddingX}
+          />
+        );
+      case "forgottenFavorites": {
+        const queueFilters = {
+          ...forgottenFavoritesFilters,
+          seed: forgottenFavSeed,
+        };
+
+        if (forgottenFavSongs.length === 0 && !loadingForgottenFav) {
+          return null;
+        }
+
+        return (
+          <section key={section.id} className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title={sectionOption.label}
+              icon={sectionOption.icon}
+              hasItems={forgottenFavSongs.length > 0}
+              isLoading={loadingForgottenFav}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "forgottenFavorites",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: false,
+                  filters: queueFilters,
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "forgottenFavorites",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: true,
+                  filters: queueFilters,
+                })
+              }
+              viewAllHref={getHomeSectionHref(section)}
+            />
+            <VirtualizedHorizontalScroll<Song>
+              items={forgottenFavSongs}
+              totalCount={forgottenFavTotal}
+              isLoading={loadingForgottenFav}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              hasNextPage={hasNextForgottenFav}
+              isFetchingNextPage={fetchingNextForgottenFav}
+              fetchNextPage={fetchNextForgottenFav}
+              renderItem={(song, index) => (
+                <SongCard
+                  song={song}
+                  index={index}
+                  queueSource={{
+                    type: "forgottenFavorites",
+                    name: sectionOption.label,
+                    filters: queueFilters,
+                  }}
+                  inlineImagesRequested
+                  className="ring-0"
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+              emptyMessage="No forgotten favorites"
+            />
+          </section>
+        );
+      }
+      case "discover":
+        return (
+          <AlbumSection
+            key={section.id}
+            title={sectionOption.label}
+            icon={sectionOption.icon}
+            albums={randomAlbums}
+            totalCount={randomTotal}
+            isLoading={loadingRandom}
+            hasNextPage={hasNextRandom}
+            isFetchingNextPage={fetchingNextRandom}
+            fetchNextPage={fetchNextRandom}
+            onPlayAlbum={handlePlayAlbum}
+            onPlayAll={() =>
+              handlePlayAllAlbums("random", sectionOption.label, {
+                seed: randomSeed,
+              })
+            }
+            onShuffleAll={() =>
+              handleShuffleAllAlbums("random", sectionOption.label, {
+                seed: randomSeed,
+              })
+            }
+            viewAllHref={getHomeSectionHref(section)}
+            itemWidth={itemWidth}
+            itemGap={itemGap}
+            paddingX={paddingX}
+          />
+        );
+      case "topAlbums":
+        return (
+          <AlbumSection
+            key={section.id}
+            title={sectionOption.label}
+            icon={sectionOption.icon}
+            albums={topAlbums}
+            totalCount={topAlbumsTotal}
+            isLoading={loadingTopAlbums}
+            hasNextPage={hasNextTopAlbums}
+            isFetchingNextPage={fetchingNextTopAlbums}
+            fetchNextPage={fetchNextTopAlbums}
+            onPlayAlbum={handlePlayAlbum}
+            onPlayAll={() =>
+              handlePlayAllAlbums(
+                "frequent",
+                sectionOption.label,
+                topAlbumsFilters,
+              )
+            }
+            onShuffleAll={() =>
+              handleShuffleAllAlbums(
+                "frequent",
+                sectionOption.label,
+                topAlbumsFilters,
+              )
+            }
+            itemWidth={itemWidth}
+            itemGap={itemGap}
+            paddingX={paddingX}
+          />
+        );
+      case "recentAlbums":
+        return (
+          <AlbumSection
+            key={section.id}
+            title={sectionOption.label}
+            icon={sectionOption.icon}
+            albums={recentAlbums}
+            totalCount={recentAlbumsTotal}
+            isLoading={loadingRecentAlbums}
+            hasNextPage={hasNextRecentAlbums}
+            isFetchingNextPage={fetchingNextRecentAlbums}
+            fetchNextPage={fetchNextRecentAlbums}
+            onPlayAlbum={handlePlayAlbum}
+            onPlayAll={() => handlePlayAllAlbums("recent", sectionOption.label)}
+            onShuffleAll={() =>
+              handleShuffleAllAlbums("recent", sectionOption.label)
+            }
+            itemWidth={itemWidth}
+            itemGap={itemGap}
+            paddingX={paddingX}
+          />
+        );
+    }
+  };
+
   return (
     <div className="min-h-dvh">
       {/* Header */}
@@ -1133,244 +1790,12 @@ export default function HomePage() {
 
       {/* Content */}
       <div className="py-4 sm:py-6 space-y-4 sm:space-y-6">
-        {/* Mobile quick access - Favorites & Recently Played (hidden on desktop where sidebar is available) */}
-        <div className="flex gap-2 px-3 sm:px-4 lg:hidden">
-          <Link
-            href="/favorites"
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
-          >
-            <Heart className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-sm font-medium truncate">Favorites</span>
-          </Link>
-          <Link
-            href="/history"
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
-          >
-            <History className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-sm font-medium truncate">
-              Recently Played
-            </span>
-          </Link>
-        </div>
-
-        {/* Continue Listening (Recently Played Albums + Playlists, sorted by last played) */}
-        <section className="space-y-2 sm:space-y-4">
-          <SectionHeader
-            title="Continue Listening"
-            icon={Play}
-            hasItems={continueListeningItems.length > 0}
-            isLoading={loadingContinueListening}
-            onPlayAll={() =>
-              startQueue({
-                sourceType: "continueListening",
-                sourceName: "Continue Listening",
-                startIndex: 0,
-                shuffle: false,
-              })
-            }
-            onShuffleAll={() =>
-              startQueue({
-                sourceType: "continueListening",
-                sourceName: "Continue Listening",
-                startIndex: 0,
-                shuffle: true,
-              })
-            }
-            viewAllHref={homeSectionHrefs.continueListening}
-          />
-          <VirtualizedHorizontalScroll<ContinueListeningEntry>
-            items={continueListeningItems}
-            totalCount={continueListeningTotal}
-            isLoading={loadingContinueListening}
-            itemWidth={itemWidth}
-            gap={itemGap}
-            paddingX={paddingX}
-            hasNextPage={hasNextContinueListening}
-            isFetchingNextPage={fetchingNextContinueListening}
-            fetchNextPage={fetchNextContinueListening}
-            renderItem={(item) => renderContinueListeningItem(item)}
-            renderSkeleton={() => <AlbumCardSkeleton />}
-            getItemKey={(item) => {
-              if (item.type === "playlist" || item.type === "smartPlaylist") {
-                return `pl-${item.playlist?.id}`;
-              }
-              if (item.source) {
-                return `${item.source.sourceType}-${item.source.id}`;
-              }
-              return `al-${item.album?.id}`;
-            }}
-            emptyMessage="No recently played items"
-          />
-        </section>
-
-        {/* Most Played Recently */}
-        <section className="space-y-2 sm:space-y-4">
-          <SectionHeader
-            title="Most Played Recently"
-            icon={TrendingUp}
-            hasItems={mostPlayedRecentlySongs.length > 0}
-            isLoading={loadingMostPlayedRecently}
-            onPlayAll={() =>
-              startQueue({
-                sourceType: "mostPlayedRecently",
-                sourceName: "Most Played Recently",
-                startIndex: 0,
-                shuffle: false,
-                filters: getMostPlayedRecentlyFilters(),
-              })
-            }
-            onShuffleAll={() =>
-              startQueue({
-                sourceType: "mostPlayedRecently",
-                sourceName: "Most Played Recently",
-                startIndex: 0,
-                shuffle: true,
-                filters: getMostPlayedRecentlyFilters(),
-              })
-            }
-            viewAllHref={homeSectionHrefs.mostPlayedRecently}
-          />
-          <VirtualizedHorizontalScroll<Song>
-            items={mostPlayedRecentlySongs}
-            totalCount={mostPlayedRecentlyTotal}
-            isLoading={loadingMostPlayedRecently}
-            itemWidth={itemWidth}
-            gap={itemGap}
-            paddingX={paddingX}
-            hasNextPage={hasNextMostPlayedRecently}
-            isFetchingNextPage={fetchingNextMostPlayedRecently}
-            fetchNextPage={fetchNextMostPlayedRecently}
-            renderItem={(song, index) => (
-              <SongCard
-                song={song}
-                index={index}
-                songIndex={index}
-                queueSource={{
-                  type: "mostPlayedRecently",
-                  name: "Most Played Recently",
-                  filters: getMostPlayedRecentlyFilters(),
-                }}
-                inlineImagesRequested
-                className="ring-0"
-              />
-            )}
-            renderSkeleton={() => <SongCardSkeleton />}
-            getItemKey={(song) => song.id}
-            emptyMessage="No recently played songs"
-          />
-        </section>
-
-        {/* Recently Added */}
-        <AlbumSection
-          title="Recently Added"
-          icon={Clock}
-          albums={newestAlbums}
-          totalCount={newestTotal}
-          isLoading={loadingNewest}
-          hasNextPage={hasNextNewest}
-          isFetchingNextPage={fetchingNextNewest}
-          fetchNextPage={fetchNextNewest}
-          onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums("newest", "Recently Added")}
-          onShuffleAll={() =>
-            handleShuffleAllAlbums("newest", "Recently Added")
-          }
-          viewAllHref={homeSectionHrefs.recentlyAdded}
-          itemWidth={itemWidth}
-          itemGap={itemGap}
-          paddingX={paddingX}
+        <HomeQuickTiles
+          tiles={homeTiles}
+          onQueueAction={handleHomeTileQueueAction}
+          onAccountAction={handleHomeTileAccountAction}
         />
-
-        {/* Forgotten Favorites */}
-        {(forgottenFavSongs.length > 0 || loadingForgottenFav) && (
-          <section className="space-y-2 sm:space-y-4">
-            <SectionHeader
-              title="Forgotten Favorites"
-              icon={Heart}
-              hasItems={forgottenFavSongs.length > 0}
-              isLoading={loadingForgottenFav}
-              onPlayAll={() =>
-                startQueue({
-                  sourceType: "forgottenFavorites",
-                  sourceName: "Forgotten Favorites",
-                  startIndex: 0,
-                  shuffle: false,
-                  filters: {
-                    seed: forgottenFavSeed,
-                  },
-                })
-              }
-              onShuffleAll={() =>
-                startQueue({
-                  sourceType: "forgottenFavorites",
-                  sourceName: "Forgotten Favorites",
-                  startIndex: 0,
-                  shuffle: true,
-                  filters: {
-                    seed: forgottenFavSeed,
-                  },
-                })
-              }
-              viewAllHref={homeSectionHrefs.forgottenFavorites}
-            />
-            <VirtualizedHorizontalScroll<Song>
-              items={forgottenFavSongs}
-              totalCount={forgottenFavTotal}
-              isLoading={loadingForgottenFav}
-              itemWidth={itemWidth}
-              gap={itemGap}
-              paddingX={paddingX}
-              hasNextPage={hasNextForgottenFav}
-              isFetchingNextPage={fetchingNextForgottenFav}
-              fetchNextPage={fetchNextForgottenFav}
-              renderItem={(song, index) => (
-                <SongCard
-                  song={song}
-                  index={index}
-                  queueSource={{
-                    type: "forgottenFavorites",
-                    name: "Forgotten Favorites",
-                    filters: {
-                      seed: forgottenFavSeed,
-                    },
-                  }}
-                  inlineImagesRequested
-                  className="ring-0"
-                />
-              )}
-              renderSkeleton={() => <SongCardSkeleton />}
-              getItemKey={(song) => song.id}
-              emptyMessage="No forgotten favorites"
-            />
-          </section>
-        )}
-
-        {/* Discover */}
-        <AlbumSection
-          title="Discover Something New"
-          icon={Sparkles}
-          albums={randomAlbums}
-          totalCount={randomTotal}
-          isLoading={loadingRandom}
-          hasNextPage={hasNextRandom}
-          isFetchingNextPage={fetchingNextRandom}
-          fetchNextPage={fetchNextRandom}
-          onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() =>
-            handlePlayAllAlbums("random", "Discover", {
-              seed: randomSeed,
-            })
-          }
-          onShuffleAll={() =>
-            handleShuffleAllAlbums("random", "Discover", {
-              seed: randomSeed,
-            })
-          }
-          viewAllHref={homeSectionHrefs.discover}
-          itemWidth={itemWidth}
-          itemGap={itemGap}
-          paddingX={paddingX}
-        />
+        {enabledHomeSections.map(renderHomeSection)}
       </div>
     </div>
   );

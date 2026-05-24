@@ -668,16 +668,23 @@ pub async fn count_recent_albums_for_user(database: &Database, user_id: i64) -> 
     Ok(result)
 }
 
+#[derive(Debug, Clone)]
+pub struct ForgottenFavoriteSongSummary {
+    pub song_id: String,
+    pub play_count: i64,
+    pub last_played: Option<DateTime<Utc>>,
+}
+
 /// Find songs with high play counts that haven't been played recently.
 ///
-/// Returns the full list of qualifying song ids (caller handles pagination /
-/// random shuffling).
-pub async fn list_forgotten_favorite_song_ids(
+/// Returns the full list of qualifying song summaries (caller handles
+/// pagination / random shuffling).
+pub async fn list_forgotten_favorite_song_summaries(
     database: &Database,
     user_id: i64,
     min_plays: i64,
     cutoff: DateTime<Utc>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<ForgottenFavoriteSongSummary>> {
     let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
     if folder_ids.is_empty() {
         return Ok(Vec::new());
@@ -723,15 +730,39 @@ pub async fn list_forgotten_favorite_song_ids(
         .all(database.conn())
         .await?;
 
-    let cutoff_offset = cutoff.fixed_offset();
     Ok(rows
         .into_iter()
-        .filter(|r| {
-            r.sum_plays.unwrap_or(0) >= min_plays
-                && r.max_played_at.is_none_or(|dt| dt < cutoff_offset)
+        .filter_map(|row| {
+            let play_count = row.sum_plays.unwrap_or(0);
+            let last_played = row
+                .max_played_at
+                .map(|played_at| played_at.with_timezone(&Utc));
+            if play_count >= min_plays && last_played.is_none_or(|dt| dt < cutoff) {
+                Some(ForgottenFavoriteSongSummary {
+                    song_id: row.song_id,
+                    play_count,
+                    last_played,
+                })
+            } else {
+                None
+            }
         })
-        .map(|r| r.song_id)
         .collect())
+}
+
+pub async fn list_forgotten_favorite_song_ids(
+    database: &Database,
+    user_id: i64,
+    min_plays: i64,
+    cutoff: DateTime<Utc>,
+) -> Result<Vec<String>> {
+    Ok(
+        list_forgotten_favorite_song_summaries(database, user_id, min_plays, cutoff)
+            .await?
+            .into_iter()
+            .map(|summary| summary.song_id)
+            .collect(),
+    )
 }
 
 fn id_backed_continue_listening_source_condition() -> Condition {

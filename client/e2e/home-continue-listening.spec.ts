@@ -49,7 +49,64 @@ function makeSong(id: string, title: string) {
   };
 }
 
+async function routeHomeSongSections(
+  page: Page,
+  options: {
+    mostPlayedRecently?: ReturnType<typeof makeSong>[];
+    forgottenFavorites?: ReturnType<typeof makeSong>[];
+  } = {},
+) {
+  await page.route(
+    "**/ferrotune/songs/most-played-recently*",
+    async (route) => {
+      const songs = options.mostPlayedRecently ?? [];
+      await route.fulfill({
+        json: {
+          song: songs,
+          total: songs.length,
+        },
+      });
+    },
+  );
+  await page.route("**/ferrotune/songs/forgotten-favorites*", async (route) => {
+    const songs = options.forgottenFavorites ?? [];
+    await route.fulfill({
+      json: {
+        song: songs,
+        total: songs.length,
+        seed: 1,
+      },
+    });
+  });
+}
+
 test.describe("Home continue listening", () => {
+  test("default quick tiles link to favorites and history", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route("**/ferrotune/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: { entries: [], total: 0 },
+          mostPlayedRecently: { song: [], total: 0 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+        },
+      });
+    });
+    await routeHomeSongSections(page);
+
+    await page.goto("/");
+
+    await expect(
+      page.getByRole("link", { name: /favorites favorite songs/i }),
+    ).toHaveAttribute("href", "/favorites");
+    await expect(
+      page.getByRole("link", { name: /recently played listening history/i }),
+    ).toHaveAttribute("href", "/history");
+  });
+
   test("most played recently renders track cards", async ({
     authenticatedPage: page,
   }) => {
@@ -66,6 +123,7 @@ test.describe("Home continue listening", () => {
         },
       });
     });
+    await routeHomeSongSections(page, { mostPlayedRecently: [song] });
 
     await page.goto("/");
 
@@ -98,6 +156,18 @@ test.describe("Home continue listening", () => {
         },
       });
     });
+    await page.route(
+      "**/ferrotune/songs/forgotten-favorites*",
+      async (route) => {
+        await route.fulfill({
+          json: {
+            song: [],
+            total: 0,
+            seed: 1,
+          },
+        });
+      },
+    );
 
     await page.route(
       "**/ferrotune/songs/most-played-recently*",
@@ -118,12 +188,12 @@ test.describe("Home continue listening", () => {
     });
     await expect(headingLink).toHaveAttribute(
       "href",
-      "/home/most-played-recently",
+      "/home/most-played-recently?days=30",
     );
 
     await headingLink.click();
 
-    await expect(page).toHaveURL(/\/home\/most-played-recently$/);
+    await expect(page).toHaveURL(/\/home\/most-played-recently\?days=30$/);
     await expect(
       page.getByRole("heading", { name: "Most Played Recently" }),
     ).toBeVisible();
@@ -261,6 +331,7 @@ test.describe("Home continue listening", () => {
 
       await route.fulfill({ response, json: homeResponse });
     });
+    await routeHomeSongSections(page);
 
     await page.goto("/library");
     await page.goto("/");
@@ -362,6 +433,7 @@ test.describe("Home continue listening", () => {
         },
       });
     });
+    await routeHomeSongSections(page);
 
     await page.goto("/");
 
@@ -386,6 +458,9 @@ test.describe("Home continue listening", () => {
       .getByTestId("media-card")
       .filter({ hasText: "Forgotten Favorites" })
       .first();
+    await expect(
+      forgottenFavoritesCard.locator('[data-cover-type="forgottenFavorites"]'),
+    ).toBeVisible();
     const contextMenu = await openContextMenu(page, forgottenFavoritesCard);
 
     await expect(

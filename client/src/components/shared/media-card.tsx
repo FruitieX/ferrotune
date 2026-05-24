@@ -34,6 +34,7 @@ interface MediaCardProps {
     | "playlist"
     | "smartPlaylist"
     | "favorites"
+    | "forgottenFavorites"
     | "mostPlayedRecently"
     | "discover"
     | "recentlyAdded"

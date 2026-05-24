@@ -672,60 +672,70 @@ pub async fn get_most_played_recently_logic(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn get_forgotten_favorites_logic(
+pub async fn get_forgotten_favorites_song_models(
     database: &crate::db::Database,
     user_id: i64,
     size: i64,
     offset: i64,
     min_plays: i64,
     not_played_since_days: i64,
-    inline_image_size: Option<ThumbnailSize>,
     seed: Option<i64>,
     view_options: ListViewOptions<'_>,
-) -> crate::error::Result<ForgottenFavoritesResult> {
-    let size = size.min(1000);
-    // Constrain seed to JS Number.MAX_SAFE_INTEGER to avoid precision loss during JSON round-trip
+) -> crate::error::Result<(Vec<crate::db::models::Song>, i64, i64)> {
+    let size = size.max(0) as usize;
+    let offset = offset.max(0) as usize;
     let actual_seed =
         seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
 
-    // Find songs with high play counts that haven't been played recently
     let cutoff = chrono::Utc::now() - chrono::Duration::days(not_played_since_days);
-    let mut ids: Vec<String> =
-        lists_repo::list_forgotten_favorite_song_ids(database, user_id, min_plays, cutoff).await?;
-    let mut total = ids.len() as i64;
+    let mut summaries =
+        lists_repo::list_forgotten_favorite_song_summaries(database, user_id, min_plays, cutoff)
+            .await?;
+    let mut total = summaries.len() as i64;
     let should_post_process = has_text_filter(view_options.filter) || view_options.sort.is_some();
 
-    // Seeded shuffle for deterministic pagination with randomness per session
     let mut rng = StdRng::seed_from_u64(actual_seed as u64);
-    ids.shuffle(&mut rng);
+    summaries.shuffle(&mut rng);
 
-    // Paginate
-    let page_ids: Vec<String> = if should_post_process {
-        ids
-    } else {
-        let start = (offset as usize).min(ids.len());
-        let end = (start + size as usize).min(ids.len());
-        ids[start..end].to_vec()
-    };
-
-    if page_ids.is_empty() {
-        return Ok(ForgottenFavoritesResult {
-            songs: Vec::new(),
-            total,
-            seed: actual_seed,
-        });
+    if summaries.is_empty() {
+        return Ok((Vec::new(), total, actual_seed));
     }
 
-    let songs =
-        crate::db::repo::browse::get_songs_by_ids_for_user(database, &page_ids, user_id).await?;
-    let mut songs = songs;
+    let stats_map: std::collections::HashMap<String, (i64, Option<DateTime<Utc>>)> = summaries
+        .iter()
+        .map(|summary| {
+            (
+                summary.song_id.clone(),
+                (summary.play_count, summary.last_played),
+            )
+        })
+        .collect();
 
+    let ids: Vec<String> = if should_post_process {
+        summaries
+            .iter()
+            .map(|summary| summary.song_id.clone())
+            .collect()
+    } else {
+        summaries
+            .iter()
+            .skip(offset)
+            .take(size)
+            .map(|summary| summary.song_id.clone())
+            .collect()
+    };
+
+    if ids.is_empty() {
+        return Ok((Vec::new(), total, actual_seed));
+    }
+
+    let mut songs =
+        crate::db::repo::browse::get_songs_by_ids_for_user(database, &ids, user_id).await?;
     for song in &mut songs {
-        let stats =
-            crate::db::repo::browse::get_song_play_count_and_last(database, user_id, &song.id)
-                .await?;
-        song.play_count = (stats.play_count > 0).then_some(stats.play_count);
-        song.last_played = stats.last_played;
+        if let Some((play_count, last_played)) = stats_map.get(&song.id) {
+            song.play_count = (*play_count > 0).then_some(*play_count);
+            song.last_played = *last_played;
+        }
     }
 
     if should_post_process {
@@ -738,30 +748,58 @@ pub async fn get_forgotten_favorites_logic(
             view_options.sort_dir,
         );
         total = songs.len() as i64;
-        songs = songs
-            .into_iter()
-            .skip(offset.max(0) as usize)
-            .take(size.max(0) as usize)
-            .collect();
+        songs = songs.into_iter().skip(offset).take(size).collect();
     }
 
-    // Get starred/rating maps and play stats
-    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    Ok((songs, total, actual_seed))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn get_forgotten_favorites_logic(
+    database: &crate::db::Database,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    min_plays: i64,
+    not_played_since_days: i64,
+    inline_image_size: Option<ThumbnailSize>,
+    seed: Option<i64>,
+    view_options: ListViewOptions<'_>,
+) -> crate::error::Result<ForgottenFavoritesResult> {
+    let (songs, total, actual_seed) = get_forgotten_favorites_song_models(
+        database,
+        user_id,
+        size,
+        offset,
+        min_plays,
+        not_played_since_days,
+        seed,
+        view_options,
+    )
+    .await?;
+
+    if songs.is_empty() {
+        return Ok(ForgottenFavoritesResult {
+            songs: Vec::new(),
+            total,
+            seed: actual_seed,
+        });
+    }
+
+    let song_ids: Vec<String> = songs.iter().map(|song| song.id.clone()).collect();
     let starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
     let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
-
-    // Get inline thumbnails if requested
     let thumbnails = if let Some(thumb_size) = inline_image_size {
         let song_album_pairs: Vec<(String, Option<String>)> = songs
             .iter()
-            .map(|s| (s.id.clone(), s.album_id.clone()))
+            .map(|song| (song.id.clone(), song.album_id.clone()))
             .collect();
         get_song_thumbnails_base64(database, &song_album_pairs, thumb_size).await
     } else {
         std::collections::HashMap::new()
     };
 
-    let mut song_responses = Vec::new();
+    let mut song_responses = Vec::with_capacity(songs.len());
     for song in songs {
         let album = if let Some(album_id) = &song.album_id {
             crate::db::repo::browse::get_album_by_id(database, album_id).await?

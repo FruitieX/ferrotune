@@ -765,6 +765,7 @@ pub async fn start_queue(
                 | QueueSourceType::Search
                 | QueueSourceType::Genre
                 | QueueSourceType::Favorites
+                | QueueSourceType::ForgottenFavorites
                 | QueueSourceType::Directory
                 | QueueSourceType::DirectoryFlat
         );
@@ -1990,7 +1991,10 @@ async fn materialize_forgotten_favorites_queue_songs(
     sort_field: Option<&str>,
     sort_dir: Option<&str>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
-    let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
+    let seed = filters
+        .and_then(|f| f.get("seed"))
+        .and_then(|v| v.as_i64())
+        .or(Some(0));
     let min_plays = filters
         .and_then(|f| f.get("minPlays"))
         .and_then(|v| v.as_i64())
@@ -2000,14 +2004,13 @@ async fn materialize_forgotten_favorites_queue_songs(
         .and_then(|v| v.as_i64())
         .unwrap_or(90);
 
-    let result = crate::api::common::lists::get_forgotten_favorites_logic(
+    let result = crate::api::common::lists::get_forgotten_favorites_song_models(
         database,
         user_id,
-        1000,
+        MAX_QUEUE_SIZE as i64,
         0,
         min_plays,
         not_played_since_days,
-        None,
         seed,
         crate::api::common::lists::ListViewOptions {
             filter: text_filter,
@@ -2017,8 +2020,50 @@ async fn materialize_forgotten_favorites_queue_songs(
     )
     .await?;
 
-    let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
-    Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
+    if result.1 as usize > MAX_QUEUE_SIZE {
+        return Err(FerrotuneApiError(Error::InvalidRequest(format!(
+            "Queue size {} exceeds maximum of {}",
+            result.1, MAX_QUEUE_SIZE
+        ))));
+    }
+
+    Ok(result.0)
+}
+
+async fn materialize_forgotten_favorites_queue_song_page(
+    database: &crate::db::Database,
+    user_id: i64,
+    filters: Option<&serde_json::Value>,
+    view_options: crate::api::common::lists::ListViewOptions<'_>,
+    offset: usize,
+    limit: usize,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let seed = filters
+        .and_then(|f| f.get("seed"))
+        .and_then(|v| v.as_i64())
+        .or(Some(0));
+    let min_plays = filters
+        .and_then(|f| f.get("minPlays"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(10);
+    let not_played_since_days = filters
+        .and_then(|f| f.get("notPlayedSinceDays"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(90);
+
+    let result = crate::api::common::lists::get_forgotten_favorites_song_models(
+        database,
+        user_id,
+        limit as i64,
+        offset as i64,
+        min_plays,
+        not_played_since_days,
+        seed,
+        view_options,
+    )
+    .await?;
+
+    Ok(result.0)
 }
 
 async fn materialize_most_played_recently_queue_songs(
@@ -2574,6 +2619,28 @@ pub async fn materialize_lazy_queue_page(
 
         // No shuffle indices, return unshuffled
         return Ok(all_songs.into_iter().skip(offset).take(limit).collect());
+    }
+
+    if matches!(source_type, QueueSourceType::ForgottenFavorites) {
+        let (sort_field, sort_dir) = sorting::parse_sort_from_json(sort.as_ref());
+        let text_filter = filters
+            .as_ref()
+            .and_then(|f| f.get("filter"))
+            .and_then(|v| v.as_str());
+
+        return materialize_forgotten_favorites_queue_song_page(
+            database,
+            user_id,
+            filters.as_ref(),
+            crate::api::common::lists::ListViewOptions {
+                filter: text_filter,
+                sort: sort_field.as_deref(),
+                sort_dir: sort_dir.as_deref(),
+            },
+            offset,
+            limit,
+        )
+        .await;
     }
 
     // For non-shuffled queues, we can materialize just the page

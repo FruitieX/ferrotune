@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   Clock,
   Disc,
   Heart,
+  History,
   ListMusic,
   Play,
   Radio,
@@ -21,7 +22,12 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { getClient } from "@/lib/api/client";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { getMostPlayedRecentlyFilters } from "@/lib/utils/home-sections";
+import {
+  DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
+  DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
+  DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
+  getMostPlayedRecentlyFilters,
+} from "@/lib/utils/home-sections";
 import { getContinueListeningSourceDetails } from "@/lib/utils/continue-listening";
 import {
   getPlaylistDetailsHref,
@@ -87,7 +93,7 @@ function getContinueListeningSourceIcon(
     case "songRadio":
       return Radio;
     case "forgottenFavorites":
-      return Heart;
+      return History;
     case "mostPlayedRecently":
       return TrendingUp;
     default:
@@ -188,9 +194,9 @@ function getHomeSectionConfig(
         title: "Forgotten Favorites",
         label: "Home",
         emptyTitle: "No forgotten favorites",
-        icon: Heart,
-        iconClassName: "bg-linear-to-br from-red-500 to-pink-700",
-        gradientColor: "rgba(239,68,68,0.2)",
+        icon: History,
+        iconClassName: "bg-linear-to-br from-amber-500 to-teal-700",
+        gradientColor: "rgba(245,158,11,0.2)",
         queueSourceType: "forgottenFavorites",
         queueSourceName: "Forgotten Favorites",
       };
@@ -254,6 +260,15 @@ function getQueueFilters(
     ...extraFilters,
     filter: filterParam,
   };
+}
+
+function getPositiveNumberParam(
+  params: URLSearchParams,
+  key: string,
+  fallback: number,
+) {
+  const value = Number(params.get(key));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function getNextOffsetPageParam(lastPage: {
@@ -431,6 +446,7 @@ function ContinueListeningRow({
 
 export default function HomeSectionPage() {
   const { sectionId } = useParams();
+  const [searchParams] = useSearchParams();
   const section = getHomeSectionConfig(sectionId);
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
@@ -447,16 +463,44 @@ export default function HomeSectionPage() {
   const [sortConfig, setSortConfig] = useState<SortConfig>(() =>
     getDefaultSortConfig(section),
   );
+  const mostPlayedRecentlyDays = getPositiveNumberParam(
+    searchParams,
+    "days",
+    DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
+  );
+  const forgottenFavoritesMinPlays = getPositiveNumberParam(
+    searchParams,
+    "minPlays",
+    DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
+  );
+  const forgottenFavoritesNotPlayedSinceDays = getPositiveNumberParam(
+    searchParams,
+    "notPlayedSinceDays",
+    DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
+  );
+  const forgottenFavoritesFilters = {
+    minPlays: forgottenFavoritesMinPlays,
+    notPlayedSinceDays: forgottenFavoritesNotPlayedSinceDays,
+  };
   const debouncedFilter = useDebounce(filter, 300);
   const seedRef = useRef<number | undefined>(undefined);
-  const mostPlayedFiltersRef = useRef(getMostPlayedRecentlyFilters());
+  const mostPlayedFiltersRef = useRef(
+    getMostPlayedRecentlyFilters(mostPlayedRecentlyDays),
+  );
 
   useEffect(() => {
     seedRef.current = undefined;
-    mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters();
+    mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters(
+      mostPlayedRecentlyDays,
+    );
     setFilter("");
     setSortConfig(getDefaultSortConfig(getHomeSectionConfig(sectionId)));
-  }, [sectionId]);
+  }, [
+    sectionId,
+    mostPlayedRecentlyDays,
+    forgottenFavoritesFilters.minPlays,
+    forgottenFavoritesFilters.notPlayedSinceDays,
+  ]);
 
   const query = useInfiniteQuery({
     queryKey: [
@@ -465,6 +509,9 @@ export default function HomeSectionPage() {
       debouncedFilter,
       sortConfig.field,
       sortConfig.direction,
+      mostPlayedRecentlyDays,
+      forgottenFavoritesFilters.minPlays,
+      forgottenFavoritesFilters.notPlayedSinceDays,
     ],
     queryFn: async ({ pageParam }) => {
       if (!section) {
@@ -535,6 +582,7 @@ export default function HomeSectionPage() {
           offset: pageParam,
           inlineImages: "small",
           seed: pageParam > 0 ? seedRef.current : undefined,
+          ...forgottenFavoritesFilters,
           filter: filterParam,
           ...sortParam,
         });
@@ -642,8 +690,8 @@ export default function HomeSectionPage() {
         section.queueSourceType === "mostPlayedRecently"
           ? mostPlayedFiltersRef.current
           : seedRef.current !== undefined
-            ? { seed: seedRef.current }
-            : undefined;
+            ? { ...forgottenFavoritesFilters, seed: seedRef.current }
+            : forgottenFavoritesFilters;
       startQueue({
         sourceType: section.queueSourceType,
         sourceName: section.queueSourceName,

@@ -29,12 +29,22 @@ import {
   Shield,
   Tag,
   Rows3,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Pencil,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { serverConnectionAtom } from "@/lib/store/auth";
+import {
+  accountKey,
+  accountLabel,
+  savedAccountsAtom,
+  serverConnectionAtom,
+} from "@/lib/store/auth";
 import {
   replayGainModeAtom,
   replayGainOffsetAtom,
@@ -56,16 +66,50 @@ import {
   type ProgressTimeLabelVisibility,
   sidebarItemSizeAtom,
   type SidebarItemSize,
+  homeTilesAtom,
+  homeSectionsAtom,
 } from "@/lib/store/ui";
+import {
+  createHomeTileConfig,
+  getDefaultHomeTileAction,
+  getHomeTileOption,
+  getHomeTilePresentation,
+  getSupportedHomeTileActions,
+  HOME_TILE_OPTIONS,
+  isHomeTileKind,
+  normalizeHomeTiles,
+  type HomeTileActionMode,
+  type HomeTileConfig,
+  type HomeTileKind,
+} from "@/lib/utils/home-tiles";
+import {
+  getForgottenFavoritesMinPlays,
+  getForgottenFavoritesNotPlayedDays,
+  getHomeSectionOption,
+  getMostPlayedRecentlyDays,
+  getTopAlbumsDays,
+  normalizeHomeSections,
+  type HomeSectionConfig,
+} from "@/lib/utils/home-sections";
 import { type ReactNode, useEffect, useState } from "react";
 import {
   parseCssColorToOklch,
   clampOklchToSliderRanges,
 } from "@/lib/utils/color";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -91,6 +135,12 @@ const progressTimeLabelVisibilityOptions = [
   { value: "never", label: "Never" },
 ] satisfies { value: ProgressTimeLabelVisibility; label: string }[];
 
+const homeTileActionOptions = [
+  { value: "open", label: "Open" },
+  { value: "play", label: "Play" },
+  { value: "shuffle", label: "Shuffle" },
+] satisfies { value: HomeTileActionMode; label: string }[];
+
 type AboutInfoRowProps = {
   label: string;
   children: ReactNode;
@@ -114,6 +164,9 @@ export default function SettingsPage() {
   const isMounted = useIsMounted();
   const { isAdmin } = useCurrentUser();
   const [connection] = useAtom(serverConnectionAtom);
+  const [savedAccounts] = useAtom(savedAccountsAtom);
+  const [homeTiles, setHomeTiles] = useAtom(homeTilesAtom);
+  const [homeSections, setHomeSections] = useAtom(homeSectionsAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [progressTimeLabelVisibility, setProgressTimeLabelVisibility] = useAtom(
     progressTimeLabelVisibilityAtom,
@@ -138,6 +191,14 @@ export default function SettingsPage() {
   );
   const { theme, setTheme } = useTheme();
   const formattedBuildDate = formatBuildDate(buildInfo.buildDate);
+  const [newTileKind, setNewTileKind] =
+    useState<HomeTileKind>("forgottenFavorites");
+  const [editingHomeTileId, setEditingHomeTileId] = useState<string | null>(
+    null,
+  );
+  const [editingHomeSectionId, setEditingHomeSectionId] = useState<
+    string | null
+  >(null);
 
   // Fetch server stats
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -150,6 +211,53 @@ export default function SettingsPage() {
     enabled: isReady,
     staleTime: 60000, // Cache for 1 minute
   });
+
+  const { data: playlistFoldersData } = useQuery({
+    queryKey: ["playlistFolders", "homeTiles"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getPlaylistFoldersWithStructure();
+    },
+    enabled: isReady,
+  });
+
+  const { data: smartPlaylists } = useQuery({
+    queryKey: ["smartPlaylists", "homeTiles"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getSmartPlaylists();
+      return response.smartPlaylists ?? [];
+    },
+    enabled: isReady,
+  });
+
+  const playlistChoices = [
+    ...(playlistFoldersData?.playlists ?? []).map((playlist) => ({
+      value: `playlist:${playlist.id}`,
+      id: playlist.id,
+      name: playlist.name,
+      type: "playlist" as const,
+      label: playlist.name,
+    })),
+    ...(smartPlaylists ?? []).map((playlist) => ({
+      value: `smartPlaylist:${playlist.id}`,
+      id: playlist.id,
+      name: playlist.name,
+      type: "smartPlaylist" as const,
+      label: `${playlist.name} (smart)`,
+    })),
+  ];
+
+  const normalizedHomeTiles = normalizeHomeTiles(homeTiles);
+  const normalizedHomeSections = normalizeHomeSections(homeSections);
+  const editingHomeTile = normalizedHomeTiles.find(
+    (tile) => tile.id === editingHomeTileId,
+  );
+  const editingHomeSection = normalizedHomeSections.find(
+    (section) => section.id === editingHomeSectionId,
+  );
 
   // Use the centralized accent color hook that syncs with server
   const {
@@ -217,6 +325,143 @@ export default function SettingsPage() {
   const handleCustomChromaChange = (chroma: number) => {
     setCustomChroma(chroma);
   };
+
+  const handleNewTileKindChange = (value: string) => {
+    if (!isHomeTileKind(value)) {
+      return;
+    }
+
+    setNewTileKind(value);
+  };
+
+  const updateHomeTile = (tileId: string, patch: Partial<HomeTileConfig>) => {
+    setHomeTiles((current) =>
+      normalizeHomeTiles(current).map((tile) =>
+        tile.id === tileId ? { ...tile, ...patch } : tile,
+      ),
+    );
+  };
+
+  const updateHomeSection = (
+    sectionId: string,
+    patch: Partial<HomeSectionConfig>,
+  ) => {
+    setHomeSections((current) =>
+      normalizeHomeSections(current).map((section) =>
+        section.id === sectionId ? { ...section, ...patch } : section,
+      ),
+    );
+  };
+
+  const numberFromInput = (value: string) => Math.max(1, Number(value) || 1);
+
+  const moveHomeTile = (tileId: string, direction: -1 | 1) => {
+    setHomeTiles((current) => {
+      const next = [...normalizeHomeTiles(current)];
+      const index = next.findIndex((tile) => tile.id === tileId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= next.length) {
+        return current;
+      }
+
+      const [tile] = next.splice(index, 1);
+      next.splice(targetIndex, 0, tile);
+      return next;
+    });
+  };
+
+  const moveHomeSection = (sectionId: string, direction: -1 | 1) => {
+    setHomeSections((current) => {
+      const next = [...normalizeHomeSections(current)];
+      const index = next.findIndex((section) => section.id === sectionId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= next.length) {
+        return current;
+      }
+
+      const [section] = next.splice(index, 1);
+      next.splice(targetIndex, 0, section);
+      return next;
+    });
+  };
+
+  const removeHomeTile = (tileId: string) => {
+    setHomeTiles((current) => {
+      const next = normalizeHomeTiles(current).filter(
+        (tile) => tile.id !== tileId,
+      );
+      return normalizeHomeTiles(next);
+    });
+  };
+
+  const addHomeTile = () => {
+    const nextTile = createHomeTileConfig(newTileKind);
+    setHomeTiles((current) => [...normalizeHomeTiles(current), nextTile]);
+    setEditingHomeTileId(nextTile.id);
+  };
+
+  const handleEditTileKindChange = (tile: HomeTileConfig, value: string) => {
+    if (!isHomeTileKind(value)) {
+      return;
+    }
+
+    const nextKind = value as HomeTileKind;
+    updateHomeTile(tile.id, {
+      kind: nextKind,
+      action: getDefaultHomeTileAction(nextKind),
+      playlistId: undefined,
+      playlistName: undefined,
+      playlistType: undefined,
+      accountKey: undefined,
+      accountLabel: undefined,
+    });
+  };
+
+  const handleEditTilePlaylistChange = (
+    tile: HomeTileConfig,
+    value: string,
+  ) => {
+    const selectedPlaylist = playlistChoices.find(
+      (playlist) => playlist.value === value,
+    );
+    if (!selectedPlaylist) {
+      return;
+    }
+
+    updateHomeTile(tile.id, {
+      playlistId: selectedPlaylist.id,
+      playlistName: selectedPlaylist.name,
+      playlistType: selectedPlaylist.type,
+    });
+  };
+
+  const handleEditTileAccountChange = (tile: HomeTileConfig, value: string) => {
+    const account = savedAccounts.find(
+      (savedAccount) => accountKey(savedAccount) === value,
+    );
+    if (!account) {
+      return;
+    }
+
+    updateHomeTile(tile.id, {
+      accountKey: value,
+      accountLabel: account.label || accountLabel(account),
+    });
+  };
+
+  const editingTileOption = editingHomeTile
+    ? getHomeTileOption(editingHomeTile.kind)
+    : undefined;
+  const editingTilePresentation = editingHomeTile
+    ? getHomeTilePresentation(editingHomeTile)
+    : undefined;
+  const editingTilePlaylistValue =
+    editingHomeTile?.playlistType && editingHomeTile.playlistId
+      ? `${editingHomeTile.playlistType}:${editingHomeTile.playlistId}`
+      : "";
+  const editingSectionOption = editingHomeSection
+    ? getHomeSectionOption(editingHomeSection.kind)
+    : undefined;
 
   // Always render the same loading state on server and during hydration
   // This prevents hydration mismatches
@@ -474,6 +719,459 @@ export default function SettingsPage() {
                   </div>
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Home Tiles */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.16 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Rows3 className="w-5 h-5" />
+                Home Tiles
+              </CardTitle>
+              <CardDescription>
+                Choose the quick actions shown at the top of Home
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2">
+                {normalizedHomeTiles.map((tile, index) => {
+                  const presentation = getHomeTilePresentation(tile);
+                  const TileIcon = presentation.icon;
+                  return (
+                    <div
+                      key={tile.id}
+                      className="flex items-center gap-3 rounded-lg bg-muted/30 p-3"
+                    >
+                      <span
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-background ${presentation.iconClassName}`}
+                      >
+                        <TileIcon className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">
+                          {presentation.label}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {presentation.subtitle}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Edit ${presentation.label}`}
+                          onClick={() => setEditingHomeTileId(tile.id)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Move ${presentation.label} up`}
+                          onClick={() => moveHomeTile(tile.id, -1)}
+                          disabled={index === 0}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Move ${presentation.label} down`}
+                          onClick={() => moveHomeTile(tile.id, 1)}
+                          disabled={index === normalizedHomeTiles.length - 1}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          aria-label={`Remove ${presentation.label}`}
+                          onClick={() => removeHomeTile(tile.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <Separator />
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Select
+                  value={newTileKind}
+                  onValueChange={handleNewTileKindChange}
+                >
+                  <SelectTrigger className="sm:max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HOME_TILE_OPTIONS.map((option) => (
+                      <SelectItem key={option.kind} value={option.kind}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button className="gap-2" onClick={addHomeTile}>
+                  <Plus className="h-4 w-4" />
+                  Add Tile
+                </Button>
+              </div>
+
+              <Dialog
+                open={Boolean(editingHomeTile)}
+                onOpenChange={(open) => {
+                  if (!open) setEditingHomeTileId(null);
+                }}
+              >
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Edit Home Tile</DialogTitle>
+                    <DialogDescription>
+                      Choose what this tile points at and what it does when
+                      pressed.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  {editingHomeTile && editingTileOption ? (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Tile</Label>
+                        <Select
+                          value={editingHomeTile.kind}
+                          onValueChange={(value) =>
+                            handleEditTileKindChange(editingHomeTile, value)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {HOME_TILE_OPTIONS.map((option) => (
+                              <SelectItem key={option.kind} value={option.kind}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {editingHomeTile.kind !== "accountSwitch" ? (
+                        <div className="space-y-2">
+                          <Label>Action</Label>
+                          <Select
+                            value={editingHomeTile.action ?? "open"}
+                            onValueChange={(value) =>
+                              updateHomeTile(editingHomeTile.id, {
+                                action: value as HomeTileActionMode,
+                              })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {homeTileActionOptions
+                                .filter((option) =>
+                                  getSupportedHomeTileActions(
+                                    editingHomeTile.kind,
+                                  ).includes(option.value),
+                                )
+                                .map((option) => (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+
+                      {editingTileOption.requirement === "playlist" ? (
+                        <div className="space-y-2">
+                          <Label>Playlist</Label>
+                          <Select
+                            value={editingTilePlaylistValue || undefined}
+                            onValueChange={(value) =>
+                              handleEditTilePlaylistChange(
+                                editingHomeTile,
+                                value,
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose playlist" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {playlistChoices.map((playlist) => (
+                                <SelectItem
+                                  key={playlist.value}
+                                  value={playlist.value}
+                                >
+                                  {playlist.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+
+                      {editingTileOption.requirement === "account" ? (
+                        <div className="space-y-2">
+                          <Label>Account</Label>
+                          <Select
+                            value={editingHomeTile.accountKey}
+                            onValueChange={(value) =>
+                              handleEditTileAccountChange(
+                                editingHomeTile,
+                                value,
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose account" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {savedAccounts.map((account) => {
+                                const key = accountKey(account);
+                                return (
+                                  <SelectItem key={key} value={key}>
+                                    {account.label || accountLabel(account)}
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+
+                      {editingTilePresentation?.isIncomplete ? (
+                        <p className="text-sm text-muted-foreground">
+                          Choose the missing setting before this tile can be
+                          used.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button>Done</Button>
+                    </DialogClose>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Home Sections */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Rows3 className="w-5 h-5" />
+                Home Sections
+              </CardTitle>
+              <CardDescription>
+                Reorder Home rows and choose which ones are shown
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2">
+                {normalizedHomeSections.map((section, index) => {
+                  const option = getHomeSectionOption(section.kind);
+                  const SectionIcon = option.icon;
+                  return (
+                    <div
+                      key={section.id}
+                      className="flex items-center gap-3 rounded-lg bg-muted/30 p-3"
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground">
+                        <SectionIcon className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{option.label}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {option.description}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={section.enabled}
+                        onCheckedChange={(enabled) =>
+                          updateHomeSection(section.id, { enabled })
+                        }
+                        aria-label={`Show ${option.label}`}
+                      />
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Edit ${option.label}`}
+                          onClick={() => setEditingHomeSectionId(section.id)}
+                          disabled={!option.hasSettings}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Move ${option.label} up`}
+                          onClick={() => moveHomeSection(section.id, -1)}
+                          disabled={index === 0}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Move ${option.label} down`}
+                          onClick={() => moveHomeSection(section.id, 1)}
+                          disabled={index === normalizedHomeSections.length - 1}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <Dialog
+                open={Boolean(editingHomeSection)}
+                onOpenChange={(open) => {
+                  if (!open) setEditingHomeSectionId(null);
+                }}
+              >
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingSectionOption?.label ?? "Edit Home Section"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      Tune how this section chooses its items.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  {editingHomeSection ? (
+                    <div className="space-y-4">
+                      {editingHomeSection.kind === "mostPlayedRecently" ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="most-played-days">Days back</Label>
+                          <Input
+                            id="most-played-days"
+                            type="number"
+                            min={1}
+                            value={getMostPlayedRecentlyDays(
+                              editingHomeSection,
+                            )}
+                            onChange={(event) =>
+                              updateHomeSection(editingHomeSection.id, {
+                                mostPlayedRecentlyDays: numberFromInput(
+                                  event.target.value,
+                                ),
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+
+                      {editingHomeSection.kind === "forgottenFavorites" ? (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="forgotten-min-plays">
+                              Minimum plays
+                            </Label>
+                            <Input
+                              id="forgotten-min-plays"
+                              type="number"
+                              min={1}
+                              value={getForgottenFavoritesMinPlays(
+                                editingHomeSection,
+                              )}
+                              onChange={(event) =>
+                                updateHomeSection(editingHomeSection.id, {
+                                  forgottenFavoritesMinPlays: numberFromInput(
+                                    event.target.value,
+                                  ),
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="forgotten-not-played-days">
+                              Not played for days
+                            </Label>
+                            <Input
+                              id="forgotten-not-played-days"
+                              type="number"
+                              min={1}
+                              value={getForgottenFavoritesNotPlayedDays(
+                                editingHomeSection,
+                              )}
+                              onChange={(event) =>
+                                updateHomeSection(editingHomeSection.id, {
+                                  forgottenFavoritesNotPlayedSinceDays:
+                                    numberFromInput(event.target.value),
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {editingHomeSection.kind === "topAlbums" ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="top-albums-days">Days back</Label>
+                          <Input
+                            id="top-albums-days"
+                            type="number"
+                            min={1}
+                            value={getTopAlbumsDays(editingHomeSection)}
+                            onChange={(event) =>
+                              updateHomeSection(editingHomeSection.id, {
+                                topAlbumsDays: numberFromInput(
+                                  event.target.value,
+                                ),
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button>Done</Button>
+                    </DialogClose>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </CardContent>
           </Card>
         </motion.div>

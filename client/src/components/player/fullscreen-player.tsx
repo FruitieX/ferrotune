@@ -557,6 +557,11 @@ export function FullscreenPlayer() {
     setQueuePanelOpen(true);
   };
 
+  const handleMenuNavigate = () => {
+    fsClosedViaPopstateRef.current = true;
+    setIsOpen(false);
+  };
+
   // Handler for swipe-to-close gesture end
   const handleDragEnd = (
     _event: MouseEvent | TouchEvent | PointerEvent,
@@ -791,7 +796,7 @@ export function FullscreenPlayer() {
                   </div>
                   <SongDropdownMenu
                     song={currentTrack}
-                    onNavigate={() => setIsOpen(false)}
+                    onNavigate={handleMenuNavigate}
                     trigger={
                       <Button
                         variant="ghost"

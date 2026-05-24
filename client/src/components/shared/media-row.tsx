@@ -52,6 +52,7 @@ interface MediaRowProps {
     | "playlist"
     | "smartPlaylist"
     | "favorites"
+    | "forgottenFavorites"
     | "mostPlayedRecently"
     | "discover"
     | "recentlyAdded"

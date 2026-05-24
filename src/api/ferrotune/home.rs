@@ -30,6 +30,16 @@ pub struct HomePageParams {
     pub discover_seed: Option<i64>,
     /// Random seed for Forgotten Favorites section
     pub forgotten_fav_seed: Option<i64>,
+    /// Include Continue Listening in the batch response (default true)
+    pub include_continue_listening: Option<bool>,
+    /// Include Most Played Recently in the batch response (default true)
+    pub include_most_played_recently: Option<bool>,
+    /// Include Recently Added in the batch response (default true)
+    pub include_recently_added: Option<bool>,
+    /// Include Forgotten Favorites in the batch response (default true)
+    pub include_forgotten_favorites: Option<bool>,
+    /// Include Discover in the batch response (default true)
+    pub include_discover: Option<bool>,
 }
 
 /// A section of the home page containing albums
@@ -110,75 +120,161 @@ pub async fn get_home(
     let since = chrono::Utc::now() - chrono::Duration::days(30);
     let since_str = since.format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    // Run all queries concurrently
-    let (continue_result, frequent_result, newest_result, random_result, forgotten_result) = tokio::join!(
-        get_continue_listening_logic(
-            &state.database,
-            user_id,
-            size,
-            0,
-            inline_size,
-            ListViewOptions::default(),
-        ),
-        get_most_played_recently_logic(
-            database,
-            user_id,
-            size,
-            0,
-            inline_size,
-            Some(since_str),
-            ListViewOptions::default(),
-        ),
-        get_album_list_logic(
-            database,
-            user_id,
-            AlbumListType::Newest,
-            size,
-            0,
-            None,
-            None,
-            None,
-            inline_size,
-            None,
-            None,
-            None,
-            None,
-            None
-        ),
-        get_album_list_logic(
-            database,
-            user_id,
-            AlbumListType::Random,
-            size,
-            0,
-            None,
-            None,
-            None,
-            inline_size,
-            None,
-            params.discover_seed,
-            None,
-            None,
-            None
-        ),
-        get_forgotten_favorites_logic(
-            database,
-            user_id,
-            size,
-            0,
-            10,
-            90,
-            inline_size,
-            params.forgotten_fav_seed,
-            ListViewOptions::default()
-        ),
-    );
+    let include_continue_listening = params.include_continue_listening.unwrap_or(true);
+    let include_most_played_recently = params.include_most_played_recently.unwrap_or(true);
+    let include_recently_added = params.include_recently_added.unwrap_or(true);
+    let include_forgotten_favorites = params.include_forgotten_favorites.unwrap_or(true);
+    let include_discover = params.include_discover.unwrap_or(true);
 
-    let continue_listening = continue_result?;
-    let frequent = frequent_result?;
-    let newest = newest_result?;
-    let random = random_result?;
-    let forgotten = forgotten_result?;
+    // Run requested queries concurrently. Skipped sections return empty payloads
+    // so older clients keep the same response shape while newer clients avoid
+    // paying for disabled or separately configured sections.
+    let (continue_result, frequent_result, newest_result, random_result, forgotten_result) = tokio::join!(
+        async {
+            if !include_continue_listening {
+                return Ok::<HomeContinueListeningSection, crate::error::FerrotuneApiError>(
+                    HomeContinueListeningSection {
+                        entries: Vec::new(),
+                        total: 0,
+                    },
+                );
+            }
+
+            let continue_listening = get_continue_listening_logic(
+                &state.database,
+                user_id,
+                size,
+                0,
+                inline_size,
+                ListViewOptions::default(),
+            )
+            .await?;
+            Ok::<HomeContinueListeningSection, crate::error::FerrotuneApiError>(
+                HomeContinueListeningSection {
+                    entries: continue_listening.entries,
+                    total: continue_listening.total,
+                },
+            )
+        },
+        async {
+            if !include_most_played_recently {
+                return Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {
+                    song: Vec::new(),
+                    total: 0,
+                });
+            }
+
+            let frequent = get_most_played_recently_logic(
+                database,
+                user_id,
+                size,
+                0,
+                inline_size,
+                Some(since_str),
+                ListViewOptions::default(),
+            )
+            .await?;
+            Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {
+                song: frequent.songs,
+                total: frequent.total,
+            })
+        },
+        async {
+            if !include_recently_added {
+                return Ok::<HomeAlbumSection, crate::error::FerrotuneApiError>(HomeAlbumSection {
+                    album: Vec::new(),
+                    total: Some(0),
+                    seed: None,
+                });
+            }
+
+            let newest = get_album_list_logic(
+                database,
+                user_id,
+                AlbumListType::Newest,
+                size,
+                0,
+                None,
+                None,
+                None,
+                inline_size,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            Ok::<HomeAlbumSection, crate::error::FerrotuneApiError>(HomeAlbumSection {
+                album: newest.albums,
+                total: newest.total,
+                seed: None,
+            })
+        },
+        async {
+            if !include_discover {
+                return Ok::<HomeAlbumSection, crate::error::FerrotuneApiError>(HomeAlbumSection {
+                    album: Vec::new(),
+                    total: Some(0),
+                    seed: params.discover_seed,
+                });
+            }
+
+            let random = get_album_list_logic(
+                database,
+                user_id,
+                AlbumListType::Random,
+                size,
+                0,
+                None,
+                None,
+                None,
+                inline_size,
+                None,
+                params.discover_seed,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            Ok::<HomeAlbumSection, crate::error::FerrotuneApiError>(HomeAlbumSection {
+                album: random.albums,
+                total: random.total,
+                seed: random.seed,
+            })
+        },
+        async {
+            if !include_forgotten_favorites {
+                return Ok::<HomeForgottenFavoritesSection, crate::error::FerrotuneApiError>(
+                    HomeForgottenFavoritesSection {
+                        song: Vec::new(),
+                        total: 0,
+                        seed: params.forgotten_fav_seed.unwrap_or(0),
+                    },
+                );
+            }
+
+            let forgotten = get_forgotten_favorites_logic(
+                database,
+                user_id,
+                size,
+                0,
+                10,
+                90,
+                inline_size,
+                params.forgotten_fav_seed,
+                ListViewOptions::default(),
+            )
+            .await?;
+            Ok::<HomeForgottenFavoritesSection, crate::error::FerrotuneApiError>(
+                HomeForgottenFavoritesSection {
+                    song: forgotten.songs,
+                    total: forgotten.total,
+                    seed: forgotten.seed,
+                },
+            )
+        },
+    );
 
     Ok((
         [
@@ -186,29 +282,11 @@ pub async fn get_home(
             (header::VARY, "Authorization"),
         ],
         Json(HomePageResponse {
-            continue_listening: HomeContinueListeningSection {
-                entries: continue_listening.entries,
-                total: continue_listening.total,
-            },
-            most_played_recently: HomeSongSection {
-                song: frequent.songs,
-                total: frequent.total,
-            },
-            recently_added: HomeAlbumSection {
-                album: newest.albums,
-                total: newest.total,
-                seed: None,
-            },
-            forgotten_favorites: HomeForgottenFavoritesSection {
-                song: forgotten.songs,
-                total: forgotten.total,
-                seed: forgotten.seed,
-            },
-            discover: HomeAlbumSection {
-                album: random.albums,
-                total: random.total,
-                seed: random.seed,
-            },
+            continue_listening: continue_result?,
+            most_played_recently: frequent_result?,
+            recently_added: newest_result?,
+            forgotten_favorites: forgotten_result?,
+            discover: random_result?,
         }),
     ))
 }

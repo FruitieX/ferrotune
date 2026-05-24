@@ -3522,6 +3522,11 @@ fn test_postgres_home_handler_works() {
                 inline_images: None,
                 discover_seed: Some(7),
                 forgotten_fav_seed: Some(42),
+                include_continue_listening: None,
+                include_most_played_recently: None,
+                include_recently_added: None,
+                include_forgotten_favorites: None,
+                include_discover: None,
             }),
         )
         .await
@@ -4755,7 +4760,7 @@ fn test_postgres_playlist_start_queue_handler_works() {
                 username: user.username.clone(),
                 is_admin: user.is_admin,
             },
-            State(state),
+            State(state.clone()),
             Json(StartQueueRequest {
                 session_id: Some(session.id.clone()),
                 source_type: "playlist".to_string(),
@@ -5547,8 +5552,21 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
         let database = db::create_pool(&config)
             .await
             .expect("postgres database pool should connect");
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
         let (user, _artist_id, _album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
+
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+              VALUES ($1, $2, NOW() - INTERVAL '120 days', TRUE, 3, NULL)",
+        )
+        .bind(user.id)
+        .bind(&song_2)
+        .execute(pool)
+        .await
+        .expect("postgres forgotten-favorites scrobble should be inserted");
 
         let session = db::queries::get_or_create_session(&database, user.id)
             .await
@@ -5569,7 +5587,7 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
                 username: user.username.clone(),
                 is_admin: user.is_admin,
             },
-            State(state),
+            State(state.clone()),
             Json(StartQueueRequest {
                 session_id: Some(session.id.clone()),
                 source_type: "mostPlayedRecently".to_string(),
@@ -5603,6 +5621,100 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
             .expect("postgres queue lookup after most-played start_queue should succeed")
             .expect("postgres queue should exist after most-played start_queue");
         assert_eq!(queue.source_type, "mostPlayedRecently".to_string());
+
+        let response = ferrotune_start_queue(
+            FerrotuneAuthenticatedUser {
+                user_id: user.id,
+                username: user.username.clone(),
+                is_admin: user.is_admin,
+            },
+            State(state),
+            Json(StartQueueRequest {
+                session_id: Some(session.id.clone()),
+                source_type: "forgottenFavorites".to_string(),
+                source_id: None,
+                source_name: Some("Forgotten Favorites".to_string()),
+                start_index: 0,
+                start_song_id: Some(song_2.clone()),
+                shuffle: false,
+                repeat_mode: None,
+                filters: Some(serde_json::json!({
+                    "minPlays": 1,
+                    "notPlayedSinceDays": 90,
+                    "seed": 0,
+                })),
+                sort: None,
+                song_ids: None,
+                inline_images: None,
+                client_id: None,
+                client_name: None,
+                keep_playing: false,
+            }),
+        )
+        .await
+        .expect("postgres start_queue forgotten-favorites handler should succeed")
+        .0;
+
+        assert_eq!(response.total_count, 1);
+        assert_eq!(response.current_index, 0);
+        assert_eq!(response.window.songs.len(), 1);
+        assert_eq!(response.window.songs[0].song.id, song_2);
+
+        let queue = db::queries::get_play_queue_by_session(&database, &session.id, user.id)
+            .await
+            .expect("postgres queue lookup after forgotten-favorites start_queue should succeed")
+            .expect("postgres queue should exist after forgotten-favorites start_queue");
+        assert_eq!(queue.source_type, "forgottenFavorites".to_string());
+
+        let now = Utc::now();
+        let forgotten_favorites_queue = db::models::PlayQueue {
+            user_id: user.id,
+            source_type: "forgottenFavorites".to_string(),
+            source_id: None,
+            source_name: Some("Forgotten Favorites".to_string()),
+            current_index: 0,
+            position_ms: 0,
+            is_shuffled: false,
+            shuffle_seed: None,
+            shuffle_indices_json: None,
+            repeat_mode: "off".to_string(),
+            filters_json: Some(
+                serde_json::json!({
+                    "minPlays": 1,
+                    "notPlayedSinceDays": 90,
+                    "seed": 0,
+                })
+                .to_string(),
+            ),
+            sort_json: None,
+            created_at: now,
+            updated_at: now,
+            changed_by: "postgres-container-test".to_string(),
+            total_count: None,
+            is_lazy: true,
+            song_ids_json: None,
+            instance_id: None,
+            session_id: None,
+            version: 0,
+            source_api: "ferrotune".to_string(),
+        };
+
+        let total = get_lazy_queue_count(&database, &forgotten_favorites_queue, user.id)
+            .await
+            .expect("postgres forgotten-favorites lazy queue count should materialize");
+        assert_eq!(total, 1);
+
+        let page = materialize_lazy_queue_page(
+            &database,
+            &forgotten_favorites_queue,
+            user.id,
+            0,
+            10,
+        )
+        .await
+        .expect("postgres forgotten-favorites lazy queue page should materialize");
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].id, song_2);
     });
 }
 

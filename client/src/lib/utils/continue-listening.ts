@@ -8,6 +8,7 @@ export interface ContinueListeningSourceDetails {
     | "playlist"
     | "song"
     | "favorites"
+    | "forgottenFavorites"
     | "mostPlayedRecently"
     | "discover"
     | "recentlyAdded"
@@ -93,7 +94,7 @@ export function getContinueListeningSourceDetails(
       return {
         queueSourceType: "forgottenFavorites",
         subtitle: "Old favorites worth revisiting",
-        coverType: "favorites",
+        coverType: "forgottenFavorites",
       };
     case "mostPlayedRecently":
       return {

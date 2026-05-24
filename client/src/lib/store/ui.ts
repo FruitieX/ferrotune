@@ -3,6 +3,14 @@ import { motionValue, type MotionValue } from "framer-motion";
 import { atomWithClientAccountStorage } from "./client-storage";
 import { atomWithServerStorage } from "./server-storage";
 import { oklchToRgbString } from "@/lib/utils/color";
+import {
+  DEFAULT_HOME_TILES,
+  type HomeTileConfig,
+} from "@/lib/utils/home-tiles";
+import {
+  DEFAULT_HOME_SECTIONS,
+  type HomeSectionConfig,
+} from "@/lib/utils/home-sections";
 
 // Sidebar state
 export const sidebarCollapsedAtom = atomWithServerStorage(
@@ -20,6 +28,17 @@ export const sidebarItemSizeAtom = atomWithServerStorage<SidebarItemSize>(
 
 // Mobile menu state
 export const mobileMenuOpenAtom = atom<boolean>(false);
+
+// Home quick access tiles
+export const homeTilesAtom = atomWithServerStorage<HomeTileConfig[]>(
+  "home-tiles-v1",
+  DEFAULT_HOME_TILES,
+);
+
+export const homeSectionsAtom = atomWithServerStorage<HomeSectionConfig[]>(
+  "home-sections-v1",
+  DEFAULT_HOME_SECTIONS,
+);
 
 // Queue panel state - persisted so sidebar stays open on reload
 export const queuePanelOpenAtom = atomWithClientAccountStorage<boolean>(

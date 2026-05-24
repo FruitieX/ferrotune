@@ -476,6 +476,11 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
       discoverSeed?: number;
       forgottenFavSeed?: number;
+      includeContinueListening?: boolean;
+      includeMostPlayedRecently?: boolean;
+      includeRecentlyAdded?: boolean;
+      includeForgottenFavorites?: boolean;
+      includeDiscover?: boolean;
     } = {},
   ): Promise<HomePageResponse> {
     const endpoint = buildEndpoint("/ferrotune/home", params);
