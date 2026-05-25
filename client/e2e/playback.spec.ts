@@ -82,18 +82,31 @@ async function waitForServerPreference(
         ({ preferenceKey, expectedValue }) => {
           type ServerStorageStateForTest = {
             __ferrotuneServerStorageState?: {
-              hasLoadedOnce: boolean;
-              valueCache: Map<string, unknown>;
+              loadedAccounts: Set<string>;
+              valueCacheByAccount: Map<string, Map<string, unknown>>;
             };
           };
 
           const storageState = (window as Window & ServerStorageStateForTest)
             .__ferrotuneServerStorageState;
 
-          return (
-            storageState?.hasLoadedOnce === true &&
-            storageState.valueCache.get(preferenceKey) === expectedValue
-          );
+          if (!storageState) {
+            return false;
+          }
+
+          for (const [
+            account,
+            valueCache,
+          ] of storageState.valueCacheByAccount) {
+            if (
+              storageState.loadedAccounts.has(account) &&
+              valueCache.get(preferenceKey) === expectedValue
+            ) {
+              return true;
+            }
+          }
+
+          return false;
         },
         { preferenceKey: key, expectedValue: value },
       ),

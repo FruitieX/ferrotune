@@ -83,8 +83,10 @@ import {
   type HomeTileKind,
 } from "@/lib/utils/home-tiles";
 import {
+  createPlaylistHomeSectionConfig,
   getForgottenFavoritesMinPlays,
   getForgottenFavoritesNotPlayedDays,
+  getHomeSectionPresentation,
   getHomeSectionOption,
   getMostPlayedRecentlyDays,
   getTopAlbumsDays,
@@ -435,6 +437,24 @@ export default function SettingsPage() {
     });
   };
 
+  const handleEditSectionPlaylistChange = (
+    section: HomeSectionConfig,
+    value: string,
+  ) => {
+    const selectedPlaylist = playlistChoices.find(
+      (playlist) => playlist.value === value,
+    );
+    if (!selectedPlaylist) {
+      return;
+    }
+
+    updateHomeSection(section.id, {
+      playlistId: selectedPlaylist.id,
+      playlistName: selectedPlaylist.name,
+      playlistType: selectedPlaylist.type,
+    });
+  };
+
   const handleEditTileAccountChange = (tile: HomeTileConfig, value: string) => {
     const account = savedAccounts.find(
       (savedAccount) => accountKey(savedAccount) === value,
@@ -449,11 +469,33 @@ export default function SettingsPage() {
     });
   };
 
+  const addPlaylistHomeSection = () => {
+    const nextSection = createPlaylistHomeSectionConfig();
+    setHomeSections((current) => [
+      ...normalizeHomeSections(current),
+      nextSection,
+    ]);
+    setEditingHomeSectionId(nextSection.id);
+  };
+
+  const removeHomeSection = (sectionId: string) => {
+    setHomeSections((current) =>
+      normalizeHomeSections(current).filter(
+        (section) => section.id !== sectionId,
+      ),
+    );
+    if (editingHomeSectionId === sectionId) {
+      setEditingHomeSectionId(null);
+    }
+  };
+
   const editingTileOption = editingHomeTile
     ? getHomeTileOption(editingHomeTile.kind)
     : undefined;
   const editingTilePresentation = editingHomeTile
-    ? getHomeTilePresentation(editingHomeTile)
+    ? getHomeTilePresentation(editingHomeTile, {
+        homeSections: normalizedHomeSections,
+      })
     : undefined;
   const editingTilePlaylistValue =
     editingHomeTile?.playlistType && editingHomeTile.playlistId
@@ -462,6 +504,13 @@ export default function SettingsPage() {
   const editingSectionOption = editingHomeSection
     ? getHomeSectionOption(editingHomeSection.kind)
     : undefined;
+  const editingSectionPresentation = editingHomeSection
+    ? getHomeSectionPresentation(editingHomeSection)
+    : undefined;
+  const editingSectionPlaylistValue =
+    editingHomeSection?.playlistType && editingHomeSection.playlistId
+      ? `${editingHomeSection.playlistType}:${editingHomeSection.playlistId}`
+      : "";
 
   // Always render the same loading state on server and during hydration
   // This prevents hydration mismatches
@@ -742,19 +791,21 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="grid gap-2">
                 {normalizedHomeTiles.map((tile, index) => {
-                  const presentation = getHomeTilePresentation(tile);
+                  const presentation = getHomeTilePresentation(tile, {
+                    homeSections: normalizedHomeSections,
+                  });
                   const TileIcon = presentation.icon;
                   return (
                     <div
                       key={tile.id}
-                      className="flex items-center gap-3 rounded-lg bg-muted/30 p-3"
+                      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-lg bg-muted/30 p-2 sm:flex sm:items-center sm:gap-3 sm:p-3"
                     >
                       <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-background ${presentation.iconClassName}`}
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background sm:h-10 sm:w-10 ${presentation.iconClassName}`}
                       >
                         <TileIcon className="h-5 w-5" />
                       </span>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 overflow-hidden sm:flex-1">
                         <p className="truncate font-medium">
                           {presentation.label}
                         </p>
@@ -762,7 +813,7 @@ export default function SettingsPage() {
                           {presentation.subtitle}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="col-span-2 flex min-w-0 items-center justify-end gap-1 sm:col-auto sm:shrink-0">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1001,37 +1052,39 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="grid gap-2">
                 {normalizedHomeSections.map((section, index) => {
-                  const option = getHomeSectionOption(section.kind);
-                  const SectionIcon = option.icon;
+                  const presentation = getHomeSectionPresentation(section);
+                  const SectionIcon = presentation.icon;
                   return (
                     <div
                       key={section.id}
-                      className="flex items-center gap-3 rounded-lg bg-muted/30 p-3"
+                      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-lg bg-muted/30 p-2 sm:flex sm:items-center sm:gap-3 sm:p-3"
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground sm:h-10 sm:w-10">
                         <SectionIcon className="h-5 w-5" />
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{option.label}</p>
+                      <div className="min-w-0 overflow-hidden sm:flex-1">
+                        <p className="truncate font-medium">
+                          {presentation.label}
+                        </p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {option.description}
+                          {presentation.description}
                         </p>
                       </div>
-                      <Switch
-                        checked={section.enabled}
-                        onCheckedChange={(enabled) =>
-                          updateHomeSection(section.id, { enabled })
-                        }
-                        aria-label={`Show ${option.label}`}
-                      />
-                      <div className="flex items-center gap-1">
+                      <div className="col-span-2 flex min-w-0 items-center justify-end gap-1 sm:col-auto sm:shrink-0">
+                        <Switch
+                          checked={section.enabled}
+                          onCheckedChange={(enabled) =>
+                            updateHomeSection(section.id, { enabled })
+                          }
+                          aria-label={`Show ${presentation.label}`}
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          aria-label={`Edit ${option.label}`}
+                          aria-label={`Edit ${presentation.label}`}
                           onClick={() => setEditingHomeSectionId(section.id)}
-                          disabled={!option.hasSettings}
+                          disabled={!presentation.hasSettings}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -1039,7 +1092,7 @@ export default function SettingsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          aria-label={`Move ${option.label} up`}
+                          aria-label={`Move ${presentation.label} up`}
                           onClick={() => moveHomeSection(section.id, -1)}
                           disabled={index === 0}
                         >
@@ -1049,17 +1102,35 @@ export default function SettingsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          aria-label={`Move ${option.label} down`}
+                          aria-label={`Move ${presentation.label} down`}
                           onClick={() => moveHomeSection(section.id, 1)}
                           disabled={index === normalizedHomeSections.length - 1}
                         >
                           <ArrowDown className="h-4 w-4" />
                         </Button>
+                        {section.kind === "playlistSongs" ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            aria-label={`Remove ${presentation.label}`}
+                            onClick={() => removeHomeSection(section.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              <Separator />
+
+              <Button className="gap-2" onClick={addPlaylistHomeSection}>
+                <Plus className="h-4 w-4" />
+                Add Playlist Section
+              </Button>
 
               <Dialog
                 open={Boolean(editingHomeSection)}
@@ -1070,7 +1141,9 @@ export default function SettingsPage() {
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>
-                      {editingSectionOption?.label ?? "Edit Home Section"}
+                      {editingSectionPresentation?.label ??
+                        editingSectionOption?.label ??
+                        "Edit Home Section"}
                     </DialogTitle>
                     <DialogDescription>
                       Tune how this section chooses its items.
@@ -1160,6 +1233,47 @@ export default function SettingsPage() {
                               })
                             }
                           />
+                        </div>
+                      ) : null}
+
+                      {editingHomeSection.kind === "playlistSongs" ? (
+                        <div className="space-y-2">
+                          <Label>Playlist</Label>
+                          <Select
+                            value={editingSectionPlaylistValue}
+                            onValueChange={(value) =>
+                              handleEditSectionPlaylistChange(
+                                editingHomeSection,
+                                value,
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose playlist" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {playlistChoices.length > 0 ? (
+                                playlistChoices.map((playlist) => (
+                                  <SelectItem
+                                    key={playlist.value}
+                                    value={playlist.value}
+                                  >
+                                    {playlist.label}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="no-playlists" disabled>
+                                  No playlists found
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          {!editingSectionPresentation?.isConfigured ? (
+                            <p className="text-sm text-muted-foreground">
+                              Choose the playlist before this section appears on
+                              Home.
+                            </p>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

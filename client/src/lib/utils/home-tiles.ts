@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import type { QueueSourceType } from "@/lib/store/server-queue";
 import {
-  getMostPlayedRecentlyFilters,
+  getHomeSectionHref,
+  getHomeSectionQueueFilters,
+  type HomeSectionConfig,
   homeSectionHrefs,
 } from "@/lib/utils/home-sections";
 import { getPlaylistDetailsHref } from "@/lib/utils/source-links";
@@ -72,6 +74,10 @@ export interface HomeTilePresentation {
   iconClassName: string;
   action: HomeTileAction;
   isIncomplete?: boolean;
+}
+
+export interface HomeTilePresentationOptions {
+  homeSections?: HomeSectionConfig[];
 }
 
 export const DEFAULT_HOME_TILES: HomeTileConfig[] = [
@@ -225,7 +231,7 @@ function linkTile(
 
 type BaseTileDefinition = {
   label: string;
-  subtitle: string;
+  actionTargetType: string;
   icon: LucideIcon;
   iconClassName: string;
   href: string;
@@ -238,7 +244,7 @@ const baseTileDefinitions: Record<
 > = {
   favorites: {
     label: "Favorites",
-    subtitle: "Favorite songs",
+    actionTargetType: "favorite songs",
     icon: Heart,
     iconClassName: "text-red-500",
     href: "/favorites",
@@ -246,7 +252,7 @@ const baseTileDefinitions: Record<
   },
   history: {
     label: "Recently Played",
-    subtitle: "Listening history",
+    actionTargetType: "listening history",
     icon: History,
     iconClassName: "text-sky-500",
     href: "/history",
@@ -254,7 +260,7 @@ const baseTileDefinitions: Record<
   },
   forgottenFavorites: {
     label: "Forgotten Favorites",
-    subtitle: "Worth revisiting",
+    actionTargetType: "favorite songs",
     icon: History,
     iconClassName: "text-amber-500",
     href: homeSectionHrefs.forgottenFavorites,
@@ -265,19 +271,18 @@ const baseTileDefinitions: Record<
   },
   mostPlayedRecently: {
     label: "Most Played Recently",
-    subtitle: "Last 30 days",
+    actionTargetType: "tracks",
     icon: TrendingUp,
     iconClassName: "text-rose-500",
     href: homeSectionHrefs.mostPlayedRecently,
     queue: {
       sourceType: "mostPlayedRecently",
       sourceName: "Most Played Recently",
-      filters: getMostPlayedRecentlyFilters(),
     },
   },
   continueListening: {
     label: "Continue Listening",
-    subtitle: "Recent sources",
+    actionTargetType: "sources",
     icon: Play,
     iconClassName: "text-emerald-500",
     href: homeSectionHrefs.continueListening,
@@ -288,7 +293,7 @@ const baseTileDefinitions: Record<
   },
   recentlyAdded: {
     label: "Recently Added",
-    subtitle: "New albums",
+    actionTargetType: "albums",
     icon: Clock,
     iconClassName: "text-sky-500",
     href: homeSectionHrefs.recentlyAdded,
@@ -300,7 +305,7 @@ const baseTileDefinitions: Record<
   },
   discover: {
     label: "Discover",
-    subtitle: "Random albums",
+    actionTargetType: "albums",
     icon: Sparkles,
     iconClassName: "text-violet-500",
     href: homeSectionHrefs.discover,
@@ -312,25 +317,43 @@ const baseTileDefinitions: Record<
   },
 };
 
-function actionLabel(action: HomeTileActionMode, label: string): string {
+function actionSubtitle(action: HomeTileActionMode, target: string): string {
   switch (action) {
     case "play":
-      return `Play ${label}`;
+      return `Play ${target}`;
     case "shuffle":
-      return `Shuffle ${label}`;
+      return `Shuffle ${target}`;
     case "open":
-      return label;
+      return `Open ${target}`;
   }
 }
 
-function actionSubtitle(action: HomeTileActionMode, subtitle: string): string {
-  switch (action) {
-    case "play":
-      return "Start playback";
-    case "shuffle":
-      return "Start shuffled";
-    case "open":
-      return subtitle;
+function getSectionConfigForTile(
+  kind: Exclude<HomeTileKind, "playlist" | "accountSwitch">,
+  homeSections?: HomeSectionConfig[],
+): HomeSectionConfig | undefined {
+  switch (kind) {
+    case "continueListening":
+    case "mostPlayedRecently":
+    case "recentlyAdded":
+    case "forgottenFavorites":
+    case "discover":
+      return homeSections?.find((section) => section.kind === kind);
+    default:
+      return undefined;
+  }
+}
+
+function getQueueFiltersForTile(
+  kind: Exclude<HomeTileKind, "playlist" | "accountSwitch">,
+  section?: HomeSectionConfig,
+): Record<string, unknown> | undefined {
+  switch (kind) {
+    case "mostPlayedRecently":
+    case "forgottenFavorites":
+      return getHomeSectionQueueFilters(kind, section);
+    default:
+      return undefined;
   }
 }
 
@@ -379,31 +402,38 @@ function migrateHomeTile(tile: HomeTileConfig): HomeTileConfig | null {
 
 export function getHomeTilePresentation(
   tile: HomeTileConfig,
+  options: HomeTilePresentationOptions = {},
 ): HomeTilePresentation {
   const action = tile.action ?? getDefaultHomeTileAction(tile.kind) ?? "open";
 
   if (tile.kind !== "playlist" && tile.kind !== "accountSwitch") {
     const definition = baseTileDefinitions[tile.kind];
+    const section = getSectionConfigForTile(tile.kind, options.homeSections);
+    const href = section
+      ? (getHomeSectionHref(section) ?? definition.href)
+      : definition.href;
+    const filters = getQueueFiltersForTile(tile.kind, section);
     if (action === "open" || !definition.queue) {
       return linkTile(
         tile,
-        actionLabel("open", definition.label),
-        definition.subtitle,
+        definition.label,
+        actionSubtitle("open", definition.actionTargetType),
         definition.icon,
         definition.iconClassName,
-        definition.href,
+        href,
       );
     }
 
     return playbackTile(
       tile,
-      actionLabel(action, definition.label),
-      actionSubtitle(action, definition.subtitle),
+      definition.label,
+      actionSubtitle(action, definition.actionTargetType),
       action === "shuffle" ? Shuffle : Play,
       definition.iconClassName,
       {
         ...definition.queue,
         shuffle: action === "shuffle",
+        filters,
       },
     );
   }
@@ -411,16 +441,16 @@ export function getHomeTilePresentation(
   switch (tile.kind) {
     case "playlist": {
       const shuffle = action === "shuffle";
-      const playlistName = tile.playlistName ?? "Playlist";
+      const playlistName = tile.playlistName ?? "Choose playlist";
+      const playlistTypeLabel =
+        tile.playlistType === "smartPlaylist" ? "smart playlist" : "playlist";
       const isIncomplete = !tile.playlistId || !tile.playlistType;
       if (action === "open") {
         return {
           ...linkTile(
             tile,
             playlistName,
-            tile.playlistType === "smartPlaylist"
-              ? "Smart playlist"
-              : "Playlist",
+            actionSubtitle("open", playlistTypeLabel),
             ListMusic,
             tile.playlistType === "smartPlaylist"
               ? "text-violet-500"
@@ -435,8 +465,8 @@ export function getHomeTilePresentation(
 
       const presentation = playbackTile(
         tile,
-        `${shuffle ? "Shuffle" : "Play"} ${playlistName}`,
-        tile.playlistType === "smartPlaylist" ? "Smart playlist" : "Playlist",
+        playlistName,
+        actionSubtitle(action, playlistTypeLabel),
         shuffle ? Shuffle : ListMusic,
         tile.playlistType === "smartPlaylist"
           ? "text-violet-500"
@@ -453,10 +483,8 @@ export function getHomeTilePresentation(
     case "accountSwitch":
       return {
         id: tile.id,
-        label: tile.accountLabel
-          ? `Switch to ${tile.accountLabel}`
-          : "Switch Account",
-        subtitle: "Saved account",
+        label: tile.accountLabel ?? "Choose account",
+        subtitle: "Switch to account",
         icon: User,
         iconClassName: "text-lime-500",
         action: { type: "account", accountKey: tile.accountKey },

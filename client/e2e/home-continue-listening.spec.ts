@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { setServerPreference } from "./app-helpers";
 import type { Locator, Page } from "@playwright/test";
 
 async function openContextMenu(page: Page, element: Locator) {
@@ -100,11 +101,267 @@ test.describe("Home continue listening", () => {
     await page.goto("/");
 
     await expect(
-      page.getByRole("link", { name: /favorites favorite songs/i }),
+      page.getByRole("link", { name: /favorites open favorite songs/i }),
     ).toHaveAttribute("href", "/favorites");
     await expect(
-      page.getByRole("link", { name: /recently played listening history/i }),
+      page.getByRole("link", {
+        name: /recently played open listening history/i,
+      }),
     ).toHaveAttribute("href", "/history");
+  });
+
+  test("quick tile queue actions use configured section filters", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "home-tiles-v1", [
+      {
+        id: "forgotten-favorites-shuffle",
+        kind: "forgottenFavorites",
+        action: "shuffle",
+      },
+    ]);
+    await setServerPreference(page, "home-sections-v1", [
+      {
+        id: "forgotten-favorites",
+        kind: "forgottenFavorites",
+        enabled: true,
+        forgottenFavoritesMinPlays: 42,
+        forgottenFavoritesNotPlayedSinceDays: 365,
+      },
+    ]);
+
+    await page.route("**/ferrotune/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: { entries: [], total: 0 },
+          mostPlayedRecently: { song: [], total: 0 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+        },
+      });
+    });
+    await routeHomeSongSections(page);
+
+    await page.route("**/ferrotune/queue/start", async (route) => {
+      const body = route.request().postDataJSON() as {
+        sourceType: string;
+        sourceId?: string;
+        sourceName?: string;
+        shuffle?: boolean;
+        filters?: Record<string, unknown>;
+      };
+      await route.fulfill({
+        json: {
+          totalCount: 0,
+          currentIndex: 0,
+          isShuffled: Boolean(body.shuffle),
+          repeatMode: "off",
+          source: {
+            type: body.sourceType,
+            id: body.sourceId ?? null,
+            name: body.sourceName ?? null,
+            filters: body.filters ?? null,
+            sort: null,
+            instanceId: "00000000-0000-4000-8000-000000000000",
+          },
+          window: { offset: 0, songs: [] },
+        },
+      });
+    });
+
+    await page.goto("/");
+
+    const startQueueRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/ferrotune/queue/start") &&
+        request.method() === "POST",
+    );
+    await page
+      .getByRole("button", {
+        name: /forgotten favorites shuffle favorite songs/i,
+      })
+      .click();
+
+    const requestBody = (await startQueueRequest).postDataJSON() as {
+      sourceType: string;
+      shuffle: boolean;
+      filters?: Record<string, unknown>;
+    };
+    expect(requestBody.sourceType).toBe("forgottenFavorites");
+    expect(requestBody.shuffle).toBe(true);
+    expect(requestBody.filters).toMatchObject({
+      minPlays: 42,
+      notPlayedSinceDays: 365,
+    });
+  });
+
+  test("custom playlist sections render multiple rows and start playlist queues", async ({
+    authenticatedPage: page,
+  }) => {
+    const playlistId = "home-playlist-section";
+    const playlistName = "Home Playlist Section";
+    const smartPlaylistId = "home-smart-section";
+    const smartPlaylistName = "Home Smart Section";
+    const song = makeSong("playlist-section-track", "Playlist Section Track");
+    const smartSong = makeSong("smart-section-track", "Smart Section Track");
+
+    await setServerPreference(page, "home-sections-v1", [
+      {
+        id: "custom-playlist-section",
+        kind: "playlistSongs",
+        enabled: true,
+        playlistId,
+        playlistName,
+        playlistType: "playlist",
+      },
+      {
+        id: "custom-smart-section",
+        kind: "playlistSongs",
+        enabled: true,
+        playlistId: smartPlaylistId,
+        playlistName: smartPlaylistName,
+        playlistType: "smartPlaylist",
+      },
+    ]);
+
+    await page.route("**/ferrotune/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: { entries: [], total: 0 },
+          mostPlayedRecently: { song: [], total: 0 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+        },
+      });
+    });
+    await routeHomeSongSections(page);
+
+    await page.route(
+      `**/ferrotune/playlists/${playlistId}/songs*`,
+      async (route) => {
+        const url = new URL(route.request().url());
+        expect(url.searchParams.get("entryType")).toBe("song");
+        await route.fulfill({
+          json: {
+            id: playlistId,
+            name: playlistName,
+            comment: null,
+            owner: "test",
+            public: false,
+            totalEntries: 1,
+            matchedCount: 1,
+            missingCount: 0,
+            duration: song.duration,
+            filteredCount: 1,
+            created: "2024-01-01T00:00:00Z",
+            changed: "2024-01-01T00:00:00Z",
+            coverArt: null,
+            sharedWithMe: false,
+            canEdit: true,
+            entries: [
+              {
+                entryId: "playlist-section-entry",
+                position: 0,
+                entryType: "song",
+                addedToPlaylist: "2024-01-01T00:00:00Z",
+                songIndex: 0,
+                song,
+                missing: null,
+              },
+            ],
+          },
+        });
+      },
+    );
+
+    await page.route(
+      `**/ferrotune/smart-playlists/${smartPlaylistId}/songs*`,
+      async (route) => {
+        await route.fulfill({
+          json: {
+            id: smartPlaylistId,
+            name: smartPlaylistName,
+            totalCount: 1,
+            totalDuration: smartSong.duration,
+            offset: 0,
+            songs: [smartSong],
+          },
+        });
+      },
+    );
+
+    await page.route("**/ferrotune/queue/start", async (route) => {
+      const body = route.request().postDataJSON() as {
+        sourceType: string;
+        sourceId?: string;
+        sourceName?: string;
+        shuffle?: boolean;
+      };
+      await route.fulfill({
+        json: {
+          totalCount: 1,
+          currentIndex: 0,
+          isShuffled: Boolean(body.shuffle),
+          repeatMode: "off",
+          source: {
+            type: body.sourceType,
+            id: body.sourceId ?? null,
+            name: body.sourceName ?? null,
+            filters: null,
+            sort: null,
+            instanceId: "00000000-0000-4000-8000-000000000000",
+          },
+          window: { offset: 0, songs: [song] },
+        },
+      });
+    });
+
+    await page.goto("/");
+
+    const headings = page.locator("section h2");
+    await expect(headings.nth(0)).toContainText(playlistName);
+    await expect(headings.nth(1)).toContainText(smartPlaylistName);
+
+    const section = page.locator("section").filter({
+      has: page.getByRole("heading", { name: playlistName }),
+    });
+
+    await expect(
+      section.getByRole("link", { name: playlistName }).first(),
+    ).toHaveAttribute("href", `/playlists/details?id=${playlistId}`);
+    await expect(
+      section.getByRole("link", { name: song.title }).first(),
+    ).toBeVisible();
+
+    const smartSection = page.locator("section").filter({
+      has: page.getByRole("heading", { name: smartPlaylistName }),
+    });
+    await expect(
+      smartSection.getByRole("link", { name: smartPlaylistName }).first(),
+    ).toHaveAttribute("href", `/playlists/smart?id=${smartPlaylistId}`);
+    await expect(
+      smartSection.getByRole("link", { name: smartSong.title }).first(),
+    ).toBeVisible();
+
+    const startQueueRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/ferrotune/queue/start") &&
+        request.method() === "POST",
+    );
+    await section.getByRole("button", { name: `Play ${playlistName}` }).click();
+
+    const requestBody = (await startQueueRequest).postDataJSON() as {
+      sourceType: string;
+      sourceId?: string;
+      sourceName?: string;
+      shuffle?: boolean;
+    };
+    expect(requestBody.sourceType).toBe("playlist");
+    expect(requestBody.sourceId).toBe(playlistId);
+    expect(requestBody.sourceName).toBe(playlistName);
+    expect(requestBody.shuffle).toBe(false);
   });
 
   test("most played recently renders track cards", async ({

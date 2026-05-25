@@ -326,6 +326,15 @@ if (options?.sort) params.set("sort", options.sort);
 | `getSongRadioHref()` | Build the dedicated Song Radio page URL from a seed song ID |
 | `getQueueSourceHref()` | Reuse source-to-route mapping for queue banners and other source-linked UI |
 
+### Frontend Home Customization Helpers (`client/src/lib/utils/`)
+
+| Module | Purpose |
+|--------|---------|
+| `home-sections.ts` | Home section defaults, normalization, display presentation, section detail links, queue filters, and playlist-backed custom section creation |
+| `home-tiles.ts` | Home quick tile defaults, normalization, settings requirements, display presentation, and section-aware queue/link actions |
+
+Server-backed UI preferences such as Home tiles and sections use `atomWithServerStorage`. That helper keeps an account-scoped memory cache and mirrors values into the shared IndexedDB cache store, so account switches can render the correct Home/settings state before the fresh server preference fetch completes.
+
 ### Frontend Hooks (`client/src/lib/hooks/`)
 
 | Hook | Purpose |

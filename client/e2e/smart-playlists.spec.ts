@@ -5,6 +5,39 @@
 import { test, expect } from "./fixtures";
 
 test.describe("Smart Playlists", () => {
+  test("favorite presets populate the create dialog", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/playlists");
+
+    const newButton = page.getByRole("button", { name: /new/i });
+    await expect(newButton).toBeVisible({ timeout: 10000 });
+    await newButton.click();
+    await page.getByRole("menuitem", { name: /smart playlist/i }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+
+    await expect(dialog.getByText("Recent Heavy Rotation")).not.toBeVisible();
+    await dialog.getByRole("button", { name: /choose a preset/i }).click();
+    await expect(
+      page.getByRole("button", { name: /use recent heavy rotation preset/i }),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", { name: /use short-term favorites preset/i })
+      .click();
+
+    await expect(dialog.getByLabel("Name")).toHaveValue("Short-Term Favorites");
+    await expect(dialog.getByLabel("Description (optional)")).toHaveValue(
+      "Starred tracks played within the last 30 days.",
+    );
+    await expect(dialog.getByLabel("Max songs (optional)")).toHaveValue("100");
+    await expect(
+      dialog.getByRole("combobox").filter({ hasText: "Last Played" }).first(),
+    ).toBeVisible();
+  });
+
   test("can create a smart playlist", async ({ authenticatedPage: page }) => {
     await page.goto("/playlists");
 

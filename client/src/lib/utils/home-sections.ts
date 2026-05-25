@@ -1,6 +1,7 @@
 import {
   Clock,
   History,
+  ListMusic,
   Play,
   Sparkles,
   TrendingUp,
@@ -22,7 +23,10 @@ export type HomeSectionKind =
   | "forgottenFavorites"
   | "discover"
   | "topAlbums"
-  | "recentAlbums";
+  | "recentAlbums"
+  | "playlistSongs";
+
+export type HomeSectionPlaylistType = "playlist" | "smartPlaylist";
 
 export interface HomeSectionConfig {
   id: string;
@@ -32,6 +36,9 @@ export interface HomeSectionConfig {
   forgottenFavoritesMinPlays?: number;
   forgottenFavoritesNotPlayedSinceDays?: number;
   topAlbumsDays?: number;
+  playlistId?: string;
+  playlistName?: string;
+  playlistType?: HomeSectionPlaylistType;
 }
 
 export interface HomeSectionOption {
@@ -41,6 +48,15 @@ export interface HomeSectionOption {
   icon: LucideIcon;
   href?: string;
   hasSettings?: boolean;
+}
+
+export interface HomeSectionPresentation {
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  href?: string;
+  hasSettings?: boolean;
+  isConfigured: boolean;
 }
 
 export const DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS = 10;
@@ -99,6 +115,13 @@ export const HOME_SECTION_OPTIONS: HomeSectionOption[] = [
     description: "Albums ordered by last played time",
     icon: History,
   },
+  {
+    kind: "playlistSongs",
+    label: "Playlist Songs",
+    description: "Songs from a chosen playlist or smart playlist",
+    icon: ListMusic,
+    hasSettings: true,
+  },
 ];
 
 export const DEFAULT_HOME_SECTIONS: HomeSectionConfig[] = [
@@ -145,9 +168,23 @@ export function getHomeSectionOption(kind: HomeSectionKind): HomeSectionOption {
 
 function getDefaultHomeSection(kind: HomeSectionKind): HomeSectionConfig {
   return (
-    DEFAULT_HOME_SECTIONS.find((section) => section.kind === kind) ??
-    DEFAULT_HOME_SECTIONS[0]
+    DEFAULT_HOME_SECTIONS.find((section) => section.kind === kind) ?? {
+      id: kind,
+      kind,
+      enabled: false,
+    }
   );
+}
+
+export function createPlaylistHomeSectionConfig(
+  config: Partial<HomeSectionConfig> = {},
+): HomeSectionConfig {
+  return {
+    id: `playlist-songs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind: "playlistSongs",
+    enabled: true,
+    ...config,
+  };
 }
 
 export function normalizeHomeSections(
@@ -226,5 +263,87 @@ export function getForgottenFavoritesFilters(section?: HomeSectionConfig) {
   return {
     minPlays: getForgottenFavoritesMinPlays(section),
     notPlayedSinceDays: getForgottenFavoritesNotPlayedDays(section),
+  };
+}
+
+export function getHomeSectionQueueFilters(
+  kind: HomeSectionKind,
+  section?: HomeSectionConfig,
+): Record<string, unknown> | undefined {
+  switch (kind) {
+    case "mostPlayedRecently":
+      return getMostPlayedRecentlyFilters(getMostPlayedRecentlyDays(section));
+    case "forgottenFavorites":
+      return getForgottenFavoritesFilters(section);
+    default:
+      return undefined;
+  }
+}
+
+export function getHomeSectionHref(
+  section: HomeSectionConfig,
+): string | undefined {
+  if (section.kind === "playlistSongs") {
+    if (!section.playlistId || !section.playlistType) {
+      return undefined;
+    }
+
+    const encodedId = encodeURIComponent(section.playlistId);
+    return section.playlistType === "smartPlaylist"
+      ? `/playlists/smart?id=${encodedId}`
+      : `/playlists/details?id=${encodedId}`;
+  }
+
+  const href = getHomeSectionOption(section.kind).href;
+  if (!href) return undefined;
+
+  if (section.kind === "mostPlayedRecently") {
+    const params = new URLSearchParams({
+      days: String(getMostPlayedRecentlyDays(section)),
+    });
+    return `${href}?${params.toString()}`;
+  }
+
+  if (section.kind === "forgottenFavorites") {
+    const params = new URLSearchParams({
+      minPlays: String(getForgottenFavoritesMinPlays(section)),
+      notPlayedSinceDays: String(getForgottenFavoritesNotPlayedDays(section)),
+    });
+    return `${href}?${params.toString()}`;
+  }
+
+  return href;
+}
+
+export function getHomeSectionPresentation(
+  section: HomeSectionConfig,
+): HomeSectionPresentation {
+  const option = getHomeSectionOption(section.kind);
+
+  if (section.kind === "playlistSongs") {
+    const isConfigured = Boolean(section.playlistId && section.playlistType);
+    const isSmartPlaylist = section.playlistType === "smartPlaylist";
+
+    return {
+      label: section.playlistName || option.label,
+      description: isConfigured
+        ? isSmartPlaylist
+          ? "Smart playlist songs"
+          : "Playlist songs"
+        : "Choose a playlist or smart playlist",
+      icon: isSmartPlaylist ? Sparkles : ListMusic,
+      href: getHomeSectionHref(section),
+      hasSettings: true,
+      isConfigured,
+    };
+  }
+
+  return {
+    label: option.label,
+    description: option.description,
+    icon: option.icon,
+    href: getHomeSectionHref(section),
+    hasSettings: option.hasSettings,
+    isConfigured: true,
   };
 }

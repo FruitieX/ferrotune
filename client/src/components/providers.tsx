@@ -204,8 +204,8 @@ function AccountSwitchStateResetter() {
     setBuffered(0);
     setHasScrobbled(false);
 
-    // Reset server-stored preferences; the account-scoped provider reloads
-    // them once after the new account cache has been restored.
+    // Reset preference loading state; cached server preferences are scoped per
+    // account and are reused immediately when switching back.
     resetServerPreferences();
   }, [
     currentAccountKey,

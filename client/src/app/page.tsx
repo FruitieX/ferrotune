@@ -70,11 +70,11 @@ import {
 import {
   getEnabledHomeSections,
   getForgottenFavoritesFilters,
-  getForgottenFavoritesMinPlays,
-  getForgottenFavoritesNotPlayedDays,
+  getHomeSectionHref,
   getHomeSectionOption,
-  getMostPlayedRecentlyFilters,
+  getHomeSectionPresentation,
   getMostPlayedRecentlyDays,
+  getMostPlayedRecentlyFilters,
   getTopAlbumsDays,
   getTopAlbumsFilters,
   normalizeHomeSections,
@@ -248,6 +248,7 @@ function SectionHeader({
                   className="h-8 w-8"
                   onClick={onPlayAll}
                   disabled={isLoading}
+                  aria-label={`Play ${title}`}
                 >
                   <Play className="w-4 h-4" />
                 </Button>
@@ -264,6 +265,7 @@ function SectionHeader({
                   className="h-8 w-8"
                   onClick={onShuffleAll}
                   disabled={isLoading}
+                  aria-label={`Shuffle ${title}`}
                 >
                   <Shuffle className="w-4 h-4" />
                 </Button>
@@ -353,10 +355,12 @@ function HomeQuickTile({
 
 function HomeQuickTiles({
   tiles,
+  homeSections,
   onQueueAction,
   onAccountAction,
 }: {
   tiles: HomeTileConfig[];
+  homeSections: HomeSectionConfig[];
   onQueueAction: (
     action: Extract<HomeTilePresentation["action"], { type: "queue" }>,
   ) => void;
@@ -364,7 +368,9 @@ function HomeQuickTiles({
     action: Extract<HomeTilePresentation["action"], { type: "account" }>,
   ) => void;
 }) {
-  const presentations = normalizeHomeTiles(tiles).map(getHomeTilePresentation);
+  const presentations = normalizeHomeTiles(tiles).map((tile) =>
+    getHomeTilePresentation(tile, { homeSections }),
+  );
 
   if (presentations.length === 0) {
     return null;
@@ -445,6 +451,144 @@ function AlbumSection({
         renderSkeleton={() => <AlbumCardSkeleton />}
         getItemKey={(album) => album.id}
         emptyMessage="No albums found"
+      />
+    </section>
+  );
+}
+
+function HomePlaylistSongsSection({
+  section,
+  isReady,
+  currentAccountKey,
+  itemWidth,
+  itemGap,
+  paddingX,
+  pageSize,
+}: {
+  section: HomeSectionConfig;
+  isReady: boolean;
+  currentAccountKey: string;
+  itemWidth: number;
+  itemGap: number;
+  paddingX: number;
+  pageSize: number;
+}) {
+  const startQueue = useSetAtom(startQueueAtom);
+  const presentation = getHomeSectionPresentation(section);
+  const playlistId = section.playlistId ?? "";
+  const playlistType = section.playlistType ?? "playlist";
+  const isConfigured = Boolean(section.playlistId && section.playlistType);
+
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteQuery({
+      queryKey: [
+        "home-playlist-songs",
+        currentAccountKey,
+        section.id,
+        playlistType,
+        playlistId,
+        pageSize,
+      ],
+      queryFn: async ({ pageParam }) => {
+        const client = getClient();
+        if (!client || !playlistId) throw new Error("Not connected");
+
+        if (playlistType === "smartPlaylist") {
+          const response = await client.getSmartPlaylistSongs(playlistId, {
+            offset: pageParam,
+            count: pageSize,
+            inlineImages: "medium",
+          });
+          return {
+            songs: response.songs,
+            total: response.totalCount,
+            nextOffset: pageParam + pageSize,
+            pageSize,
+          };
+        }
+
+        const response = await client.getPlaylistSongs(playlistId, {
+          offset: pageParam,
+          count: pageSize,
+          entryType: "song",
+          inlineImages: "medium",
+        });
+        return {
+          songs: response.entries
+            .map((entry) => entry.song)
+            .filter((song): song is Song => song !== null),
+          total: response.filteredCount,
+          nextOffset: pageParam + pageSize,
+          pageSize,
+        };
+      },
+      initialPageParam: 0,
+      getNextPageParam: (lastPage) => {
+        if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+        if (lastPage.songs.length < lastPage.pageSize) return undefined;
+        const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
+        return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
+      },
+      enabled: isReady && isConfigured,
+    });
+
+  if (!presentation.isConfigured) {
+    return null;
+  }
+
+  const songs = data?.pages.flatMap((page) => page.songs) ?? [];
+  const totalCount = data?.pages[0]
+    ? Math.min(data.pages[0].total, MAX_SECTION_ITEMS)
+    : undefined;
+
+  const startPlaylist = (shuffle: boolean) => {
+    startQueue({
+      sourceType: playlistType,
+      sourceId: playlistId,
+      sourceName: presentation.label,
+      startIndex: 0,
+      shuffle,
+    });
+  };
+
+  return (
+    <section className="space-y-2 sm:space-y-4">
+      <SectionHeader
+        title={presentation.label}
+        icon={presentation.icon}
+        hasItems={songs.length > 0}
+        isLoading={isLoading}
+        onPlayAll={() => startPlaylist(false)}
+        onShuffleAll={() => startPlaylist(true)}
+        viewAllHref={presentation.href}
+      />
+      <VirtualizedHorizontalScroll<Song>
+        items={songs}
+        totalCount={totalCount}
+        isLoading={isLoading}
+        itemWidth={itemWidth}
+        gap={itemGap}
+        paddingX={paddingX}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        renderItem={(song, index) => (
+          <SongCard
+            song={song}
+            index={index}
+            songIndex={index}
+            queueSource={{
+              type: playlistType,
+              id: playlistId,
+              name: presentation.label,
+            }}
+            inlineImagesRequested
+            className="ring-0"
+          />
+        )}
+        renderSkeleton={() => <SongCardSkeleton />}
+        getItemKey={(song) => song.id}
+        emptyMessage="No playlist songs"
       />
     </section>
   );
@@ -1454,28 +1598,6 @@ export default function HomePage() {
     return null;
   };
 
-  const getHomeSectionHref = (section: HomeSectionConfig) => {
-    const href = getHomeSectionOption(section.kind).href;
-    if (!href) return undefined;
-
-    if (section.kind === "mostPlayedRecently") {
-      const params = new URLSearchParams({
-        days: String(getMostPlayedRecentlyDays(section)),
-      });
-      return `${href}?${params.toString()}`;
-    }
-
-    if (section.kind === "forgottenFavorites") {
-      const params = new URLSearchParams({
-        minPlays: String(getForgottenFavoritesMinPlays(section)),
-        notPlayedSinceDays: String(getForgottenFavoritesNotPlayedDays(section)),
-      });
-      return `${href}?${params.toString()}`;
-    }
-
-    return href;
-  };
-
   const renderHomeSection = (section: HomeSectionConfig) => {
     const sectionOption = getHomeSectionOption(section.kind);
 
@@ -1762,6 +1884,19 @@ export default function HomePage() {
             paddingX={paddingX}
           />
         );
+      case "playlistSongs":
+        return (
+          <HomePlaylistSongsSection
+            key={section.id}
+            section={section}
+            isReady={isReady}
+            currentAccountKey={currentAccountKey}
+            itemWidth={itemWidth}
+            itemGap={itemGap}
+            paddingX={paddingX}
+            pageSize={pageSize}
+          />
+        );
     }
   };
 
@@ -1792,6 +1927,7 @@ export default function HomePage() {
       <div className="py-4 sm:py-6 space-y-4 sm:space-y-6">
         <HomeQuickTiles
           tiles={homeTiles}
+          homeSections={normalizedHomeSections}
           onQueueAction={handleHomeTileQueueAction}
           onAccountAction={handleHomeTileAccountAction}
         />

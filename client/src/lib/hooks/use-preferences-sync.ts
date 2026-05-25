@@ -54,7 +54,7 @@ export function usePreferencesSync() {
 
     let cancelled = false;
 
-    loadServerPreferences(() => {
+    loadServerPreferences(currentAccountKey, () => {
       if (!cancelled) {
         refreshServerStorageCache();
       }
@@ -71,6 +71,7 @@ export function usePreferencesSync() {
     };
   }, [
     isClientInitialized,
+    currentAccountKey,
     hasLoadedFromServer,
     refreshServerStorageCache,
     setPreferencesLoaded,
