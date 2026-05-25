@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   RefreshCw,
@@ -28,6 +29,10 @@ import {
   scanFolderNameAtom,
   shouldMonitorScanAtom,
 } from "@/lib/store/scan";
+import {
+  isClientInitializedAtom,
+  serverConnectionAtom,
+} from "@/lib/store/auth";
 import {
   Dialog,
   DialogContent,
@@ -289,6 +294,8 @@ export function ScanDialog() {
   const setProgress = useSetAtom(scanProgressAtom);
   const setLogs = useSetAtom(scanLogsAtom);
   const setShouldMonitor = useSetAtom(shouldMonitorScanAtom);
+  const isClientInitialized = useAtomValue(isClientInitializedAtom);
+  const connection = useAtomValue(serverConnectionAtom);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Local state for scan options
@@ -298,17 +305,19 @@ export function ScanDialog() {
   const [analyzeBliss, setAnalyzeBliss] = useState(true);
   const [analyzeWaveform, setAnalyzeWaveform] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
-  const [blissAvailable, setBlissAvailable] = useState(true);
 
-  // Fetch server features to know if bliss is compiled in
-  useEffect(() => {
-    const client = getClient();
-    if (!client) return;
-    client
-      .getFeatures()
-      .then((features) => setBlissAvailable(features.bliss))
-      .catch(() => setBlissAvailable(false));
-  }, []);
+  const { data: serverFeatures } = useQuery({
+    queryKey: ["serverFeatures", connection?.serverUrl ?? "local"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getFeatures();
+    },
+    enabled: isClientInitialized,
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const blissAvailable = serverFeatures?.bliss ?? true;
 
   // State for stat details
   const [detailCategory, setDetailCategory] = useState<StatCategory | null>(

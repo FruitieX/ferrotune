@@ -148,6 +148,7 @@ export default function SetupPage() {
       return response.json() as Promise<SetupStatusResponse>;
     },
     retry: false,
+    staleTime: 0,
     // Don't refetch if we just completed setup, and wait for embedded check
     enabled: !setupCompleted && !embeddedLoading,
   });
@@ -511,11 +512,15 @@ export default function SetupPage() {
       if (!client) throw new Error("Not connected");
       return client.completeSetup();
     },
-    onSuccess: () => {
+    onSuccess: (setupStatus) => {
       // Mark setup as intentionally completed to prevent redirect loops
       setSetupCompleted(true);
-      // Invalidate setup status query so other components see the update
-      queryClient.invalidateQueries({ queryKey: ["setupStatus"] });
+      // Keep route guards from redirecting on a stale pre-completion setup status.
+      queryClient.setQueriesData<SetupStatusResponse>(
+        { queryKey: ["setupStatus"] },
+        setupStatus,
+      );
+      queryClient.setQueryData(["setupStatus", backendUrl], setupStatus);
       setStep("complete");
     },
     onError: (err: Error) => {

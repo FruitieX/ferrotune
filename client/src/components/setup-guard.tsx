@@ -25,7 +25,11 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
   // Use stored connection URL or default backend URL
   const backendUrl = connection?.serverUrl || DEFAULT_BACKEND_URL;
 
-  const { data: setupStatus, isError: _isError } = useQuery({
+  const {
+    data: setupStatus,
+    isError: _isError,
+    isFetching: setupStatusFetching,
+  } = useQuery({
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
       try {
@@ -53,14 +57,20 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
     },
     enabled: shouldCheck,
     retry: false,
+    staleTime: 0,
   });
 
   useEffect(() => {
     // Only redirect if we should check and setup is incomplete
-    if (shouldCheck && setupStatus && !setupStatus.setupComplete) {
-      router.push("/setup");
+    if (
+      shouldCheck &&
+      setupStatus &&
+      !setupStatusFetching &&
+      !setupStatus.setupComplete
+    ) {
+      router.replace("/setup");
     }
-  }, [shouldCheck, setupStatus, router]);
+  }, [shouldCheck, setupStatus, setupStatusFetching, router]);
 
   return <>{children}</>;
 }

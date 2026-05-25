@@ -21,6 +21,10 @@ export interface ServerInfo {
   process: ChildProcess;
 }
 
+export interface UnseededServerInfo extends ServerInfo {
+  musicDir: string;
+}
+
 /**
  * Known test data from the fixtures.
  * These are the exact values from generate-test-fixtures.sh
@@ -160,7 +164,7 @@ function getExternalServerInfo(): ServerInfo {
   };
 }
 
-async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
+export async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
   if (!serverInfo.tempDir) {
     return;
   }
@@ -175,6 +179,84 @@ async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
   }
 
   fs.rmSync(serverInfo.tempDir, { recursive: true, force: true });
+}
+
+export async function spawnUnseededServer(
+  instanceName: string,
+): Promise<UnseededServerInfo> {
+  const binary = findBinary();
+  const port = await getAvailablePort();
+  const sanitizedInstanceName = sanitizeInstanceName(instanceName);
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), `ferrotune-e2e-${sanitizedInstanceName}-`),
+  );
+  const dbPath = path.join(tempDir, "ferrotune.db");
+  const cacheDir = path.join(tempDir, "cache");
+  const transcodeCacheDir = path.join(tempDir, "transcodes");
+  const musicDir = path.join(tempDir, "music");
+
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(transcodeCacheDir, { recursive: true });
+  fs.mkdirSync(musicDir, { recursive: true });
+
+  const serverProcess = spawn(
+    binary,
+    ["serve", "--host", "127.0.0.1", "--port", port.toString()],
+    {
+      stdio: "pipe",
+      detached: false,
+      env: {
+        ...process.env,
+        FERROTUNE_DATABASE_URL: `sqlite://${dbPath}`,
+        FERROTUNE_DATA_DIR: tempDir,
+        FERROTUNE_TRANSCODE_CACHE_PATH: transcodeCacheDir,
+        FERROTUNE_TESTING: "true",
+      },
+    },
+  );
+
+  let serverError = "";
+
+  serverProcess.stderr?.on("data", (data) => {
+    serverError += data.toString();
+    if (process.env.DEBUG) {
+      console.error(`[ferrotune-${instanceName}] ${data}`);
+    }
+  });
+
+  serverProcess.stdout?.on("data", (data) => {
+    if (process.env.DEBUG) {
+      console.log(`[ferrotune-${instanceName}] ${data}`);
+    }
+  });
+
+  serverProcess.on("error", (err) => {
+    console.error(`Instance ${instanceName} failed to start server:`, err);
+  });
+
+  const ready = await waitForServer(
+    `http://127.0.0.1:${port}/api/setup/status`,
+  );
+
+  if (!ready) {
+    console.error(
+      `Instance ${instanceName} server failed to start. Errors:`,
+      serverError,
+    );
+    serverProcess.kill();
+    throw new Error(
+      `Ferrotune server for ${instanceName} failed to start within timeout`,
+    );
+  }
+
+  return {
+    url: `http://127.0.0.1:${port}`,
+    username: "admin",
+    password: "admin",
+    tempDir,
+    process: serverProcess,
+    musicDir,
+  };
 }
 
 let isolatedServerCounter = 0;

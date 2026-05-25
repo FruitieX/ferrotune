@@ -105,7 +105,11 @@ export default function LoginPage() {
       : "";
 
   // Check setup status - redirect to setup if not complete
-  const { data: setupStatus, isLoading: setupLoading } = useQuery({
+  const {
+    data: setupStatus,
+    isLoading: setupLoading,
+    isFetching: setupStatusFetching,
+  } = useQuery({
     queryKey: ["setupStatus", setupCheckUrl],
     queryFn: async () => {
       try {
@@ -130,14 +134,15 @@ export default function LoginPage() {
     },
     retry: false,
     enabled: !embeddedLoading && !!setupCheckUrl,
+    staleTime: 0,
   });
 
   // Redirect to setup if not complete
   useEffect(() => {
-    if (setupStatus && !setupStatus.setupComplete) {
-      router.push("/setup");
+    if (setupStatus && !setupStatusFetching && !setupStatus.setupComplete) {
+      router.replace("/setup");
     }
-  }, [setupStatus, router]);
+  }, [setupStatus, setupStatusFetching, router]);
 
   // Auto-connect to embedded server
   useEffect(() => {
