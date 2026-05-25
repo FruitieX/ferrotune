@@ -8,6 +8,7 @@
 
 #![allow(dead_code)]
 
+pub mod auth_sessions;
 pub mod bliss;
 pub mod browse;
 pub mod config;

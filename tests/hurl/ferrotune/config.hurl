@@ -9,11 +9,11 @@
 # ============================================================================
 
 # Test: Get server config requires auth
-GET {{base_url}}/ferrotune/config
+GET {{base_url}}/api/config
 HTTP 401
 
 # Test: Get server config
-GET {{base_url}}/ferrotune/config
+GET {{base_url}}/api/config
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -31,7 +31,7 @@ jsonpath "$.configured" isBoolean
 # ============================================================================
 
 # Test: Get all config as key-value pairs (returns flat object)
-GET {{base_url}}/ferrotune/config/all
+GET {{base_url}}/api/config/all
 Authorization: Basic {{auth_basic}}
 HTTP 200
 
@@ -40,7 +40,7 @@ HTTP 200
 # ============================================================================
 
 # Test: Update readonlyTags setting
-PUT {{base_url}}/ferrotune/config
+PUT {{base_url}}/api/config
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -51,7 +51,7 @@ HTTP 200
 jsonpath "$.readonlyTags" == true
 
 # Restore setting
-PUT {{base_url}}/ferrotune/config
+PUT {{base_url}}/api/config
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {

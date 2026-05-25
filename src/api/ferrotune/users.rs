@@ -5,9 +5,8 @@
 //! - Update user details (password, email, admin status)
 //! - Delete users
 //! - Manage library access (which music folders a user can see)
-//! - Manage API keys
 
-use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
+use crate::api::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::repo::users as users_repo;
 use crate::error::{Error, FerrotuneApiResult};
@@ -92,38 +91,6 @@ pub struct CreateUserResponse {
     pub username: String,
 }
 
-/// API key info response
-#[derive(Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct ApiKeyInfo {
-    /// The token is only shown when creating a new key
-    pub token: Option<String>,
-    pub name: String,
-    #[ts(type = "string")]
-    pub created_at: DateTime<Utc>,
-    #[ts(type = "string | null")]
-    pub last_used: Option<DateTime<Utc>>,
-}
-
-/// Request to create a new API key
-#[derive(Debug, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct CreateApiKeyRequest {
-    pub name: String,
-}
-
-/// Response after creating an API key
-#[derive(Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct CreateApiKeyResponse {
-    /// The API key - only shown once when creating
-    pub key: String,
-    pub name: String,
-}
-
 /// Response for library access
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -142,14 +109,6 @@ pub struct LibraryAccessResponse {
 pub struct SetLibraryAccessRequest {
     #[ts(type = "number[]")]
     pub folder_ids: Vec<i64>,
-}
-
-/// Response containing API keys
-#[derive(Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct ApiKeysResponse {
-    pub api_keys: Vec<ApiKeyInfo>,
 }
 
 /// Minimal user info for sharing UI (available to all authenticated users)
@@ -440,7 +399,7 @@ pub async fn delete_user(
         return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
-    // Delete the user (cascades to api_keys, user_library_access, playlists, etc.)
+    // Delete the user (cascades to user_library_access, playlists, etc.)
     users_repo::delete_user_by_id(&state.database, id).await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -491,105 +450,6 @@ pub async fn set_library_access(
         user_id: id,
         folder_ids: request.folder_ids,
     }))
-}
-
-// ============================================================================
-// API Key Endpoints
-// ============================================================================
-
-/// GET /ferrotune/users/{id}/api-keys - List user's API keys (admin or self)
-pub async fn list_api_keys(
-    user: FerrotuneAuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-) -> FerrotuneApiResult<Json<ApiKeysResponse>> {
-    // Allow users to view their own keys, or admin can view anyone's
-    if id != user.user_id {
-        require_admin(&user)?;
-    }
-
-    // Check if user exists
-    if !users_repo::user_exists(&state.database, id).await? {
-        return Err(Error::NotFound(format!("User {} not found", id)).into());
-    }
-
-    let keys = users_repo::list_api_keys(&state.database, id).await?;
-
-    let key_infos: Vec<ApiKeyInfo> = keys
-        .into_iter()
-        .map(|(name, created_at, last_used)| ApiKeyInfo {
-            token: None, // Don't expose existing tokens
-            name,
-            created_at,
-            last_used,
-        })
-        .collect();
-
-    Ok(Json(ApiKeysResponse {
-        api_keys: key_infos,
-    }))
-}
-
-/// POST /ferrotune/users/{id}/api-keys - Create a new API key (admin or self)
-pub async fn create_api_key(
-    user: FerrotuneAuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-    Json(request): Json<CreateApiKeyRequest>,
-) -> FerrotuneApiResult<impl IntoResponse> {
-    // Allow users to create their own keys, or admin can create for anyone
-    if id != user.user_id {
-        require_admin(&user)?;
-    }
-
-    // Check if user exists
-    if !users_repo::user_exists(&state.database, id).await? {
-        return Err(Error::NotFound(format!("User {} not found", id)).into());
-    }
-
-    // Generate a secure random token
-    let token = generate_api_key();
-
-    // Create the key
-    users_repo::create_api_key(&state.database, &token, id, &request.name).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateApiKeyResponse {
-            key: token,
-            name: request.name,
-        }),
-    ))
-}
-
-/// DELETE /ferrotune/users/{id}/api-keys/{name} - Delete an API key (admin or self)
-pub async fn delete_api_key(
-    user: FerrotuneAuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-    Path((id, name)): Path<(i64, String)>,
-) -> FerrotuneApiResult<impl IntoResponse> {
-    // Allow users to delete their own keys, or admin can delete anyone's
-    if id != user.user_id {
-        require_admin(&user)?;
-    }
-
-    // Check if key exists
-    if !users_repo::api_key_exists(&state.database, id, &name).await? {
-        return Err(
-            Error::NotFound(format!("API key '{}' not found for user {}", name, id)).into(),
-        );
-    }
-
-    users_repo::delete_api_key(&state.database, id, &name).await?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-fn generate_api_key() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
-    hex::encode(bytes)
 }
 
 // ============================================================================

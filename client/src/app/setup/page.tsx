@@ -53,6 +53,7 @@ import {
 import { initializeClient, getClient } from "@/lib/api/client";
 import { DirectoryBrowser } from "@/components/admin/directory-browser";
 import { ScanDialog } from "@/components/admin/scan-dialog";
+import type { AuthLoginResponse, ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 import {
   isTauriDesktop,
@@ -140,7 +141,7 @@ export default function SetupPage() {
   const { data: setupStatus, isLoading: statusLoading } = useQuery({
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
-      const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
+      const response = await fetch(`${backendUrl}/api/setup/status`);
       if (!response.ok) {
         throw new Error("Failed to check setup status");
       }
@@ -192,12 +193,7 @@ export default function SetupPage() {
         url = `http://${url}`;
       }
 
-      const connection = {
-        serverUrl: url,
-        username: username.trim(),
-        password: password,
-      };
-
+      const connection = await loginToServer(url, username.trim(), password);
       const client = initializeClient(connection);
       setClientInitialized(true);
       setConnectionStatus("connecting");
@@ -231,23 +227,22 @@ export default function SetupPage() {
 
     try {
       const embeddedUrl = getApiBaseUrl();
-      const embeddedPassword = await getEmbeddedAdminPassword();
+      let embeddedPassword = await getEmbeddedAdminPassword();
 
       if (!embeddedPassword) {
         // Server might not be ready yet, wait a bit
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        const retryPassword = await getEmbeddedAdminPassword();
-        if (!retryPassword) {
+        embeddedPassword = await getEmbeddedAdminPassword();
+        if (!embeddedPassword) {
           throw new Error("Embedded server not ready. Please try again.");
         }
       }
 
-      const connection = {
-        serverUrl: embeddedUrl,
-        username: "admin",
-        password: embeddedPassword || "",
-      };
-
+      const connection = await loginToServer(
+        embeddedUrl,
+        "admin",
+        embeddedPassword,
+      );
       const client = initializeClient(connection);
       setClientInitialized(true);
       setConnectionStatus("connecting");
@@ -270,6 +265,31 @@ export default function SetupPage() {
       setIsConnecting(false);
     }
   };
+
+  const loginToServer = async (
+    url: string,
+    loginUsername: string,
+    loginPassword: string,
+  ): Promise<ServerConnection> => {
+    const bootstrapClient = initializeClient({ serverUrl: url });
+    const response = await bootstrapClient.login(loginUsername, loginPassword);
+    return connectionFromLogin(url, response);
+  };
+
+  const connectionFromLogin = (
+    url: string,
+    response: AuthLoginResponse,
+  ): ServerConnection => ({
+    serverUrl: url,
+    username: response.user.username,
+    userId: response.user.id,
+    email: response.user.email,
+    isAdmin: response.user.isAdmin,
+    sessionToken: response.sessionToken,
+    sessionExpiresAt: response.sessionExpiresAt,
+    urlToken: response.urlToken,
+    urlTokenExpiresAt: response.urlTokenExpiresAt,
+  });
 
   // Update password if changed
   const updatePasswordMutation = useMutation({
@@ -429,11 +449,11 @@ export default function SetupPage() {
         const url =
           serverUrl.trim() ||
           (typeof window !== "undefined" ? window.location.origin : "");
-        const connection = {
-          serverUrl: url,
-          username: username.trim(),
-          password: newPassword,
-        };
+        const connection = await loginToServer(
+          url,
+          username.trim(),
+          newPassword,
+        );
         setConnection(connection);
         initializeClient(connection);
         setClientInitialized(true);
@@ -1099,7 +1119,7 @@ export default function SetupPage() {
                     <ul className="list-disc list-inside mt-2">
                       <li>Browse your music library</li>
                       <li>Create playlists</li>
-                      <li>Connect other Subsonic clients</li>
+                      <li>Manage playback across your devices</li>
                     </ul>
                   </div>
 

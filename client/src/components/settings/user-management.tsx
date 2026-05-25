@@ -8,12 +8,9 @@ import {
   MoreVertical,
   Trash2,
   Shield,
-  Key,
   FolderOpen,
-  Copy,
   Eye,
   EyeOff,
-  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -66,7 +63,6 @@ interface UserCardProps {
   currentUserId: number;
   onEdit: (user: UserInfo) => void;
   onDelete: (user: UserInfo) => void;
-  onManageKeys: (user: UserInfo) => void;
   onManageAccess: (user: UserInfo) => void;
 }
 
@@ -76,7 +72,6 @@ function UserCard({
   currentUserId,
   onEdit,
   onDelete,
-  onManageKeys,
   onManageAccess,
 }: UserCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -130,10 +125,6 @@ function UserCard({
               <FolderOpen className="w-4 h-4 mr-2" />
               Library Access
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onManageKeys(user)}>
-              <Key className="w-4 h-4 mr-2" />
-              API Keys
-            </DropdownMenuItem>
             {!isSelf && (
               <>
                 <DropdownMenuSeparator />
@@ -186,7 +177,6 @@ export function UserManagement() {
   const [accessDialogUser, setAccessDialogUser] = useState<UserInfo | null>(
     null,
   );
-  const [keysDialogUser, setKeysDialogUser] = useState<UserInfo | null>(null);
 
   // Form state
   const [newUsername, setNewUsername] = useState("");
@@ -194,9 +184,6 @@ export function UserManagement() {
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedFolders, setSelectedFolders] = useState<number[]>([]);
-  const [newKeyName, setNewKeyName] = useState("");
-  const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [copiedKey, setCopiedKey] = useState(false);
 
   // Get current user ID from auth context
   const { user: currentUser } = useCurrentUser();
@@ -224,17 +211,6 @@ export function UserManagement() {
       if (!client) throw new Error("Not connected");
       return client.getAdminMusicFolders();
     },
-  });
-
-  // Fetch API keys for a user
-  const { data: apiKeysData, refetch: refetchApiKeys } = useQuery({
-    queryKey: ["admin", "users", keysDialogUser?.id, "api-keys"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client || !keysDialogUser) throw new Error("Not connected");
-      return client.getUserApiKeys(keysDialogUser.id);
-    },
-    enabled: !!keysDialogUser,
   });
 
   // Create user mutation
@@ -326,53 +302,12 @@ export function UserManagement() {
     },
   });
 
-  // Create API key mutation
-  const createKeyMutation = useMutation({
-    mutationFn: async () => {
-      const client = getClient();
-      if (!client || !keysDialogUser) throw new Error("Not connected");
-      return client.createUserApiKey(keysDialogUser.id, newKeyName);
-    },
-    onSuccess: (data) => {
-      refetchApiKeys();
-      setNewKeyName("");
-      setCreatedKey(data.key);
-      toast.success("API key created");
-    },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create API key",
-      );
-    },
-  });
-
-  // Delete API key mutation
-  const deleteKeyMutation = useMutation({
-    mutationFn: async (keyName: string) => {
-      const client = getClient();
-      if (!client || !keysDialogUser) throw new Error("Not connected");
-      return client.deleteUserApiKey(keysDialogUser.id, keyName);
-    },
-    onSuccess: () => {
-      refetchApiKeys();
-      toast.success("API key deleted");
-    },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete API key",
-      );
-    },
-  });
-
   const resetForm = () => {
     setNewUsername("");
     setNewPassword("");
     setNewIsAdmin(false);
     setShowPassword(false);
     setSelectedFolders([]);
-    setNewKeyName("");
-    setCreatedKey(null);
-    setCopiedKey(false);
   };
 
   const handleEditUser = (user: UserInfo) => {
@@ -385,21 +320,6 @@ export function UserManagement() {
   const handleManageAccess = (user: UserInfo) => {
     setSelectedFolders(user.libraryAccess);
     setAccessDialogUser(user);
-  };
-
-  const handleManageKeys = (user: UserInfo) => {
-    setCreatedKey(null);
-    setCopiedKey(false);
-    setNewKeyName("");
-    setKeysDialogUser(user);
-  };
-
-  const handleCopyKey = async () => {
-    if (createdKey) {
-      await navigator.clipboard.writeText(createdKey);
-      setCopiedKey(true);
-      setTimeout(() => setCopiedKey(false), 2000);
-    }
   };
 
   const toggleFolderAccess = (folderId: number) => {
@@ -578,7 +498,6 @@ export function UserManagement() {
                 currentUserId={currentUserId}
                 onEdit={handleEditUser}
                 onDelete={(u) => deleteUserMutation.mutate(u.id)}
-                onManageKeys={handleManageKeys}
                 onManageAccess={handleManageAccess}
               />
             ))
@@ -733,118 +652,6 @@ export function UserManagement() {
               disabled={updateAccessMutation.isPending}
             >
               {updateAccessMutation.isPending ? "Saving..." : "Save Access"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* API Keys Dialog */}
-      <Dialog
-        open={!!keysDialogUser}
-        onOpenChange={(open) => {
-          if (!open) {
-            setKeysDialogUser(null);
-            setCreatedKey(null);
-            setNewKeyName("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>API Keys for {keysDialogUser?.username}</DialogTitle>
-            <DialogDescription>
-              Manage API keys for authentication
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Create new key */}
-            <div className="flex gap-2">
-              <Input
-                placeholder="Key name (e.g., Mobile App)"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-              />
-              <Button
-                onClick={() => createKeyMutation.mutate()}
-                disabled={!newKeyName || createKeyMutation.isPending}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Create
-              </Button>
-            </div>
-
-            {/* Show newly created key */}
-            {createdKey && (
-              <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
-                  <Check className="w-4 h-4" />
-                  API Key Created
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Copy this key now - it won&apos;t be shown again!
-                </p>
-                <div className="flex gap-2">
-                  <code className="flex-1 p-2 bg-muted rounded text-xs font-mono break-all">
-                    {createdKey}
-                  </code>
-                  <Button size="sm" variant="outline" onClick={handleCopyKey}>
-                    {copiedKey ? (
-                      <Check className="w-4 h-4" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Existing keys */}
-            <div className="space-y-2">
-              <Label>Existing Keys</Label>
-              {apiKeysData?.apiKeys.length === 0 ? (
-                <p className="text-muted-foreground text-sm py-4 text-center">
-                  No API keys yet
-                </p>
-              ) : (
-                <div className="border rounded-lg divide-y">
-                  {apiKeysData?.apiKeys.map((key) => (
-                    <div
-                      key={key.name}
-                      className="flex items-center justify-between p-3"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Key className="w-4 h-4 text-muted-foreground" />
-                          <span className="font-medium">{key.name}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Created {new Date(key.createdAt).toLocaleDateString()}
-                          {key.lastUsed && (
-                            <>
-                              {" "}
-                              • Last used{" "}
-                              {new Date(key.lastUsed).toLocaleDateString()}
-                            </>
-                          )}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteKeyMutation.mutate(key.name)}
-                        disabled={deleteKeyMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setKeysDialogUser(null)}>
-              Close
             </Button>
           </DialogFooter>
         </DialogContent>

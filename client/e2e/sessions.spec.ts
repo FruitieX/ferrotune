@@ -9,8 +9,19 @@
  */
 
 import { expect, Page, BrowserContext } from "@playwright/test";
-import { test, waitForPlayerReady, resetState, ServerInfo } from "./fixtures";
-import { gotoAppPath, waitForAuthenticatedHome } from "./app-helpers";
+import {
+  test,
+  waitForPlayerReady,
+  resetState,
+  ServerInfo,
+  loginForSession,
+} from "./fixtures";
+import {
+  gotoAppPath,
+  setStoredConnection,
+  waitForAuthenticatedHome,
+  type StoredConnection,
+} from "./app-helpers";
 import { setDocumentVisibility } from "./page-visibility";
 
 // ---------------------------------------------------------------------------
@@ -34,20 +45,28 @@ async function createSecondTab(
   const page = await context.newPage();
   await preparePage?.(page);
 
+  const login = await loginForSession(server.url, {
+    username: server.username,
+    password: server.password,
+  });
+  const connection: StoredConnection = {
+    serverUrl: server.url,
+    username: login.user.username,
+    userId: login.user.id,
+    email: login.user.email ?? null,
+    isAdmin: login.user.isAdmin,
+    sessionToken: login.sessionToken,
+    sessionExpiresAt: login.sessionExpiresAt,
+    urlToken: login.urlToken,
+    urlTokenExpiresAt: login.urlTokenExpiresAt,
+  };
+
   // Navigate and inject auth (both connection and saved accounts for dropdown)
   await page.goto("/");
-  await page.evaluate(
-    ({ serverUrl, username, password }) => {
-      const conn = { serverUrl, username, password };
-      localStorage.setItem("ferrotune-connection", JSON.stringify(conn));
-      localStorage.setItem("ferrotune-saved-accounts", JSON.stringify([conn]));
-    },
-    {
-      serverUrl: server.url,
-      username: server.username,
-      password: server.password,
-    },
-  );
+  await setStoredConnection(page, connection);
+  await page.evaluate((conn) => {
+    localStorage.setItem("ferrotune-saved-accounts", JSON.stringify([conn]));
+  }, connection);
   await gotoAppPath(page, "/");
   await waitForAuthenticatedHome(page);
   return { context, page };
@@ -92,11 +111,7 @@ async function sendTakeoverCommand(
       sessionStorage.getItem("ferrotune-client-id") || "null",
     );
 
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken) {
       throw new Error("Missing authenticated connection in localStorage");
     }
 
@@ -105,12 +120,12 @@ async function sendTakeoverCommand(
     }
 
     const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(sessionId)}/command`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          Authorization: `Bearer ${connection.sessionToken}`,
         },
         body: JSON.stringify({
           action: "takeOver",
@@ -143,11 +158,7 @@ async function sendSessionHeartbeat(
       sessionStorage.getItem("ferrotune-client-id") || "null",
     );
 
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken) {
       throw new Error("Missing authenticated connection in localStorage");
     }
 
@@ -156,12 +167,12 @@ async function sendSessionHeartbeat(
     }
 
     const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          Authorization: `Bearer ${connection.sessionToken}`,
         },
         body: JSON.stringify({
           clientId,
@@ -196,19 +207,15 @@ async function getConnectedClientCount(page: Page): Promise<number> {
       localStorage.getItem("ferrotune-connection") || "null",
     );
 
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken) {
       return 0;
     }
 
     const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/clients`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/clients`,
       {
         headers: {
-          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          Authorization: `Bearer ${connection.sessionToken}`,
         },
       },
     );
@@ -239,19 +246,15 @@ async function getConnectedClients(
       localStorage.getItem("ferrotune-connection") || "null",
     );
 
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken) {
       return [];
     }
 
     const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/clients`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/clients`,
       {
         headers: {
-          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          Authorization: `Bearer ${connection.sessionToken}`,
         },
       },
     );
@@ -271,24 +274,19 @@ async function getCurrentQueuePositionMs(page: Page): Promise<number | null> {
       sessionStorage.getItem("ferrotune-session-id") || "null",
     );
 
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password ||
-      !sessionId
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken || !sessionId) {
       return null;
     }
 
     const url = new URL(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/queue/current-window`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/queue/current-window`,
     );
     url.searchParams.set("radius", "20");
     url.searchParams.set("sessionId", sessionId);
 
     const response = await fetch(url.toString(), {
       headers: {
-        Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        Authorization: `Bearer ${connection.sessionToken}`,
       },
     });
     if (!response.ok) return null;
@@ -312,15 +310,15 @@ async function connectSyntheticSessionClient(
     );
     if (
       !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
+      !connection.sessionToken ||
+      !connection.urlToken
     ) {
       throw new Error("Missing authenticated session for synthetic client");
     }
 
-    const authHeader = `Basic ${btoa(`${connection.username}:${connection.password}`)}`;
+    const authHeader = `Bearer ${connection.sessionToken}`;
     const sessionResponse = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions`,
       { headers: { Authorization: authHeader } },
     );
     if (!sessionResponse.ok) {
@@ -329,15 +327,14 @@ async function connectSyntheticSessionClient(
     const session: { id: string } = await sessionResponse.json();
 
     const params = new URLSearchParams({
-      u: connection.username,
-      p: connection.password,
+      urlToken: connection.urlToken,
       v: "1.16.1",
       c: "ferrotune-web",
       clientId,
       clientName,
     });
     if (deviceLabel) params.set("deviceLabel", deviceLabel);
-    const url = `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(session.id)}/events?${params.toString()}`;
+    const url = `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(session.id)}/events?${params.toString()}`;
 
     await new Promise<void>((resolve, reject) => {
       const eventSource = new EventSource(url);
@@ -374,17 +371,13 @@ async function sendTakeoverCommandForClient(
     const connection = JSON.parse(
       localStorage.getItem("ferrotune-connection") || "null",
     );
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken) {
       throw new Error("Missing authenticated session for takeover command");
     }
 
-    const authHeader = `Basic ${btoa(`${connection.username}:${connection.password}`)}`;
+    const authHeader = `Bearer ${connection.sessionToken}`;
     const sessionResponse = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions`,
       { headers: { Authorization: authHeader } },
     );
     if (!sessionResponse.ok) {
@@ -393,7 +386,7 @@ async function sendTakeoverCommandForClient(
     const session: { id: string } = await sessionResponse.json();
 
     const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(session.id)}/command`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(session.id)}/command`,
       {
         method: "POST",
         headers: {
@@ -494,20 +487,15 @@ async function getThisClientServerOwnership(page: Page): Promise<boolean> {
       sessionStorage.getItem("ferrotune-client-id") || "null",
     );
 
-    if (
-      !connection?.serverUrl ||
-      !connection.username ||
-      !connection.password ||
-      !clientId
-    ) {
+    if (!connection?.serverUrl || !connection.sessionToken || !clientId) {
       return false;
     }
 
     const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/clients`,
+      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/clients`,
       {
         headers: {
-          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+          Authorization: `Bearer ${connection.sessionToken}`,
         },
       },
     );
@@ -693,7 +681,7 @@ async function createSecondaryUser(
 ): Promise<{ username: string; password: string; label: string }> {
   const username = `secondary${Date.now()}`;
   const password = "secondarypass";
-  const response = await page.request.post(`${server.url}/ferrotune/users`, {
+  const response = await page.request.post(`${server.url}/api/users`, {
     headers: {
       Authorization: `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`,
     },
@@ -720,26 +708,37 @@ async function addSecondarySavedAccount(
   server: ServerInfo,
   secondary: { username: string; password: string; label: string },
 ): Promise<void> {
+  const secondaryLogin = await loginForSession(server.url, secondary);
+  const secondaryConnection: StoredConnection = {
+    serverUrl: server.url,
+    username: secondaryLogin.user.username,
+    userId: secondaryLogin.user.id,
+    email: secondaryLogin.user.email ?? null,
+    isAdmin: secondaryLogin.user.isAdmin,
+    sessionToken: secondaryLogin.sessionToken,
+    sessionExpiresAt: secondaryLogin.sessionExpiresAt,
+    urlToken: secondaryLogin.urlToken,
+    urlTokenExpiresAt: secondaryLogin.urlTokenExpiresAt,
+  };
+
   await page.evaluate(
-    ({ serverUrl, adminUsername, adminPassword, secondaryUser }) => {
+    ({ secondaryAccount, label }) => {
+      const currentConnection = JSON.parse(
+        localStorage.getItem("ferrotune-connection") || "null",
+      );
+
+      if (!currentConnection) {
+        throw new Error("Missing active connection in localStorage");
+      }
+
       localStorage.setItem(
         "ferrotune-saved-accounts",
-        JSON.stringify([
-          { serverUrl, username: adminUsername, password: adminPassword },
-          {
-            serverUrl,
-            username: secondaryUser.username,
-            password: secondaryUser.password,
-            label: secondaryUser.label,
-          },
-        ]),
+        JSON.stringify([currentConnection, { ...secondaryAccount, label }]),
       );
     },
     {
-      serverUrl: server.url,
-      adminUsername: server.username,
-      adminPassword: server.password,
-      secondaryUser: secondary,
+      secondaryAccount: secondaryConnection,
+      label: secondary.label,
     },
   );
 }
@@ -774,22 +773,21 @@ test.describe.serial("Multi-Session Playback", () => {
   test.beforeEach(async ({ authenticatedPage: page, server }) => {
     await resetState(page, server);
     // Ensure saved accounts are set so the session dropdown renders
-    await page.evaluate(
-      ({ serverUrl, username, password }) => {
-        const existing = localStorage.getItem("ferrotune-saved-accounts");
-        if (!existing || existing === "[]") {
-          localStorage.setItem(
-            "ferrotune-saved-accounts",
-            JSON.stringify([{ serverUrl, username, password }]),
-          );
+    await page.evaluate(() => {
+      const existing = localStorage.getItem("ferrotune-saved-accounts");
+      if (!existing || existing === "[]") {
+        const connection = JSON.parse(
+          localStorage.getItem("ferrotune-connection") || "null",
+        );
+        if (!connection) {
+          throw new Error("Missing active connection in localStorage");
         }
-      },
-      {
-        serverUrl: server.url,
-        username: server.username,
-        password: server.password,
-      },
-    );
+        localStorage.setItem(
+          "ferrotune-saved-accounts",
+          JSON.stringify([connection]),
+        );
+      }
+    });
     await page.reload();
   });
 
@@ -1021,7 +1019,7 @@ test.describe.serial("Multi-Session Playback", () => {
       server,
       baseURL,
       async (page) => {
-        await page.route("**/ferrotune/songs/*/waveform", async (route) => {
+        await page.route("**/api/songs/*/waveform", async (route) => {
           waveformRequests.push(route.request().url());
           await route.fulfill({
             status: 200,
@@ -1062,7 +1060,7 @@ test.describe.serial("Multi-Session Playback", () => {
       server,
       baseURL,
       async (page) => {
-        await page.route("**/ferrotune/songs/*/waveform", async (route) => {
+        await page.route("**/api/songs/*/waveform", async (route) => {
           waveformRequestCount += 1;
           if (waveformRequestCount === 1) {
             await route.fulfill({

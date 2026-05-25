@@ -1,6 +1,6 @@
 //! Music folder repository queries.
 //!
-//! SeaORM replacements for `src/api/ferrotune/music_folders.rs`. Exposes
+//! SeaORM music-folder repository queries. Exposes
 //! CRUD + stats helpers plus the bulk/orphan cleanup operations used when a
 //! music folder is deleted.
 

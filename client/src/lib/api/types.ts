@@ -1,4 +1,4 @@
-// OpenSubsonic API Response Types
+// API response types
 // Re-exports generated types from ts-rs with client-friendly type aliases
 //
 // NAMING CONVENTION:
@@ -12,6 +12,31 @@
 // - AlbumDetail = album entity with songs
 //
 // We re-export with aliases to match client expectations.
+
+import type {
+  AlbumListType as _AlbumListType,
+  AlbumResponse as _AlbumResponse,
+  ArtistResponse as _ArtistResponse,
+  FerrotuneAlbumListResponse as _FerrotuneAlbumListResponse,
+  FerrotuneAlbumResponse as _FerrotuneAlbumResponse,
+  FerrotuneArtistResponse as _FerrotuneArtistResponse,
+  FerrotuneArtistsResponse as _FerrotuneArtistsResponse,
+  FerrotuneGenresResponse as _FerrotuneGenresResponse,
+  FerrotuneIndexesResponse as _FerrotuneIndexesResponse,
+  FerrotunePlayHistoryEntry as _FerrotunePlayHistoryEntry,
+  FerrotunePlayHistoryResponse as _FerrotunePlayHistoryResponse,
+  FerrotuneRandomSongsResponse as _FerrotuneRandomSongsResponse,
+  FerrotuneSearchContent as _FerrotuneSearchContent,
+  FerrotuneSimilarSongsResponse as _FerrotuneSimilarSongsResponse,
+  FerrotuneSongResponse as _FerrotuneSongResponse,
+  FerrotuneSongsByGenreResponse as _FerrotuneSongsByGenreResponse,
+  FerrotuneStarredResponse as _FerrotuneStarredResponse,
+  IndexesData as _IndexesData,
+  MusicFolderInfo as _MusicFolderInfo,
+  MusicFoldersResponse as _GeneratedMusicFoldersResponse,
+  PlaylistSongsResponse as _PlaylistSongsResponse,
+  SongResponse as _SongResponse,
+} from "./generated";
 
 // ============================================================================
 // Core Entity Types - Base data objects without nested data
@@ -33,17 +58,29 @@ export type { ArtistResponse as Artist } from "./generated";
 export type { GenreResponse } from "./generated";
 export type { GenreResponse as Genre } from "./generated";
 
-// Playlist entity
-export type { PlaylistResponse } from "./generated";
-export type { PlaylistResponse as Playlist } from "./generated";
+// Playlist entity. The native folder listing returns a compact playlist shape,
+// while much of the client still expects the older playlist metadata shape.
+export type PlaylistResponse = {
+  id: string;
+  name: string;
+  comment: string | null;
+  owner: string;
+  public: boolean;
+  songCount: number;
+  duration: number;
+  created: string;
+  changed: string;
+  coverArt: string | null;
+};
+export type Playlist = PlaylistResponse;
 
 // Smart playlist entity
 export type { SmartPlaylistsResponse } from "./generated";
 export type { SmartPlaylistInfo as SmartPlaylist } from "./generated";
 
 // Music folder entity
-export type { MusicFolderResponse } from "./generated";
-export type { MusicFolderResponse as MusicFolder } from "./generated";
+export type MusicFolderResponse = _MusicFolderInfo;
+export type MusicFolder = _MusicFolderInfo;
 
 // ============================================================================
 // Extended Entity Types - Entities with nested child data
@@ -58,54 +95,55 @@ export type { ArtistDetail } from "./generated";
 export type { ArtistDetail as ArtistWithAlbums } from "./generated";
 
 // Playlist with its songs (for playlist detail pages)
-export type { PlaylistDetailResponse } from "./generated";
-export type { PlaylistDetailResponse as PlaylistWithSongs } from "./generated";
+export type PlaylistDetailResponse = _PlaylistSongsResponse;
+export type PlaylistWithSongs = _PlaylistSongsResponse;
 
 // ============================================================================
 // API Response Wrapper Types - What the endpoints actually return
 // ============================================================================
 
 // getArtists response: { artists: { index: [...] } }
-export type { ArtistsResponse } from "./generated";
+export type ArtistsResponse = _FerrotuneArtistsResponse;
 export type { ArtistsIndex } from "./generated";
 export type { ArtistIndex } from "./generated";
 
 // getArtist response: { artist: ArtistDetail }
 // NOTE: This is what getArtist() returns - wrapper with detail
-export type { ArtistDetailResponse } from "./generated";
+export type ArtistDetailResponse = _FerrotuneArtistResponse;
 // Client alias: ArtistResponse used to mean the wrapper
-import type { ArtistDetailResponse as _ArtistDetailResponse } from "./generated";
-export type ArtistResponse_Wrapper = _ArtistDetailResponse;
+export type ArtistResponse_Wrapper = ArtistDetailResponse;
 
 // getAlbum response: { album: AlbumDetail }
-export type { AlbumDetailResponse } from "./generated";
+export type AlbumDetailResponse = _FerrotuneAlbumResponse;
 // Client alias: AlbumResponse used to mean the wrapper
-import type { AlbumDetailResponse as _AlbumDetailResponse } from "./generated";
-export type AlbumResponse_Wrapper = _AlbumDetailResponse;
+export type AlbumResponse_Wrapper = AlbumDetailResponse;
 
 // getSong response: { song: SongResponse }
-export type { SongDetailResponse } from "./generated";
-import type { SongDetailResponse as _SongDetailResponse } from "./generated";
-export type SongResponse_Wrapper = _SongDetailResponse;
+export type SongDetailResponse = _FerrotuneSongResponse;
+export type SongResponse_Wrapper = SongDetailResponse;
 
 // getGenres response: { genres: { genre: [...] } }
-export type { GenresResponse } from "./generated";
+export type GenresResponse = _FerrotuneGenresResponse;
 
 // getAlbumList2 response
-export type { AlbumList2Response } from "./generated";
-export type { AlbumList2Content } from "./generated";
-// Client alias with seed extension (Ferrotune-specific)
-import type { AlbumList2Response as _AlbumList2Response } from "./generated";
-import type { AlbumList2Content as _AlbumList2Content } from "./generated";
+export type AlbumList2Content = {
+  album: _FerrotuneAlbumListResponse["album"];
+  total?: number;
+  seed?: number;
+};
+export type AlbumList2Response = { albumList2: AlbumList2Content };
+// Client alias with seed extension
 export type AlbumListResponse = {
-  albumList2: _AlbumList2Content & { seed?: number };
+  albumList2: AlbumList2Content;
 };
 
 // getRandomSongs response
-export type { RandomSongsResponse } from "./generated";
+export type RandomSongsResponse = _FerrotuneRandomSongsResponse;
 
 // getSongsByGenre response
-export type { SongsByGenreResponse } from "./generated";
+export type SongsByGenreResponse = {
+  songsByGenre: { song: _FerrotuneSongsByGenreResponse["song"] };
+};
 
 // getForgottenFavorites response
 export type { ForgottenFavoritesResponse } from "./generated";
@@ -113,32 +151,45 @@ export type { ForgottenFavoritesResponse } from "./generated";
 // getMostPlayedRecently response
 export type { MostPlayedRecentlyResponse } from "./generated";
 
-// search3 response
-export type { SearchResult3 } from "./generated";
-export type { SearchContent } from "./generated";
+// search response, adapted to the legacy client-side `searchResult3` shape
+export type SearchContent = Omit<
+  _FerrotuneSearchContent,
+  "artistTotal" | "albumTotal" | "songTotal"
+> & {
+  artistTotal?: number;
+  albumTotal?: number;
+  songTotal?: number;
+};
+export type SearchResult3 = { searchResult3: SearchContent };
 // Client alias for backward compat
-import type { SearchResult3 as _SearchResult3 } from "./generated";
-export type SearchResponse = _SearchResult3;
+export type SearchResponse = SearchResult3;
 
-// getStarred2 response
-export type { Starred2Response } from "./generated";
-export type { Starred2Content } from "./generated";
-// Client alias for backward compat
-import type { Starred2Response as _Starred2Response } from "./generated";
-export type StarredResponse = _Starred2Response;
+// getStarred response
+export type Starred2Content = {
+  artist: _FerrotuneStarredResponse["artists"];
+  album: _FerrotuneStarredResponse["albums"];
+  song: _FerrotuneStarredResponse["songs"];
+};
+export type Starred2Response = { starred2: Starred2Content };
+export type StarredResponse = _FerrotuneStarredResponse;
 
 // getPlaylists response
-export type { PlaylistsResponse } from "./generated";
+export type PlaylistsResponse = { playlists: { playlist: PlaylistResponse[] } };
 
 // getPlaylist response: { playlist: PlaylistDetail }
-export type { PlaylistWithSongsResponse } from "./generated";
-// Client alias for backward compat
-import type { PlaylistWithSongsResponse as _PlaylistWithSongsResponse } from "./generated";
-export type PlaylistResponse_Wrapper = _PlaylistWithSongsResponse;
+export type PlaylistWithSongsResponse = {
+  playlist: PlaylistResponse & { entry: _SongResponse[] };
+};
+export type PlaylistResponse_Wrapper = PlaylistWithSongsResponse;
 
 // Play Queue
-export type { PlayQueueResponse } from "./generated";
-export type { PlayQueueContent } from "./generated";
+export type PlayQueueContent = {
+  entry: _SongResponse[];
+  current?: string | null;
+  position?: number | null;
+  changedBy?: string | null;
+};
+export type PlayQueueResponse = { playQueue: PlayQueueContent };
 
 // Server-side Queue (new API)
 export type { StartQueueResponse } from "./generated";
@@ -149,18 +200,21 @@ export type { QueueSourceInfo } from "./generated";
 export type { QueueSuccessResponse } from "./generated";
 
 // Play History
-export type { PlayHistoryResponse } from "./generated";
-export type { PlayHistoryContent } from "./generated";
-export type { PlayHistoryEntry } from "./generated";
+export type PlayHistoryEntry = _FerrotunePlayHistoryEntry;
+export type PlayHistoryContent = {
+  entry: _FerrotunePlayHistoryResponse["entry"];
+  total?: number;
+};
+export type PlayHistoryResponse = { playHistory: PlayHistoryContent };
 
 // Directory browsing (getIndexes, getMusicDirectory)
-export type { IndexesResponse } from "./generated";
-export type { Indexes } from "./generated";
+export type Indexes = _IndexesData;
+export type IndexesResponse = _FerrotuneIndexesResponse;
 export type { DirectoryIndex } from "./generated";
 export type { DirectoryArtist } from "./generated";
-export type { DirectoryResponse } from "./generated";
-export type { Directory } from "./generated";
-export type { DirectoryChild } from "./generated";
+export type DirectoryChild = _SongResponse & { isDir?: boolean };
+export type Directory = { id: string; name: string; child: DirectoryChild[] };
+export type DirectoryResponse = { directory: Directory };
 
 // Ferrotune library browsing
 export type { LibrariesResponse } from "./generated";
@@ -171,12 +225,11 @@ export type { BreadcrumbItem } from "./generated";
 export type { GetDirectoryPagedParams } from "./generated";
 
 // getMusicFolders response
-export type { MusicFolders } from "./generated";
-import type { MusicFolders as _MusicFolders } from "./generated";
-export type MusicFoldersResponse = _MusicFolders;
+export type MusicFolders = _GeneratedMusicFoldersResponse;
+export type MusicFoldersResponse = _GeneratedMusicFoldersResponse;
 
 // License
-export type { License } from "./generated";
+export type License = { valid: boolean; email: string | null };
 
 // Tag editing
 export type { TagEntry } from "./generated";
@@ -209,11 +262,30 @@ export type { SongIdsResponse } from "./generated";
 // Re-export the enum type directly
 export type { AlbumListType } from "./generated";
 
-// Re-export parameter types
-export type { AlbumListParams } from "./generated";
+// Parameter types used by the client compatibility methods
+export type AlbumListParams = {
+  type: _AlbumListType;
+  size?: number;
+  offset?: number;
+  fromYear?: number;
+  toYear?: number;
+  genre?: string;
+  musicFolderId?: number;
+};
 export type { SearchParams } from "./generated";
-export type { RandomSongsParams } from "./generated";
-export type { SongsByGenreParams } from "./generated";
+export type RandomSongsParams = {
+  size?: number;
+  genre?: string;
+  fromYear?: number;
+  toYear?: number;
+  musicFolderId?: number;
+};
+export type SongsByGenreParams = {
+  genre: string;
+  count?: number;
+  offset?: number;
+  musicFolderId?: number;
+};
 
 // ============================================================================
 // Admin API Request Types (generated from Rust)
@@ -266,10 +338,12 @@ export type { CreateUserResponse } from "./generated";
 export type { UpdateUserRequest } from "./generated";
 export type { LibraryAccessResponse } from "./generated";
 export type { SetLibraryAccessRequest } from "./generated";
-export type { ApiKeysResponse } from "./generated";
-export type { ApiKeyInfo } from "./generated";
-export type { CreateApiKeyRequest } from "./generated";
-export type { CreateApiKeyResponse } from "./generated";
+export type { AuthLoginRequest } from "./generated";
+export type { AuthLoginResponse } from "./generated";
+export type { AuthMeResponse } from "./generated";
+export type { AuthUrlTokenRequest } from "./generated";
+export type { AuthUrlTokenResponse } from "./generated";
+export type { AuthUserResponse } from "./generated";
 
 // ============================================================================
 // Connection Types (client-only)
@@ -277,7 +351,12 @@ export type { CreateApiKeyResponse } from "./generated";
 
 export interface ServerConnection {
   serverUrl: string;
-  apiKey?: string;
   username?: string;
-  password?: string;
+  userId?: number;
+  email?: string | null;
+  isAdmin?: boolean;
+  sessionToken?: string;
+  sessionExpiresAt?: string;
+  urlToken?: string;
+  urlTokenExpiresAt?: string;
 }

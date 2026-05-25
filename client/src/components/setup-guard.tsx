@@ -29,7 +29,7 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
       try {
-        const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
+        const response = await fetch(`${backendUrl}/api/setup/status`);
         if (!response.ok) {
           // If endpoint doesn't exist (old server), assume setup is complete
           return {

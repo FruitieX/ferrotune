@@ -9,7 +9,7 @@
 # ============================================================================
 
 # Test: Get setup status (no auth required)
-GET {{base_url}}/ferrotune/setup/status
+GET {{base_url}}/api/setup/status
 HTTP 200
 [Asserts]
 jsonpath "$.setupComplete" isBoolean

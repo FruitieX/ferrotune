@@ -117,8 +117,7 @@ impl<R: Runtime> NativeAudio<R> {
                 serde_json::json!({
                     "serverUrl": config.server_url,
                     "username": config.username,
-                    "password": config.password,
-                    "apiKey": config.api_key,
+                    "sessionToken": config.session_token,
                     "sessionId": config.session_id,
                     "clientId": config.client_id,
                 }),

@@ -6,11 +6,11 @@
 # @requires_scan
 
 # ============================================================================
-# GET /ferrotune/playlist-folders
+# GET /api/playlist-folders
 # ============================================================================
 
 # Get all playlist folders (initial state)
-GET {{base_url}}/ferrotune/playlist-folders
+GET {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -18,15 +18,15 @@ jsonpath "$.folders" isCollection
 jsonpath "$.playlists" isCollection
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/playlist-folders
+GET {{base_url}}/api/playlist-folders
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/playlist-folders
+# POST /api/playlist-folders
 # ============================================================================
 
 # Create a new playlist folder (returns 200, not 201)
-POST {{base_url}}/ferrotune/playlist-folders
+POST {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -40,18 +40,18 @@ jsonpath "$.id" exists
 jsonpath "$.name" == "Test Folder"
 
 # Verify folder was created
-GET {{base_url}}/ferrotune/playlist-folders
+GET {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.folders" count >= 1
 
 # ============================================================================
-# PATCH /ferrotune/playlist-folders/:id
+# PATCH /api/playlist-folders/:id
 # ============================================================================
 
 # Update the folder name
-PATCH {{base_url}}/ferrotune/playlist-folders/{{folder_id}}
+PATCH {{base_url}}/api/playlist-folders/{{folder_id}}
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -62,7 +62,7 @@ HTTP 200
 jsonpath "$.name" == "Renamed Test Folder"
 
 # Update nonexistent folder should fail
-PATCH {{base_url}}/ferrotune/playlist-folders/nonexistent-id
+PATCH {{base_url}}/api/playlist-folders/nonexistent-id
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -71,11 +71,11 @@ Content-Type: application/json
 HTTP 404
 
 # ============================================================================
-# POST /ferrotune/playlists (Import Playlist)
+# POST /api/playlists (Import Playlist)
 # ============================================================================
 
 # First get a song ID from the library to use
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 # Check that we actually have a valid song ID
@@ -85,7 +85,7 @@ jsonpath "$.songs[0].id" exists
 song_id: jsonpath "$.songs[0].id"
 
 # Import a playlist with matched and missing entries
-POST {{base_url}}/ferrotune/playlists
+POST {{base_url}}/api/playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -115,11 +115,11 @@ jsonpath "$.matchedCount" == 1
 jsonpath "$.missingCount" == 1
 
 # ============================================================================
-# GET /ferrotune/playlists/:id/songs (also returns metadata)
+# GET /api/playlists/:id/songs (also returns metadata)
 # ============================================================================
 
 # Get the created playlist with songs
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -132,16 +132,16 @@ jsonpath "$.matchedCount" exists
 jsonpath "$.missingCount" exists
 
 # Get nonexistent playlist should fail
-GET {{base_url}}/ferrotune/playlists/nonexistent-id/songs
+GET {{base_url}}/api/playlists/nonexistent-id/songs
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
 # ============================================================================
-# POST /ferrotune/playlists/:id/songs
+# POST /api/playlists/:id/songs
 # ============================================================================
 
 # Add songs to playlist (returns 204 No Content)
-POST {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+POST {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -150,7 +150,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify song was added
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -162,11 +162,11 @@ jsonpath "$.entries" count >= 3
 # Test skipped to preserve state for subsequent tests
 
 # ============================================================================
-# GET /ferrotune/playlists/containing-songs
+# GET /api/playlists/containing-songs
 # ============================================================================
 
 # Get playlists containing a specific song (uses songId param, returns playlistsBySong map)
-GET {{base_url}}/ferrotune/playlists/containing-songs?songId={{song_id}}
+GET {{base_url}}/api/playlists/containing-songs?songId={{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -177,7 +177,7 @@ jsonpath "$.playlistsBySong" exists
 # ============================================================================
 
 # Get playlist entries to capture IDs
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -191,11 +191,11 @@ entry_id_1: jsonpath "$.entries[1].entryId"
 entry_id_2: jsonpath "$.entries[2].entryId"
 
 # ----------------------------------------------------------------------------
-# POST /ferrotune/playlists/:id/move-entry
+# POST /api/playlists/:id/move-entry
 # ----------------------------------------------------------------------------
 
 # Move entry 0 to position 1
-POST {{base_url}}/ferrotune/playlists/{{playlist_id}}/move-entry
+POST {{base_url}}/api/playlists/{{playlist_id}}/move-entry
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -205,7 +205,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify move
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -213,18 +213,18 @@ jsonpath "$.entries" count >= 2
 jsonpath "$.entries[1].entryId" == "{{entry_id_0}}"
 
 # ----------------------------------------------------------------------------
-# PUT /ferrotune/playlists/:id/reorder
+# PUT /api/playlists/:id/reorder
 # ----------------------------------------------------------------------------
 
 # Skipped: Reorder via songIds is not supported for playlists with missing entries
 # or duplicates. The backend implementation requires unique song IDs.
 
 # ----------------------------------------------------------------------------
-# POST /ferrotune/playlists/:id/match-missing
+# POST /api/playlists/:id/match-missing
 # ----------------------------------------------------------------------------
 
 # Match entry 1 (originally missing) to song_id
-POST {{base_url}}/ferrotune/playlists/{{playlist_id}}/match-missing
+POST {{base_url}}/api/playlists/{{playlist_id}}/match-missing
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -234,7 +234,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify match
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -244,11 +244,11 @@ jsonpath "$.entries[0].entryType" == "song"
 jsonpath "$.entries[0].song.id" == "{{song_id}}"
 
 # ----------------------------------------------------------------------------
-# POST /ferrotune/playlists/:id/unmatch
+# POST /api/playlists/:id/unmatch
 # ----------------------------------------------------------------------------
 
 # Unmatch entry 1
-POST {{base_url}}/ferrotune/playlists/{{playlist_id}}/unmatch
+POST {{base_url}}/api/playlists/{{playlist_id}}/unmatch
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -257,7 +257,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify unmatch
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -268,11 +268,11 @@ jsonpath "$.entries[0].song" not exists
 jsonpath "$.entries[0].missing" != null
 
 # ----------------------------------------------------------------------------
-# POST /ferrotune/playlists/:id/batch-match
+# POST /api/playlists/:id/batch-match
 # ----------------------------------------------------------------------------
 
 # Batch match entry 1 back to song_id
-POST {{base_url}}/ferrotune/playlists/{{playlist_id}}/batch-match
+POST {{base_url}}/api/playlists/{{playlist_id}}/batch-match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -289,11 +289,11 @@ jsonpath "$.matchedCount" == 1
 jsonpath "$.failedCount" == 0
 
 # ============================================================================
-# DELETE /ferrotune/playlists/:id/songs
+# DELETE /api/playlists/:id/songs
 # ============================================================================
 
 # Remove song at index 0
-DELETE {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+DELETE {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -302,7 +302,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify song was removed (count should be at least one less than before)
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -312,11 +312,11 @@ jsonpath "$.entries" count >= 2
 # Just verifying count decreased is roughly safe enough for integration here.
 
 # ============================================================================
-# PUT /ferrotune/playlists/:id (Metadata Update)
+# PUT /api/playlists/:id (Metadata Update)
 # ============================================================================
 
 # Update playlist metadata
-PUT {{base_url}}/ferrotune/playlists/{{playlist_id}}
+PUT {{base_url}}/api/playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -329,18 +329,18 @@ jsonpath "$.name" == "Renamed Test Playlist"
 jsonpath "$.comment" == "Updated description"
 
 # Verify update
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.name" == "Renamed Test Playlist"
 
 # ============================================================================
-# PATCH /ferrotune/playlists/:id/move (Folder Management)
+# PATCH /api/playlists/:id/move (Folder Management)
 # ============================================================================
 
 # Move playlist to the folder
-PATCH {{base_url}}/ferrotune/playlists/{{playlist_id}}/move
+PATCH {{base_url}}/api/playlists/{{playlist_id}}/move
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -349,7 +349,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify playlist is now in the folder
-GET {{base_url}}/ferrotune/playlist-folders
+GET {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -357,7 +357,7 @@ HTTP 200
 jsonpath "$.playlists" count >= 1
 
 # Move playlist out of folder (to root)
-PATCH {{base_url}}/ferrotune/playlists/{{playlist_id}}/move
+PATCH {{base_url}}/api/playlists/{{playlist_id}}/move
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -366,11 +366,11 @@ Content-Type: application/json
 HTTP 204
 
 # ============================================================================
-# GET /ferrotune/playlists/:id/songs (Pagination)
+# GET /api/playlists/:id/songs (Pagination)
 # ============================================================================
 
 # Get playlist songs with pagination
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs?offset=0&count=1
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs?offset=0&count=1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -384,7 +384,7 @@ jsonpath "$.totalEntries" exists
 # ============================================================================
 
 # Get nonexistent playlist should fail
-GET {{base_url}}/ferrotune/playlists/nonexistent-id/songs
+GET {{base_url}}/api/playlists/nonexistent-id/songs
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
@@ -393,21 +393,21 @@ HTTP 404
 # ============================================================================
 
 # Delete the test playlist
-DELETE {{base_url}}/ferrotune/playlists/{{playlist_id}}
+DELETE {{base_url}}/api/playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # Verify deletion
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/songs
+GET {{base_url}}/api/playlists/{{playlist_id}}/songs
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
 # Delete playlist folder
-DELETE {{base_url}}/ferrotune/playlist-folders/{{folder_id}}
+DELETE {{base_url}}/api/playlist-folders/{{folder_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # Delete nonexistent folder should fail gracefully
-DELETE {{base_url}}/ferrotune/playlist-folders/nonexistent-id
+DELETE {{base_url}}/api/playlist-folders/nonexistent-id
 Authorization: Basic {{auth_basic}}
 HTTP 404

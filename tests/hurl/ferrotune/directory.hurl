@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Test: Get all libraries (music folders)
-GET {{base_url}}/ferrotune/libraries
+GET {{base_url}}/api/libraries
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -21,19 +21,19 @@ jsonpath "$.libraries" isCollection
 # ============================================================================
 
 # Test: Get directory contents requires libraryId
-GET {{base_url}}/ferrotune/directory
+GET {{base_url}}/api/directory
 Authorization: Basic {{auth_basic}}
 HTTP 400
 
 # First get a library ID
-GET {{base_url}}/ferrotune/libraries
+GET {{base_url}}/api/libraries
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 lib_id: jsonpath "$.libraries[0].id"
 
 # Test: Get directory contents at root
-GET {{base_url}}/ferrotune/directory?libraryId={{lib_id}}
+GET {{base_url}}/api/directory?libraryId={{lib_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

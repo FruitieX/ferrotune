@@ -9,21 +9,21 @@
 # ============================================================================
 
 # Test: Get scan status when not scanning
-GET {{base_url}}/ferrotune/scan/status
+GET {{base_url}}/api/scan/status
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.scanning" isBoolean
 
 # Test: Get full scan status
-GET {{base_url}}/ferrotune/scan/full
+GET {{base_url}}/api/scan/full
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.scanning" isBoolean
 
 # Test: Get scan details endpoint
-GET {{base_url}}/ferrotune/scan/details
+GET {{base_url}}/api/scan/details
 Authorization: Basic {{auth_basic}}
 HTTP 200
 
@@ -32,7 +32,7 @@ HTTP 200
 # ============================================================================
 
 # Test: Trigger a library scan
-POST {{base_url}}/ferrotune/scan
+POST {{base_url}}/api/scan
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {}
@@ -42,7 +42,7 @@ jsonpath "$.status" == "started"
 jsonpath "$.message" exists
 
 # Wait a moment and check progress
-GET {{base_url}}/ferrotune/scan/status
+GET {{base_url}}/api/scan/status
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -53,7 +53,7 @@ jsonpath "$.scanning" isBoolean
 # ============================================================================
 
 # Test: Get scan logs
-GET {{base_url}}/ferrotune/scan/logs
+GET {{base_url}}/api/scan/logs
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

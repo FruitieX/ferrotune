@@ -12,8 +12,8 @@ A self-hosted music server written in Rust with a Vite/React web client.
   - Import playlists, play counts, favorites from e.g. CSV files
   - UI with smart matching of imported data to library
   - Supports importing playlist entries with no matches in library, with deferred matching
-- **OpenSubsonic API**
-  - Tested with Supersonic and Symfonium
+- **Native API**
+  - JSON API used by the web and mobile clients
 - **Configless operation**
   - Runtime settings use environment variables and the web UI
 - **Listening statistics**

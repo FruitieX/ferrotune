@@ -2,10 +2,8 @@ use crate::api::common::browse::{get_song_play_stats, song_to_response_with_stat
 use crate::api::common::models::{AlbumResponse, SongPlayStats, SongResponse};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso_ms;
-use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
-use crate::api::subsonic::inline_thumbnails::{
-    get_album_thumbnails_base64, get_song_thumbnails_base64,
-};
+use crate::api::inline_thumbnails::{get_album_thumbnails_base64, get_song_thumbnails_base64};
+use crate::api::smart_playlists::get_smart_playlist_songs_by_id;
 use crate::db::models::ItemType;
 use crate::db::repo::lists as lists_repo;
 use crate::thumbnails::ThumbnailSize;
@@ -454,7 +452,7 @@ pub async fn get_random_songs_logic(
             None
         };
 
-        // For random songs we might want stats too? Subsonic version called `get_song_play_stats`.
+        // For random songs we might want stats too? native API version called `get_song_play_stats`.
         let play_stats = get_song_play_stats(database, user_id, &song.id).await?;
 
         let starred = starred_map.get(&song.id).cloned();

@@ -29,7 +29,7 @@ fn scan_library_via_api(server: &TestServer) -> Value {
     let client = Client::new();
 
     client
-        .post(format!("{}/ferrotune/scan", server.base_url))
+        .post(format!("{}/api/scan", server.base_url))
         .basic_auth(&server.admin_user, Some(&server.admin_password))
         .json(&json!({}))
         .send()
@@ -40,7 +40,7 @@ fn scan_library_via_api(server: &TestServer) -> Value {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let status: Value = client
-            .get(format!("{}/ferrotune/scan/full", server.base_url))
+            .get(format!("{}/api/scan/full", server.base_url))
             .basic_auth(&server.admin_user, Some(&server.admin_password))
             .send()
             .expect("scan status request should succeed")
@@ -63,7 +63,7 @@ fn assert_song_matching_smoke(server: &TestServer) {
     let client = Client::new();
 
     let match_list: Value = client
-        .get(format!("{}/ferrotune/songs/match-list", server.base_url))
+        .get(format!("{}/api/songs/match-list", server.base_url))
         .basic_auth(&server.admin_user, Some(&server.admin_password))
         .send()
         .expect("match-list request should succeed")
@@ -88,7 +88,7 @@ fn assert_song_matching_smoke(server: &TestServer) {
     );
 
     let response: Value = client
-        .post(format!("{}/ferrotune/songs/match", server.base_url))
+        .post(format!("{}/api/songs/match", server.base_url))
         .basic_auth(&server.admin_user, Some(&server.admin_password))
         .json(&json!({
             "tracks": [

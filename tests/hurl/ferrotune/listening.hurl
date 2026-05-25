@@ -6,18 +6,18 @@
 # @requires_scan
 
 # ============================================================================
-# POST /ferrotune/listening
+# POST /api/listening
 # ============================================================================
 
 # First get a song ID to use for listening session
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 song_id: jsonpath "$.songs[0].id"
 
 # Log a new listening session (duration in seconds)
-POST {{base_url}}/ferrotune/listening
+POST {{base_url}}/api/listening
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -32,7 +32,7 @@ jsonpath "$.sessionId" exists
 jsonpath "$.success" == true
 
 # Update an existing session (add more time)
-POST {{base_url}}/ferrotune/listening
+POST {{base_url}}/api/listening
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -46,7 +46,7 @@ jsonpath "$.sessionId" == {{session_id}}
 jsonpath "$.success" == true
 
 # Log without authentication should fail
-POST {{base_url}}/ferrotune/listening
+POST {{base_url}}/api/listening
 Content-Type: application/json
 {
   "songId": "{{song_id}}",
@@ -55,11 +55,11 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# GET /ferrotune/listening/stats
+# GET /api/listening/stats
 # ============================================================================
 
 # Get listening statistics (uses last7Days, last30Days, thisYear, allTime)
-GET {{base_url}}/ferrotune/listening/stats
+GET {{base_url}}/api/listening/stats
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -75,15 +75,15 @@ jsonpath "$.allTime" exists
 jsonpath "$.allTime.totalSeconds" isInteger
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/listening/stats
+GET {{base_url}}/api/listening/stats
 HTTP 401
 
 # ============================================================================
-# GET /ferrotune/listening/review
+# GET /api/listening/review
 # ============================================================================
 
 # Get period review for current year (no periodType param, defaults to year)
-GET {{base_url}}/ferrotune/listening/review
+GET {{base_url}}/api/listening/review
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -98,7 +98,7 @@ jsonpath "$.review.topTracks" isCollection
 jsonpath "$.availablePeriods" isCollection
 
 # Get period review with specific year
-GET {{base_url}}/ferrotune/listening/review?year=2025
+GET {{base_url}}/api/listening/review?year=2025
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -106,7 +106,7 @@ jsonpath "$.review" exists
 jsonpath "$.review.year" == 2025
 
 # Get period review with specific month
-GET {{base_url}}/ferrotune/listening/review?year=2025&month=1
+GET {{base_url}}/api/listening/review?year=2025&month=1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -115,5 +115,5 @@ jsonpath "$.review.year" == 2025
 jsonpath "$.review.month" == 1
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/listening/review
+GET {{base_url}}/api/listening/review
 HTTP 401

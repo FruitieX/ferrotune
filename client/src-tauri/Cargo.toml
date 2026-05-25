@@ -1,7 +1,7 @@
 [package]
 name = "ferrotune-app"
 version = "0.1.0"
-description = "Ferrotune - OpenSubsonic Music Server"
+description = "Ferrotune Music Server"
 authors = ["Ferrotune"]
 license = "MIT"
 repository = "https://github.com/FruitieX/ferrotune"

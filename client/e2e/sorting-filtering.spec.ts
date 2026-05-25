@@ -178,7 +178,7 @@ test.describe("Sorting and Filtering", () => {
     const searchResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/ferrotune/search" &&
+        url.pathname === "/api/search" &&
         url.searchParams.get("starredOnly") === "true" &&
         url.searchParams.get("songSort") === "starred" &&
         url.searchParams.get("songSortDir") === "desc"
@@ -195,7 +195,7 @@ test.describe("Sorting and Filtering", () => {
     const historyResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/ferrotune/history" &&
+        url.pathname === "/api/history" &&
         url.searchParams.get("sort") === "lastPlayed" &&
         url.searchParams.get("sortDir") === "desc"
       );

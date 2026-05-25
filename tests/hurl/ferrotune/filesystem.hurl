@@ -9,7 +9,7 @@
 # ============================================================================
 
 # Browse roots (returns available drives/roots)
-GET {{base_url}}/ferrotune/filesystem
+GET {{base_url}}/api/filesystem
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -17,7 +17,7 @@ jsonpath "$.directories" count >= 1
 jsonpath "$.directories[0].path" exists
 
 # Browse root directory explicitly
-GET {{base_url}}/ferrotune/filesystem?path=/
+GET {{base_url}}/api/filesystem?path=/
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -29,7 +29,7 @@ jsonpath "$.directories[0].name" exists
 jsonpath "$.directories[0].readable" isBoolean
 
 # Browse non-existent path
-GET {{base_url}}/ferrotune/filesystem?path=/nonexistent-path-12345
+GET {{base_url}}/api/filesystem?path=/nonexistent-path-12345
 Authorization: Basic {{auth_basic}}
 HTTP 400
 [Asserts]
@@ -40,7 +40,7 @@ jsonpath "$.error" contains "Path does not exist"
 # ============================================================================
 
 # Validate root path
-GET {{base_url}}/ferrotune/filesystem/validate?path=/
+GET {{base_url}}/api/filesystem/validate?path=/
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -50,7 +50,7 @@ jsonpath "$.isDirectory" == true
 jsonpath "$.readable" == true
 
 # Validate non-existent path
-GET {{base_url}}/ferrotune/filesystem/validate?path=/nonexistent-path-12345
+GET {{base_url}}/api/filesystem/validate?path=/nonexistent-path-12345
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

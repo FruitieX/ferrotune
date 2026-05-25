@@ -1,25 +1,115 @@
 //! API modules for Ferrotune.
 //!
-//! This module provides two separate APIs:
-//!
-//! - **`subsonic`**: OpenSubsonic-compatible API for music player clients (port 4040 by default)
-//! - **`ferrotune`**: Admin/management API for Ferrotune-specific features (port 4041 by default)
-//!
-//! Additionally, when built with embedded UI assets (client/out exists at compile time),
-//! the subsonic API will also serve the web client at the root path.
+//! All HTTP API routes are mounted below `/api` at the application boundary.
 
+pub mod auth;
+mod auth_routes;
+mod browse;
 pub mod client_ip;
 pub mod common;
+pub mod cover_art;
+pub mod directory;
+mod disabled_songs;
+mod duplicates;
 pub mod embedded_ui;
-pub mod ferrotune;
-pub mod subsonic;
+mod filesystem;
+pub mod history;
+mod history_admin;
+mod home;
+pub mod inline_thumbnails;
+pub mod lastfm;
+mod listening;
+mod lists;
+mod match_dictionary;
+mod media;
+pub mod media_stream;
+pub mod music_folders;
+pub mod playlists;
+mod playqueue;
+mod preferences;
+pub mod query;
+mod queue;
+pub mod recycle_bin;
+mod routes;
+mod scan;
+pub mod scan_state;
+mod scrobbles;
+mod search;
+pub mod server_config;
+mod sessions;
+mod setup;
+mod shuffle_exclude;
+pub mod smart_playlists;
+mod songs;
+mod starring;
+mod stats;
+pub mod tagger;
+pub mod tagger_session;
+pub mod tags;
+mod testing;
+pub mod transcode_cache;
+pub mod transcoding;
+pub mod users;
+mod waveform;
 
-// Re-export commonly used items from subsonic for backward compatibility
-pub use subsonic::first_string;
-pub use subsonic::first_string_or_none;
-pub use subsonic::string_or_seq;
-pub use subsonic::QsQuery;
+pub use duplicates::{
+    get_duplicates as ferrotune_get_duplicates, DuplicateFile, DuplicateGroup, DuplicatesResponse,
+};
+pub use history_admin::{
+    delete_history_entries, delete_matching_history_entries, list_history_entries,
+    DeleteManagedHistoryEntriesRequest, DeleteManagedHistoryEntriesResponse,
+    DeleteMatchingManagedHistoryEntriesRequest, ManagedHistoryEntriesResponse, ManagedHistoryEntry,
+    ManagedHistoryEntryKind, ManagedHistoryFilter,
+};
+pub use home::{
+    get_continue_listening, get_home, ContinueListeningParams, HomeContinueListeningSection,
+    HomePageParams, HomePageResponse,
+};
+pub use listening::{
+    get_listening_stats as ferrotune_get_listening_stats,
+    get_period_review as ferrotune_get_period_review, log_listening as ferrotune_log_listening,
+    LogListeningRequest, LogListeningResponse, PeriodReviewQuery, PeriodReviewResponse,
+};
+pub use lists::{
+    get_album_list, get_forgotten_favorites, get_most_played_recently, get_random_songs,
+    get_songs_by_genre, AlbumListParams, AlbumListType, FerrotuneAlbumListResponse,
+    FerrotuneRandomSongsResponse, FerrotuneSongsByGenreResponse, ForgottenFavoritesParams,
+    ForgottenFavoritesResponse, MostPlayedRecentlyParams, MostPlayedRecentlyResponse,
+    RandomSongsParams, SongsByGenreParams,
+};
+pub use match_dictionary::{
+    get_match_dictionary, save_match_dictionary, MatchDictionaryEntry, MatchDictionaryResponse,
+    SaveMatchDictionaryRequest, SaveMatchDictionaryResponse,
+};
+pub use playqueue::{
+    save_play_queue as ferrotune_save_play_queue, SavePlayQueueRequest, SavePlayQueueResponse,
+};
+pub use preferences::{
+    delete_preference as ferrotune_delete_preference, get_preference as ferrotune_get_preference,
+    get_preferences as ferrotune_get_preferences, set_preference as ferrotune_set_preference,
+    update_preferences as ferrotune_update_preferences, GetPreferenceResponse, PreferencesResponse,
+    SetPreferenceRequest, UpdatePreferencesRequest,
+};
+pub use queue::{
+    get_lazy_queue_count, materialize_lazy_queue_page, start_queue, StartQueueRequest,
+};
+pub use routes::ErrorResponse;
+pub use scrobbles::{
+    check_import_duplicate, get_play_counts, import_scrobbles, import_with_timestamps,
+    scrobble as ferrotune_scrobble, CheckDuplicateParams, GetPlayCountsRequest, ImportMode,
+    ImportScrobbleEntry, ImportScrobblesRequest, ImportSongWithPlays, ImportWithTimestampsRequest,
+    PlayEvent, ScrobbleParams as FerrotuneScrobbleParams,
+};
+pub use setup::{complete_setup, get_setup_status, SetupStatusResponse};
+pub use stats::{get_stats as ferrotune_get_stats, StatsResponse};
+pub use waveform::{get_waveform as ferrotune_get_waveform, WaveformResponse};
 
+pub use query::first_string;
+pub use query::first_string_or_none;
+pub use query::string_or_seq;
+pub use query::QsQuery;
+
+use axum::{response::IntoResponse, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -27,7 +117,24 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, RwLock};
 
-pub use ferrotune::scan_state::{create_scan_state, ScanState};
+pub use scan_state::{create_scan_state, ScanState};
+
+/// Create the API router with a single global `/api` prefix.
+pub fn create_router(state: Arc<AppState>) -> Router {
+    Router::new().nest("/api", routes::create_router(state))
+}
+
+/// Fallback handler for unknown API or application endpoints.
+pub async fn fallback_handler(uri: axum::http::Uri) -> impl IntoResponse {
+    tracing::warn!(path = %uri.path(), "Unknown endpoint requested");
+
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::Json(serde_json::json!({
+            "error": format!("Endpoint not found: {}", uri.path())
+        })),
+    )
+}
 
 /// Cached shuffle indices keyed by (user_id, shuffle_seed).
 pub type ShuffleIndicesCache = RwLock<HashMap<(i64, i64), Arc<Vec<usize>>>>;
@@ -509,15 +616,13 @@ pub struct AppState {
     pub session_manager: Arc<SessionManager>,
 }
 
-/// Common query parameters for OpenSubsonic API requests.
+/// Common query parameters for native API API requests.
 #[derive(Debug, Deserialize)]
 pub struct CommonParams {
     pub u: Option<String>,
     pub p: Option<String>,
     pub t: Option<String>,
     pub s: Option<String>,
-    #[serde(rename = "apiKey")]
-    pub api_key: Option<String>,
     #[serde(default = "default_version")]
     pub v: String,
     #[serde(default = "default_client")]

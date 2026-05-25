@@ -87,20 +87,18 @@ impl Drop for EmbeddedServerHandle {
 /// (like Tauri) where you want to call the router directly via IPC
 /// instead of going through a TCP listener.
 pub fn create_router(state: Arc<api::AppState>) -> Router {
-    // Build combined API router (OpenSubsonic + Ferrotune Admin)
-    let app =
-        api::subsonic::create_router(state.clone()).merge(api::ferrotune::create_router(state));
+    let app = api::create_router(state);
 
     // Set up fallback handler
     #[cfg(feature = "embedded-ui")]
     let app = if api::embedded_ui::has_embedded_ui() {
         app.fallback(api::embedded_ui::serve_embedded_ui)
     } else {
-        app.fallback(api::subsonic::fallback_handler)
+        app.fallback(api::fallback_handler)
     };
 
     #[cfg(not(feature = "embedded-ui"))]
-    let app = app.fallback(api::subsonic::fallback_handler);
+    let app = app.fallback(api::fallback_handler);
 
     app
 }
@@ -140,7 +138,7 @@ pub fn create_router_with_layers(state: Arc<api::AppState>) -> Router {
                         .map(|param| {
                             if param.starts_with("p=")
                                 || param.starts_with("t=")
-                                || param.starts_with("apiKey=")
+                                || param.starts_with("urlToken=")
                             {
                                 let key = param.split('=').next().unwrap_or("");
                                 format!("{}=[REDACTED]", key)
@@ -351,11 +349,8 @@ pub async fn start_embedded_server(
 pub async fn create_admin_user(pool: &db::Database, username: &str, password: &str) -> Result<()> {
     let password_hash = password::hash_password(password)
         .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
-    let subsonic_token = password::create_subsonic_token(password);
 
-    let user_id =
-        db::repo::users::create_user(pool, username, &password_hash, &subsonic_token, None, true)
-            .await?;
+    let user_id = db::repo::users::create_user(pool, username, &password_hash, None, true).await?;
     tracing::info!("Admin user '{}' created successfully", username);
 
     // Grant access to all existing music folders

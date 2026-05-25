@@ -22,7 +22,7 @@ static TEST_INSTANCE_COUNTER: AtomicU32 = AtomicU32::new(0);
 pub struct TestServer {
     /// The child process running ferrotune
     process: Option<Child>,
-    /// The port the OpenSubsonic API is running on
+    /// The port the API is running on
     pub port: u16,
     /// The port the Ferrotune Admin API is running on
     pub admin_port: u16,
@@ -193,7 +193,7 @@ impl TestServer {
             let base_url = format!("http://127.0.0.1:{}", port);
             let timeout = Duration::from_secs(10); // Reduced timeout for retries
 
-            match wait_for_ready(&mut child, &base_url, &admin_user, &admin_password, timeout) {
+            match wait_for_ready(&mut child, &base_url, timeout) {
                 Ok(()) => {
                     // Success!
                     // eprintln!("[test] Server ready at {}", base_url);
@@ -260,24 +260,9 @@ impl TestServer {
         }
     }
 
-    /// Get the auth query string for API calls.
-    pub fn auth_params(&self) -> String {
-        format!(
-            "u={}&p={}&v=1.16.1&c=test",
-            self.admin_user, self.admin_password
-        )
-    }
-
     /// Get the full URL for an API endpoint.
     pub fn api_url(&self, endpoint: &str) -> String {
-        let sep = if endpoint.contains('?') { "&" } else { "?" };
-        format!(
-            "{}/rest/{}{}{}",
-            self.base_url,
-            endpoint,
-            sep,
-            self.auth_params()
-        )
+        format!("{}/api/{}", self.base_url, endpoint)
     }
 
     /// Run a scan of the music library.
@@ -298,16 +283,6 @@ impl TestServer {
         }
 
         Ok(())
-    }
-
-    /// Create an API key for the admin user and return it.
-    pub fn create_api_key(&self, _name: &str) -> Result<String, TestServerError> {
-        // For now, we'll use the REST API if available, or direct DB access
-        // This is a placeholder - the actual implementation depends on
-        // whether ferrotune has an API for creating API keys
-        Err(TestServerError::NotImplemented(
-            "API key creation not yet implemented".to_string(),
-        ))
     }
 
     /// Prepare a ferrotune command to use this test server's isolated database.
@@ -331,15 +306,10 @@ pub fn prepare_ferrotune_test_command(command: &mut Command) {
 fn wait_for_ready(
     child: &mut Child,
     base_url: &str,
-    user: &str,
-    pass: &str,
     timeout: Duration,
 ) -> Result<(), TestServerError> {
     let start_time = Instant::now();
-    let ping_url = format!(
-        "{}/rest/ping?u={}&p={}&v=1.16.1&c=test",
-        base_url, user, pass
-    );
+    let health_url = format!("{}/api/health", base_url);
 
     loop {
         if start_time.elapsed() > timeout {
@@ -368,7 +338,7 @@ fn wait_for_ready(
         }
 
         // Try to connect
-        match reqwest::blocking::get(&ping_url) {
+        match reqwest::blocking::get(&health_url) {
             Ok(response) if response.status().is_success() => {
                 return Ok(());
             }

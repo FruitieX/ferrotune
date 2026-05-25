@@ -1821,7 +1821,7 @@ pub async fn get_starred_songs(
 
 /// Get songs recursively under a directory path (includes play stats for sorting)
 /// Supports new format: "libraryId:relativePath" (e.g., "1:Artist/Album")
-/// Also supports legacy format for Subsonic compatibility: "dir-<encoded_path>"
+/// Also accepts the historical directory source format: "dir-<encoded_path>"
 pub async fn get_songs_by_directory(
     database: &Database,
     source_id: &str,
@@ -2075,7 +2075,7 @@ pub async fn get_playlist_full_name(
 
 /// Delete orphaned queues — queues whose session has no matching playback_sessions
 /// row and that haven't been updated in `older_than_days` days.
-/// Skips subsonic save/restore queues (playqueue-*) as those are stateless.
+/// Skips detached saved queues (playqueue-*) as those are stateless.
 pub async fn cleanup_orphaned_queues(
     database: &Database,
     older_than_days: i64,

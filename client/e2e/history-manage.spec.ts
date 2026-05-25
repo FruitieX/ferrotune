@@ -14,7 +14,7 @@ function authHeaders(server: ServerInfo): Record<string, string> {
 async function createHistoryEntries(page: Page, server: ServerInfo) {
   const headers = authHeaders(server);
   const songsResponse = await page.request.get(
-    `${server.url}/ferrotune/songs/match-list`,
+    `${server.url}/api/songs/match-list`,
     { headers },
   );
   expect(songsResponse.ok()).toBeTruthy();
@@ -26,7 +26,7 @@ async function createHistoryEntries(page: Page, server: ServerInfo) {
   expect(songId).toBeTruthy();
 
   const sessionResponse = await page.request.post(
-    `${server.url}/ferrotune/listening`,
+    `${server.url}/api/listening`,
     {
       headers,
       data: {
@@ -38,7 +38,7 @@ async function createHistoryEntries(page: Page, server: ServerInfo) {
   expect(sessionResponse.ok()).toBeTruthy();
 
   const scrobbleResponse = await page.request.post(
-    `${server.url}/ferrotune/scrobbles`,
+    `${server.url}/api/scrobbles`,
     {
       headers,
       data: {

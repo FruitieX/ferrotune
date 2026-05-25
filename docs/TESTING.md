@@ -73,41 +73,33 @@ Tests live in `tests/hurl/` using the [Hurl](https://hurl.dev/) format:
 
 | Script | Coverage |
 |--------|----------|
-| `01_system.hurl` | ping, getLicense, extensions, music folders |
-| `02_auth.hurl` | Authentication methods, error cases |
-| `03_browse.hurl` | Artists, albums, songs, genres |
-| `04_streaming.hurl` | stream, download, cover art |
-| `05_search.hurl` | search3 with various queries |
-| `06_starring.hurl` | star, unstar, setRating, getStarred |
-| `07_playlists.hurl` | Playlist CRUD operations |
-| `08_lists.hurl` | Album lists, random songs, scrobble |
-| `09_playqueue.hurl` | Play queue save/retrieve |
+| `ferrotune/*.hurl` | Native `/api` endpoint coverage for auth, browse, playback, playlists, queue, search, tagging, and administration |
 
 ### Writing Hurl Tests
 
 Basic structure:
 ```hurl
 # Comment describing the test
-GET {{base_url}}/rest/endpoint?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&param=value
+GET {{base_url}}/api/endpoint?param=value
+Authorization: Basic {{basic_auth}}
 HTTP 200
 [Asserts]
 header "Content-Type" contains "application/json"
-jsonpath "$.subsonic-response.status" == "ok"
 [Captures]
-captured_value: jsonpath "$.subsonic-response.data.id"
+captured_value: jsonpath "$.data.id"
 ```
 
 Available variables:
 - `{{base_url}}` - Server URL (e.g., `http://127.0.0.1:31518`)
 - `{{username}}` - Admin username
 - `{{password}}` - Admin password
-- `{{password_hex}}` - Hex-encoded password (for token auth)
+- `{{basic_auth}}` - Base64-encoded `username:password` for Basic auth
 
 ### Hurl Best Practices
 
-1. **Test both formats** - JSON and XML where applicable
+1. **Test JSON responses** - Native endpoints return JSON and HTTP status codes directly
 2. **Use captures** - Extract IDs for subsequent requests
-3. **Verify required fields** - Check all OpenSubsonic-required fields exist
+3. **Verify required fields** - Check all client-required fields exist
 4. **Test error cases** - Invalid input, not found, unauthorized
 5. **Test idempotency** - Star/unstar should be repeatable
 6. **Verify state changes** - Confirm operations actually modify data
@@ -284,7 +276,7 @@ Each file has:
 2. Check the hurl script line number in error message
 3. Test endpoint manually with curl:
    ```bash
-   curl "http://localhost:4040/rest/endpoint?u=admin&p=admin&v=1.16.1&c=test&f=json"
+  curl -u admin:admin "http://localhost:4040/api/endpoint"
    ```
 
 ### Frontend

@@ -1,5 +1,5 @@
 # Duplicate Detection API Tests
-# Tests the /ferrotune/duplicates endpoint
+# Tests the /api/duplicates endpoint
 #
 # Test Configuration:
 # @requires_fixtures
@@ -10,7 +10,8 @@
 # ============================================================================
 
 # Test: Get duplicates returns valid response structure
-GET {{base_url}}/ferrotune/duplicates?u={{username}}&p={{password}}
+GET {{base_url}}/api/duplicates
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.groupCount" isInteger
@@ -23,7 +24,8 @@ jsonpath "$.groups" isCollection
 # ============================================================================
 
 # Test: Duplicates endpoint returns proper camelCase fields
-GET {{base_url}}/ferrotune/duplicates?u={{username}}&p={{password}}
+GET {{base_url}}/api/duplicates
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 # Verify top-level structure
@@ -36,7 +38,8 @@ jsonpath "$.totalWastedBytes" >= 0
 # ============================================================================
 
 # Trigger a scan to ensure duplicates are detected
-POST {{base_url}}/ferrotune/scan?u={{username}}&p={{password}}
+POST {{base_url}}/api/scan
+Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 ```json
 {
@@ -48,7 +51,8 @@ HTTP 202
 jsonpath "$.status" == "started"
 
 # Test: Get duplicates after scan still returns valid structure
-GET {{base_url}}/ferrotune/duplicates?u={{username}}&p={{password}}
+GET {{base_url}}/api/duplicates
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.groupCount" isInteger

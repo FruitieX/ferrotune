@@ -1,9 +1,10 @@
 //! Media management endpoints for the Admin API.
 
+use crate::api::auth::FerrotuneAuthenticatedUser;
 use crate::api::common::search::{search_songs_for_queue, SearchParams};
+use crate::api::cover_art::CoverArtParams;
 use crate::api::ferrotune::users::require_admin;
-use crate::api::subsonic::auth::{AuthenticatedUser, FerrotuneAuthenticatedUser};
-use crate::api::subsonic::xml::ResponseFormat;
+use crate::api::media_stream::StreamParams;
 use crate::api::AppState;
 use crate::db::queries;
 use crate::db::repo;
@@ -220,63 +221,39 @@ pub async fn get_song_ids(
     Ok(Json(SongIdsResponse { ids, total }))
 }
 
-// Media Streaming Endpoints (Wrapped from Subsonic)
+// Media streaming endpoints.
 
-/// GET /ferrotune/stream - Stream audio
+/// GET /api/stream - Stream audio
 pub async fn stream(
     user: FerrotuneAuthenticatedUser,
     state: State<Arc<AppState>>,
     headers: HeaderMap,
-    query: Query<crate::api::subsonic::stream::StreamParams>,
+    query: Query<StreamParams>,
 ) -> FerrotuneApiResult<Response> {
-    let sub_user = AuthenticatedUser {
-        user_id: user.user_id,
-        username: user.username,
-        is_admin: user.is_admin,
-        format: ResponseFormat::Json,
-        client: "ferrotune-admin-api".to_string(),
-    };
-
-    crate::api::subsonic::stream::stream(sub_user, state, headers, query)
+    crate::api::media_stream::stream(user, state, headers, query)
         .await
         .map_err(FerrotuneApiError::from)
 }
 
-/// GET /ferrotune/cover-art - Get cover art
+/// GET /api/cover-art - Get cover art
 pub async fn get_cover_art(
     user: FerrotuneAuthenticatedUser,
     state: State<Arc<AppState>>,
-    query: Query<crate::api::subsonic::coverart::CoverArtParams>,
+    query: Query<CoverArtParams>,
 ) -> FerrotuneApiResult<Response> {
-    let sub_user = AuthenticatedUser {
-        user_id: user.user_id,
-        username: user.username,
-        is_admin: user.is_admin,
-        format: ResponseFormat::Json,
-        client: "ferrotune-admin-api".to_string(),
-    };
-
-    crate::api::subsonic::coverart::get_cover_art(sub_user, state, query)
+    crate::api::cover_art::get_cover_art(user, state, query)
         .await
         .map_err(FerrotuneApiError::from)
 }
 
-/// GET /ferrotune/download - Download audio file
+/// GET /api/download - Download audio file
 pub async fn download(
     user: FerrotuneAuthenticatedUser,
     state: State<Arc<AppState>>,
     headers: HeaderMap,
-    query: Query<crate::api::subsonic::stream::StreamParams>,
+    query: Query<StreamParams>,
 ) -> FerrotuneApiResult<Response> {
-    let sub_user = AuthenticatedUser {
-        user_id: user.user_id,
-        username: user.username,
-        is_admin: user.is_admin,
-        format: ResponseFormat::Json,
-        client: "ferrotune-admin-api".to_string(),
-    };
-
-    crate::api::subsonic::stream::download(sub_user, state, headers, query)
+    crate::api::media_stream::download(user, state, headers, query)
         .await
         .map_err(FerrotuneApiError::from)
 }

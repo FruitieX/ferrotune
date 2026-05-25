@@ -20,12 +20,12 @@ export const savedAccountsAtom = atomWithStorage<SavedAccount[]>(
 );
 
 /**
- * Generate a unique key for an account (username+serverUrl or apiKey+serverUrl)
+ * Generate a unique key for an account (user identity + server URL).
  */
 export function accountKey(account: ServerConnection): string {
   const host = account.serverUrl || "local";
+  if (account.userId !== undefined) return `${account.userId}@${host}`;
   if (account.username) return `${account.username}@${host}`;
-  if (account.apiKey) return `apikey@${host}`;
   return host;
 }
 
@@ -43,9 +43,9 @@ export function accountLabel(account: ServerConnection): string {
   }
   try {
     const url = new URL(account.serverUrl);
-    return `API Key @ ${url.host}`;
+    return url.host;
   } catch {
-    return "API Key";
+    return account.serverUrl || "Saved account";
   }
 }
 
@@ -61,11 +61,21 @@ export const isClientInitializedAtom = atom(false);
 // Derived atom for checking if connected (only valid after hydration)
 export const isConnectedAtom = atom((get) => {
   const connection = get(serverConnectionAtom);
-  return (
-    connection !== null &&
-    (!!connection.apiKey || (!!connection.username && !!connection.password))
-  );
+  return connection !== null && isSessionUsable(connection);
 });
+
+function isSessionUsable(connection: ServerConnection): boolean {
+  if (!connection.sessionToken) {
+    return false;
+  }
+
+  if (!connection.sessionExpiresAt) {
+    return true;
+  }
+
+  const expiresAt = Date.parse(connection.sessionExpiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
 
 // Connection status
 export type ConnectionStatus =

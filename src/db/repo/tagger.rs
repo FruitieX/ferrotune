@@ -56,7 +56,7 @@ pub async fn delete_session_track(
 }
 
 /// Row returned by [`list_song_paths`]. Mirrors the joined metadata projection
-/// used by the `GET /ferrotune/tagger/song-paths` endpoint.
+/// used by the tagger song-paths endpoint.
 #[derive(Debug, Clone, sea_orm::FromQueryResult)]
 pub struct SongPathRow {
     pub id: String,

@@ -169,14 +169,14 @@ export function getApiBaseUrl(serverUrl?: string): string {
   if (isTauriDesktop()) {
     // Platform-specific URL format:
     // - macOS/iOS/Linux: ferrotune://localhost
-    // - Windows/Android: http://ferrotune.localhost
+    // - Windows/Android: http://api.localhost
     const isWindowsOrAndroid =
       typeof navigator !== "undefined" &&
       (navigator.userAgent.includes("Windows") ||
         navigator.userAgent.includes("Android"));
 
     return isWindowsOrAndroid
-      ? "http://ferrotune.localhost"
+      ? "http://api.localhost"
       : "ferrotune://localhost";
   }
 

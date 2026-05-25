@@ -601,9 +601,7 @@ export default function SettingsPage() {
                       Auth Type
                     </span>
                   </div>
-                  <p className="font-medium">
-                    {connection?.apiKey ? "API Key" : "Password"}
-                  </p>
+                  <p className="font-medium">Session</p>
                 </div>
               </div>
             </CardContent>
@@ -1824,11 +1822,11 @@ export default function SettingsPage() {
               <AboutInfoRow label="Git Commit">
                 <span className="font-mono text-sm">{buildInfo.gitCommit}</span>
               </AboutInfoRow>
-              <AboutInfoRow label="Protocol">OpenSubsonic</AboutInfoRow>
+              <AboutInfoRow label="API">Ferrotune JSON</AboutInfoRow>
               <Separator />
               <p className="text-sm text-muted-foreground">
                 Ferrotune is a modern music player for your personal music
-                library. Built with Vite and powered by the OpenSubsonic API.
+                library. Built with Vite and powered by the Ferrotune API.
               </p>
             </CardContent>
           </Card>

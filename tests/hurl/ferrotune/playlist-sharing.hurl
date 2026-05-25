@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Create a user to share playlists with
-POST {{base_url}}/ferrotune/users
+POST {{base_url}}/api/users
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -25,7 +25,7 @@ share_user_id: jsonpath "$.id"
 jsonpath "$.username" == "share_test_user"
 
 # Create a second user
-POST {{base_url}}/ferrotune/users
+POST {{base_url}}/api/users
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -38,14 +38,14 @@ HTTP 201
 share_user2_id: jsonpath "$.id"
 
 # Get a song ID for creating a playlist
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 song_id: jsonpath "$.songs[0].id"
 
 # Create a test playlist
-POST {{base_url}}/ferrotune/playlists
+POST {{base_url}}/api/playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -62,11 +62,11 @@ HTTP 200
 playlist_id: jsonpath "$.playlistId"
 
 # ============================================================================
-# GET /ferrotune/users/shareable
+# GET /api/users/shareable
 # ============================================================================
 
 # List shareable users (should exclude requesting user)
-GET {{base_url}}/ferrotune/users/shareable
+GET {{base_url}}/api/users/shareable
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -74,15 +74,15 @@ jsonpath "$.users" isCollection
 jsonpath "$.users" count >= 2
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/users/shareable
+GET {{base_url}}/api/users/shareable
 HTTP 401
 
 # ============================================================================
-# GET /ferrotune/playlists/:id/shares (empty initially)
+# GET /api/playlists/:id/shares (empty initially)
 # ============================================================================
 
 # Get shares for the playlist (should be empty)
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+GET {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -90,15 +90,15 @@ jsonpath "$.shares" isCollection
 jsonpath "$.shares" count == 0
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+GET {{base_url}}/api/playlists/{{playlist_id}}/shares
 HTTP 401
 
 # ============================================================================
-# PUT /ferrotune/playlists/:id/shares - Set shares
+# PUT /api/playlists/:id/shares - Set shares
 # ============================================================================
 
 # Share playlist with one user (read-only)
-PUT {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+PUT {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -117,7 +117,7 @@ jsonpath "$.shares[0].username" == "share_test_user"
 jsonpath "$.shares[0].canEdit" == false
 
 # Verify shares via GET
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+GET {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -129,7 +129,7 @@ jsonpath "$.shares[0].canEdit" == false
 # Update shares: Add second user, change first user permissions
 # ============================================================================
 
-PUT {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+PUT {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -149,7 +149,7 @@ HTTP 200
 jsonpath "$.shares" count == 2
 
 # Verify updated shares
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+GET {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -160,7 +160,7 @@ jsonpath "$.shares" count == 2
 # ============================================================================
 
 # The playlist should now show sharing info in the playlist folders response
-GET {{base_url}}/ferrotune/playlist-folders
+GET {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -170,7 +170,7 @@ jsonpath "$.playlists" isCollection
 # Remove shares: set empty array
 # ============================================================================
 
-PUT {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+PUT {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -181,7 +181,7 @@ HTTP 200
 jsonpath "$.shares" count == 0
 
 # Verify shares removed
-GET {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+GET {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -193,13 +193,13 @@ jsonpath "$.shares" count == 0
 
 # Try to share with self (should fail)
 # First get admin user ID
-GET {{base_url}}/ferrotune/users/me
+GET {{base_url}}/api/users/me
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 admin_user_id: jsonpath "$.id"
 
-PUT {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+PUT {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -213,7 +213,7 @@ Content-Type: application/json
 HTTP 400
 
 # Try to share with nonexistent user
-PUT {{base_url}}/ferrotune/playlists/{{playlist_id}}/shares
+PUT {{base_url}}/api/playlists/{{playlist_id}}/shares
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -227,7 +227,7 @@ Content-Type: application/json
 HTTP 400
 
 # Try to get shares of nonexistent playlist
-GET {{base_url}}/ferrotune/playlists/nonexistent-id/shares
+GET {{base_url}}/api/playlists/nonexistent-id/shares
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
@@ -236,14 +236,15 @@ HTTP 404
 # ============================================================================
 
 # Delete the test playlist
-GET {{base_url}}/rest/deletePlaylist?f=json&u={{username}}&p={{password}}&id={{playlist_id}}
-HTTP 200
-
-# Delete test users (clean up)
-DELETE {{base_url}}/ferrotune/users/{{share_user_id}}
+DELETE {{base_url}}/api/playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
-DELETE {{base_url}}/ferrotune/users/{{share_user2_id}}
+# Delete test users (clean up)
+DELETE {{base_url}}/api/users/{{share_user_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+DELETE {{base_url}}/api/users/{{share_user2_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204

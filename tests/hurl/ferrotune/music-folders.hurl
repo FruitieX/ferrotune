@@ -1,5 +1,5 @@
 # Music Folder Management API Tests
-# Tests the /ferrotune/music-folders endpoints
+# Tests the /api/music-folders endpoints
 #
 # Test Configuration:
 # @requires_fixtures
@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Test: Get music folders returns valid response structure
-GET {{base_url}}/ferrotune/music-folders
+GET {{base_url}}/api/music-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -21,7 +21,7 @@ jsonpath "$.musicFolders" isCollection
 # ============================================================================
 
 # Test: Get first music folder (should exist from test setup)
-GET {{base_url}}/ferrotune/music-folders/1
+GET {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -36,7 +36,7 @@ jsonpath "$.stats.totalDurationSeconds" isInteger
 jsonpath "$.stats.totalSizeBytes" isInteger
 
 # Test: Get non-existent music folder returns error
-GET {{base_url}}/ferrotune/music-folders/9999
+GET {{base_url}}/api/music-folders/9999
 Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]
@@ -47,7 +47,7 @@ jsonpath "$.error" startsWith "Not found:"
 # ============================================================================
 
 # Test: Disable a music folder
-PATCH {{base_url}}/ferrotune/music-folders/1
+PATCH {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 ```json
@@ -58,14 +58,14 @@ Content-Type: application/json
 HTTP 200
 
 # Verify folder is now disabled
-GET {{base_url}}/ferrotune/music-folders/1
+GET {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.enabled" == false
 
 # Test: Re-enable the music folder
-PATCH {{base_url}}/ferrotune/music-folders/1
+PATCH {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 ```json
@@ -76,14 +76,14 @@ Content-Type: application/json
 HTTP 200
 
 # Verify folder is now enabled
-GET {{base_url}}/ferrotune/music-folders/1
+GET {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.enabled" == true
 
 # Test: Update music folder name
-PATCH {{base_url}}/ferrotune/music-folders/1
+PATCH {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 ```json
@@ -94,7 +94,7 @@ Content-Type: application/json
 HTTP 200
 
 # Verify name was updated
-GET {{base_url}}/ferrotune/music-folders/1
+GET {{base_url}}/api/music-folders/1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -105,7 +105,7 @@ jsonpath "$.name" == "Renamed Folder"
 # ============================================================================
 
 # Test: Create with non-existent path fails
-POST {{base_url}}/ferrotune/music-folders
+POST {{base_url}}/api/music-folders
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 ```json
@@ -123,7 +123,7 @@ jsonpath "$.error" startsWith "Invalid request:"
 # ============================================================================
 
 # Test: Delete non-existent folder returns error
-DELETE {{base_url}}/ferrotune/music-folders/9999
+DELETE {{base_url}}/api/music-folders/9999
 Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]
@@ -134,7 +134,7 @@ jsonpath "$.error" startsWith "Not found:"
 # ============================================================================
 
 # Test: Get stats for first music folder
-GET {{base_url}}/ferrotune/music-folders/1/stats
+GET {{base_url}}/api/music-folders/1/stats
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -145,7 +145,7 @@ jsonpath "$.totalDurationSeconds" isInteger
 jsonpath "$.totalSizeBytes" isInteger
 
 # Test: Get stats for non-existent folder returns error
-GET {{base_url}}/ferrotune/music-folders/9999/stats
+GET {{base_url}}/api/music-folders/9999/stats
 Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]

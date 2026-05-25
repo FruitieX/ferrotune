@@ -1,14 +1,14 @@
 //! Common history utilities.
 //!
 //! This module provides shared functionality for play history operations,
-//! used by both Subsonic and Ferrotune APIs.
+//! used by both native API and Ferrotune APIs.
 
 use crate::api::common::browse::song_to_response_with_stats;
 use crate::api::common::models::{SongPlayStats, SongResponse};
 use crate::api::common::sorting::filter_and_sort_songs;
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso;
-use crate::api::subsonic::inline_thumbnails::get_song_thumbnails_base64;
+use crate::api::inline_thumbnails::get_song_thumbnails_base64;
 use crate::db::models::{ItemType, Song};
 use crate::thumbnails::ThumbnailSize;
 use std::collections::HashMap;

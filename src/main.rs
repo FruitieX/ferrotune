@@ -8,7 +8,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use ferrotune::{api, config, db, error, password, scanner, watcher};
 
-/// Ferrotune - OpenSubsonic-compatible music server
+/// Ferrotune music server
 #[derive(Parser)]
 #[command(name = "ferrotune")]
 #[command(author, version, about, long_about = None)]
@@ -141,18 +141,9 @@ async fn main() -> Result<()> {
             // Hash the password using argon2
             let password_hash = password::hash_password(&password)
                 .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
-            // Create subsonic token for legacy token+salt authentication
-            let subsonic_token = password::create_subsonic_token(&password);
 
-            db::repo::users::create_user(
-                &pool,
-                &username,
-                &password_hash,
-                &subsonic_token,
-                email.as_deref(),
-                admin,
-            )
-            .await?;
+            db::repo::users::create_user(&pool, &username, &password_hash, email.as_deref(), admin)
+                .await?;
             tracing::info!("User '{}' created successfully", username);
             return Ok(());
         }
@@ -160,16 +151,9 @@ async fn main() -> Result<()> {
             // Hash the password using argon2
             let password_hash = password::hash_password(&password)
                 .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
-            // Create subsonic token for token+salt authentication
-            let subsonic_token = password::create_subsonic_token(&password);
 
-            let updated = db::repo::users::update_user_password(
-                &pool,
-                &username,
-                &password_hash,
-                &subsonic_token,
-            )
-            .await?;
+            let updated =
+                db::repo::users::update_user_password(&pool, &username, &password_hash).await?;
             if updated {
                 tracing::info!("Password updated for user '{}'", username);
             } else {
@@ -302,13 +286,8 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         });
     }
 
-    // Build combined API router (OpenSubsonic + Ferrotune Admin)
-    // Both APIs are served on the same port:
-    // - /rest/* - OpenSubsonic API
-    // - /api/ferrotune/* - Ferrotune Admin API
-    // If embedded UI is available, it's served from / (set up in subsonic::create_router)
-    let app =
-        api::subsonic::create_router(state.clone()).merge(api::ferrotune::create_router(state));
+    // Build API router. All API routes are served below /api.
+    let app = api::create_router(state);
 
     // Set up fallback handler:
     // - If embedded UI is available, serve static files
@@ -318,11 +297,11 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         tracing::info!("Embedded UI assets found, serving web client from /");
         app.fallback(api::embedded_ui::serve_embedded_ui)
     } else {
-        app.fallback(api::subsonic::fallback_handler)
+        app.fallback(api::fallback_handler)
     };
 
     #[cfg(not(feature = "embedded-ui"))]
-    let app = app.fallback(api::subsonic::fallback_handler);
+    let app = app.fallback(api::fallback_handler);
 
     let app = app
         .layer(
@@ -352,7 +331,7 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
                             .map(|param| {
                                 if param.starts_with("p=")
                                     || param.starts_with("t=")
-                                    || param.starts_with("apiKey=")
+                                    || param.starts_with("urlToken=")
                                 {
                                     let key = param.split('=').next().unwrap_or("");
                                     format!("{}=[REDACTED]", key)
@@ -381,8 +360,7 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     tracing::info!("Ferrotune server listening on http://{}", addr);
-    tracing::info!("  OpenSubsonic API: /rest/*");
-    tracing::info!("  Ferrotune API: /ferrotune/*");
+    tracing::info!("  API: /api/*");
 
     axum::serve(
         listener,

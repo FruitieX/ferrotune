@@ -59,7 +59,6 @@ async fn assert_repository_smoke(database: &db::Database) {
         database,
         "smoke-user",
         "hash",
-        "token",
         Some("smoke@example.com"),
         true,
     )
@@ -142,7 +141,6 @@ async fn seed_last_played_search_fixture(database: &db::Database) -> i64 {
         database,
         "search-sort-user",
         "hash",
-        "token",
         Some("search-sort@example.com"),
         true,
     )

@@ -6,6 +6,7 @@
 mod common;
 
 use common::{fixtures_dir, TestMusicFolderConfig, TestServer, TestServerConfig};
+use serde_json::Value;
 use std::path::Path;
 
 /// Check if test fixtures exist.
@@ -35,6 +36,29 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
     }
 
     Ok(())
+}
+
+fn random_song_count(server: &TestServer) -> usize {
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .get(server.api_url("songs/random?size=1000"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .send()
+        .expect("Failed to get random songs");
+
+    assert!(
+        response.status().is_success(),
+        "random songs request failed with {}",
+        response.status()
+    );
+
+    let body: Value = response
+        .json()
+        .expect("random songs response should be JSON");
+    body.get("song")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0)
 }
 
 /// Test that a full rescan of one folder doesn't delete songs from other folders.
@@ -92,9 +116,7 @@ fn test_multi_folder_rescan_preserves_other_folders() {
     server.scan_library().expect("Initial scan failed");
 
     // Count songs via API
-    let response = reqwest::blocking::get(server.api_url("getRandomSongs?size=1000"))
-        .expect("Failed to get songs");
-    let initial_count = response.text().unwrap().matches("<song ").count();
+    let initial_count = random_song_count(&server);
 
     eprintln!("Initial song count: {}", initial_count);
     assert!(initial_count > 0, "Should have songs after initial scan");
@@ -103,9 +125,7 @@ fn test_multi_folder_rescan_preserves_other_folders() {
     server.scan_library().expect("Full rescan failed");
 
     // Count songs again
-    let response = reqwest::blocking::get(server.api_url("getRandomSongs?size=1000"))
-        .expect("Failed to get songs after rescan");
-    let final_count = response.text().unwrap().matches("<song ").count();
+    let final_count = random_song_count(&server);
 
     eprintln!("Final song count after rescan: {}", final_count);
 

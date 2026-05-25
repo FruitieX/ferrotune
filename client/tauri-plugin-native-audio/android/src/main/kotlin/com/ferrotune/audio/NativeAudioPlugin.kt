@@ -67,8 +67,7 @@ internal class SetRepeatModeArgs {
 internal class InitSessionArgs {
     lateinit var serverUrl: String
     lateinit var username: String
-    var password: String? = null
-    var apiKey: String? = null
+    var sessionToken: String? = null
     var sessionId: String? = null
     var clientId: String? = null
 }
@@ -636,8 +635,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 val config = SessionConfig(
                     serverUrl = args.serverUrl,
                     username = args.username,
-                    password = args.password,
-                    apiKey = args.apiKey,
+                    sessionToken = args.sessionToken,
                     sessionId = args.sessionId,
                     clientId = args.clientId
                 )

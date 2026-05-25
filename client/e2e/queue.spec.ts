@@ -34,7 +34,7 @@ async function playFilteredFlacTrack(page: Page, trackName = "FLAC Track One") {
   await expect(flacRow).toBeVisible({ timeout: 10000 });
   const startQueueResponse = page.waitForResponse(
     (response) =>
-      response.url().includes("/ferrotune/queue/start") &&
+      response.url().includes("/api/queue/start") &&
       response.request().method() === "POST" &&
       response.status() === 200,
     { timeout: 10000 },

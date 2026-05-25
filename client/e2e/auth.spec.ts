@@ -130,7 +130,7 @@ test.describe("Authentication", () => {
     const freshDiscoverTitle = `Discover Fresh ${Date.now()}`;
     let homeVariant: "cached" | "fresh" = "cached";
 
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       const response = await route.fetch();
       const homeResponse: {
         discover: { album: Array<{ name: string }> };
@@ -165,7 +165,7 @@ test.describe("Authentication", () => {
       (response) =>
         response.request().method() === "GET" &&
         response.status() === 200 &&
-        response.url().includes("/ferrotune/home"),
+        response.url().includes("/api/home"),
     );
 
     await page.reload();
@@ -228,7 +228,7 @@ test.describe("Authentication", () => {
       (response) =>
         response.request().method() === "GET" &&
         response.status() === 200 &&
-        response.url().includes("/ferrotune/playlist-folders"),
+        response.url().includes("/api/playlist-folders"),
     );
 
     await page.getByRole("menuitem", { name: /secondary account/i }).click();

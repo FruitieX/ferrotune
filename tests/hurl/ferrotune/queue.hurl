@@ -10,24 +10,26 @@
 # ============================================================================
 
 # Get some songs for the queue
-GET {{base_url}}/rest/getRandomSongs?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&size=5
+GET {{base_url}}/api/songs/random?size=5
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-song_1: jsonpath "$.subsonic-response.randomSongs.song[0].id"
-song_2: jsonpath "$.subsonic-response.randomSongs.song[1].id"
-song_3: jsonpath "$.subsonic-response.randomSongs.song[2].id"
-song_4: jsonpath "$.subsonic-response.randomSongs.song[3].id"
-song_5: jsonpath "$.subsonic-response.randomSongs.song[4].id"
+song_1: jsonpath "$.song[0].id"
+song_2: jsonpath "$.song[1].id"
+song_3: jsonpath "$.song[2].id"
+song_4: jsonpath "$.song[3].id"
+song_5: jsonpath "$.song[4].id"
 
 # Get an album for source testing
-GET {{base_url}}/rest/getAlbumList2?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&type=newest&size=1
+GET {{base_url}}/api/albums?type=newest&size=1
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-test_album_id: jsonpath "$.subsonic-response.albumList2.album[0].id"
-test_album_name: jsonpath "$.subsonic-response.albumList2.album[0].name"
+test_album_id: jsonpath "$.album[0].id"
+test_album_name: jsonpath "$.album[0].name"
 
 # Create a playback session (required for all queue operations)
-POST {{base_url}}/ferrotune/sessions
+POST {{base_url}}/api/sessions
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -39,7 +41,7 @@ HTTP 200
 test_session_id: jsonpath "$.id"
 
 # Test: Passive connect from another tab must not steal or clear ownership
-POST {{base_url}}/ferrotune/sessions
+POST {{base_url}}/api/sessions
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -52,7 +54,7 @@ jsonpath "$.id" == "{{test_session_id}}"
 jsonpath "$.ownerClientId" == "hurl-owner"
 
 # Test: takeOver requires a clientId so it cannot clear ownership accidentally
-POST {{base_url}}/ferrotune/sessions/{{test_session_id}}/command
+POST {{base_url}}/api/sessions/{{test_session_id}}/command
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -66,7 +68,7 @@ HTTP 400
 # ============================================================================
 
 # Test: Start queue from album
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -95,7 +97,7 @@ jsonpath "$.window.songs[0].song.title" exists
 # ============================================================================
 
 # Test: Get queue with default pagination
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -108,7 +110,7 @@ jsonpath "$.source.id" == "{{test_album_id}}"
 jsonpath "$.window.songs" count >= 1
 
 # Test: Get queue with explicit pagination
-GET {{base_url}}/ferrotune/queue?offset=0&limit=10&sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?offset=0&limit=10&sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -119,7 +121,7 @@ jsonpath "$.window.offset" == 0
 # ============================================================================
 
 # Test: Get current window
-GET {{base_url}}/ferrotune/queue/current-window?radius=5&sessionId={{test_session_id}}
+GET {{base_url}}/api/queue/current-window?radius=5&sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -132,7 +134,7 @@ jsonpath "$.window.songs" count >= 1
 # ============================================================================
 
 # Test: Update position to index 1 (if queue has more than 1 song)
-POST {{base_url}}/ferrotune/queue/position
+POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -146,7 +148,7 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Test: Stale/non-owner clients cannot overwrite queue position
-POST {{base_url}}/ferrotune/queue/position
+POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -158,7 +160,7 @@ Content-Type: application/json
 HTTP 403
 
 # Test: Starting a queue with a real clientId reclaims a disconnected owner
-POST {{base_url}}/ferrotune/sessions/{{test_session_id}}/command
+POST {{base_url}}/api/sessions/{{test_session_id}}/command
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -168,7 +170,7 @@ Content-Type: application/json
 }
 HTTP 200
 
-POST {{base_url}}/ferrotune/queue/position
+POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -179,7 +181,7 @@ Content-Type: application/json
 }
 HTTP 403
 
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -194,7 +196,7 @@ Content-Type: application/json
 }
 HTTP 200
 
-POST {{base_url}}/ferrotune/queue/position
+POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -212,7 +214,7 @@ jsonpath "$.success" == true
 # ============================================================================
 
 # Start fresh queue with single song
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -226,7 +228,7 @@ HTTP 200
 initial_count: jsonpath "$.totalCount"
 
 # Test: Add song to end
-POST {{base_url}}/ferrotune/queue/add
+POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -239,7 +241,7 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Test: Add song as "next"
-POST {{base_url}}/ferrotune/queue/add
+POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -252,7 +254,7 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Test: Add multiple songs at end
-POST {{base_url}}/ferrotune/queue/add
+POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -269,7 +271,7 @@ jsonpath "$.success" == true
 # ============================================================================
 
 # First, start a small test queue
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -282,14 +284,14 @@ Content-Type: application/json
 HTTP 200
 
 # Get current count
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 queue_count_before: jsonpath "$.totalCount"
 
 # Test: Remove song at position 0 (current track can't be removed, will shift to next)
-DELETE {{base_url}}/ferrotune/queue/0?sessionId={{test_session_id}}
+DELETE {{base_url}}/api/queue/0?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -300,7 +302,7 @@ jsonpath "$.success" == true
 # ============================================================================
 
 # Start a queue with multiple songs (explicit list to ensure size)
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -315,7 +317,7 @@ HTTP 200
 jsonpath "$.totalCount" == 3
 
 # Test: Move song from position 1 to position 2 (if queue has 3+ songs)
-POST {{base_url}}/ferrotune/queue/move
+POST {{base_url}}/api/queue/move
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -332,7 +334,7 @@ jsonpath "$.success" == true
 # ============================================================================
 
 # Start a fresh queue
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -347,7 +349,7 @@ HTTP 200
 jsonpath "$.isShuffled" == false
 
 # Test: Enable shuffle
-POST {{base_url}}/ferrotune/queue/shuffle
+POST {{base_url}}/api/queue/shuffle
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -360,14 +362,14 @@ jsonpath "$.success" == true
 jsonpath "$.newIndex" exists
 
 # Verify shuffle is enabled
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.isShuffled" == true
 
 # Test: Disable shuffle
-POST {{base_url}}/ferrotune/queue/shuffle
+POST {{base_url}}/api/queue/shuffle
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -379,7 +381,7 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Verify shuffle is disabled
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -390,7 +392,7 @@ jsonpath "$.isShuffled" == false
 # ============================================================================
 
 # Test: Set repeat mode to "all"
-POST {{base_url}}/ferrotune/queue/repeat
+POST {{base_url}}/api/queue/repeat
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -402,14 +404,14 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Verify repeat mode
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.repeatMode" == "all"
 
 # Test: Set repeat mode to "one"
-POST {{base_url}}/ferrotune/queue/repeat
+POST {{base_url}}/api/queue/repeat
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -421,7 +423,7 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Test: Set repeat mode back to "off"
-POST {{base_url}}/ferrotune/queue/repeat
+POST {{base_url}}/api/queue/repeat
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -437,7 +439,7 @@ jsonpath "$.success" == true
 # ============================================================================
 
 # Test: Start queue with shuffle enabled
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -458,7 +460,7 @@ jsonpath "$.currentIndex" >= 0
 # ============================================================================
 
 # Start shuffled queue (explicit list to ensure size)
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -475,7 +477,7 @@ jsonpath "$.totalCount" == 3
 jsonpath "$.isShuffled" == true
 
 # Move a song in the shuffled queue
-POST {{base_url}}/ferrotune/queue/move
+POST {{base_url}}/api/queue/move
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -488,7 +490,7 @@ HTTP 200
 jsonpath "$.success" == true
 
 # Verify queue still shuffled after reorder
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -499,7 +501,7 @@ jsonpath "$.isShuffled" == true
 # ============================================================================
 
 # Start shuffled queue with a fixed current song at display position 0
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -518,7 +520,7 @@ jsonpath "$.isShuffled" == true
 jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
 
 # First play-next insert should land at display position 1
-POST {{base_url}}/ferrotune/queue/add
+POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -534,7 +536,7 @@ jsonpath "$.newIndex" == 0
 jsonpath "$.totalCount" == 4
 jsonpath "$.addedCount" == 1
 
-GET {{base_url}}/ferrotune/queue/current-window?sessionId={{test_session_id}}&radius=10
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -544,7 +546,7 @@ jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
 jsonpath "$.window.songs[1].song.id" == "{{song_4}}"
 
 # Second play-next insert should stack ahead of the previous insert
-POST {{base_url}}/ferrotune/queue/add
+POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -560,7 +562,7 @@ jsonpath "$.newIndex" == 0
 jsonpath "$.totalCount" == 5
 jsonpath "$.addedCount" == 1
 
-GET {{base_url}}/ferrotune/queue/current-window?sessionId={{test_session_id}}&radius=10
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -575,7 +577,7 @@ jsonpath "$.window.songs[2].song.id" == "{{song_4}}"
 # ============================================================================
 
 # Test: Clear the queue
-DELETE {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+DELETE {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -583,7 +585,7 @@ jsonpath "$.success" == true
 jsonpath "$.totalCount" == 0
 
 # Verify queue is cleared
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -594,7 +596,7 @@ jsonpath "$.totalCount" == 0
 # ============================================================================
 
 # Test: Start queue from non-existent album
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -606,14 +608,14 @@ Content-Type: application/json
 HTTP 404
 
 # Test: Get queue when none exists
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.totalCount" == 0
 
 # Create a queue for further edge case tests
-POST {{base_url}}/ferrotune/queue/start
+POST {{base_url}}/api/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -626,7 +628,7 @@ Content-Type: application/json
 HTTP 200
 
 # Test: Position out of range
-POST {{base_url}}/ferrotune/queue/position
+POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -638,7 +640,7 @@ Content-Type: application/json
 HTTP 400
 
 # Test: Invalid repeat mode returns error
-POST {{base_url}}/ferrotune/queue/repeat
+POST {{base_url}}/api/queue/repeat
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -650,6 +652,6 @@ HTTP 400
 jsonpath "$.error" exists
 
 # Clean up - clear queue
-DELETE {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
+DELETE {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200

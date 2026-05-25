@@ -9,7 +9,7 @@
 # ============================================================================
 
 # Test: Health endpoint returns OK (no auth required)
-GET {{base_url}}/ferrotune/health
+GET {{base_url}}/api/health
 HTTP 200
 [Asserts]
 jsonpath "$.status" == "ok"
@@ -20,11 +20,11 @@ jsonpath "$.version" exists
 # ============================================================================
 
 # Test: Stats endpoint requires authentication
-GET {{base_url}}/ferrotune/stats
+GET {{base_url}}/api/stats
 HTTP 401
 
 # Test: Stats endpoint returns counts
-GET {{base_url}}/ferrotune/stats
+GET {{base_url}}/api/stats
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -42,7 +42,7 @@ jsonpath "$.totalPlays" isInteger
 # ============================================================================
 
 # Test: Ping returns OK
-GET {{base_url}}/ferrotune/ping
+GET {{base_url}}/api/ping
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

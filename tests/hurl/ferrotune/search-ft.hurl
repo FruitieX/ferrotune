@@ -6,58 +6,58 @@
 # @requires_scan
 
 # ============================================================================
-# GET /ferrotune/search
+# GET /api/search
 # ============================================================================
 
 # Search with a query
-GET {{base_url}}/ferrotune/search?query=test
+GET {{base_url}}/api/search?query=test
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Search for artists, albums, and songs
-GET {{base_url}}/ferrotune/search?query=artist
+GET {{base_url}}/api/search?query=artist
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Search with limits for each type
-GET {{base_url}}/ferrotune/search?query=test&artistCount=5&albumCount=5&songCount=5
+GET {{base_url}}/api/search?query=test&artistCount=5&albumCount=5&songCount=5
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Search with offsets for pagination
-GET {{base_url}}/ferrotune/search?query=test&artistOffset=0&albumOffset=0&songOffset=0
+GET {{base_url}}/api/search?query=test&artistOffset=0&albumOffset=0&songOffset=0
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Search with inline images
-GET {{base_url}}/ferrotune/search?query=test&inlineImages=small
+GET {{base_url}}/api/search?query=test&inlineImages=small
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Search returns totals
-GET {{base_url}}/ferrotune/search?query=test&artistCount=1&albumCount=1&songCount=1
+GET {{base_url}}/api/search?query=test&artistCount=1&albumCount=1&songCount=1
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Empty query returns empty results
-GET {{base_url}}/ferrotune/search?query=
+GET {{base_url}}/api/search?query=
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/search?query=test
+GET {{base_url}}/api/search?query=test
 HTTP 401

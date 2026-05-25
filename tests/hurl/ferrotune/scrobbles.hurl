@@ -11,18 +11,19 @@
 
 # Get first song ID for testing
 # Get some test songs
-GET {{base_url}}/rest/getRandomSongs?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&size=2
+GET {{base_url}}/api/songs/random?size=2
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-test_song_id: jsonpath "$.subsonic-response.randomSongs.song[0].id"
-test_song_id_2: jsonpath "$.subsonic-response.randomSongs.song[1].id"
+test_song_id: jsonpath "$.song[0].id"
+test_song_id_2: jsonpath "$.song[1].id"
 
 # ============================================================================
-# POST /ferrotune/scrobbles/import
+# POST /api/scrobbles/import
 # ============================================================================
 
 # Test: Import scrobbles in append mode (default)
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -40,7 +41,7 @@ jsonpath "$.songsImported" == 1
 jsonpath "$.totalPlaysImported" == 5
 
 # Test: Import with explicit append mode
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -59,7 +60,7 @@ jsonpath "$.songsImported" == 1
 jsonpath "$.totalPlaysImported" == 3
 
 # Test: Import with replace mode
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -78,7 +79,7 @@ jsonpath "$.songsImported" == 1
 jsonpath "$.totalPlaysImported" == 10
 
 # Test: Import empty entries returns success with 0
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -91,7 +92,7 @@ jsonpath "$.songsImported" == 0
 jsonpath "$.totalPlaysImported" == 0
 
 # Test: Import with all invalid song IDs returns error
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -108,7 +109,7 @@ HTTP 400
 jsonpath "$.error" contains "No valid song IDs found"
 
 # Test: Import with multiple songs
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -131,7 +132,7 @@ jsonpath "$.songsImported" >= 1
 jsonpath "$.totalPlaysImported" >= 2
 
 # Test: Unauthorized request returns 401
-POST {{base_url}}/ferrotune/scrobbles/import
+POST {{base_url}}/api/scrobbles/import
 Content-Type: application/json
 {
   "entries": [],
@@ -140,11 +141,11 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/scrobbles/counts
+# POST /api/scrobbles/counts
 # ============================================================================
 
 # Test: Get play counts for songs
-POST {{base_url}}/ferrotune/scrobbles/counts
+POST {{base_url}}/api/scrobbles/counts
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -155,7 +156,7 @@ HTTP 200
 jsonpath "$.counts" isCollection
 
 # Test: Get play counts for empty list
-POST {{base_url}}/ferrotune/scrobbles/counts
+POST {{base_url}}/api/scrobbles/counts
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -167,7 +168,7 @@ jsonpath "$.counts" isCollection
 jsonpath "$.counts" count == 0
 
 # Test: Unauthorized request returns 401
-POST {{base_url}}/ferrotune/scrobbles/counts
+POST {{base_url}}/api/scrobbles/counts
 Content-Type: application/json
 {
   "songIds": []
@@ -175,11 +176,11 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/scrobbles - Single Scrobble
+# POST /api/scrobbles - Single Scrobble
 # ============================================================================
 
 # Scrobble a song
-POST {{base_url}}/ferrotune/scrobbles
+POST {{base_url}}/api/scrobbles
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -193,14 +194,14 @@ HTTP 204
 # ============================================================================
 
 # Check non-duplicate
-GET {{base_url}}/ferrotune/scrobbles/check-duplicate?description=NonExistent
+GET {{base_url}}/api/scrobbles/check-duplicate?description=NonExistent
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.exists" == false
 
 # Check duplicate (use description from previous import "Replace import")
-GET {{base_url}}/ferrotune/scrobbles/check-duplicate?description=Replace%20import
+GET {{base_url}}/api/scrobbles/check-duplicate?description=Replace%20import
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

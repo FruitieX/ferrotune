@@ -11,39 +11,32 @@ use axum::{
 use chrono::{Datelike, Utc};
 use ferrotune::{
     api::{
+        auth::FerrotuneAuthenticatedUser,
+        check_import_duplicate as ferrotune_check_import_duplicate,
         common::{browse, playlist_access, scrobbling, starring},
-        ferrotune::{
-            check_import_duplicate as ferrotune_check_import_duplicate,
-            ferrotune_delete_preference, ferrotune_get_duplicates, ferrotune_get_listening_stats,
-            ferrotune_get_period_review, ferrotune_get_preference, ferrotune_get_preferences,
-            ferrotune_get_stats, ferrotune_get_waveform, ferrotune_log_listening,
-            ferrotune_save_play_queue, ferrotune_scrobble, ferrotune_set_preference,
-            ferrotune_update_preferences, get_album_list as ferrotune_get_album_list,
-            get_continue_listening as ferrotune_get_continue_listening,
-            get_forgotten_favorites as ferrotune_get_forgotten_favorites,
-            get_home as ferrotune_get_home, get_lazy_queue_count,
-            get_most_played_recently as ferrotune_get_most_played_recently,
-            get_play_counts as ferrotune_get_play_counts,
-            get_random_songs as ferrotune_get_random_songs,
-            get_songs_by_genre as ferrotune_get_songs_by_genre, history as ferrotune_history,
-            import_scrobbles as ferrotune_import_scrobbles,
-            import_with_timestamps as ferrotune_import_with_timestamps, lastfm as ferrotune_lastfm,
-            materialize_lazy_queue_page, playlists as ferrotune_playlists,
-            smart_playlists as ferrotune_smart_playlists, start_queue as ferrotune_start_queue,
-            AlbumListParams, AlbumListType, CheckDuplicateParams, ContinueListeningParams,
-            FerrotuneScrobbleParams, ForgottenFavoritesParams, GetPlayCountsRequest,
-            HomePageParams, ImportMode, ImportScrobbleEntry, ImportScrobblesRequest,
-            ImportSongWithPlays, ImportWithTimestampsRequest, LogListeningRequest,
-            MostPlayedRecentlyParams, PeriodReviewQuery, PlayEvent, RandomSongsParams,
-            SavePlayQueueRequest, SetPreferenceRequest, SongsByGenreParams, StartQueueRequest,
-            UpdatePreferencesRequest,
-        },
-        subsonic::{
-            auth::{AuthenticatedUser, FerrotuneAuthenticatedUser},
-            lists as subsonic_lists, playlists, playqueue as subsonic_playqueue,
-            xml::ResponseFormat,
-        },
-        AppState, QsQuery, SessionManager,
+        ferrotune_delete_preference, ferrotune_get_duplicates, ferrotune_get_listening_stats,
+        ferrotune_get_period_review, ferrotune_get_preference, ferrotune_get_preferences,
+        ferrotune_get_stats, ferrotune_get_waveform, ferrotune_log_listening,
+        ferrotune_save_play_queue, ferrotune_scrobble, ferrotune_set_preference,
+        ferrotune_update_preferences, get_album_list as ferrotune_get_album_list,
+        get_continue_listening as ferrotune_get_continue_listening,
+        get_forgotten_favorites as ferrotune_get_forgotten_favorites,
+        get_home as ferrotune_get_home, get_lazy_queue_count,
+        get_most_played_recently as ferrotune_get_most_played_recently,
+        get_play_counts as ferrotune_get_play_counts,
+        get_random_songs as ferrotune_get_random_songs,
+        get_songs_by_genre as ferrotune_get_songs_by_genre, history as ferrotune_history,
+        import_scrobbles as ferrotune_import_scrobbles,
+        import_with_timestamps as ferrotune_import_with_timestamps, lastfm as ferrotune_lastfm,
+        materialize_lazy_queue_page, playlists as ferrotune_playlists,
+        smart_playlists as ferrotune_smart_playlists, start_queue as ferrotune_start_queue,
+        AlbumListParams, AlbumListType, AppState, CheckDuplicateParams, ContinueListeningParams,
+        FerrotuneScrobbleParams, ForgottenFavoritesParams, GetPlayCountsRequest, HomePageParams,
+        ImportMode, ImportScrobbleEntry, ImportScrobblesRequest, ImportSongWithPlays,
+        ImportWithTimestampsRequest, LogListeningRequest, MostPlayedRecentlyParams,
+        PeriodReviewQuery, PlayEvent, QsQuery, RandomSongsParams, SavePlayQueueRequest,
+        SessionManager, SetPreferenceRequest, SongsByGenreParams, StartQueueRequest,
+        UpdatePreferencesRequest,
     },
     config::{CacheConfig, Config, DatabaseBackend, DatabaseConfig, MusicConfig, ServerConfig},
     db,
@@ -603,135 +596,6 @@ fn test_postgres_ferrotune_lists_handlers_work() {
 }
 
 #[test]
-fn test_postgres_subsonic_lists_handlers_work() {
-    if !docker_available() {
-        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
-        return;
-    }
-
-    let container = Postgres::default()
-        .start()
-        .expect("postgres container should start");
-    let host = container
-        .get_host()
-        .expect("postgres container host should resolve");
-    let port = container
-        .get_host_port_ipv4(5432)
-        .expect("postgres container port should resolve");
-    let config = postgres_config(&host.to_string(), port);
-
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
-    runtime.block_on(async move {
-        let database = db::create_pool(&config)
-            .await
-            .expect("postgres database pool should connect");
-        let (user, _artist_id, _album_id, song_1, song_2) =
-            seed_postgres_library_sample(&database).await;
-
-        let state = Arc::new(AppState {
-            database: database.clone(),
-            config: postgres_test_app_config(config.clone()),
-            scan_state: ferrotune::api::create_scan_state(),
-            shuffle_cache: Default::default(),
-            session_manager: Arc::new(SessionManager::new()),
-        });
-
-        let auth_user = || AuthenticatedUser {
-            user_id: user.id,
-            username: user.username.clone(),
-            is_admin: user.is_admin,
-            format: ResponseFormat::Json,
-            client: "postgres-handler-test".to_string(),
-        };
-
-        let album_list2 = subsonic_lists::get_album_list2(
-            auth_user(),
-            State(state.clone()),
-            Query(subsonic_lists::AlbumListParams {
-                list_type: AlbumListType::Newest,
-                size: Some(10),
-                offset: Some(0),
-                from_year: None,
-                to_year: None,
-                genre: None,
-                music_folder_id: None,
-                inline_images: Default::default(),
-            }),
-        )
-        .await
-        .expect("postgres getAlbumList2 handler should succeed");
-        assert_eq!(album_list2.data.album_list2.album.len(), 1);
-        assert_eq!(album_list2.data.album_list2.total, Some(1));
-
-        let album_list = subsonic_lists::get_album_list(
-            auth_user(),
-            State(state.clone()),
-            Query(subsonic_lists::AlbumListParams {
-                list_type: AlbumListType::Newest,
-                size: Some(10),
-                offset: Some(0),
-                from_year: None,
-                to_year: None,
-                genre: None,
-                music_folder_id: None,
-                inline_images: Default::default(),
-            }),
-        )
-        .await
-        .expect("postgres getAlbumList handler should succeed");
-        assert_eq!(album_list.data.album_list.album.len(), 1);
-
-        let random_songs = subsonic_lists::get_random_songs(
-            auth_user(),
-            State(state.clone()),
-            Query(subsonic_lists::RandomSongsParams {
-                size: Some(10),
-                genre: None,
-                from_year: None,
-                to_year: None,
-                music_folder_id: None,
-            }),
-        )
-        .await
-        .expect("postgres getRandomSongs handler should succeed");
-        assert_eq!(random_songs.data.random_songs.song.len(), 2);
-        let random_song_ids: std::collections::HashSet<String> = random_songs
-            .data
-            .random_songs
-            .song
-            .into_iter()
-            .map(|song| song.id)
-            .collect();
-        assert!(random_song_ids.contains(&song_1));
-        assert!(random_song_ids.contains(&song_2));
-
-        let songs_by_genre = subsonic_lists::get_songs_by_genre(
-            auth_user(),
-            State(state),
-            Query(subsonic_lists::SongsByGenreParams {
-                genre: "rock".to_string(),
-                count: Some(10),
-                offset: Some(0),
-                music_folder_id: None,
-                sort: None,
-                sort_dir: None,
-                filter: None,
-            }),
-        )
-        .await
-        .expect("postgres getSongsByGenre handler should succeed");
-        let genre_song_ids: Vec<String> = songs_by_genre
-            .data
-            .songs_by_genre
-            .song
-            .into_iter()
-            .map(|song| song.id)
-            .collect();
-        assert_eq!(genre_song_ids, vec![song_2, song_1]);
-    });
-}
-
-#[test]
 fn test_postgres_scrobble_helper_and_handlers_work() {
     if !docker_available() {
         eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
@@ -818,34 +682,6 @@ fn test_postgres_scrobble_helper_and_handlers_work() {
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
         });
-
-        subsonic_lists::scrobble(
-            AuthenticatedUser {
-                user_id: user.id,
-                username: user.username.clone(),
-                is_admin: user.is_admin,
-                format: ResponseFormat::Json,
-                client: "postgres-scrobble-test".to_string(),
-            },
-            State(state.clone()),
-            Query(subsonic_lists::ScrobbleParams {
-                id: song_2.clone(),
-                time: Some((base_play + chrono::Duration::seconds(60)).timestamp()),
-                submission: Some(true),
-            }),
-        )
-        .await
-        .expect("postgres subsonic scrobble handler should succeed");
-
-        let after_subsonic_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM scrobbles WHERE user_id = $1 AND song_id = $2",
-        )
-        .bind(user.id)
-        .bind(&song_2)
-        .fetch_one(pool)
-        .await
-        .expect("postgres subsonic scrobble count should load");
-        assert_eq!(after_subsonic_count, 2);
 
         ferrotune_scrobble(
             FerrotuneAuthenticatedUser {
@@ -1479,62 +1315,6 @@ fn test_postgres_playqueue_handlers_work() {
         assert_eq!(ferrotune_queue.current_index, 1);
         assert_eq!(ferrotune_queue.position_ms, 12_345);
         assert_eq!(ferrotune_queue.changed_by, "ferrotune");
-
-        let subsonic_auth = || AuthenticatedUser {
-            user_id: user.id,
-            username: user.username.clone(),
-            is_admin: user.is_admin,
-            format: ResponseFormat::Json,
-            client: "postgres-playqueue-test".to_string(),
-        };
-
-        let subsonic_params: subsonic_playqueue::SavePlayQueueParams =
-            serde_json::from_value(serde_json::json!({
-                "id": [song_2.clone(), song_1.clone()],
-                "current": song_1.clone(),
-                "position": 777,
-            }))
-            .expect("subsonic playqueue params should deserialize");
-
-        subsonic_playqueue::save_play_queue(
-            subsonic_auth(),
-            State(state.clone()),
-            QsQuery(subsonic_params),
-        )
-        .await
-        .expect("postgres subsonic playqueue save should succeed");
-
-        let restored = subsonic_playqueue::get_play_queue(subsonic_auth(), State(state))
-            .await
-            .expect("postgres subsonic playqueue restore should succeed");
-
-        assert_eq!(
-            restored.data.play_queue.current.as_deref(),
-            Some(song_1.as_str())
-        );
-        assert_eq!(restored.data.play_queue.position, Some(777));
-        assert_eq!(
-            restored.data.play_queue.changed_by.as_deref(),
-            Some("postgres-playqueue-test")
-        );
-
-        let restored_song_ids: Vec<String> = restored
-            .data
-            .play_queue
-            .entry
-            .into_iter()
-            .map(|song| song.id)
-            .collect();
-        assert_eq!(restored_song_ids, vec![song_2.clone(), song_1.clone()]);
-
-        let subsonic_queue =
-            db::queries::get_play_queue_by_session(&database, &session_id, user.id)
-                .await
-                .expect("postgres subsonic playqueue lookup should succeed")
-                .expect("postgres subsonic playqueue should exist");
-        assert_eq!(subsonic_queue.current_index, 1);
-        assert_eq!(subsonic_queue.position_ms, 777);
-        assert_eq!(subsonic_queue.changed_by, "postgres-playqueue-test");
     });
 }
 
@@ -1764,7 +1544,7 @@ fn test_postgres_setup_and_match_dictionary_handlers_work() {
         });
 
         // Setup: before completion
-        let status = ferrotune::api::ferrotune::get_setup_status(State(state.clone()))
+        let status = ferrotune::api::get_setup_status(State(state.clone()))
             .await
             .expect("postgres get_setup_status should succeed")
             .0;
@@ -1773,7 +1553,7 @@ fn test_postgres_setup_and_match_dictionary_handlers_work() {
         assert!(status.has_music_folders);
 
         // Setup: complete it
-        let _ = ferrotune::api::ferrotune::complete_setup(
+        let _ = ferrotune::api::complete_setup(
             FerrotuneAuthenticatedUser {
                 user_id: user.id,
                 username: user.username.clone(),
@@ -1784,22 +1564,22 @@ fn test_postgres_setup_and_match_dictionary_handlers_work() {
         .await
         .expect("postgres complete_setup should succeed");
 
-        let status = ferrotune::api::ferrotune::get_setup_status(State(state.clone()))
+        let status = ferrotune::api::get_setup_status(State(state.clone()))
             .await
             .expect("postgres get_setup_status should succeed after complete")
             .0;
         assert!(status.setup_complete);
 
         // Match dictionary: save entry
-        let save_response = ferrotune::api::ferrotune::save_match_dictionary(
+        let save_response = ferrotune::api::save_match_dictionary(
             State(state.clone()),
             FerrotuneAuthenticatedUser {
                 user_id: user.id,
                 username: user.username.clone(),
                 is_admin: user.is_admin,
             },
-            Json(ferrotune::api::ferrotune::SaveMatchDictionaryRequest {
-                entries: vec![ferrotune::api::ferrotune::MatchDictionaryEntry {
+            Json(ferrotune::api::SaveMatchDictionaryRequest {
+                entries: vec![ferrotune::api::MatchDictionaryEntry {
                     title: Some("Opening Track".to_string()),
                     artist: Some("Integration Artist".to_string()),
                     album: Some("Integration Album".to_string()),
@@ -1813,7 +1593,7 @@ fn test_postgres_setup_and_match_dictionary_handlers_work() {
         assert_eq!(save_response.1 .0.saved, 1);
 
         // Match dictionary: read back
-        let get_response = ferrotune::api::ferrotune::get_match_dictionary(
+        let get_response = ferrotune::api::get_match_dictionary(
             State(state),
             FerrotuneAuthenticatedUser {
                 user_id: user.id,
@@ -1874,14 +1654,12 @@ fn test_postgres_recycle_bin_handlers_work() {
         };
 
         // Mark song_1 for deletion
-        let mark_response = ferrotune::api::ferrotune::recycle_bin::mark_for_deletion(
+        let mark_response = ferrotune::api::recycle_bin::mark_for_deletion(
             auth(),
             State(state.clone()),
-            Json(
-                ferrotune::api::ferrotune::recycle_bin::MarkForDeletionRequest {
-                    song_ids: vec![song_1.clone(), song_2.clone()],
-                },
-            ),
+            Json(ferrotune::api::recycle_bin::MarkForDeletionRequest {
+                song_ids: vec![song_1.clone(), song_2.clone()],
+            }),
         )
         .await
         .expect("mark_for_deletion should succeed")
@@ -1889,10 +1667,10 @@ fn test_postgres_recycle_bin_handlers_work() {
         assert_eq!(mark_response.marked_count, 2);
 
         // List recycle bin
-        let list_response = ferrotune::api::ferrotune::recycle_bin::list_recycle_bin(
+        let list_response = ferrotune::api::recycle_bin::list_recycle_bin(
             auth(),
             State(state.clone()),
-            axum::extract::Query(ferrotune::api::ferrotune::recycle_bin::RecycleBinParams {
+            axum::extract::Query(ferrotune::api::recycle_bin::RecycleBinParams {
                 offset: None,
                 limit: None,
             }),
@@ -1904,14 +1682,12 @@ fn test_postgres_recycle_bin_handlers_work() {
         assert_eq!(list_response.songs.len(), 2);
 
         // Restore song_1
-        let restore_response = ferrotune::api::ferrotune::recycle_bin::restore_songs(
+        let restore_response = ferrotune::api::recycle_bin::restore_songs(
             auth(),
             State(state.clone()),
-            Json(
-                ferrotune::api::ferrotune::recycle_bin::RestoreSongsRequest {
-                    song_ids: vec![song_1.clone()],
-                },
-            ),
+            Json(ferrotune::api::recycle_bin::RestoreSongsRequest {
+                song_ids: vec![song_1.clone()],
+            }),
         )
         .await
         .expect("restore_songs should succeed")
@@ -1919,10 +1695,10 @@ fn test_postgres_recycle_bin_handlers_work() {
         assert_eq!(restore_response.restored_count, 1);
 
         // Verify only song_2 remains in recycle bin
-        let list_response = ferrotune::api::ferrotune::recycle_bin::list_recycle_bin(
+        let list_response = ferrotune::api::recycle_bin::list_recycle_bin(
             auth(),
             State(state.clone()),
-            axum::extract::Query(ferrotune::api::ferrotune::recycle_bin::RecycleBinParams {
+            axum::extract::Query(ferrotune::api::recycle_bin::RecycleBinParams {
                 offset: None,
                 limit: None,
             }),
@@ -1940,10 +1716,10 @@ fn test_postgres_recycle_bin_handlers_work() {
         assert!(deleted);
 
         // Recycle bin should now be empty
-        let list_response = ferrotune::api::ferrotune::recycle_bin::list_recycle_bin(
+        let list_response = ferrotune::api::recycle_bin::list_recycle_bin(
             auth(),
             State(state),
-            axum::extract::Query(ferrotune::api::ferrotune::recycle_bin::RecycleBinParams {
+            axum::extract::Query(ferrotune::api::recycle_bin::RecycleBinParams {
                 offset: None,
                 limit: None,
             }),
@@ -1992,7 +1768,7 @@ fn test_postgres_list_music_folders_handler_works() {
             session_manager: Arc::new(SessionManager::new()),
         });
 
-        let response = ferrotune::api::ferrotune::music_folders::list_music_folders(
+        let response = ferrotune::api::music_folders::list_music_folders(
             FerrotuneAuthenticatedUser {
                 user_id: user.id,
                 username: user.username.clone(),
@@ -2022,16 +1798,14 @@ fn test_postgres_list_music_folders_handler_works() {
         std::fs::create_dir_all(&new_folder_path)
             .expect("postgres music folder test directory should be created");
 
-        let create_response = ferrotune::api::ferrotune::music_folders::create_music_folder(
+        let create_response = ferrotune::api::music_folders::create_music_folder(
             admin_auth(),
             State(state.clone()),
-            Json(
-                ferrotune::api::ferrotune::music_folders::CreateMusicFolderRequest {
-                    name: "Imported Folder".to_string(),
-                    path: new_folder_path.to_string_lossy().to_string(),
-                    watch_enabled: true,
-                },
-            ),
+            Json(ferrotune::api::music_folders::CreateMusicFolderRequest {
+                name: "Imported Folder".to_string(),
+                path: new_folder_path.to_string_lossy().to_string(),
+                watch_enabled: true,
+            }),
         )
         .await
         .expect("create_music_folder should succeed on postgres")
@@ -2046,24 +1820,22 @@ fn test_postgres_list_music_folders_handler_works() {
             .as_i64()
             .expect("create_music_folder response should include a numeric id");
 
-        let update_response = ferrotune::api::ferrotune::music_folders::update_music_folder(
+        let update_response = ferrotune::api::music_folders::update_music_folder(
             admin_auth(),
             State(state.clone()),
             Path(created_folder_id),
-            Json(
-                ferrotune::api::ferrotune::music_folders::UpdateMusicFolderRequest {
-                    name: Some("Imported Folder Renamed".to_string()),
-                    enabled: Some(false),
-                    watch_enabled: Some(false),
-                },
-            ),
+            Json(ferrotune::api::music_folders::UpdateMusicFolderRequest {
+                name: Some("Imported Folder Renamed".to_string()),
+                enabled: Some(false),
+                watch_enabled: Some(false),
+            }),
         )
         .await
         .expect("update_music_folder should succeed on postgres")
         .into_response();
         assert_eq!(update_response.status(), axum::http::StatusCode::OK);
 
-        let folder = ferrotune::api::ferrotune::music_folders::get_music_folder(
+        let folder = ferrotune::api::music_folders::get_music_folder(
             admin_auth(),
             State(state.clone()),
             Path(created_folder_id),
@@ -2076,7 +1848,7 @@ fn test_postgres_list_music_folders_handler_works() {
         assert!(!folder.watch_enabled);
         assert_eq!(folder.path, new_folder_path.to_string_lossy());
 
-        let folder_stats = ferrotune::api::ferrotune::music_folders::get_music_folder_stats(
+        let folder_stats = ferrotune::api::music_folders::get_music_folder_stats(
             admin_auth(),
             State(state.clone()),
             Path(created_folder_id),
@@ -2088,21 +1860,20 @@ fn test_postgres_list_music_folders_handler_works() {
         assert_eq!(folder_stats.album_count, 0);
         assert_eq!(folder_stats.artist_count, 0);
 
-        let delete_created_response =
-            ferrotune::api::ferrotune::music_folders::delete_music_folder(
-                admin_auth(),
-                State(state.clone()),
-                Path(created_folder_id),
-            )
-            .await
-            .expect("delete_music_folder for created folder should succeed on postgres")
-            .into_response();
+        let delete_created_response = ferrotune::api::music_folders::delete_music_folder(
+            admin_auth(),
+            State(state.clone()),
+            Path(created_folder_id),
+        )
+        .await
+        .expect("delete_music_folder for created folder should succeed on postgres")
+        .into_response();
         assert_eq!(
             delete_created_response.status(),
             axum::http::StatusCode::NO_CONTENT
         );
 
-        let delete_seeded_response = ferrotune::api::ferrotune::music_folders::delete_music_folder(
+        let delete_seeded_response = ferrotune::api::music_folders::delete_music_folder(
             admin_auth(),
             State(state.clone()),
             Path(seeded_folder_id),
@@ -2184,24 +1955,21 @@ fn test_postgres_directory_paged_handler_works() {
             is_admin: user.is_admin,
         };
 
-        let root_response = ferrotune::api::ferrotune::directory::get_directory_paged(
+        let root_response = ferrotune::api::directory::get_directory_paged(
             auth_user(),
             State(state.clone()),
-            Query(
-                ferrotune::api::ferrotune::directory::GetDirectoryPagedParams {
-                    library_id: Some(library_id),
-                    path: None,
-                    count: Some(50),
-                    offset: Some(0),
-                    sort: None,
-                    sort_dir: None,
-                    filter: None,
-                    folders_only: None,
-                    files_only: None,
-                    inline_images:
-                        ferrotune::api::subsonic::inline_thumbnails::InlineImagesParam::default(),
-                },
-            ),
+            Query(ferrotune::api::directory::GetDirectoryPagedParams {
+                library_id: Some(library_id),
+                path: None,
+                count: Some(50),
+                offset: Some(0),
+                sort: None,
+                sort_dir: None,
+                filter: None,
+                folders_only: None,
+                files_only: None,
+                inline_images: ferrotune::api::inline_thumbnails::InlineImagesParam::default(),
+            }),
         )
         .await
         .expect("postgres directory root handler should succeed")
@@ -2215,24 +1983,21 @@ fn test_postgres_directory_paged_handler_works() {
         assert_eq!(root_response.children[0].title, "Artist");
         assert_eq!(root_response.children[0].path.as_deref(), Some("Artist"));
 
-        let album_response = ferrotune::api::ferrotune::directory::get_directory_paged(
+        let album_response = ferrotune::api::directory::get_directory_paged(
             auth_user(),
             State(state),
-            Query(
-                ferrotune::api::ferrotune::directory::GetDirectoryPagedParams {
-                    library_id: Some(library_id),
-                    path: Some("Artist/Album".to_string()),
-                    count: Some(50),
-                    offset: Some(0),
-                    sort: Some("name".to_string()),
-                    sort_dir: Some("asc".to_string()),
-                    filter: None,
-                    folders_only: None,
-                    files_only: None,
-                    inline_images:
-                        ferrotune::api::subsonic::inline_thumbnails::InlineImagesParam::default(),
-                },
-            ),
+            Query(ferrotune::api::directory::GetDirectoryPagedParams {
+                library_id: Some(library_id),
+                path: Some("Artist/Album".to_string()),
+                count: Some(50),
+                offset: Some(0),
+                sort: Some("name".to_string()),
+                sort_dir: Some("asc".to_string()),
+                filter: None,
+                folders_only: None,
+                files_only: None,
+                inline_images: ferrotune::api::inline_thumbnails::InlineImagesParam::default(),
+            }),
         )
         .await
         .expect("postgres directory nested handler should succeed")
@@ -2504,10 +2269,10 @@ fn test_postgres_users_handlers_work() {
             is_admin: admin_user.is_admin,
         };
 
-        let create_response = ferrotune::api::ferrotune::users::create_user(
+        let create_response = ferrotune::api::users::create_user(
             admin_auth(),
             State(state.clone()),
-            Json(ferrotune::api::ferrotune::users::CreateUserRequest {
+            Json(ferrotune::api::users::CreateUserRequest {
                 username: "collab".to_string(),
                 password: "secret123".to_string(),
                 email: Some("collab@example.com".to_string()),
@@ -2525,7 +2290,7 @@ fn test_postgres_users_handlers_work() {
             .expect("postgres user lookup should succeed")
             .expect("created user should exist");
 
-        let library_access = ferrotune::api::ferrotune::users::get_library_access(
+        let library_access = ferrotune::api::users::get_library_access(
             admin_auth(),
             State(state.clone()),
             Path(created_user.id),
@@ -2535,35 +2300,11 @@ fn test_postgres_users_handlers_work() {
         .0;
         assert_eq!(library_access.folder_ids, vec![folder_id]);
 
-        let api_key_response = ferrotune::api::ferrotune::users::create_api_key(
+        let updated_user = ferrotune::api::users::update_user(
             admin_auth(),
             State(state.clone()),
             Path(created_user.id),
-            Json(ferrotune::api::ferrotune::users::CreateApiKeyRequest {
-                name: "desktop".to_string(),
-            }),
-        )
-        .await
-        .expect("postgres create_api_key handler should succeed")
-        .into_response();
-        assert_eq!(api_key_response.status(), axum::http::StatusCode::CREATED);
-
-        let api_keys = ferrotune::api::ferrotune::users::list_api_keys(
-            admin_auth(),
-            State(state.clone()),
-            Path(created_user.id),
-        )
-        .await
-        .expect("postgres list_api_keys handler should succeed")
-        .0;
-        assert_eq!(api_keys.api_keys.len(), 1);
-        assert_eq!(api_keys.api_keys[0].name, "desktop");
-
-        let updated_user = ferrotune::api::ferrotune::users::update_user(
-            admin_auth(),
-            State(state.clone()),
-            Path(created_user.id),
-            Json(ferrotune::api::ferrotune::users::UpdateUserRequest {
+            Json(ferrotune::api::users::UpdateUserRequest {
                 username: Some("collab-renamed".to_string()),
                 password: Some("newsecret123".to_string()),
                 email: Some("renamed@example.com".to_string()),
@@ -2579,33 +2320,11 @@ fn test_postgres_users_handlers_work() {
         assert!(updated_user.is_admin);
         assert!(updated_user.library_access.is_empty());
 
-        let _ = ferrotune::api::ferrotune::users::delete_api_key(
-            admin_auth(),
-            State(state.clone()),
-            Path((created_user.id, "desktop".to_string())),
-        )
-        .await
-        .expect("postgres delete_api_key handler should succeed")
-        .into_response();
-
-        let api_keys = ferrotune::api::ferrotune::users::list_api_keys(
-            admin_auth(),
-            State(state.clone()),
-            Path(created_user.id),
-        )
-        .await
-        .expect("postgres list_api_keys after delete should succeed")
-        .0;
-        assert!(api_keys.api_keys.is_empty());
-
-        let delete_response = ferrotune::api::ferrotune::users::delete_user(
-            admin_auth(),
-            State(state),
-            Path(created_user.id),
-        )
-        .await
-        .expect("postgres delete_user handler should succeed")
-        .into_response();
+        let delete_response =
+            ferrotune::api::users::delete_user(admin_auth(), State(state), Path(created_user.id))
+                .await
+                .expect("postgres delete_user handler should succeed")
+                .into_response();
         assert_eq!(delete_response.status(), axum::http::StatusCode::NO_CONTENT);
 
         assert!(
@@ -2644,7 +2363,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             seed_postgres_library_sample(&database).await;
 
         let session_id =
-            ferrotune::api::ferrotune::tagger_session::get_or_create_session(&database, user.id)
+            ferrotune::api::tagger_session::get_or_create_session(&database, user.id)
                 .await
                 .expect("postgres get_or_create_session should succeed");
         assert!(session_id > 0);
@@ -2661,7 +2380,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(seeded_script_count, 5);
 
         let staged_track_ids =
-            ferrotune::api::ferrotune::tagger_session::get_session_track_ids(&database, user.id)
+            ferrotune::api::tagger_session::get_session_track_ids(&database, user.id)
                 .await
                 .expect("postgres get_session_track_ids should succeed");
         assert!(staged_track_ids.is_empty());
@@ -2685,11 +2404,11 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             is_admin: user.is_admin,
         };
 
-        let update_status = ferrotune::api::ferrotune::tagger_session::update_session(
+        let update_status = ferrotune::api::tagger_session::update_session(
             auth_user(),
             State(state.clone()),
             Json(
-                ferrotune::api::ferrotune::tagger_session::UpdateTaggerSessionRequest {
+                ferrotune::api::tagger_session::UpdateTaggerSessionRequest {
                     visible_columns: Some(vec!["TITLE".to_string(), "ARTIST".to_string()]),
                     active_rename_script_id: Some(format!("default-rename-{}", user.id)),
                     active_tag_script_id: Some(format!("default-trim-{}", user.id)),
@@ -2708,17 +2427,17 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger update_session should succeed");
         assert_eq!(update_status, axum::http::StatusCode::NO_CONTENT);
 
-        let set_tracks_status = ferrotune::api::ferrotune::tagger_session::set_session_tracks(
+        let set_tracks_status = ferrotune::api::tagger_session::set_session_tracks(
             auth_user(),
             State(state.clone()),
             Json(
-                ferrotune::api::ferrotune::tagger_session::SetTaggerTracksRequest {
+                ferrotune::api::tagger_session::SetTaggerTracksRequest {
                     tracks: vec![
-                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                        ferrotune::api::tagger_session::TaggerTrackEntry {
                             id: song_1.clone(),
                             track_type: "library".to_string(),
                         },
-                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                        ferrotune::api::tagger_session::TaggerTrackEntry {
                             id: song_2.clone(),
                             track_type: "library".to_string(),
                         },
@@ -2730,7 +2449,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger set_session_tracks should succeed");
         assert_eq!(set_tracks_status, axum::http::StatusCode::NO_CONTENT);
 
-        let session = ferrotune::api::ferrotune::tagger_session::get_session(
+        let session = ferrotune::api::tagger_session::get_session(
             auth_user(),
             State(state.clone()),
         )
@@ -2758,7 +2477,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(session.tracks[0].id, song_1);
         assert_eq!(session.tracks[1].id, song_2);
 
-        let orphaned = ferrotune::api::ferrotune::tagger::discover_orphaned_files(
+        let orphaned = ferrotune::api::tagger::discover_orphaned_files(
             auth_user(),
             State(state.clone()),
         )
@@ -2769,7 +2488,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert!(orphaned.file_ids.is_empty());
 
         let song_paths =
-            ferrotune::api::ferrotune::tagger::get_song_paths(auth_user(), State(state.clone()))
+            ferrotune::api::tagger::get_song_paths(auth_user(), State(state.clone()))
                 .await
                 .expect("postgres get_song_paths should succeed")
                 .0;
@@ -2779,7 +2498,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             .iter()
             .any(|song| song.file_path.ends_with("Opening Track.mp3")));
 
-        let scripts_response = ferrotune::api::ferrotune::tagger_session::get_scripts(
+        let scripts_response = ferrotune::api::tagger_session::get_scripts(
             auth_user(),
             State(state.clone()),
         )
@@ -2799,11 +2518,11 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             5
         );
 
-        let save_scripts_status = ferrotune::api::ferrotune::tagger_session::save_scripts(
+        let save_scripts_status = ferrotune::api::tagger_session::save_scripts(
             auth_user(),
             State(state.clone()),
             Json(vec![
-                ferrotune::api::ferrotune::tagger_session::TaggerScriptData {
+                ferrotune::api::tagger_session::TaggerScriptData {
                     id: "custom-rename".to_string(),
                     name: "Custom Rename".to_string(),
                     script_type: "rename".to_string(),
@@ -2815,7 +2534,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger save_scripts should succeed");
         assert_eq!(save_scripts_status, axum::http::StatusCode::NO_CONTENT);
 
-        let saved_scripts_response = ferrotune::api::ferrotune::tagger_session::get_scripts(
+        let saved_scripts_response = ferrotune::api::tagger_session::get_scripts(
             auth_user(),
             State(state.clone()),
         )
@@ -2833,7 +2552,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(saved_scripts.len(), 1);
         assert_eq!(saved_scripts[0]["id"], "custom-rename");
 
-        let delete_script_status = ferrotune::api::ferrotune::tagger_session::delete_script(
+        let delete_script_status = ferrotune::api::tagger_session::delete_script(
             auth_user(),
             State(state.clone()),
             Path("custom-rename".to_string()),
@@ -2842,7 +2561,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger delete_script should succeed");
         assert_eq!(delete_script_status, axum::http::StatusCode::NO_CONTENT);
 
-        let deleted_scripts_response = ferrotune::api::ferrotune::tagger_session::get_scripts(
+        let deleted_scripts_response = ferrotune::api::tagger_session::get_scripts(
             auth_user(),
             State(state.clone()),
         )
@@ -2860,12 +2579,12 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             .expect("postgres tagger deleted scripts should return an array")
             .is_empty());
 
-        let update_edit_status = ferrotune::api::ferrotune::tagger_session::update_edit(
+        let update_edit_status = ferrotune::api::tagger_session::update_edit(
             auth_user(),
             State(state.clone()),
             Path(song_1.clone()),
             Json(
-                ferrotune::api::ferrotune::tagger_session::UpdatePendingEditRequest {
+                ferrotune::api::tagger_session::UpdatePendingEditRequest {
                     edited_tags: HashMap::from([(
                         "TITLE".to_string(),
                         "Retagged Opening".to_string(),
@@ -2881,7 +2600,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger update_edit should succeed");
         assert_eq!(update_edit_status, axum::http::StatusCode::NO_CONTENT);
 
-        let pending_edits_response = ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+        let pending_edits_response = ferrotune::api::tagger_session::get_pending_edits(
             auth_user(),
             State(state.clone()),
         )
@@ -2904,7 +2623,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         );
         assert_eq!(song_1_edit["coverArtRemoved"], true);
 
-        let remove_track_status = ferrotune::api::ferrotune::tagger_session::remove_track(
+        let remove_track_status = ferrotune::api::tagger_session::remove_track(
             auth_user(),
             State(state.clone()),
             Path(song_2.clone()),
@@ -2913,7 +2632,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger remove_track should succeed");
         assert_eq!(remove_track_status, axum::http::StatusCode::NO_CONTENT);
 
-        let session_after_remove = ferrotune::api::ferrotune::tagger_session::get_session(
+        let session_after_remove = ferrotune::api::tagger_session::get_session(
             auth_user(),
             State(state.clone()),
         )
@@ -2923,17 +2642,17 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(session_after_remove.tracks.len(), 1);
         assert_eq!(session_after_remove.tracks[0].id, song_1);
 
-        let add_tracks_status = ferrotune::api::ferrotune::tagger_session::add_tracks(
+        let add_tracks_status = ferrotune::api::tagger_session::add_tracks(
             auth_user(),
             State(state.clone()),
             Json(
-                ferrotune::api::ferrotune::tagger_session::AddTracksRequest {
+                ferrotune::api::tagger_session::AddTracksRequest {
                     tracks: vec![
-                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                        ferrotune::api::tagger_session::TaggerTrackEntry {
                             id: song_1.clone(),
                             track_type: "library".to_string(),
                         },
-                        ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                        ferrotune::api::tagger_session::TaggerTrackEntry {
                             id: song_2.clone(),
                             track_type: "library".to_string(),
                         },
@@ -2945,7 +2664,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger add_tracks should succeed");
         assert_eq!(add_tracks_status, axum::http::StatusCode::NO_CONTENT);
 
-        let session_after_add = ferrotune::api::ferrotune::tagger_session::get_session(
+        let session_after_add = ferrotune::api::tagger_session::get_session(
             auth_user(),
             State(state.clone()),
         )
@@ -3040,7 +2759,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .await
         .expect("postgres tagger pending edit insert for song_2 should succeed");
 
-        let cover_art_response = ferrotune::api::ferrotune::tagger_session::get_cover_art(
+        let cover_art_response = ferrotune::api::tagger_session::get_cover_art(
             auth_user(),
             State(state.clone()),
             Path(song_1.clone()),
@@ -3063,7 +2782,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             axum::http::header::RANGE,
             axum::http::HeaderValue::from_static("bytes=1-3"),
         );
-        let stream_response = ferrotune::api::ferrotune::tagger_session::stream_replacement_audio(
+        let stream_response = ferrotune::api::tagger_session::stream_replacement_audio(
             auth_user(),
             State(state.clone()),
             Path(song_1.clone()),
@@ -3077,7 +2796,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             .expect("postgres tagger stream_replacement_audio body should decode");
         assert_eq!(stream_bytes.as_ref(), b"123");
 
-        let delete_cover_art_status = ferrotune::api::ferrotune::tagger_session::delete_cover_art(
+        let delete_cover_art_status = ferrotune::api::tagger_session::delete_cover_art(
             auth_user(),
             State(state.clone()),
             Path(song_1.clone()),
@@ -3088,7 +2807,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert!(!cover_art_dir.join(song_1_cover_filename).exists());
 
         let delete_replacement_audio_status =
-            ferrotune::api::ferrotune::tagger_session::delete_replacement_audio(
+            ferrotune::api::tagger_session::delete_replacement_audio(
                 auth_user(),
                 State(state.clone()),
                 Path(song_1.clone()),
@@ -3102,7 +2821,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert!(!replacement_audio_dir.join(song_1_replacement_filename).exists());
 
         let pending_after_asset_delete_response =
-            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+            ferrotune::api::tagger_session::get_pending_edits(
                 auth_user(),
                 State(state.clone()),
             )
@@ -3127,12 +2846,12 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         let staged_track_id = "staged-track.mp3".to_string();
         std::fs::write(tagger_staging_dir.join(&staged_track_id), b"staged-audio")
             .expect("postgres tagger staged track file should be written");
-        let add_staged_track_status = ferrotune::api::ferrotune::tagger_session::add_tracks(
+        let add_staged_track_status = ferrotune::api::tagger_session::add_tracks(
             auth_user(),
             State(state.clone()),
             Json(
-                ferrotune::api::ferrotune::tagger_session::AddTracksRequest {
-                    tracks: vec![ferrotune::api::ferrotune::tagger_session::TaggerTrackEntry {
+                ferrotune::api::tagger_session::AddTracksRequest {
+                    tracks: vec![ferrotune::api::tagger_session::TaggerTrackEntry {
                         id: staged_track_id.clone(),
                         track_type: "staged".to_string(),
                     }],
@@ -3143,11 +2862,11 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         .expect("postgres tagger add staged track should succeed");
         assert_eq!(add_staged_track_status, axum::http::StatusCode::NO_CONTENT);
 
-        let remove_tracks_status = ferrotune::api::ferrotune::tagger_session::remove_tracks(
+        let remove_tracks_status = ferrotune::api::tagger_session::remove_tracks(
             auth_user(),
             State(state.clone()),
             Json(
-                ferrotune::api::ferrotune::tagger_session::RemoveTracksRequest {
+                ferrotune::api::tagger_session::RemoveTracksRequest {
                     track_ids: vec![song_2.clone(), staged_track_id.clone()],
                 },
             ),
@@ -3159,7 +2878,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert!(!replacement_audio_dir.join(song_2_replacement_filename).exists());
         assert!(!tagger_staging_dir.join(&staged_track_id).exists());
 
-        let session_after_bulk_remove = ferrotune::api::ferrotune::tagger_session::get_session(
+        let session_after_bulk_remove = ferrotune::api::tagger_session::get_session(
             auth_user(),
             State(state.clone()),
         )
@@ -3170,7 +2889,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(session_after_bulk_remove.tracks[0].id, song_1);
 
         let pending_after_bulk_remove_response =
-            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+            ferrotune::api::tagger_session::get_pending_edits(
                 auth_user(),
                 State(state.clone()),
             )
@@ -3219,11 +2938,11 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             .expect("postgres tagger seeded music folder path update should succeed");
 
         let save_pending_edits_response =
-            ferrotune::api::ferrotune::tagger_session::save_pending_edits(
+            ferrotune::api::tagger_session::save_pending_edits(
                 auth_user(),
                 State(state.clone()),
                 Json(
-                    ferrotune::api::ferrotune::tagger_session::SavePendingEditsRequest {
+                    ferrotune::api::tagger_session::SavePendingEditsRequest {
                         track_ids: vec![song_1.clone()],
                         path_overrides: HashMap::new(),
                         target_music_folder_id: None,
@@ -3264,7 +2983,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(saved_title, "Retagged Opening");
 
         let pending_after_save_response =
-            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+            ferrotune::api::tagger_session::get_pending_edits(
                 auth_user(),
                 State(state.clone()),
             )
@@ -3283,7 +3002,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             .is_empty());
 
         let clear_pending_edits_status =
-            ferrotune::api::ferrotune::tagger_session::clear_pending_edits(
+            ferrotune::api::tagger_session::clear_pending_edits(
                 auth_user(),
                 State(state.clone()),
             )
@@ -3295,7 +3014,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         );
 
         let cleared_pending_edits_response =
-            ferrotune::api::ferrotune::tagger_session::get_pending_edits(
+            ferrotune::api::tagger_session::get_pending_edits(
                 auth_user(),
                 State(state.clone()),
             )
@@ -3313,7 +3032,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             .expect("postgres tagger cleared pending edits should be an object")
             .is_empty());
 
-        let clear_session_status = ferrotune::api::ferrotune::tagger_session::clear_session(
+        let clear_session_status = ferrotune::api::tagger_session::clear_session(
             auth_user(),
             State(state.clone()),
         )
@@ -3322,7 +3041,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
         assert_eq!(clear_session_status, axum::http::StatusCode::NO_CONTENT);
 
         let cleared_session =
-            ferrotune::api::ferrotune::tagger_session::get_session(auth_user(), State(state))
+            ferrotune::api::tagger_session::get_session(auth_user(), State(state))
                 .await
                 .expect("postgres tagger get_session after clear_session should succeed")
                 .0;
@@ -3645,34 +3364,10 @@ fn test_postgres_auth_bootstrap_queries_work() {
         );
         assert_eq!(folders[0].path, "/music");
 
-        sqlx::query(
-            "INSERT INTO api_keys (token, user_id, name, created_at) VALUES ($1, $2, $3, NOW())",
-        )
-        .bind("test-token")
-        .bind(user.id)
-        .bind("integration")
-        .execute(
-            database
-                .postgres_pool()
-                .expect("postgres runtime database should expose a PgPool"),
-        )
-        .await
-        .expect("postgres api_keys insert should succeed");
-
-        let api_key_user = db::repo::users::get_user_by_api_key(&database, "test-token")
-            .await
-            .expect("postgres api key lookup should succeed")
-            .expect("api key lookup should return the linked user");
-        assert_eq!(api_key_user.id, user.id);
-
-        let updated = db::repo::users::update_user_password(
-            &database,
-            "admin",
-            "updated-password-hash",
-            "updated-subsonic-token",
-        )
-        .await
-        .expect("postgres password updates should succeed");
+        let updated =
+            db::repo::users::update_user_password(&database, "admin", "updated-password-hash")
+                .await
+                .expect("postgres password updates should succeed");
         assert!(updated, "existing postgres user should be updated");
 
         let reloaded_user = db::repo::users::get_user_by_username(&database, "admin")
@@ -3680,10 +3375,6 @@ fn test_postgres_auth_bootstrap_queries_work() {
             .expect("postgres user lookup should still succeed")
             .expect("updated postgres user should still exist");
         assert_eq!(reloaded_user.password_hash, "updated-password-hash");
-        assert_eq!(
-            reloaded_user.subsonic_token.as_deref(),
-            Some("updated-subsonic-token")
-        );
     });
 }
 
@@ -6155,14 +5846,13 @@ fn test_postgres_thumbnail_helpers_and_inline_reads_work() {
             .await
             .expect("postgres album cover hash update should succeed");
 
-        let album_thumbnail =
-            ferrotune::api::subsonic::inline_thumbnails::get_album_thumbnail_base64(
-                &database,
-                &album_id,
-                ferrotune::thumbnails::ThumbnailSize::Small,
-            )
-            .await
-            .expect("postgres inline album thumbnail should be available");
+        let album_thumbnail = ferrotune::api::inline_thumbnails::get_album_thumbnail_base64(
+            &database,
+            &album_id,
+            ferrotune::thumbnails::ThumbnailSize::Small,
+        )
+        .await
+        .expect("postgres inline album thumbnail should be available");
 
         use base64::Engine;
         let decoded_album_thumbnail = base64::engine::general_purpose::STANDARD
@@ -6170,13 +5860,12 @@ fn test_postgres_thumbnail_helpers_and_inline_reads_work() {
             .expect("postgres inline album thumbnail should decode");
         assert_eq!(decoded_album_thumbnail, small_thumbnail);
 
-        let song_thumbnails =
-            ferrotune::api::subsonic::inline_thumbnails::get_song_thumbnails_base64(
-                &database,
-                &[(song_1.clone(), Some(album_id.clone()))],
-                ferrotune::thumbnails::ThumbnailSize::Small,
-            )
-            .await;
+        let song_thumbnails = ferrotune::api::inline_thumbnails::get_song_thumbnails_base64(
+            &database,
+            &[(song_1.clone(), Some(album_id.clone()))],
+            ferrotune::thumbnails::ThumbnailSize::Small,
+        )
+        .await;
         let decoded_song_thumbnail = base64::engine::general_purpose::STANDARD
             .decode(
                 song_thumbnails
@@ -6278,7 +5967,6 @@ fn test_postgres_playlist_queries_work() {
             &database,
             "playlist-viewer",
             "password-hash",
-            "subsonic-token",
             Some("viewer@example.com"),
             false,
         )
@@ -6546,261 +6234,6 @@ fn test_postgres_playlist_queries_work() {
 }
 
 #[test]
-fn test_postgres_subsonic_playlist_read_handlers_work() {
-    if !docker_available() {
-        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
-        return;
-    }
-
-    let container = Postgres::default()
-        .start()
-        .expect("postgres container should start");
-    let host = container
-        .get_host()
-        .expect("postgres container host should resolve");
-    let port = container
-        .get_host_port_ipv4(5432)
-        .expect("postgres container port should resolve");
-    let config = postgres_config(&host.to_string(), port);
-
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
-    runtime.block_on(async move {
-        let database = db::create_pool(&config)
-            .await
-            .expect("postgres database pool should connect");
-        let pool = database
-            .postgres_pool()
-            .expect("postgres runtime database should expose a PgPool");
-        let (owner, _artist_id, _album_id, song_1, song_2) =
-            seed_postgres_library_sample(&database).await;
-
-        let folder_id = uuid::Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO playlist_folders (id, name, parent_id, owner_id, position) VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(&folder_id)
-        .bind("Mixes")
-        .bind(Option::<String>::None)
-        .bind(owner.id)
-        .bind(0_i64)
-        .execute(pool)
-        .await
-        .expect("postgres playlist folder insert should succeed");
-
-        let playlist_id = "pl-subsonic-handlers".to_string();
-        db::queries::create_playlist(
-            &database,
-            &playlist_id,
-            "Integration Playlist",
-            owner.id,
-            Some("integration comment"),
-            false,
-            Some(&folder_id),
-        )
-        .await
-        .expect("postgres playlist create should succeed");
-
-        db::queries::add_songs_to_playlist(&database, &playlist_id, &[song_1.clone(), song_2.clone()])
-            .await
-            .expect("postgres playlist song insert should succeed");
-
-        let state = Arc::new(AppState {
-            database: database.clone(),
-            config: postgres_test_app_config(config.clone()),
-            scan_state: ferrotune::api::create_scan_state(),
-            shuffle_cache: Default::default(),
-            session_manager: Arc::new(SessionManager::new()),
-        });
-
-        let list_response = playlists::get_playlists(
-            State(state.clone()),
-            AuthenticatedUser {
-                user_id: owner.id,
-                username: owner.username.clone(),
-                is_admin: owner.is_admin,
-                format: ResponseFormat::Json,
-                client: "postgres-handler-test".to_string(),
-            },
-        )
-        .await
-        .expect("postgres getPlaylists handler should succeed");
-
-        assert_eq!(list_response.data.playlists.playlist.len(), 1);
-        assert_eq!(list_response.data.playlists.playlist[0].id, playlist_id);
-        assert_eq!(
-            list_response.data.playlists.playlist[0].name,
-            "Mixes/Integration Playlist"
-        );
-
-        let params = serde_json::from_value(serde_json::json!({ "id": playlist_id.clone() }))
-            .expect("playlist params should deserialize from JSON test input");
-        let detail_response = playlists::get_playlist(
-            State(state),
-            AuthenticatedUser {
-                user_id: owner.id,
-                username: owner.username,
-                is_admin: owner.is_admin,
-                format: ResponseFormat::Json,
-                client: "postgres-handler-test".to_string(),
-            },
-            Query(params),
-        )
-        .await
-        .expect("postgres getPlaylist handler should succeed");
-
-        assert_eq!(detail_response.data.playlist.id, playlist_id);
-        assert_eq!(detail_response.data.playlist.name, "Mixes/Integration Playlist");
-        assert_eq!(detail_response.data.playlist.song_total, Some(2));
-
-        let detail_song_ids: Vec<String> = detail_response
-            .data
-            .playlist
-            .entry
-            .into_iter()
-            .map(|song| song.id)
-            .collect();
-        assert_eq!(detail_song_ids, vec![song_1, song_2]);
-    });
-}
-
-#[test]
-fn test_postgres_subsonic_playlist_write_handlers_work() {
-    if !docker_available() {
-        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
-        return;
-    }
-
-    let container = Postgres::default()
-        .start()
-        .expect("postgres container should start");
-    let host = container
-        .get_host()
-        .expect("postgres container host should resolve");
-    let port = container
-        .get_host_port_ipv4(5432)
-        .expect("postgres container port should resolve");
-    let config = postgres_config(&host.to_string(), port);
-
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
-    runtime.block_on(async move {
-        let database = db::create_pool(&config)
-            .await
-            .expect("postgres database pool should connect");
-        let (owner, _artist_id, _album_id, song_1, song_2) =
-            seed_postgres_library_sample(&database).await;
-
-        let state = Arc::new(AppState {
-            database: database.clone(),
-            config: postgres_test_app_config(config.clone()),
-            scan_state: ferrotune::api::create_scan_state(),
-            shuffle_cache: Default::default(),
-            session_manager: Arc::new(SessionManager::new()),
-        });
-
-        let create_params = serde_json::from_value(serde_json::json!({
-            "name": "Mixes/Integration Playlist",
-            "songId": [song_1.clone()],
-        }))
-        .expect("create playlist params should deserialize from JSON test input");
-        let created = playlists::create_playlist(
-            State(state.clone()),
-            AuthenticatedUser {
-                user_id: owner.id,
-                username: owner.username.clone(),
-                is_admin: owner.is_admin,
-                format: ResponseFormat::Json,
-                client: "postgres-handler-test".to_string(),
-            },
-            QsQuery(create_params),
-        )
-        .await
-        .expect("postgres createPlaylist handler should succeed");
-
-        let playlist_id = created.data.playlist.id.clone();
-        assert_eq!(created.data.playlist.name, "Mixes/Integration Playlist");
-        assert_eq!(created.data.playlist.entry.len(), 1);
-        assert_eq!(created.data.playlist.entry[0].id, song_1);
-
-        let created_playlist = db::queries::get_playlist_by_id(&database, &playlist_id)
-            .await
-            .expect("postgres created playlist lookup should succeed")
-            .expect("created playlist should exist");
-        assert!(created_playlist.folder_id.is_some());
-        assert_eq!(created_playlist.song_count, 1);
-
-        let update_params = serde_json::from_value(serde_json::json!({
-            "playlistId": playlist_id,
-            "name": "Renamed Playlist",
-            "comment": "updated comment",
-            "public": true,
-            "songIdToAdd": [song_2.clone()],
-            "songIndexToRemove": ["0"],
-        }))
-        .expect("update playlist params should deserialize from JSON test input");
-        playlists::update_playlist(
-            State(state.clone()),
-            AuthenticatedUser {
-                user_id: owner.id,
-                username: owner.username.clone(),
-                is_admin: owner.is_admin,
-                format: ResponseFormat::Json,
-                client: "postgres-handler-test".to_string(),
-            },
-            QsQuery(update_params),
-        )
-        .await
-        .expect("postgres updatePlaylist handler should succeed");
-
-        let updated_playlist = db::queries::get_playlist_by_id(&database, &playlist_id)
-            .await
-            .expect("postgres updated playlist lookup should succeed")
-            .expect("updated playlist should exist");
-        assert_eq!(updated_playlist.name, "Renamed Playlist");
-        assert_eq!(updated_playlist.comment.as_deref(), Some("updated comment"));
-        assert!(updated_playlist.is_public);
-        assert_eq!(updated_playlist.song_count, 1);
-
-        let full_name = db::queries::get_playlist_full_name(
-            &database,
-            &updated_playlist.name,
-            updated_playlist.folder_id.as_deref(),
-        )
-        .await
-        .expect("postgres updated playlist full-name lookup should succeed");
-        assert_eq!(full_name, "Mixes/Renamed Playlist");
-
-        let updated_songs = db::queries::get_playlist_songs(&database, &playlist_id, owner.id)
-            .await
-            .expect("postgres updated playlist songs should resolve");
-        let updated_song_ids: Vec<String> = updated_songs.into_iter().map(|song| song.id).collect();
-        assert_eq!(updated_song_ids, vec![song_2]);
-
-        let delete_params = serde_json::from_value(serde_json::json!({
-            "id": playlist_id,
-        }))
-        .expect("delete playlist params should deserialize from JSON test input");
-        playlists::delete_playlist(
-            State(state),
-            AuthenticatedUser {
-                user_id: owner.id,
-                username: owner.username,
-                is_admin: owner.is_admin,
-                format: ResponseFormat::Json,
-                client: "postgres-handler-test".to_string(),
-            },
-            Query(delete_params),
-        )
-        .await
-        .expect("postgres deletePlaylist handler should succeed");
-
-        assert!(db::queries::get_playlist_by_id(&database, &playlist_id)
-            .await
-            .expect("postgres deleted playlist lookup should succeed")
-            .is_none());
-    });
-}
-
-#[test]
 fn test_postgres_ferrotune_playlist_folder_handlers_work() {
     if !docker_available() {
         eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
@@ -6833,7 +6266,6 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
             &database,
             "playlist-viewer",
             "password-hash",
-            "subsonic-token",
             Some("viewer@example.com"),
             false,
         )
@@ -7392,7 +6824,6 @@ fn test_postgres_ferrotune_playlist_write_admin_handlers_work() {
             &database,
             "playlist-editor",
             "password-hash",
-            "subsonic-token",
             Some("editor@example.com"),
             false,
         )

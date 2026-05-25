@@ -1,0 +1,681 @@
+//! Streaming audio transcoding to Opus.
+//!
+//! Real-time transcoding of audio files to Opus format.
+//!
+//! Pipeline: [Input File] → [Symphonia Decoder] → [Rubato Resampler] → [Audiopus Encoder] → [Ogg Muxer] → [HTTP Stream]
+
+#![allow(dead_code)]
+
+use crate::error::{Error, Result};
+use audiopus::coder::Encoder as OpusEncoder;
+use audiopus::{Application, Bitrate, Channels, SampleRate};
+use axum::{
+    body::Body,
+    http::{header, StatusCode},
+    response::Response,
+};
+use ogg::writing::PacketWriter;
+use rubato::{FftFixedIn, Resampler};
+use serde::{Deserialize, Serialize};
+
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia_adapter_libopus::OpusDecoder;
+use tokio::sync::mpsc;
+
+use std::sync::LazyLock;
+
+/// Custom codec registry that includes Opus support via libopus adapter.
+static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(|| {
+    let mut registry = CodecRegistry::new();
+    registry.register_all::<OpusDecoder>();
+    symphonia::default::register_enabled_codecs(&mut registry);
+    registry
+});
+
+/// Internal transcode parameters (encoded in transcode_params string).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TranscodeConfig {
+    /// Song ID (for verification)
+    pub song_id: String,
+    /// Target bitrate in bps (e.g., 128000)
+    pub bitrate: u32,
+    /// Target sample rate (always 48000 for Opus)
+    pub sample_rate: u32,
+    /// Number of channels (1 or 2)
+    pub channels: u8,
+}
+
+impl TranscodeConfig {
+    /// Encode config to base64 string for use as transcode_params.
+    pub fn encode(&self) -> String {
+        let json = serde_json::to_string(self).unwrap_or_default();
+        base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, json)
+    }
+
+    /// Decode from base64 transcode_params string.
+    pub fn decode(params: &str) -> Result<Self> {
+        let json =
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, params)
+                .map_err(|e| Error::InvalidRequest(format!("Invalid transcode_params: {}", e)))?;
+        serde_json::from_slice(&json)
+            .map_err(|e| Error::InvalidRequest(format!("Invalid transcode_params: {}", e)))
+    }
+}
+
+// ============================================================================
+// Stream Endpoint Transcoding (with time offset support)
+// ============================================================================
+
+/// Transcode a file to Opus with an optional time offset for seeking.
+/// This is used by the /api/stream endpoint for the transcodeOffset extension.
+pub async fn transcode_with_offset(
+    path: &std::path::Path,
+    config: &TranscodeConfig,
+    time_offset_seconds: f64,
+    replaygain_info: ReplayGainInfo,
+    accurate_seek: bool,
+) -> Result<Response> {
+    let path = path.to_path_buf();
+    let config = config.clone();
+
+    // Create channel for streaming transcoded data
+    // Large buffer to allow transcoding to run ahead without blocking
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
+
+    // Spawn blocking task to transcode
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = transcode_to_opus_with_offset(
+            &path,
+            &config,
+            tx,
+            time_offset_seconds,
+            replaygain_info,
+            accurate_seek,
+        ) {
+            tracing::error!("Transcoding error: {}", e);
+        }
+    });
+
+    // Convert receiver to stream
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let body_stream = futures::stream::StreamExt::map(stream, Ok::<_, std::io::Error>);
+    let body = Body::from_stream(body_stream);
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "audio/ogg")
+        .body(body)
+        .unwrap())
+}
+
+// ============================================================================
+// Transcoding Pipeline
+// ============================================================================
+
+/// Opus frame size: 20ms at 48kHz = 960 samples per channel.
+const OPUS_FRAME_SIZE: usize = 960;
+
+/// ReplayGain information for embedding in transcoded streams.
+#[derive(Debug, Clone, Default)]
+pub struct ReplayGainInfo {
+    /// Track gain in dB (relative to -23 LUFS for computed, -18 LUFS for most original tags)
+    pub track_gain: Option<f64>,
+    /// Track peak value (linear scale, 0.0 to 1.0+)
+    pub track_peak: Option<f64>,
+}
+
+/// Transcode an audio file to Opus, sending chunks via channel.
+/// Supports seeking to a specific time offset (in seconds) before starting transcoding.
+/// If replaygain_info is provided, it will be embedded in the Opus tags as R128 gain and Vorbis comments.
+fn transcode_to_opus_with_offset(
+    path: &std::path::Path,
+    config: &TranscodeConfig,
+    tx: mpsc::Sender<Vec<u8>>,
+    time_offset_seconds: f64,
+    replaygain_info: ReplayGainInfo,
+    accurate_seek: bool,
+) -> Result<()> {
+    let writer = OggStreamBuffer::new(tx);
+    transcode_to_opus_writer(
+        path,
+        config,
+        writer,
+        time_offset_seconds,
+        replaygain_info,
+        accurate_seek,
+        rand::random::<u32>(),
+    )
+}
+
+pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
+    path: &std::path::Path,
+    config: &TranscodeConfig,
+    writer: W,
+    time_offset_seconds: f64,
+    replaygain_info: ReplayGainInfo,
+    accurate_seek: bool,
+    ogg_serial: u32,
+) -> Result<()> {
+    // Open source file
+    let file = std::fs::File::open(path)
+        .map_err(|e| Error::NotFound(format!("Could not open file: {}", e)))?;
+
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|e| Error::InvalidRequest(format!("Could not probe audio format: {}", e)))?;
+
+    let mut format = probed.format;
+
+    let track = format
+        .default_track()
+        .ok_or_else(|| Error::InvalidRequest("No audio track found".to_string()))?;
+
+    let track_id = track.id;
+    let source_sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
+    let source_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
+
+    let mut decoder = CODEC_REGISTRY
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|e| Error::InvalidRequest(format!("Could not create decoder: {}", e)))?;
+
+    // Seek to the requested time offset if specified
+    if time_offset_seconds > 0.0 {
+        use symphonia::core::formats::SeekMode;
+        use symphonia::core::units::Time;
+
+        // Convert seconds to TimeStamp
+        let ts = Time::from(time_offset_seconds);
+
+        // Choose seek mode: Accurate is sample-precise but slower,
+        // Coarse is faster but may not land exactly on the requested time
+        let seek_mode = if accurate_seek {
+            SeekMode::Accurate
+        } else {
+            SeekMode::Coarse
+        };
+
+        match format.seek(
+            seek_mode,
+            symphonia::core::formats::SeekTo::Time {
+                time: ts,
+                track_id: Some(track_id),
+            },
+        ) {
+            Ok(seeked_to) => {
+                tracing::debug!(
+                    "Seeked to timestamp {} (requested {}s, mode={:?})",
+                    seeked_to.actual_ts,
+                    time_offset_seconds,
+                    seek_mode
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Could not seek to {}s, starting from beginning: {}",
+                    time_offset_seconds,
+                    e
+                );
+            }
+        }
+    }
+
+    // Set up resampler if needed (Opus requires 48kHz)
+    let target_sample_rate = 48000usize;
+    let target_channels = config.channels as usize;
+    let need_resample = source_sample_rate as usize != target_sample_rate;
+
+    let mut resampler: Option<FftFixedIn<f32>> = if need_resample {
+        Some(
+            FftFixedIn::new(
+                source_sample_rate as usize,
+                target_sample_rate,
+                1024, // chunk size
+                2,    // sub chunks
+                source_channels,
+            )
+            .map_err(|e| Error::Internal(format!("Could not create resampler: {}", e)))?,
+        )
+    } else {
+        None
+    };
+
+    // Set up Opus encoder
+    let opus_sample_rate = match target_sample_rate {
+        8000 => SampleRate::Hz8000,
+        12000 => SampleRate::Hz12000,
+        16000 => SampleRate::Hz16000,
+        24000 => SampleRate::Hz24000,
+        _ => SampleRate::Hz48000,
+    };
+
+    let opus_channels = if target_channels == 1 {
+        Channels::Mono
+    } else {
+        Channels::Stereo
+    };
+
+    let mut opus_encoder = OpusEncoder::new(opus_sample_rate, opus_channels, Application::Audio)
+        .map_err(|e| Error::Internal(format!("Could not create Opus encoder: {}", e)))?;
+
+    opus_encoder
+        .set_bitrate(Bitrate::BitsPerSecond(config.bitrate as i32))
+        .map_err(|e| Error::Internal(format!("Could not set bitrate: {}", e)))?;
+
+    // Create Ogg packet writer with the requested output target.
+    let mut output = writer;
+    let mut ogg_writer = PacketWriter::new(&mut output);
+
+    // Write Opus header packets
+    let serial = ogg_serial;
+    write_opus_header(
+        &mut ogg_writer,
+        serial,
+        opus_channels,
+        opus_sample_rate,
+        &replaygain_info,
+    )?;
+
+    // Buffers for processing
+    let mut resample_input: Vec<Vec<f32>> = vec![Vec::new(); source_channels];
+    let mut pcm_buffer: Vec<i16> = Vec::new();
+    let mut opus_output = vec![0u8; 4000]; // Max Opus packet size
+    let mut granule_pos: u64 = 0;
+    let chunk_size = 1024usize;
+
+    // Decode and encode loop
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(symphonia::core::errors::Error::IoError(ref e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
+            Err(symphonia::core::errors::Error::ResetRequired) => {
+                decoder.reset();
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!("Error reading packet: {}", e);
+                break;
+            }
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(_) => continue,
+        };
+
+        let spec = *decoded.spec();
+        let duration = decoded.capacity() as u64;
+        let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
+        sample_buf.copy_interleaved_ref(decoded);
+
+        let samples = sample_buf.samples();
+        let num_channels = spec.channels.count();
+
+        // De-interleave samples for resampler
+        if need_resample {
+            for (i, sample) in samples.iter().enumerate() {
+                let channel = i % num_channels;
+                if channel < source_channels {
+                    resample_input[channel].push(*sample);
+                }
+            }
+
+            // Process when we have enough samples
+            while resample_input[0].len() >= chunk_size {
+                let input_chunk: Vec<Vec<f32>> = resample_input
+                    .iter()
+                    .map(|ch| ch[..chunk_size].to_vec())
+                    .collect();
+
+                for ch in &mut resample_input {
+                    ch.drain(..chunk_size);
+                }
+
+                if let Some(ref mut resampler) = resampler {
+                    match resampler.process(&input_chunk, None) {
+                        Ok(output) => {
+                            let interleaved = interleave_and_convert(&output, target_channels);
+                            pcm_buffer.extend(interleaved);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Resampler error: {}", e);
+                        }
+                    }
+                }
+            }
+        } else {
+            // No resampling needed - convert directly
+            let interleaved = convert_samples_direct(samples, num_channels, target_channels);
+            pcm_buffer.extend(interleaved);
+        }
+
+        // Encode complete Opus frames
+        let frame_samples = OPUS_FRAME_SIZE * target_channels;
+        while pcm_buffer.len() >= frame_samples {
+            let frame: Vec<i16> = pcm_buffer.drain(..frame_samples).collect();
+
+            match opus_encoder.encode(&frame, &mut opus_output) {
+                Ok(len) => {
+                    granule_pos += OPUS_FRAME_SIZE as u64;
+                    let ogg_packet = ogg::writing::PacketWriteEndInfo::EndPage;
+                    if let Err(e) = ogg_writer.write_packet(
+                        opus_output[..len].to_vec(),
+                        serial,
+                        ogg_packet,
+                        granule_pos,
+                    ) {
+                        if e.kind() == std::io::ErrorKind::BrokenPipe {
+                            return Ok(());
+                        }
+                        return Err(Error::Internal(format!("Could not write Ogg packet: {e}")));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Opus encoding error: {:?}", e);
+                }
+            }
+        }
+    }
+
+    // Process remaining samples in resampler
+    if need_resample && !resample_input[0].is_empty() {
+        if let Some(ref mut resampler) = resampler {
+            let pad_len = chunk_size.saturating_sub(resample_input[0].len());
+            for ch in &mut resample_input {
+                ch.extend(std::iter::repeat_n(0.0f32, pad_len));
+            }
+
+            if let Ok(output) = resampler.process(&resample_input, None) {
+                let interleaved = interleave_and_convert(&output, target_channels);
+                pcm_buffer.extend(interleaved);
+            }
+        }
+    }
+
+    // Encode remaining PCM samples (pad with silence if needed)
+    let frame_samples = OPUS_FRAME_SIZE * target_channels;
+    if !pcm_buffer.is_empty() {
+        // Pad to complete frame
+        while pcm_buffer.len() < frame_samples {
+            pcm_buffer.push(0);
+        }
+
+        let frame: Vec<i16> = pcm_buffer.drain(..frame_samples).collect();
+        if let Ok(len) = opus_encoder.encode(&frame, &mut opus_output) {
+            granule_pos += OPUS_FRAME_SIZE as u64;
+            write_ogg_packet(
+                &mut ogg_writer,
+                opus_output[..len].to_vec(),
+                serial,
+                ogg::writing::PacketWriteEndInfo::EndStream,
+                granule_pos,
+            )?;
+        }
+    } else {
+        // No remaining samples, but we still need to write an EndStream marker
+        // so Firefox (and other strict parsers) don't treat the stream as truncated.
+        let silent_frame = vec![0i16; frame_samples];
+        if let Ok(len) = opus_encoder.encode(&silent_frame, &mut opus_output) {
+            granule_pos += OPUS_FRAME_SIZE as u64;
+            write_ogg_packet(
+                &mut ogg_writer,
+                opus_output[..len].to_vec(),
+                serial,
+                ogg::writing::PacketWriteEndInfo::EndStream,
+                granule_pos,
+            )?;
+        }
+    }
+
+    // Flush the ogg writer
+    drop(ogg_writer);
+    if let Err(e) = output.flush() {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            return Ok(());
+        }
+        return Err(Error::Internal(format!("Could not flush Ogg output: {e}")));
+    }
+
+    Ok(())
+}
+
+fn write_ogg_packet<W: std::io::Write>(
+    writer: &mut PacketWriter<W>,
+    packet: Vec<u8>,
+    serial: u32,
+    end_info: ogg::writing::PacketWriteEndInfo,
+    granule_pos: u64,
+) -> Result<()> {
+    match writer.write_packet(packet, serial, end_info, granule_pos) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(Error::Internal(format!("Could not write Ogg packet: {e}"))),
+    }
+}
+
+/// Write Opus ID and Comment headers to the Ogg stream.
+/// If replaygain_info contains values, they are embedded as Vorbis Comments:
+/// - REPLAYGAIN_TRACK_GAIN: "-6.50 dB" format
+/// - REPLAYGAIN_TRACK_PEAK: "0.988831" format
+/// - R128_TRACK_GAIN: For EBU R128 compliant players (in Q7.8 format)
+fn write_opus_header<W: std::io::Write>(
+    writer: &mut PacketWriter<W>,
+    serial: u32,
+    channels: Channels,
+    sample_rate: SampleRate,
+    replaygain_info: &ReplayGainInfo,
+) -> Result<()> {
+    // OpusHead packet (RFC 7845)
+    let channel_count = match channels {
+        Channels::Mono => 1u8,
+        Channels::Stereo | Channels::Auto => 2u8, // Default to stereo for Auto
+    };
+    let input_sample_rate: u32 = match sample_rate {
+        SampleRate::Hz8000 => 8000,
+        SampleRate::Hz12000 => 12000,
+        SampleRate::Hz16000 => 16000,
+        SampleRate::Hz24000 => 24000,
+        SampleRate::Hz48000 => 48000,
+    };
+
+    // Calculate R128 output gain for OpusHead (in Q7.8 format: gain_dB * 256)
+    // This is the native Opus way to apply gain. We set it to 0 and use tags instead
+    // for better compatibility with clients that read Vorbis Comments.
+    let output_gain: i16 = 0;
+
+    let mut opus_head = Vec::new();
+    opus_head.extend_from_slice(b"OpusHead");
+    opus_head.push(1); // Version
+    opus_head.push(channel_count);
+    opus_head.extend_from_slice(&0u16.to_le_bytes()); // Pre-skip
+    opus_head.extend_from_slice(&input_sample_rate.to_le_bytes()); // Input sample rate
+    opus_head.extend_from_slice(&output_gain.to_le_bytes()); // Output gain (Q7.8)
+    opus_head.push(0); // Channel mapping family
+
+    writer
+        .write_packet(
+            opus_head,
+            serial,
+            ogg::writing::PacketWriteEndInfo::EndPage,
+            0,
+        )
+        .map_err(|e| Error::Internal(format!("Could not write Opus header: {}", e)))?;
+
+    // OpusTags packet - Vorbis Comments format
+    let mut opus_tags = Vec::new();
+    opus_tags.extend_from_slice(b"OpusTags");
+    let vendor = b"Ferrotune";
+    opus_tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+    opus_tags.extend_from_slice(vendor);
+
+    // Build user comments list
+    let mut comments: Vec<String> = Vec::new();
+
+    // Add ReplayGain comments if available
+    if let Some(gain) = replaygain_info.track_gain {
+        // Standard ReplayGain format: "-6.50 dB"
+        comments.push(format!("REPLAYGAIN_TRACK_GAIN={:.2} dB", gain));
+
+        // R128_TRACK_GAIN for EBU R128 compliant players
+        // This is in Q7.8 fixed-point format: value * 256
+        // Note: R128 gain should be relative to -23 LUFS, but players
+        // may interpret it differently. We use the same value as REPLAYGAIN.
+        let r128_gain = (gain * 256.0).round() as i16;
+        comments.push(format!("R128_TRACK_GAIN={}", r128_gain));
+    }
+
+    if let Some(peak) = replaygain_info.track_peak {
+        // Peak is stored as linear value (not dB)
+        comments.push(format!("REPLAYGAIN_TRACK_PEAK={:.6}", peak));
+    }
+
+    // Write number of comments
+    opus_tags.extend_from_slice(&(comments.len() as u32).to_le_bytes());
+
+    // Write each comment as length-prefixed UTF-8 string
+    for comment in &comments {
+        let bytes = comment.as_bytes();
+        opus_tags.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        opus_tags.extend_from_slice(bytes);
+    }
+
+    writer
+        .write_packet(
+            opus_tags,
+            serial,
+            ogg::writing::PacketWriteEndInfo::EndPage,
+            0,
+        )
+        .map_err(|e| Error::Internal(format!("Could not write Opus tags: {}", e)))?;
+
+    Ok(())
+}
+
+/// A buffer that wraps an mpsc channel for streaming Ogg data.
+struct OggStreamBuffer {
+    tx: mpsc::Sender<Vec<u8>>,
+    buffer: Vec<u8>,
+}
+
+impl OggStreamBuffer {
+    fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            tx,
+            buffer: Vec::with_capacity(32768),
+        }
+    }
+
+    fn flush(&mut self) {
+        if !self.buffer.is_empty() {
+            let chunk = std::mem::take(&mut self.buffer);
+            let _ = self.tx.blocking_send(chunk);
+        }
+    }
+}
+
+impl std::io::Write for OggStreamBuffer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+
+        // Send chunks when buffer is large enough (32KB = ~2s of 128kbps audio)
+        if self.buffer.len() >= 32768 {
+            let chunk = std::mem::take(&mut self.buffer);
+            if self.tx.blocking_send(chunk).is_err() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "Client disconnected",
+                ));
+            }
+        }
+
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.buffer.is_empty() {
+            let chunk = std::mem::take(&mut self.buffer);
+            if self.tx.blocking_send(chunk).is_err() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "Client disconnected",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Interleave resampled channels and convert to i16 for Opus encoder.
+fn interleave_and_convert(channels: &[Vec<f32>], target_channels: usize) -> Vec<i16> {
+    if channels.is_empty() || channels[0].is_empty() {
+        return vec![];
+    }
+
+    let num_frames = channels[0].len();
+    let mut output = Vec::with_capacity(num_frames * target_channels);
+
+    for frame in 0..num_frames {
+        for ch in 0..target_channels {
+            let sample = if ch < channels.len() {
+                channels[ch].get(frame).copied().unwrap_or(0.0)
+            } else if !channels.is_empty() {
+                // Duplicate first channel for missing channels
+                channels[0].get(frame).copied().unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            // Convert f32 (-1.0 to 1.0) to i16
+            output.push((sample.clamp(-1.0, 1.0) * 32767.0) as i16);
+        }
+    }
+
+    output
+}
+
+/// Convert samples directly (no resampling), handling channel mixing.
+fn convert_samples_direct(
+    samples: &[f32],
+    source_channels: usize,
+    target_channels: usize,
+) -> Vec<i16> {
+    let num_frames = samples.len() / source_channels;
+    let mut output = Vec::with_capacity(num_frames * target_channels);
+
+    for frame in 0..num_frames {
+        for target_ch in 0..target_channels {
+            let sample = if target_ch < source_channels {
+                samples[frame * source_channels + target_ch]
+            } else {
+                // Duplicate first channel
+                samples[frame * source_channels]
+            };
+            output.push((sample.clamp(-1.0, 1.0) * 32767.0) as i16);
+        }
+    }
+
+    output
+}

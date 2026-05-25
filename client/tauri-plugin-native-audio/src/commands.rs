@@ -230,8 +230,7 @@ pub async fn init_session<R: Runtime>(
     app: AppHandle<R>,
     server_url: String,
     username: Option<String>,
-    password: Option<String>,
-    api_key: Option<String>,
+    session_token: Option<String>,
     session_id: Option<String>,
     client_id: Option<String>,
 ) -> Result<()> {
@@ -239,8 +238,7 @@ pub async fn init_session<R: Runtime>(
     let config = SessionConfig {
         server_url,
         username,
-        password,
-        api_key,
+        session_token,
         session_id,
         client_id,
     };

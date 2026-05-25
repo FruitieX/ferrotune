@@ -39,7 +39,10 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   // Initialize client when connection exists
   useEffect(() => {
     if (connection) {
-      initializeClient(connection);
+      const client = initializeClient(connection);
+      void client.ensureUrlToken().catch((error) => {
+        console.warn("Failed to refresh URL token", error);
+      });
       setClientInitialized(true);
     } else {
       clearClient();

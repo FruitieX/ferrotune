@@ -41,7 +41,6 @@ impl From<entity::users::Model> for User {
             email: m.email,
             is_admin: m.is_admin,
             created_at: m.created_at.with_timezone(&Utc),
-            subsonic_token: m.subsonic_token,
         }
     }
 }
@@ -158,16 +157,6 @@ pub async fn get_user_by_username(database: &Database, username: &str) -> Result
     Ok(model.map(User::from))
 }
 
-pub async fn get_user_by_api_key(database: &Database, token: &str) -> Result<Option<User>> {
-    // `api_keys -> users` via the `user_id` FK.
-    let model = entity::users::Entity::find()
-        .inner_join(entity::api_keys::Entity)
-        .filter(entity::api_keys::Column::Token.eq(token))
-        .one(database.conn())
-        .await?;
-    Ok(model.map(User::from))
-}
-
 pub async fn get_user_ids(database: &Database) -> Result<Vec<i64>> {
     let rows = entity::users::Entity::find()
         .select_only()
@@ -183,7 +172,6 @@ pub async fn create_user(
     database: &Database,
     username: &str,
     password_hash: &str,
-    subsonic_token: &str,
     email: Option<&str>,
     is_admin: bool,
 ) -> Result<i64> {
@@ -191,7 +179,6 @@ pub async fn create_user(
     let inserted = entity::users::ActiveModel {
         username: Set(username.to_string()),
         password_hash: Set(password_hash.to_string()),
-        subsonic_token: Set(Some(subsonic_token.to_string())),
         email: Set(email.map(str::to_string)),
         is_admin: Set(is_admin),
         created_at: Set(now),
@@ -206,16 +193,11 @@ pub async fn update_user_password(
     database: &Database,
     username: &str,
     password_hash: &str,
-    subsonic_token: &str,
 ) -> Result<bool> {
     let result = entity::users::Entity::update_many()
         .col_expr(
             entity::users::Column::PasswordHash,
             sea_orm::sea_query::Expr::value(password_hash.to_string()),
-        )
-        .col_expr(
-            entity::users::Column::SubsonicToken,
-            sea_orm::sea_query::Expr::value(subsonic_token.to_string()),
         )
         .filter(entity::users::Column::Username.eq(username))
         .exec(database.conn())
@@ -243,16 +225,11 @@ pub async fn update_user_password_by_id(
     database: &Database,
     user_id: i64,
     password_hash: &str,
-    subsonic_token: &str,
 ) -> Result<bool> {
     let result = entity::users::Entity::update_many()
         .col_expr(
             entity::users::Column::PasswordHash,
             sea_orm::sea_query::Expr::value(password_hash.to_string()),
-        )
-        .col_expr(
-            entity::users::Column::SubsonicToken,
-            sea_orm::sea_query::Expr::value(subsonic_token.to_string()),
         )
         .filter(entity::users::Column::Id.eq(user_id))
         .exec(database.conn())
@@ -612,66 +589,6 @@ pub async fn replace_user_library_access(
         .exec(database.conn())
         .await?;
 
-    Ok(())
-}
-
-pub async fn list_api_keys(
-    database: &Database,
-    user_id: i64,
-) -> Result<Vec<(String, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>> {
-    let rows = entity::api_keys::Entity::find()
-        .filter(entity::api_keys::Column::UserId.eq(user_id))
-        .all(database.conn())
-        .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
-                row.name,
-                row.created_at.with_timezone(&Utc),
-                row.last_used.map(|value| value.with_timezone(&Utc)),
-            )
-        })
-        .collect())
-}
-
-pub async fn create_api_key(
-    database: &Database,
-    token: &str,
-    user_id: i64,
-    name: &str,
-) -> Result<()> {
-    let model = entity::api_keys::ActiveModel {
-        token: Set(token.to_string()),
-        user_id: Set(user_id),
-        name: Set(name.to_string()),
-        created_at: Set(Utc::now().fixed_offset()),
-        last_used: Set(None),
-    };
-
-    model.insert(database.conn()).await?;
-    Ok(())
-}
-
-pub async fn api_key_exists(database: &Database, user_id: i64, name: &str) -> Result<bool> {
-    Ok(entity::api_keys::Entity::find()
-        .select_only()
-        .column(entity::api_keys::Column::Token)
-        .filter(entity::api_keys::Column::UserId.eq(user_id))
-        .filter(entity::api_keys::Column::Name.eq(name))
-        .into_tuple::<String>()
-        .one(database.conn())
-        .await?
-        .is_some())
-}
-
-pub async fn delete_api_key(database: &Database, user_id: i64, name: &str) -> Result<()> {
-    entity::api_keys::Entity::delete_many()
-        .filter(entity::api_keys::Column::UserId.eq(user_id))
-        .filter(entity::api_keys::Column::Name.eq(name))
-        .exec(database.conn())
-        .await?;
     Ok(())
 }
 

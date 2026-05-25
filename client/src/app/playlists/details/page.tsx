@@ -429,7 +429,7 @@ function PlaylistDetailContent() {
   };
 
   // Helper to remove a missing entry by entryId (no undo since we can't add it back)
-  // Note: OpenSubsonic API uses position-based indices, so we look up the position
+  // The playlist update API uses position-based indices, so we look up the position.
   const handleRemoveMissingEntry = async (entryId: string) => {
     const item = loadedDisplayItems.find((i) => i.entryId === entryId);
     if (!item) return;

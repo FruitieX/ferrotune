@@ -3,7 +3,13 @@ import { expect, type Page } from "@playwright/test";
 export interface StoredConnection {
   serverUrl: string;
   username: string;
-  password: string;
+  userId: number;
+  email?: string | null;
+  isAdmin: boolean;
+  sessionToken: string;
+  sessionExpiresAt: string;
+  urlToken?: string;
+  urlTokenExpiresAt?: string;
 }
 
 export async function setStoredConnection(
@@ -64,21 +70,17 @@ export async function setServerPreference(
         localStorage.getItem("ferrotune-connection") || "null",
       );
 
-      if (
-        !connection?.serverUrl ||
-        !connection.username ||
-        !connection.password
-      ) {
+      if (!connection?.serverUrl || !connection.sessionToken) {
         throw new Error("Missing authenticated connection in localStorage");
       }
 
       const response = await fetch(
-        `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/preferences/${encodeURIComponent(preferenceKey)}`,
+        `${connection.serverUrl.replace(/\/$/, "")}/api/preferences/${encodeURIComponent(preferenceKey)}`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+            Authorization: `Bearer ${connection.sessionToken}`,
           },
           body: JSON.stringify({ value: nextValue }),
         },

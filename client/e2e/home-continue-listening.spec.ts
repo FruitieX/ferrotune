@@ -57,19 +57,16 @@ async function routeHomeSongSections(
     forgottenFavorites?: ReturnType<typeof makeSong>[];
   } = {},
 ) {
-  await page.route(
-    "**/ferrotune/songs/most-played-recently*",
-    async (route) => {
-      const songs = options.mostPlayedRecently ?? [];
-      await route.fulfill({
-        json: {
-          song: songs,
-          total: songs.length,
-        },
-      });
-    },
-  );
-  await page.route("**/ferrotune/songs/forgotten-favorites*", async (route) => {
+  await page.route("**/api/songs/most-played-recently*", async (route) => {
+    const songs = options.mostPlayedRecently ?? [];
+    await route.fulfill({
+      json: {
+        song: songs,
+        total: songs.length,
+      },
+    });
+  });
+  await page.route("**/api/songs/forgotten-favorites*", async (route) => {
     const songs = options.forgottenFavorites ?? [];
     await route.fulfill({
       json: {
@@ -85,7 +82,7 @@ test.describe("Home continue listening", () => {
   test("default quick tiles link to favorites and history", async ({
     authenticatedPage: page,
   }) => {
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
           continueListening: { entries: [], total: 0 },
@@ -130,7 +127,7 @@ test.describe("Home continue listening", () => {
       },
     ]);
 
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
           continueListening: { entries: [], total: 0 },
@@ -143,7 +140,7 @@ test.describe("Home continue listening", () => {
     });
     await routeHomeSongSections(page);
 
-    await page.route("**/ferrotune/queue/start", async (route) => {
+    await page.route("**/api/queue/start", async (route) => {
       const body = route.request().postDataJSON() as {
         sourceType: string;
         sourceId?: string;
@@ -174,7 +171,7 @@ test.describe("Home continue listening", () => {
 
     const startQueueRequest = page.waitForRequest(
       (request) =>
-        request.url().includes("/ferrotune/queue/start") &&
+        request.url().includes("/api/queue/start") &&
         request.method() === "POST",
     );
     await page
@@ -225,7 +222,7 @@ test.describe("Home continue listening", () => {
       },
     ]);
 
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
           continueListening: { entries: [], total: 0 },
@@ -238,46 +235,43 @@ test.describe("Home continue listening", () => {
     });
     await routeHomeSongSections(page);
 
-    await page.route(
-      `**/ferrotune/playlists/${playlistId}/songs*`,
-      async (route) => {
-        const url = new URL(route.request().url());
-        expect(url.searchParams.get("entryType")).toBe("song");
-        await route.fulfill({
-          json: {
-            id: playlistId,
-            name: playlistName,
-            comment: null,
-            owner: "test",
-            public: false,
-            totalEntries: 1,
-            matchedCount: 1,
-            missingCount: 0,
-            duration: song.duration,
-            filteredCount: 1,
-            created: "2024-01-01T00:00:00Z",
-            changed: "2024-01-01T00:00:00Z",
-            coverArt: null,
-            sharedWithMe: false,
-            canEdit: true,
-            entries: [
-              {
-                entryId: "playlist-section-entry",
-                position: 0,
-                entryType: "song",
-                addedToPlaylist: "2024-01-01T00:00:00Z",
-                songIndex: 0,
-                song,
-                missing: null,
-              },
-            ],
-          },
-        });
-      },
-    );
+    await page.route(`**/api/playlists/${playlistId}/songs*`, async (route) => {
+      const url = new URL(route.request().url());
+      expect(url.searchParams.get("entryType")).toBe("song");
+      await route.fulfill({
+        json: {
+          id: playlistId,
+          name: playlistName,
+          comment: null,
+          owner: "test",
+          public: false,
+          totalEntries: 1,
+          matchedCount: 1,
+          missingCount: 0,
+          duration: song.duration,
+          filteredCount: 1,
+          created: "2024-01-01T00:00:00Z",
+          changed: "2024-01-01T00:00:00Z",
+          coverArt: null,
+          sharedWithMe: false,
+          canEdit: true,
+          entries: [
+            {
+              entryId: "playlist-section-entry",
+              position: 0,
+              entryType: "song",
+              addedToPlaylist: "2024-01-01T00:00:00Z",
+              songIndex: 0,
+              song,
+              missing: null,
+            },
+          ],
+        },
+      });
+    });
 
     await page.route(
-      `**/ferrotune/smart-playlists/${smartPlaylistId}/songs*`,
+      `**/api/smart-playlists/${smartPlaylistId}/songs*`,
       async (route) => {
         await route.fulfill({
           json: {
@@ -292,7 +286,7 @@ test.describe("Home continue listening", () => {
       },
     );
 
-    await page.route("**/ferrotune/queue/start", async (route) => {
+    await page.route("**/api/queue/start", async (route) => {
       const body = route.request().postDataJSON() as {
         sourceType: string;
         sourceId?: string;
@@ -347,7 +341,7 @@ test.describe("Home continue listening", () => {
 
     const startQueueRequest = page.waitForRequest(
       (request) =>
-        request.url().includes("/ferrotune/queue/start") &&
+        request.url().includes("/api/queue/start") &&
         request.method() === "POST",
     );
     await section.getByRole("button", { name: `Play ${playlistName}` }).click();
@@ -369,7 +363,7 @@ test.describe("Home continue listening", () => {
   }) => {
     const song = makeSong("recent-track", "Recently Played Track");
 
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
           continueListening: { entries: [], total: 0 },
@@ -402,7 +396,7 @@ test.describe("Home continue listening", () => {
   }) => {
     const song = makeSong("recent-section-track", "Recent Section Track");
 
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
           continueListening: { entries: [], total: 0 },
@@ -413,30 +407,24 @@ test.describe("Home continue listening", () => {
         },
       });
     });
-    await page.route(
-      "**/ferrotune/songs/forgotten-favorites*",
-      async (route) => {
-        await route.fulfill({
-          json: {
-            song: [],
-            total: 0,
-            seed: 1,
-          },
-        });
-      },
-    );
+    await page.route("**/api/songs/forgotten-favorites*", async (route) => {
+      await route.fulfill({
+        json: {
+          song: [],
+          total: 0,
+          seed: 1,
+        },
+      });
+    });
 
-    await page.route(
-      "**/ferrotune/songs/most-played-recently*",
-      async (route) => {
-        await route.fulfill({
-          json: {
-            song: [song],
-            total: 1,
-          },
-        });
-      },
-    );
+    await page.route("**/api/songs/most-played-recently*", async (route) => {
+      await route.fulfill({
+        json: {
+          song: [song],
+          total: 1,
+        },
+      });
+    });
 
     await page.goto("/");
 
@@ -464,17 +452,14 @@ test.describe("Home continue listening", () => {
   }) => {
     const song = makeSong("recent-controls-track", "Recent Controls Track");
 
-    await page.route(
-      "**/ferrotune/songs/most-played-recently*",
-      async (route) => {
-        await route.fulfill({
-          json: {
-            song: [song],
-            total: 1,
-          },
-        });
-      },
-    );
+    await page.route("**/api/songs/most-played-recently*", async (route) => {
+      await route.fulfill({
+        json: {
+          song: [song],
+          total: 1,
+        },
+      });
+    });
 
     await page.goto("/home/most-played-recently");
 
@@ -494,7 +479,7 @@ test.describe("Home continue listening", () => {
     const filterRequestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url());
       return (
-        url.pathname === "/ferrotune/songs/most-played-recently" &&
+        url.pathname === "/api/songs/most-played-recently" &&
         url.searchParams.get("filter") === "Recent"
       );
     });
@@ -507,7 +492,7 @@ test.describe("Home continue listening", () => {
     const sortRequestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url());
       return (
-        url.pathname === "/ferrotune/songs/most-played-recently" &&
+        url.pathname === "/api/songs/most-played-recently" &&
         url.searchParams.get("sort") === "artist" &&
         url.searchParams.get("sortDir") === "asc"
       );
@@ -526,21 +511,18 @@ test.describe("Home continue listening", () => {
     const seedSongTitle = `Radio Seed ${Date.now()}`;
     const radioName = `${seedSongTitle} Radio`;
 
-    await page.route(
-      `**/ferrotune/songs/${seedSongId}/similar*`,
-      async (route) => {
-        await route.fulfill({
-          json: {
-            songs: [
-              makeSong("radio-similar-1", "Similar Song One"),
-              makeSong("radio-similar-2", "Similar Song Two"),
-            ],
-          },
-        });
-      },
-    );
+    await page.route(`**/api/songs/${seedSongId}/similar*`, async (route) => {
+      await route.fulfill({
+        json: {
+          songs: [
+            makeSong("radio-similar-1", "Similar Song One"),
+            makeSong("radio-similar-2", "Similar Song Two"),
+          ],
+        },
+      });
+    });
 
-    await page.route(`**/ferrotune/songs/${seedSongId}`, async (route) => {
+    await page.route(`**/api/songs/${seedSongId}`, async (route) => {
       await route.fulfill({
         json: {
           song: makeSong(seedSongId, seedSongTitle),
@@ -548,7 +530,7 @@ test.describe("Home continue listening", () => {
       });
     });
 
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       const response = await route.fetch();
       const homeResponse = (await response.json()) as {
         continueListening: { entries: unknown[]; total: number };
@@ -627,7 +609,7 @@ test.describe("Home continue listening", () => {
   test("virtual source entries link correctly and expose context menus", async ({
     authenticatedPage: page,
   }) => {
-    await page.route("**/ferrotune/home*", async (route) => {
+    await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
           continueListening: {

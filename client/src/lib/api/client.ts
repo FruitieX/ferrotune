@@ -49,8 +49,9 @@ import type {
   UpdateUserRequest,
   LibraryAccessResponse,
   SetLibraryAccessRequest,
-  ApiKeysResponse,
-  CreateApiKeyResponse,
+  AuthLoginResponse,
+  AuthMeResponse,
+  AuthUrlTokenResponse,
   PlaylistResponse,
   ForgottenFavoritesResponse,
   MostPlayedRecentlyResponse,
@@ -134,6 +135,7 @@ import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
 import type { FerrotuneAlbumListResponse } from "./generated/FerrotuneAlbumListResponse";
 import type { FerrotuneSearchResponse } from "./generated/FerrotuneSearchResponse";
 import type { FerrotunePlayHistoryResponse } from "./generated/FerrotunePlayHistoryResponse";
+import type { FerrotuneSongsByGenreResponse } from "./generated/FerrotuneSongsByGenreResponse";
 import type { ManagedHistoryEntriesResponse } from "./generated/ManagedHistoryEntriesResponse";
 import type { DeleteManagedHistoryEntriesRequest } from "./generated/DeleteManagedHistoryEntriesRequest";
 import type { DeleteMatchingManagedHistoryEntriesRequest } from "./generated/DeleteMatchingManagedHistoryEntriesRequest";
@@ -197,15 +199,6 @@ function buildQueryString(params: Record<string, unknown>): string {
 function buildEndpoint(base: string, params: Record<string, unknown>): string {
   const queryString = buildQueryString(params);
   return queryString ? `${base}?${queryString}` : base;
-}
-
-function toBase64Utf8(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
 }
 
 /**
@@ -283,35 +276,81 @@ function getUserFriendlyErrorMessage(
 
 export class FerrotuneClient {
   private serverUrl: string;
-  private apiKey?: string;
-  private username?: string;
-  private password?: string;
+  private sessionToken?: string;
+  private sessionExpiresAt?: string;
+  private urlToken?: string;
+  private urlTokenExpiresAt?: string;
 
   constructor(connection: ServerConnection) {
     this.serverUrl = connection.serverUrl.replace(/\/$/, "");
-    this.apiKey = connection.apiKey;
-    this.username = connection.username;
-    this.password = connection.password;
+    this.sessionToken = connection.sessionToken;
+    this.sessionExpiresAt = connection.sessionExpiresAt;
+    this.urlToken = connection.urlToken;
+    this.urlTokenExpiresAt = connection.urlTokenExpiresAt;
+  }
+
+  async login(
+    username: string,
+    password: string,
+    clientName: string = getClientName(),
+  ): Promise<AuthLoginResponse> {
+    return this.request<AuthLoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password, clientName }),
+    });
+  }
+
+  async logout(): Promise<void> {
+    await this.request<void>("/api/auth/logout", { method: "POST" });
+    this.sessionToken = undefined;
+    this.sessionExpiresAt = undefined;
+    this.urlToken = undefined;
+    this.urlTokenExpiresAt = undefined;
+  }
+
+  async me(): Promise<AuthMeResponse> {
+    return this.request<AuthMeResponse>("/api/auth/me");
+  }
+
+  async refreshUrlToken(scope: string = "all"): Promise<AuthUrlTokenResponse> {
+    const response = await this.request<AuthUrlTokenResponse>(
+      "/api/auth/url-token",
+      {
+        method: "POST",
+        body: JSON.stringify({ scope }),
+      },
+    );
+    this.urlToken = response.urlToken;
+    this.urlTokenExpiresAt = response.urlTokenExpiresAt;
+    return response;
+  }
+
+  async ensureUrlToken(scope: string = "all"): Promise<void> {
+    if (!this.sessionToken || !this.shouldRefreshUrlToken()) {
+      return;
+    }
+
+    await this.refreshUrlToken(scope);
   }
 
   // System endpoints
   async ping(): Promise<PingResponse> {
-    return this.request<PingResponse>("/ferrotune/ping");
+    return this.request<PingResponse>("/api/ping");
   }
 
   async completeSetup(): Promise<SetupStatusResponse> {
-    return this.request<SetupStatusResponse>("/ferrotune/setup/complete", {
+    return this.request<SetupStatusResponse>("/api/setup/complete", {
       method: "POST",
     });
   }
 
   async getMusicFolders(): Promise<MusicFoldersResponse> {
-    return this.request<MusicFoldersResponse>("/ferrotune/music-folders");
+    return this.request<MusicFoldersResponse>("/api/music-folders");
   }
 
   // Browse endpoints
   async getArtists(musicFolderId?: number): Promise<ArtistsResponse> {
-    const endpoint = buildEndpoint("/ferrotune/artists", { musicFolderId });
+    const endpoint = buildEndpoint("/api/artists", { musicFolderId });
     return this.request<ArtistsResponse>(endpoint);
   }
 
@@ -319,14 +358,11 @@ export class FerrotuneClient {
     id: string,
     options?: { sort?: string; sortDir?: string; filter?: string },
   ): Promise<ArtistDetailResponse> {
-    const endpoint = buildEndpoint(
-      `/ferrotune/artists/${encodeURIComponent(id)}`,
-      {
-        sort: options?.sort,
-        sortDir: options?.sortDir,
-        filter: options?.filter,
-      },
-    );
+    const endpoint = buildEndpoint(`/api/artists/${encodeURIComponent(id)}`, {
+      sort: options?.sort,
+      sortDir: options?.sortDir,
+      filter: options?.filter,
+    });
     return this.request<ArtistDetailResponse>(endpoint);
   }
 
@@ -334,21 +370,18 @@ export class FerrotuneClient {
     id: string,
     options?: { sort?: string; sortDir?: string; filter?: string },
   ): Promise<AlbumDetailResponse> {
-    const endpoint = buildEndpoint(
-      `/ferrotune/albums/${encodeURIComponent(id)}`,
-      {
-        sort: options?.sort,
-        sortDir: options?.sortDir,
-        filter: options?.filter,
-      },
-    );
+    const endpoint = buildEndpoint(`/api/albums/${encodeURIComponent(id)}`, {
+      sort: options?.sort,
+      sortDir: options?.sortDir,
+      filter: options?.filter,
+    });
     return this.request<AlbumDetailResponse>(endpoint);
   }
 
   async getSong(id: string): Promise<SongDetailResponse> {
-    // Note: getSong is handled by get_song in browse.rs, mapped to /ferrotune/songs/:id
+    // Note: getSong is handled by get_song in browse.rs, mapped to /api/songs/:id
     return this.request<SongDetailResponse>(
-      `/ferrotune/songs/${encodeURIComponent(id)}`,
+      `/api/songs/${encodeURIComponent(id)}`,
     );
   }
 
@@ -357,25 +390,25 @@ export class FerrotuneClient {
     params: { count?: number } = {},
   ): Promise<FerrotuneSimilarSongsResponse> {
     const endpoint = buildEndpoint(
-      `/ferrotune/songs/${encodeURIComponent(id)}/similar`,
+      `/api/songs/${encodeURIComponent(id)}/similar`,
       params,
     );
     return this.request<FerrotuneSimilarSongsResponse>(endpoint);
   }
 
   async getGenres(): Promise<GenresResponse> {
-    return this.request<GenresResponse>("/ferrotune/genres");
+    return this.request<GenresResponse>("/api/genres");
   }
 
   // Directory browsing endpoints
   async getIndexes(musicFolderId?: number): Promise<IndexesResponse> {
-    const endpoint = buildEndpoint("/ferrotune/indexes", { musicFolderId });
+    const endpoint = buildEndpoint("/api/indexes", { musicFolderId });
     return this.request<IndexesResponse>(endpoint);
   }
 
   // Get accessible libraries (music folders)
   async getLibraries(): Promise<LibrariesResponse> {
-    return this.request<LibrariesResponse>("/ferrotune/libraries");
+    return this.request<LibrariesResponse>("/api/libraries");
   }
 
   // Paginated directory browsing (Ferrotune extension)
@@ -384,7 +417,7 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
     } = {},
   ): Promise<DirectoryPagedResponse> {
-    const endpoint = buildEndpoint("/ferrotune/directory", params);
+    const endpoint = buildEndpoint("/api/directory", params);
     return this.request<DirectoryPagedResponse>(endpoint);
   }
 
@@ -401,7 +434,7 @@ export class FerrotuneClient {
         sortDir?: string;
       },
   ): Promise<AlbumListResponse> {
-    const endpoint = buildEndpoint("/ferrotune/albums", params);
+    const endpoint = buildEndpoint("/api/albums", params);
 
     const res = await this.request<FerrotuneAlbumListResponse>(endpoint);
 
@@ -417,7 +450,7 @@ export class FerrotuneClient {
   async getRandomSongs(
     params: Partial<RandomSongsParams> = {},
   ): Promise<RandomSongsResponse> {
-    const endpoint = buildEndpoint("/ferrotune/songs/random", params);
+    const endpoint = buildEndpoint("/api/songs/random", params);
     return this.request<RandomSongsResponse>(endpoint);
   }
 
@@ -425,11 +458,17 @@ export class FerrotuneClient {
     genre: string,
     params: Partial<Omit<SongsByGenreParams, "genre">> = {},
   ): Promise<SongsByGenreResponse> {
-    const endpoint = buildEndpoint("/ferrotune/songs/by-genre", {
+    const endpoint = buildEndpoint("/api/songs/by-genre", {
       genre,
       ...params,
     });
-    return this.request<SongsByGenreResponse>(endpoint);
+    const res = await this.request<FerrotuneSongsByGenreResponse>(endpoint);
+
+    return {
+      songsByGenre: {
+        song: res.song,
+      },
+    };
   }
 
   async getForgottenFavorites(
@@ -445,10 +484,7 @@ export class FerrotuneClient {
       sortDir?: string;
     } = {},
   ): Promise<ForgottenFavoritesResponse> {
-    const endpoint = buildEndpoint(
-      "/ferrotune/songs/forgotten-favorites",
-      params,
-    );
+    const endpoint = buildEndpoint("/api/songs/forgotten-favorites", params);
     return this.request<ForgottenFavoritesResponse>(endpoint);
   }
 
@@ -463,10 +499,7 @@ export class FerrotuneClient {
       sortDir?: string;
     } = {},
   ): Promise<MostPlayedRecentlyResponse> {
-    const endpoint = buildEndpoint(
-      "/ferrotune/songs/most-played-recently",
-      params,
-    );
+    const endpoint = buildEndpoint("/api/songs/most-played-recently", params);
     return this.request<MostPlayedRecentlyResponse>(endpoint);
   }
 
@@ -483,7 +516,7 @@ export class FerrotuneClient {
       includeDiscover?: boolean;
     } = {},
   ): Promise<HomePageResponse> {
-    const endpoint = buildEndpoint("/ferrotune/home", params);
+    const endpoint = buildEndpoint("/api/home", params);
     return this.request<HomePageResponse>(endpoint);
   }
 
@@ -497,7 +530,7 @@ export class FerrotuneClient {
       sortDir?: string;
     } = {},
   ): Promise<HomeContinueListeningSection> {
-    const endpoint = buildEndpoint("/ferrotune/continue-listening", params);
+    const endpoint = buildEndpoint("/api/continue-listening", params);
     return this.request<HomeContinueListeningSection>(endpoint);
   }
 
@@ -506,7 +539,7 @@ export class FerrotuneClient {
   async search3(
     params: Pick<SearchParams, "query"> & Partial<Omit<SearchParams, "query">>,
   ): Promise<SearchResponse> {
-    const endpoint = buildEndpoint("/ferrotune/search", params);
+    const endpoint = buildEndpoint("/api/search", params);
 
     const res = await this.request<FerrotuneSearchResponse>(endpoint);
 
@@ -543,7 +576,7 @@ export class FerrotuneClient {
         : [params.artistId];
     }
 
-    await this.request("/ferrotune/star", {
+    await this.request("/api/star", {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -569,21 +602,21 @@ export class FerrotuneClient {
         : [params.artistId];
     }
 
-    await this.request("/ferrotune/unstar", {
+    await this.request("/api/unstar", {
       method: "POST",
       body: JSON.stringify(body),
     });
   }
 
   async setRating(id: string, rating: number): Promise<void> {
-    await this.request("/ferrotune/rating", {
+    await this.request("/api/rating", {
       method: "POST",
       body: JSON.stringify({ id, rating }),
     });
   }
 
   async getStarred2(): Promise<StarredResponse> {
-    return this.request<StarredResponse>("/ferrotune/starred");
+    return this.request<StarredResponse>("/api/starred");
   }
 
   async scrobble(
@@ -593,7 +626,7 @@ export class FerrotuneClient {
     queueSourceType?: string,
     queueSourceId?: string,
   ): Promise<void> {
-    await this.request("/ferrotune/scrobbles", {
+    await this.request("/api/scrobbles", {
       method: "POST",
       body: JSON.stringify({
         id,
@@ -607,43 +640,43 @@ export class FerrotuneClient {
 
   // Last.fm integration
   async getLastfmStatus(): Promise<LastfmStatusResponse> {
-    return this.request("/ferrotune/lastfm/status");
+    return this.request("/api/lastfm/status");
   }
 
   async getLastfmConfig(): Promise<LastfmConfigResponse> {
-    return this.request("/ferrotune/lastfm/config");
+    return this.request("/api/lastfm/config");
   }
 
   async saveLastfmConfig(
     apiKey: string,
     apiSecret: string,
   ): Promise<LastfmConfigResponse> {
-    return this.request("/ferrotune/lastfm/config", {
+    return this.request("/api/lastfm/config", {
       method: "PUT",
       body: JSON.stringify({ apiKey, apiSecret }),
     });
   }
 
   async getLastfmAuthUrl(callbackUrl: string): Promise<LastfmAuthUrlResponse> {
-    const endpoint = buildEndpoint("/ferrotune/lastfm/auth-url", {
+    const endpoint = buildEndpoint("/api/lastfm/auth-url", {
       callbackUrl,
     });
     return this.request(endpoint);
   }
 
   async lastfmCallback(token: string): Promise<LastfmConnectResponse> {
-    const endpoint = buildEndpoint("/ferrotune/lastfm/callback", { token });
+    const endpoint = buildEndpoint("/api/lastfm/callback", { token });
     return this.request(endpoint, { method: "POST" });
   }
 
   async disconnectLastfm(): Promise<LastfmConnectResponse> {
-    return this.request("/ferrotune/lastfm/disconnect", { method: "POST" });
+    return this.request("/api/lastfm/disconnect", { method: "POST" });
   }
 
   // Playlist endpoints
   async getPlaylists(): Promise<PlaylistsResponse> {
     const res = await this.request<PlaylistFoldersResponse>(
-      "/ferrotune/playlist-folders",
+      "/api/playlist-folders",
     );
 
     const mapToPlaylist = (p: PlaylistInFolder): PlaylistResponse => ({
@@ -673,7 +706,7 @@ export class FerrotuneClient {
    * Returns both folder entities and playlists with their folder references.
    */
   async getPlaylistFoldersWithStructure(): Promise<PlaylistFoldersResponse> {
-    return this.request<PlaylistFoldersResponse>("/ferrotune/playlist-folders");
+    return this.request<PlaylistFoldersResponse>("/api/playlist-folders");
   }
 
   async getPlaylist(
@@ -686,10 +719,10 @@ export class FerrotuneClient {
       count?: number;
     },
   ): Promise<PlaylistWithSongsResponse> {
-    const endpoint = buildEndpoint(
-      `/ferrotune/playlists/${encodeURIComponent(id)}`,
-      { ...options, inlineImages: "small" },
-    );
+    const endpoint = buildEndpoint(`/api/playlists/${encodeURIComponent(id)}`, {
+      ...options,
+      inlineImages: "small",
+    });
 
     const res = await this.request<PlaylistSongsResponse>(endpoint);
 
@@ -724,17 +757,14 @@ export class FerrotuneClient {
     const entries = params.songId?.map((id) => ({ songId: id })) || [];
 
     // Use Ferrotune API to create playlist
-    const res = await this.request<ImportPlaylistResponse>(
-      "/ferrotune/playlists",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          name: params.name,
-          entries,
-          folderId: params.folderId ?? undefined,
-        }),
-      },
-    );
+    const res = await this.request<ImportPlaylistResponse>("/api/playlists", {
+      method: "POST",
+      body: JSON.stringify({
+        name: params.name,
+        entries,
+        folderId: params.folderId ?? undefined,
+      }),
+    });
 
     // Fetch the created playlist to return full details expected by caller
     return this.getPlaylist(res.playlistId);
@@ -755,7 +785,7 @@ export class FerrotuneClient {
       params.public !== undefined
     ) {
       await this.request(
-        `/ferrotune/playlists/${encodeURIComponent(params.playlistId)}`,
+        `/api/playlists/${encodeURIComponent(params.playlistId)}`,
         {
           method: "PUT",
           body: JSON.stringify({
@@ -770,7 +800,7 @@ export class FerrotuneClient {
     // 2. Add songs
     if (params.songIdToAdd && params.songIdToAdd.length > 0) {
       await this.request(
-        `/ferrotune/playlists/${encodeURIComponent(params.playlistId)}/songs`,
+        `/api/playlists/${encodeURIComponent(params.playlistId)}/songs`,
         {
           method: "POST",
           body: JSON.stringify({ songIds: params.songIdToAdd }),
@@ -781,7 +811,7 @@ export class FerrotuneClient {
     // 3. Remove songs
     if (params.songIndexToRemove && params.songIndexToRemove.length > 0) {
       await this.request(
-        `/ferrotune/playlists/${encodeURIComponent(params.playlistId)}/songs`,
+        `/api/playlists/${encodeURIComponent(params.playlistId)}/songs`,
         {
           method: "DELETE",
           body: JSON.stringify({ indexes: params.songIndexToRemove }),
@@ -791,18 +821,18 @@ export class FerrotuneClient {
   }
 
   async deletePlaylist(id: string): Promise<void> {
-    await this.request(`/ferrotune/playlists/${encodeURIComponent(id)}`, {
+    await this.request(`/api/playlists/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
   }
 
   async getShareableUsers(): Promise<ShareableUsersResponse> {
-    return this.request("/ferrotune/users/shareable");
+    return this.request("/api/users/shareable");
   }
 
   async getPlaylistShares(playlistId: string): Promise<PlaylistSharesResponse> {
     return this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/shares`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/shares`,
     );
   }
 
@@ -811,7 +841,7 @@ export class FerrotuneClient {
     shares: ShareEntry[],
   ): Promise<PlaylistSharesResponse> {
     return this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/shares`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/shares`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -825,7 +855,7 @@ export class FerrotuneClient {
     newOwnerId: number,
   ): Promise<void> {
     await this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/transfer-ownership`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/transfer-ownership`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -849,7 +879,7 @@ export class FerrotuneClient {
       params.append("songId", id);
     }
     return this.request<SongPlaylistsResponse>(
-      `/ferrotune/playlists/containing-songs?${params.toString()}`,
+      `/api/playlists/containing-songs?${params.toString()}`,
     );
   }
   // Play Queue endpoints
@@ -858,7 +888,7 @@ export class FerrotuneClient {
     current?: string;
     position?: number;
   }): Promise<void> {
-    await this.request("/ferrotune/play-queue", {
+    await this.request("/api/play-queue", {
       method: "POST",
       body: JSON.stringify({
         songIds: params.songIds,
@@ -879,7 +909,7 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
     } = {},
   ): Promise<PlayHistoryResponse> {
-    const endpoint = buildEndpoint("/ferrotune/history", params);
+    const endpoint = buildEndpoint("/api/history", params);
 
     const res = await this.request<FerrotunePlayHistoryResponse>(endpoint);
 
@@ -903,14 +933,14 @@ export class FerrotuneClient {
       includeSessions?: boolean;
     } = {},
   ): Promise<ManagedHistoryEntriesResponse> {
-    const endpoint = buildEndpoint("/ferrotune/history/entries", params);
+    const endpoint = buildEndpoint("/api/history/entries", params);
     return this.request(endpoint);
   }
 
   async deleteManagedHistoryEntries(
     request: DeleteManagedHistoryEntriesRequest,
   ): Promise<DeleteManagedHistoryEntriesResponse> {
-    return this.request("/ferrotune/history/delete", {
+    return this.request("/api/history/delete", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -919,7 +949,7 @@ export class FerrotuneClient {
   async deleteMatchingManagedHistoryEntries(
     request: DeleteMatchingManagedHistoryEntriesRequest,
   ): Promise<DeleteManagedHistoryEntriesResponse> {
-    return this.request("/ferrotune/history/delete-matching", {
+    return this.request("/api/history/delete-matching", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -936,13 +966,7 @@ export class FerrotuneClient {
     },
   ): string {
     const params = new URLSearchParams();
-    // Add auth params manually
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
 
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
@@ -954,7 +978,7 @@ export class FerrotuneClient {
       params.set("timeOffset", String(Math.floor(options.timeOffset)));
     if (options?.seekMode) params.set("seekMode", options.seekMode);
 
-    return `${this.serverUrl}/ferrotune/stream?${params.toString()}`;
+    return `${this.serverUrl}/api/stream?${params.toString()}`;
   }
 
   /**
@@ -984,34 +1008,24 @@ export class FerrotuneClient {
     }
 
     const params = new URLSearchParams();
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
     params.set("id", id);
     if (sizeParam) params.set("size", sizeParam);
     if (cacheBuster) params.set("_", cacheBuster);
 
-    return `${this.serverUrl}/ferrotune/cover-art?${params.toString()}`;
+    return `${this.serverUrl}/api/cover-art?${params.toString()}`;
   }
 
   getDownloadUrl(id: string): string {
     const params = new URLSearchParams();
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
     params.set("id", id);
 
-    return `${this.serverUrl}/ferrotune/download?${params.toString()}`;
+    return `${this.serverUrl}/api/download?${params.toString()}`;
   }
 
   // Admin API methods
@@ -1020,11 +1034,30 @@ export class FerrotuneClient {
   }
 
   private getAuthorizationHeader(): string | undefined {
-    if (!this.username || !this.password) {
+    if (!this.sessionToken) {
       return undefined;
     }
 
-    return `Basic ${toBase64Utf8(`${this.username}:${this.password}`)}`;
+    return `Bearer ${this.sessionToken}`;
+  }
+
+  private addUrlToken(params: URLSearchParams): void {
+    if (this.urlToken) {
+      params.set("urlToken", this.urlToken);
+    }
+  }
+
+  private shouldRefreshUrlToken(): boolean {
+    if (!this.urlToken || !this.urlTokenExpiresAt) {
+      return true;
+    }
+
+    const expiresAt = Date.parse(this.urlTokenExpiresAt);
+    if (!Number.isFinite(expiresAt)) {
+      return true;
+    }
+
+    return expiresAt - Date.now() < 2 * 60 * 1000;
   }
 
   private async request<T>(
@@ -1115,7 +1148,7 @@ export class FerrotuneClient {
   async deleteSongFromDatabase(
     id: string,
   ): Promise<{ success: boolean; message: string }> {
-    return this.request(`/ferrotune/songs/${encodeURIComponent(id)}`, {
+    return this.request(`/api/songs/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
   }
@@ -1126,7 +1159,7 @@ export class FerrotuneClient {
    * Requires 'allow_file_deletion' setting to be enabled.
    */
   async deleteSongFiles(songIds: string[]): Promise<DeleteSongFileResponse> {
-    return this.request("/ferrotune/songs/delete-files", {
+    return this.request("/api/songs/delete-files", {
       method: "POST",
       body: JSON.stringify({ songIds } as DeleteSongFilesRequest),
     });
@@ -1139,7 +1172,7 @@ export class FerrotuneClient {
    * Songs are moved to recycle bin and will be permanently deleted after 30 days.
    */
   async markForDeletion(songIds: string[]): Promise<MarkForDeletionResponse> {
-    return this.request("/ferrotune/recycle-bin/mark", {
+    return this.request("/api/recycle-bin/mark", {
       method: "POST",
       body: JSON.stringify({ songIds } as MarkForDeletionRequest),
     });
@@ -1149,7 +1182,7 @@ export class FerrotuneClient {
    * Restore songs from recycle bin.
    */
   async restoreSongs(songIds: string[]): Promise<RestoreSongsResponse> {
-    return this.request("/ferrotune/recycle-bin/restore", {
+    return this.request("/api/recycle-bin/restore", {
       method: "POST",
       body: JSON.stringify({ songIds } as RestoreSongsRequest),
     });
@@ -1162,7 +1195,7 @@ export class FerrotuneClient {
     offset?: number;
     limit?: number;
   }): Promise<RecycleBinResponse> {
-    const endpoint = buildEndpoint("/ferrotune/recycle-bin", params ?? {});
+    const endpoint = buildEndpoint("/api/recycle-bin", params ?? {});
     return this.request(endpoint);
   }
 
@@ -1170,7 +1203,7 @@ export class FerrotuneClient {
    * Permanently delete songs from recycle bin (from disk and database).
    */
   async deletePermanently(songIds: string[]): Promise<PermanentDeleteResponse> {
-    return this.request("/ferrotune/recycle-bin/delete-permanently", {
+    return this.request("/api/recycle-bin/delete-permanently", {
       method: "POST",
       body: JSON.stringify({ songIds } as PermanentDeleteRequest),
     });
@@ -1180,7 +1213,7 @@ export class FerrotuneClient {
    * Empty the entire recycle bin.
    */
   async emptyRecycleBin(): Promise<PermanentDeleteResponse> {
-    return this.request("/ferrotune/recycle-bin/empty", {
+    return this.request("/api/recycle-bin/empty", {
       method: "POST",
     });
   }
@@ -1189,7 +1222,7 @@ export class FerrotuneClient {
    * Purge expired songs (older than 30 days).
    */
   async purgeExpired(): Promise<PermanentDeleteResponse> {
-    return this.request("/ferrotune/recycle-bin/purge-expired", {
+    return this.request("/api/recycle-bin/purge-expired", {
       method: "POST",
     });
   }
@@ -1201,20 +1234,20 @@ export class FerrotuneClient {
   async getSongIds(
     params: Partial<SearchParams> = {},
   ): Promise<SongIdsResponse> {
-    const endpoint = buildEndpoint("/ferrotune/songs/ids", params);
+    const endpoint = buildEndpoint("/api/songs/ids", params);
     return this.request<SongIdsResponse>(endpoint);
   }
 
   // Tag management endpoints (Admin API)
   async getSongTags(id: string): Promise<GetTagsResponse> {
-    return this.request(`/ferrotune/songs/${encodeURIComponent(id)}/tags`);
+    return this.request(`/api/songs/${encodeURIComponent(id)}/tags`);
   }
 
   async updateSongTags(
     id: string,
     request: UpdateTagsRequest,
   ): Promise<UpdateTagsResponse> {
-    return this.request(`/ferrotune/songs/${encodeURIComponent(id)}/tags`, {
+    return this.request(`/api/songs/${encodeURIComponent(id)}/tags`, {
       method: "PATCH",
       body: JSON.stringify(request),
     });
@@ -1222,13 +1255,13 @@ export class FerrotuneClient {
 
   // User preferences endpoints (Admin API)
   async getPreferences(): Promise<UserPreferences> {
-    return this.request("/ferrotune/preferences");
+    return this.request("/api/preferences");
   }
 
   async updatePreferences(
     request: UpdatePreferencesRequest,
   ): Promise<UserPreferences> {
-    return this.request("/ferrotune/preferences", {
+    return this.request("/api/preferences", {
       method: "PUT",
       body: JSON.stringify(request),
     });
@@ -1237,28 +1270,28 @@ export class FerrotuneClient {
   async getPreference<T = unknown>(
     key: string,
   ): Promise<{ key: string; value: T | null }> {
-    return this.request(`/ferrotune/preferences/${encodeURIComponent(key)}`);
+    return this.request(`/api/preferences/${encodeURIComponent(key)}`);
   }
 
   async setPreference<T = unknown>(
     key: string,
     value: T,
   ): Promise<{ key: string; value: T }> {
-    return this.request(`/ferrotune/preferences/${encodeURIComponent(key)}`, {
+    return this.request(`/api/preferences/${encodeURIComponent(key)}`, {
       method: "PUT",
       body: JSON.stringify({ value }),
     });
   }
 
   async deletePreference(key: string): Promise<void> {
-    await this.request(`/ferrotune/preferences/${encodeURIComponent(key)}`, {
+    await this.request(`/api/preferences/${encodeURIComponent(key)}`, {
       method: "DELETE",
     });
   }
 
   // Server statistics endpoint (Admin API)
   async getStats(): Promise<ServerStats> {
-    return this.request("/ferrotune/stats");
+    return this.request("/api/stats");
   }
 
   // Playlist management (Admin API)
@@ -1267,7 +1300,7 @@ export class FerrotuneClient {
     songIds: string[],
   ): Promise<void> {
     await this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/reorder`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/reorder`,
       {
         method: "PUT",
         body: JSON.stringify({ songIds }),
@@ -1278,7 +1311,7 @@ export class FerrotuneClient {
   async importPlaylist(
     request: ImportPlaylistRequest,
   ): Promise<ImportPlaylistResponse> {
-    return this.request("/ferrotune/playlists/import", {
+    return this.request("/api/playlists/import", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1290,7 +1323,7 @@ export class FerrotuneClient {
     songId: string,
   ): Promise<void> {
     await this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/match-missing`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/match-missing`,
       {
         method: "POST",
         body: JSON.stringify({ entryId, songId }),
@@ -1304,7 +1337,7 @@ export class FerrotuneClient {
    */
   async unmatchEntry(playlistId: string, entryId: string): Promise<void> {
     await this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/unmatch`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/unmatch`,
       {
         method: "POST",
         body: JSON.stringify({ entryId }),
@@ -1321,7 +1354,7 @@ export class FerrotuneClient {
     entries: Array<{ entryId: string; songId: string }>,
   ): Promise<{ matchedCount: number; failedCount: number }> {
     return this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/batch-match`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/batch-match`,
       {
         method: "POST",
         body: JSON.stringify({ entries }),
@@ -1339,7 +1372,7 @@ export class FerrotuneClient {
     toPosition: number,
   ): Promise<void> {
     await this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/move-entry`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/move-entry`,
       {
         method: "POST",
         body: JSON.stringify({ entryId, toPosition }),
@@ -1365,7 +1398,7 @@ export class FerrotuneClient {
     },
   ): Promise<PlaylistSongsResponse> {
     const endpoint = buildEndpoint(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/songs`,
       options ?? {},
     );
     return this.request(endpoint);
@@ -1378,14 +1411,14 @@ export class FerrotuneClient {
     sessionId?: number,
     skipped?: boolean,
   ): Promise<{ success: boolean; sessionId: number }> {
-    return this.request("/ferrotune/listening", {
+    return this.request("/api/listening", {
       method: "POST",
       body: JSON.stringify({ songId, durationSeconds, sessionId, skipped }),
     });
   }
 
   async getListeningStats(): Promise<ListeningStatsResponse> {
-    return this.request("/ferrotune/listening/stats");
+    return this.request("/api/listening/stats");
   }
 
   async getPeriodReview(
@@ -1393,7 +1426,7 @@ export class FerrotuneClient {
     month?: number,
     inlineImages?: "small" | "medium",
   ): Promise<PeriodReviewResponse> {
-    const endpoint = buildEndpoint("/ferrotune/listening/review", {
+    const endpoint = buildEndpoint("/api/listening/review", {
       year,
       month,
       inlineImages,
@@ -1405,7 +1438,7 @@ export class FerrotuneClient {
   async importScrobbles(
     request: ImportScrobblesRequest,
   ): Promise<ImportScrobblesResponse> {
-    return this.request("/ferrotune/scrobbles/import", {
+    return this.request("/api/scrobbles/import", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1418,14 +1451,14 @@ export class FerrotuneClient {
   async importWithTimestamps(
     request: ImportWithTimestampsRequest,
   ): Promise<ImportWithTimestampsResponse> {
-    return this.request("/ferrotune/scrobbles/import-with-timestamps", {
+    return this.request("/api/scrobbles/import-with-timestamps", {
       method: "POST",
       body: JSON.stringify(request),
     });
   }
 
   async getPlayCounts(songIds: string[]): Promise<GetPlayCountsResponse> {
-    return this.request("/ferrotune/scrobbles/counts", {
+    return this.request("/api/scrobbles/counts", {
       method: "POST",
       body: JSON.stringify({ songIds } as GetPlayCountsRequest),
     });
@@ -1438,7 +1471,7 @@ export class FerrotuneClient {
   async checkImportDuplicate(
     description: string,
   ): Promise<CheckImportDuplicateResponse> {
-    const endpoint = buildEndpoint("/ferrotune/scrobbles/check-duplicate", {
+    const endpoint = buildEndpoint("/api/scrobbles/check-duplicate", {
       description,
     });
     return this.request(endpoint);
@@ -1449,7 +1482,7 @@ export class FerrotuneClient {
   async getWaveform(songId: string): Promise<WaveformResponse | null> {
     try {
       return await this.request<WaveformResponse>(
-        `/ferrotune/songs/${encodeURIComponent(songId)}/waveform`,
+        `/api/songs/${encodeURIComponent(songId)}/waveform`,
         {},
         true,
       );
@@ -1477,7 +1510,7 @@ export class FerrotuneClient {
     songId: string,
   ): Promise<{ songId: string; excluded: boolean }> {
     return this.request(
-      `/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
+      `/api/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
     );
   }
 
@@ -1486,7 +1519,7 @@ export class FerrotuneClient {
     excluded: boolean,
   ): Promise<{ songId: string; excluded: boolean }> {
     return this.request(
-      `/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
+      `/api/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
       {
         method: "PUT",
         body: JSON.stringify({ excluded }),
@@ -1495,14 +1528,14 @@ export class FerrotuneClient {
   }
 
   async getAllShuffleExcludes(): Promise<{ songIds: string[] }> {
-    return this.request("/ferrotune/shuffle-excludes");
+    return this.request("/api/shuffle-excludes");
   }
 
   async bulkSetShuffleExcludes(
     songIds: string[],
     excluded: boolean,
   ): Promise<{ count: number; excluded: boolean }> {
-    return this.request("/ferrotune/shuffle-excludes/bulk", {
+    return this.request("/api/shuffle-excludes/bulk", {
       method: "POST",
       body: JSON.stringify({ songIds, excluded }),
     });
@@ -1515,33 +1548,28 @@ export class FerrotuneClient {
   async getDisabledStatus(
     songId: string,
   ): Promise<{ songId: string; disabled: boolean }> {
-    return this.request(
-      `/ferrotune/songs/${encodeURIComponent(songId)}/disabled`,
-    );
+    return this.request(`/api/songs/${encodeURIComponent(songId)}/disabled`);
   }
 
   async setDisabled(
     songId: string,
     disabled: boolean,
   ): Promise<{ songId: string; disabled: boolean }> {
-    return this.request(
-      `/ferrotune/songs/${encodeURIComponent(songId)}/disabled`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ disabled }),
-      },
-    );
+    return this.request(`/api/songs/${encodeURIComponent(songId)}/disabled`, {
+      method: "PUT",
+      body: JSON.stringify({ disabled }),
+    });
   }
 
   async getAllDisabledSongs(): Promise<{ songIds: string[] }> {
-    return this.request("/ferrotune/disabled-songs");
+    return this.request("/api/disabled-songs");
   }
 
   async bulkSetDisabled(
     songIds: string[],
     disabled: boolean,
   ): Promise<{ count: number; disabled: boolean }> {
-    return this.request("/ferrotune/disabled-songs/bulk", {
+    return this.request("/api/disabled-songs/bulk", {
       method: "POST",
       body: JSON.stringify({ songIds, disabled }),
     });
@@ -1581,7 +1609,7 @@ export class FerrotuneClient {
     /** Client name for auto-claiming ownership when no owner exists */
     clientName?: string;
   }): Promise<StartQueueResponse> {
-    return this.request("/ferrotune/queue/start", {
+    return this.request("/api/queue/start", {
       method: "POST",
       body: JSON.stringify(params),
     });
@@ -1607,7 +1635,7 @@ export class FerrotuneClient {
     if (params.sessionId !== undefined)
       query.set("sessionId", params.sessionId);
     const queryStr = query.toString();
-    return this.request(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`, {
+    return this.request(`/api/queue${queryStr ? `?${queryStr}` : ""}`, {
       signal: params.signal,
     });
   }
@@ -1624,7 +1652,7 @@ export class FerrotuneClient {
     params.set("radius", String(radius));
     if (inlineImages !== undefined) params.set("inlineImages", inlineImages);
     if (sessionId !== undefined) params.set("sessionId", sessionId);
-    return this.request(`/ferrotune/queue/current-window?${params.toString()}`);
+    return this.request(`/api/queue/current-window?${params.toString()}`);
   }
 
   /**
@@ -1638,7 +1666,7 @@ export class FerrotuneClient {
     sourceId?: string;
     sessionId?: string;
   }): Promise<QueueSuccessResponse> {
-    return this.request("/ferrotune/queue/add", {
+    return this.request("/api/queue/add", {
       method: "POST",
       body: JSON.stringify({
         songIds: params.songIds,
@@ -1661,7 +1689,7 @@ export class FerrotuneClient {
     const query = sessionId
       ? `?sessionId=${encodeURIComponent(sessionId)}`
       : "";
-    return this.request(`/ferrotune/queue/${position}${query}`, {
+    return this.request(`/api/queue/${position}${query}`, {
       method: "DELETE",
     });
   }
@@ -1674,7 +1702,7 @@ export class FerrotuneClient {
     toPosition: number,
     sessionId?: string,
   ): Promise<QueueSuccessResponse> {
-    return this.request("/ferrotune/queue/move", {
+    return this.request("/api/queue/move", {
       method: "POST",
       body: JSON.stringify({
         fromPosition,
@@ -1691,7 +1719,7 @@ export class FerrotuneClient {
     enabled: boolean,
     sessionId?: string,
   ): Promise<QueueSuccessResponse> {
-    return this.request("/ferrotune/queue/shuffle", {
+    return this.request("/api/queue/shuffle", {
       method: "POST",
       body: JSON.stringify({ enabled, sessionId }),
     });
@@ -1709,7 +1737,7 @@ export class FerrotuneClient {
     silent: boolean = false,
   ): Promise<QueueSuccessResponse> {
     return this.request(
-      "/ferrotune/queue/position",
+      "/api/queue/position",
       {
         method: "POST",
         body: JSON.stringify({
@@ -1731,7 +1759,7 @@ export class FerrotuneClient {
     mode: "off" | "all" | "one",
     sessionId?: string,
   ): Promise<QueueSuccessResponse> {
-    return this.request("/ferrotune/queue/repeat", {
+    return this.request("/api/queue/repeat", {
       method: "POST",
       body: JSON.stringify({ mode, sessionId }),
     });
@@ -1744,7 +1772,7 @@ export class FerrotuneClient {
     const query = sessionId
       ? `?sessionId=${encodeURIComponent(sessionId)}`
       : "";
-    return this.request(`/ferrotune/queue${query}`, {
+    return this.request(`/api/queue${query}`, {
       method: "DELETE",
     });
   }
@@ -1757,7 +1785,7 @@ export class FerrotuneClient {
    * Get server feature flags (which optional features are compiled in)
    */
   async getFeatures(): Promise<ServerFeatures> {
-    return this.request("/ferrotune/features");
+    return this.request("/api/features");
   }
 
   // ============================================================================
@@ -1771,7 +1799,7 @@ export class FerrotuneClient {
    * @returns Immediate response indicating scan has started
    */
   async startScan(request: ScanRequest = {}): Promise<ScanResponse> {
-    return this.request("/ferrotune/scan", {
+    return this.request("/api/scan", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1781,7 +1809,7 @@ export class FerrotuneClient {
    * Cancel an in-progress scan
    */
   async cancelScan(): Promise<{ status: string; message: string }> {
-    return this.request("/ferrotune/scan/cancel", {
+    return this.request("/api/scan/cancel", {
       method: "POST",
     });
   }
@@ -1790,7 +1818,7 @@ export class FerrotuneClient {
    * Get scan details (lists of affected files)
    */
   async getScanDetails(): Promise<ScanDetails> {
-    return this.request("/ferrotune/scan/details");
+    return this.request("/api/scan/details");
   }
 
   /**
@@ -1802,9 +1830,7 @@ export class FerrotuneClient {
     const params = new URLSearchParams();
     if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
     const query = params.toString();
-    return this.request(
-      `/ferrotune/songs/match-list${query ? `?${query}` : ""}`,
-    );
+    return this.request(`/api/songs/match-list${query ? `?${query}` : ""}`);
   }
 
   /**
@@ -1822,7 +1848,7 @@ export class FerrotuneClient {
     const params = new URLSearchParams();
     if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
     const query = params.toString();
-    return this.request(`/ferrotune/songs/match${query ? `?${query}` : ""}`, {
+    return this.request(`/api/songs/match${query ? `?${query}` : ""}`, {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1843,7 +1869,7 @@ export class FerrotuneClient {
     const params = new URLSearchParams();
     if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
     const query = params.toString();
-    return this.request(`/ferrotune/albums/match${query ? `?${query}` : ""}`, {
+    return this.request(`/api/albums/match${query ? `?${query}` : ""}`, {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1864,7 +1890,7 @@ export class FerrotuneClient {
     const params = new URLSearchParams();
     if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
     const query = params.toString();
-    return this.request(`/ferrotune/artists/match${query ? `?${query}` : ""}`, {
+    return this.request(`/api/artists/match${query ? `?${query}` : ""}`, {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1881,7 +1907,7 @@ export class FerrotuneClient {
   async saveMatchDictionary(
     request: SaveMatchDictionaryRequest,
   ): Promise<SaveMatchDictionaryResponse> {
-    return this.request("/ferrotune/match-dictionary", {
+    return this.request("/api/match-dictionary", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -1895,14 +1921,14 @@ export class FerrotuneClient {
    * List all music folders with their stats (Admin API)
    */
   async getAdminMusicFolders(): Promise<MusicFoldersAdminResponse> {
-    return this.request("/ferrotune/music-folders");
+    return this.request("/api/music-folders");
   }
 
   /**
    * Get a single music folder with stats
    */
   async getAdminMusicFolder(id: number): Promise<MusicFolderInfo> {
-    return this.request(`/ferrotune/music-folders/${id}`);
+    return this.request(`/api/music-folders/${id}`);
   }
 
   /**
@@ -1913,7 +1939,7 @@ export class FerrotuneClient {
     path: string,
     watchEnabled: boolean = false,
   ): Promise<CreateMusicFolderResponse> {
-    return this.request("/ferrotune/music-folders", {
+    return this.request("/api/music-folders", {
       method: "POST",
       body: JSON.stringify({ name, path, watchEnabled }),
     });
@@ -1926,7 +1952,7 @@ export class FerrotuneClient {
     id: number,
     updates: { name?: string; enabled?: boolean; watchEnabled?: boolean },
   ): Promise<void> {
-    await this.request(`/ferrotune/music-folders/${id}`, {
+    await this.request(`/api/music-folders/${id}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
     });
@@ -1936,7 +1962,7 @@ export class FerrotuneClient {
    * Delete a music folder and all its songs
    */
   async deleteMusicFolder(id: number): Promise<void> {
-    await this.request(`/ferrotune/music-folders/${id}`, {
+    await this.request(`/api/music-folders/${id}`, {
       method: "DELETE",
     });
   }
@@ -1951,7 +1977,7 @@ export class FerrotuneClient {
    */
   async browseFilesystem(path?: string): Promise<BrowseFilesystemResponse> {
     const params = path ? `?path=${encodeURIComponent(path)}` : "";
-    return this.request(`/ferrotune/filesystem${params}`);
+    return this.request(`/api/filesystem${params}`);
   }
 
   /**
@@ -1959,7 +1985,7 @@ export class FerrotuneClient {
    */
   async validatePath(path: string): Promise<ValidatePathResponse> {
     return this.request(
-      `/ferrotune/filesystem/validate?path=${encodeURIComponent(path)}`,
+      `/api/filesystem/validate?path=${encodeURIComponent(path)}`,
     );
   }
 
@@ -1971,28 +1997,32 @@ export class FerrotuneClient {
    * Get current scan status
    */
   async getScanStatus(): Promise<ScanStatusResponse> {
-    return this.request("/ferrotune/scan/status");
+    return this.request("/api/scan/status");
   }
 
   /**
    * Get recent scan logs
    */
   async getScanLogs(): Promise<ScanLogsResponse> {
-    return this.request("/ferrotune/scan/logs");
+    return this.request("/api/scan/logs");
   }
 
   /**
    * Get full scan status including progress and logs
    */
   async getFullScanStatus(): Promise<FullScanStatusResponse> {
-    return this.request("/ferrotune/scan/full");
+    return this.request("/api/scan/full");
   }
 
   /**
    * Get the SSE stream URL for scan progress updates
    */
   getScanProgressStreamUrl(): string {
-    return this.buildAdminUrl("/ferrotune/scan/progress");
+    const params = new URLSearchParams();
+    this.addUrlToken(params);
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
+    return this.buildAdminUrl(`/api/scan/progress?${params.toString()}`);
   }
 
   // ============================================================================
@@ -2006,7 +2036,7 @@ export class FerrotuneClient {
     clientName: string = "ferrotune-web",
     clientId?: string,
   ): Promise<ConnectSessionResponse> {
-    return this.request("/ferrotune/sessions", {
+    return this.request("/api/sessions", {
       method: "POST",
       body: JSON.stringify({ clientName, clientId }),
     });
@@ -2016,14 +2046,14 @@ export class FerrotuneClient {
    * Get the user's session info
    */
   async getSessionInfo(): Promise<SessionResponse> {
-    return this.request("/ferrotune/sessions");
+    return this.request("/api/sessions");
   }
 
   /**
    * List connected clients for the user's session
    */
   async listClients(): Promise<ClientListResponse> {
-    return this.request("/ferrotune/sessions/clients");
+    return this.request("/api/sessions/clients");
   }
 
   /**
@@ -2042,7 +2072,7 @@ export class FerrotuneClient {
     } = {},
   ): Promise<SessionSuccessResponse> {
     return this.request(
-      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
       {
         method: "POST",
         body: JSON.stringify(params),
@@ -2066,7 +2096,7 @@ export class FerrotuneClient {
     currentIndex?: number,
   ): Promise<SessionSuccessResponse> {
     return this.request(
-      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/command`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -2094,19 +2124,14 @@ export class FerrotuneClient {
     deviceLabel?: string,
   ): string {
     const params = new URLSearchParams();
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
     if (clientId) params.set("clientId", clientId);
     if (clientName) params.set("clientName", clientName);
     if (deviceLabel) params.set("deviceLabel", deviceLabel);
     return this.buildAdminUrl(
-      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/events?${params.toString()}`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/events?${params.toString()}`,
     );
   }
 
@@ -2118,28 +2143,28 @@ export class FerrotuneClient {
    * Get current user info
    */
   async getCurrentUser(): Promise<UserInfo> {
-    return this.request("/ferrotune/users/me");
+    return this.request("/api/users/me");
   }
 
   /**
    * List all users (admin only)
    */
   async getUsers(): Promise<UsersResponse> {
-    return this.request("/ferrotune/users");
+    return this.request("/api/users");
   }
 
   /**
    * Get a single user by ID (admin only)
    */
   async getUser(id: number): Promise<UserInfo> {
-    return this.request(`/ferrotune/users/${id}`);
+    return this.request(`/api/users/${id}`);
   }
 
   /**
    * Create a new user (admin only)
    */
   async createUser(request: CreateUserRequest): Promise<CreateUserResponse> {
-    return this.request("/ferrotune/users", {
+    return this.request("/api/users", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -2149,7 +2174,7 @@ export class FerrotuneClient {
    * Update a user (admin only)
    */
   async updateUser(id: number, request: UpdateUserRequest): Promise<UserInfo> {
-    return this.request(`/ferrotune/users/${id}`, {
+    return this.request(`/api/users/${id}`, {
       method: "PATCH",
       body: JSON.stringify(request),
     });
@@ -2159,7 +2184,7 @@ export class FerrotuneClient {
    * Delete a user (admin only)
    */
   async deleteUser(id: number): Promise<void> {
-    await this.request(`/ferrotune/users/${id}`, {
+    await this.request(`/api/users/${id}`, {
       method: "DELETE",
     });
   }
@@ -2168,7 +2193,7 @@ export class FerrotuneClient {
    * Get a user's library access (admin only)
    */
   async getUserLibraryAccess(userId: number): Promise<LibraryAccessResponse> {
-    return this.request(`/ferrotune/users/${userId}/library-access`);
+    return this.request(`/api/users/${userId}/library-access`);
   }
 
   /**
@@ -2178,42 +2203,10 @@ export class FerrotuneClient {
     userId: number,
     folderIds: number[],
   ): Promise<LibraryAccessResponse> {
-    return this.request(`/ferrotune/users/${userId}/library-access`, {
+    return this.request(`/api/users/${userId}/library-access`, {
       method: "PUT",
       body: JSON.stringify({ folderIds } as SetLibraryAccessRequest),
     });
-  }
-
-  /**
-   * Get a user's API keys (admin or self)
-   */
-  async getUserApiKeys(userId: number): Promise<ApiKeysResponse> {
-    return this.request(`/ferrotune/users/${userId}/api-keys`);
-  }
-
-  /**
-   * Create an API key for a user (admin or self)
-   */
-  async createUserApiKey(
-    userId: number,
-    name: string,
-  ): Promise<CreateApiKeyResponse> {
-    return this.request(`/ferrotune/users/${userId}/api-keys`, {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    });
-  }
-
-  /**
-   * Delete an API key for a user (admin or self)
-   */
-  async deleteUserApiKey(userId: number, keyName: string): Promise<void> {
-    await this.request(
-      `/ferrotune/users/${userId}/api-keys/${encodeURIComponent(keyName)}`,
-      {
-        method: "DELETE",
-      },
-    );
   }
 
   // ==========================================
@@ -2224,7 +2217,7 @@ export class FerrotuneClient {
    * Get server configuration (admin only)
    */
   async getServerConfig(): Promise<ServerConfigResponse> {
-    return this.request("/ferrotune/config");
+    return this.request("/api/config");
   }
 
   /**
@@ -2233,7 +2226,7 @@ export class FerrotuneClient {
   async updateServerConfig(
     request: UpdateServerConfigRequest,
   ): Promise<ServerConfigResponse> {
-    return this.request("/ferrotune/config", {
+    return this.request("/api/config", {
       method: "PUT",
       body: JSON.stringify(request),
     });
@@ -2247,18 +2240,18 @@ export class FerrotuneClient {
    * Get all smart playlists for the current user
    */
   async getSmartPlaylists(): Promise<SmartPlaylistsResponse> {
-    return this.request("/ferrotune/smart-playlists");
+    return this.request("/api/smart-playlists");
   }
 
   async getRecentlyPlayedPlaylists(): Promise<RecentPlaylistsResponse> {
-    return this.request("/ferrotune/playlists/recently-played");
+    return this.request("/api/playlists/recently-played");
   }
 
   /**
    * Get a single smart playlist by ID
    */
   async getSmartPlaylist(id: string): Promise<SmartPlaylistInfo> {
-    return this.request(`/ferrotune/smart-playlists/${encodeURIComponent(id)}`);
+    return this.request(`/api/smart-playlists/${encodeURIComponent(id)}`);
   }
 
   /**
@@ -2267,7 +2260,7 @@ export class FerrotuneClient {
   async createSmartPlaylist(
     request: CreateSmartPlaylistRequest,
   ): Promise<CreateSmartPlaylistResponse> {
-    return this.request("/ferrotune/smart-playlists", {
+    return this.request("/api/smart-playlists", {
       method: "POST",
       body: JSON.stringify(request),
     });
@@ -2280,7 +2273,7 @@ export class FerrotuneClient {
     id: string,
     request: UpdateSmartPlaylistRequest,
   ): Promise<void> {
-    await this.request(`/ferrotune/smart-playlists/${encodeURIComponent(id)}`, {
+    await this.request(`/api/smart-playlists/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify(request),
     });
@@ -2290,7 +2283,7 @@ export class FerrotuneClient {
    * Delete a smart playlist
    */
   async deleteSmartPlaylist(id: string): Promise<void> {
-    await this.request(`/ferrotune/smart-playlists/${encodeURIComponent(id)}`, {
+    await this.request(`/api/smart-playlists/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
   }
@@ -2321,7 +2314,7 @@ export class FerrotuneClient {
       params.set("sortDirection", options.sortDirection);
     const queryStr = params.toString();
     return this.request(
-      `/ferrotune/smart-playlists/${encodeURIComponent(id)}/songs${queryStr ? `?${queryStr}` : ""}`,
+      `/api/smart-playlists/${encodeURIComponent(id)}/songs${queryStr ? `?${queryStr}` : ""}`,
     );
   }
 
@@ -2338,7 +2331,7 @@ export class FerrotuneClient {
     },
   ): Promise<MaterializeSmartPlaylistResponse> {
     return this.request(
-      `/ferrotune/smart-playlists/${encodeURIComponent(id)}/materialize`,
+      `/api/smart-playlists/${encodeURIComponent(id)}/materialize`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -2362,7 +2355,7 @@ export class FerrotuneClient {
       formData.append("files", file);
     }
 
-    const url = this.buildAdminUrl("/ferrotune/tagger/upload");
+    const url = this.buildAdminUrl("/api/tagger/upload");
     const headers = this.getAuthHeaders();
 
     const response = await fetch(url, {
@@ -2394,7 +2387,7 @@ export class FerrotuneClient {
    * List staged files for the current user
    */
   async getStagedFiles(): Promise<StagedFilesResponse> {
-    return this.request("/ferrotune/tagger/staged");
+    return this.request("/api/tagger/staged");
   }
 
   /**
@@ -2404,14 +2397,14 @@ export class FerrotuneClient {
     count: number;
     fileIds: string[];
   }> {
-    return this.request("/ferrotune/tagger/orphaned");
+    return this.request("/api/tagger/orphaned");
   }
 
   /**
    * Delete a staged file
    */
   async deleteStagedFile(id: string): Promise<void> {
-    await this.request(`/ferrotune/tagger/staged/${encodeURIComponent(id)}`, {
+    await this.request(`/api/tagger/staged/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
   }
@@ -2422,17 +2415,11 @@ export class FerrotuneClient {
    */
   getStagedFileStreamUrl(id: string): string {
     const params = new URLSearchParams();
-    // Add auth params for Audio element compatibility
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
 
-    return `${this.serverUrl}/ferrotune/tagger/staged/${encodeURIComponent(id)}/stream?${params.toString()}`;
+    return `${this.serverUrl}/api/tagger/staged/${encodeURIComponent(id)}/stream?${params.toString()}`;
   }
 
   /**
@@ -2441,17 +2428,11 @@ export class FerrotuneClient {
    */
   getStagedFileCoverUrl(id: string): string {
     const params = new URLSearchParams();
-    // Add auth params for img element compatibility
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
 
-    return `${this.serverUrl}/ferrotune/tagger/staged/${encodeURIComponent(id)}/cover?${params.toString()}`;
+    return `${this.serverUrl}/api/tagger/staged/${encodeURIComponent(id)}/cover?${params.toString()}`;
   }
 
   /**
@@ -2460,7 +2441,7 @@ export class FerrotuneClient {
   async stageLibraryTracks(
     songIds: string[],
   ): Promise<StageLibraryTracksResponse> {
-    return this.request("/ferrotune/tagger/stage-library", {
+    return this.request("/api/tagger/stage-library", {
       method: "POST",
       body: JSON.stringify({ songIds }),
     });
@@ -2473,7 +2454,7 @@ export class FerrotuneClient {
     const params = songIds
       .map((id) => `songIds=${encodeURIComponent(id)}`)
       .join("&");
-    return this.request(`/ferrotune/tagger/batch-tags?${params}`);
+    return this.request(`/api/tagger/batch-tags?${params}`);
   }
 
   /**
@@ -2486,7 +2467,7 @@ export class FerrotuneClient {
       delete: string[];
     }>,
   ): Promise<BatchUpdateTagsResponse> {
-    return this.request("/ferrotune/tagger/batch-tags", {
+    return this.request("/api/tagger/batch-tags", {
       method: "PATCH",
       body: JSON.stringify({ updates }),
     });
@@ -2502,7 +2483,7 @@ export class FerrotuneClient {
       targetPath: string;
     }>,
   ): Promise<SaveStagedFilesResponse> {
-    return this.request("/ferrotune/tagger/save", {
+    return this.request("/api/tagger/save", {
       method: "POST",
       body: JSON.stringify({ files }),
     });
@@ -2512,7 +2493,7 @@ export class FerrotuneClient {
    * Rescan specific songs after tag changes
    */
   async rescanFiles(songIds: string[]): Promise<RescanFilesResponse> {
-    return this.request("/ferrotune/tagger/rescan", {
+    return this.request("/api/tagger/rescan", {
       method: "POST",
       body: JSON.stringify({ songIds }),
     });
@@ -2524,7 +2505,7 @@ export class FerrotuneClient {
   async renameFiles(
     renames: Array<{ songId: string; newPath: string }>,
   ): Promise<RenameFilesResponse> {
-    return this.request("/ferrotune/tagger/rename", {
+    return this.request("/api/tagger/rename", {
       method: "POST",
       body: JSON.stringify({ renames }),
     });
@@ -2542,7 +2523,7 @@ export class FerrotuneClient {
       targetMusicFolderId?: number;
     }>,
   ): Promise<CheckPathConflictsResponse> {
-    return this.request("/ferrotune/tagger/check-conflicts", {
+    return this.request("/api/tagger/check-conflicts", {
       method: "POST",
       body: JSON.stringify({ renames }),
     });
@@ -2552,7 +2533,7 @@ export class FerrotuneClient {
    * Get lightweight metadata for all songs (for rename script path comparison)
    */
   async getSongPaths(): Promise<SongPathsResponse> {
-    return this.request("/ferrotune/tagger/song-paths");
+    return this.request("/api/tagger/song-paths");
   }
 
   // ========================================================================
@@ -2563,7 +2544,7 @@ export class FerrotuneClient {
    * Get the current tagger session state
    */
   async getTaggerSession(): Promise<TaggerSessionResponse> {
-    return this.request("/ferrotune/tagger/session");
+    return this.request("/api/tagger/session");
   }
 
   /**
@@ -2572,7 +2553,7 @@ export class FerrotuneClient {
   async updateTaggerSession(
     updates: Partial<Omit<TaggerSessionResponse, "trackIds">>,
   ): Promise<void> {
-    await this.request("/ferrotune/tagger/session", {
+    await this.request("/api/tagger/session", {
       method: "PATCH",
       body: JSON.stringify(updates),
     });
@@ -2582,7 +2563,7 @@ export class FerrotuneClient {
    * Clear the tagger session (tracks and edits)
    */
   async clearTaggerSession(): Promise<void> {
-    await this.request("/ferrotune/tagger/session", {
+    await this.request("/api/tagger/session", {
       method: "DELETE",
     });
   }
@@ -2593,7 +2574,7 @@ export class FerrotuneClient {
   async setTaggerSessionTracks(
     tracks: Array<{ id: string; trackType: string }>,
   ): Promise<void> {
-    await this.request("/ferrotune/tagger/session/tracks", {
+    await this.request("/api/tagger/session/tracks", {
       method: "PUT",
       body: JSON.stringify({ tracks }),
     });
@@ -2603,7 +2584,7 @@ export class FerrotuneClient {
    * Get all pending edits for the tagger session
    */
   async getTaggerPendingEdits(): Promise<TaggerPendingEditsResponse> {
-    return this.request("/ferrotune/tagger/session/edits");
+    return this.request("/api/tagger/session/edits");
   }
 
   // NOTE: Bulk updateTaggerPendingEdits was removed.
@@ -2613,7 +2594,7 @@ export class FerrotuneClient {
    * Clear all pending edits
    */
   async clearTaggerPendingEdits(): Promise<void> {
-    await this.request("/ferrotune/tagger/session/edits", {
+    await this.request("/api/tagger/session/edits", {
       method: "DELETE",
     });
   }
@@ -2634,7 +2615,7 @@ export class FerrotuneClient {
     rescanRecommended: boolean;
     newSongPaths: string[];
   }> {
-    return this.request("/ferrotune/tagger/session/save", {
+    return this.request("/api/tagger/session/save", {
       method: "POST",
       body: JSON.stringify({
         trackIds,
@@ -2654,7 +2635,7 @@ export class FerrotuneClient {
     pathOverrides?: Record<string, string>,
     targetMusicFolderId?: number,
   ): AsyncGenerator<SaveProgressEvent> {
-    const url = this.buildAdminUrl("/ferrotune/tagger/session/save-stream");
+    const url = this.buildAdminUrl("/api/tagger/session/save-stream");
 
     // Build auth header
     const headers: Record<string, string> = {
@@ -2722,14 +2703,14 @@ export class FerrotuneClient {
    * Get all tagger scripts
    */
   async getTaggerScripts(): Promise<TaggerScriptsResponse> {
-    return this.request("/ferrotune/tagger/scripts");
+    return this.request("/api/tagger/scripts");
   }
 
   /**
    * Save all tagger scripts (replaces existing)
    */
   async saveTaggerScripts(scripts: TaggerScriptData[]): Promise<void> {
-    await this.request("/ferrotune/tagger/scripts", {
+    await this.request("/api/tagger/scripts", {
       method: "PUT",
       body: JSON.stringify(scripts),
     });
@@ -2739,12 +2720,9 @@ export class FerrotuneClient {
    * Delete a tagger script
    */
   async deleteTaggerScript(scriptId: string): Promise<void> {
-    await this.request(
-      `/ferrotune/tagger/scripts/${encodeURIComponent(scriptId)}`,
-      {
-        method: "DELETE",
-      },
-    );
+    await this.request(`/api/tagger/scripts/${encodeURIComponent(scriptId)}`, {
+      method: "DELETE",
+    });
   }
 
   // ========================================================================
@@ -2757,7 +2735,7 @@ export class FerrotuneClient {
   async addTaggerTracks(
     tracks: Array<{ id: string; trackType: string }>,
   ): Promise<void> {
-    await this.request("/ferrotune/tagger/session/tracks", {
+    await this.request("/api/tagger/session/tracks", {
       method: "POST",
       body: JSON.stringify({ tracks }),
     });
@@ -2768,7 +2746,7 @@ export class FerrotuneClient {
    */
   async removeTaggerTrack(trackId: string): Promise<void> {
     await this.request(
-      `/ferrotune/tagger/session/tracks/${encodeURIComponent(trackId)}`,
+      `/api/tagger/session/tracks/${encodeURIComponent(trackId)}`,
       {
         method: "DELETE",
       },
@@ -2779,7 +2757,7 @@ export class FerrotuneClient {
    * Remove multiple tracks from the session
    */
   async removeTaggerTracks(trackIds: string[]): Promise<void> {
-    await this.request("/ferrotune/tagger/session/tracks/remove", {
+    await this.request("/api/tagger/session/tracks/remove", {
       method: "POST",
       body: JSON.stringify({ trackIds }),
     });
@@ -2797,7 +2775,7 @@ export class FerrotuneClient {
     },
   ): Promise<void> {
     await this.request(
-      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}`,
+      `/api/tagger/session/edits/${encodeURIComponent(trackId)}`,
       {
         method: "PUT",
         body: JSON.stringify(edit),
@@ -2810,7 +2788,7 @@ export class FerrotuneClient {
    */
   async deleteTaggerEdit(trackId: string): Promise<void> {
     await this.request(
-      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}`,
+      `/api/tagger/session/edits/${encodeURIComponent(trackId)}`,
       {
         method: "DELETE",
       },
@@ -2828,7 +2806,7 @@ export class FerrotuneClient {
     formData.append("file", file);
 
     const url = this.buildAdminUrl(
-      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
+      `/api/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
     );
 
     const headers = this.getAuthHeaders();
@@ -2849,7 +2827,7 @@ export class FerrotuneClient {
    */
   async deleteTaggerCoverArt(trackId: string): Promise<void> {
     await this.request(
-      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
+      `/api/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
       {
         method: "DELETE",
       },
@@ -2863,17 +2841,11 @@ export class FerrotuneClient {
    */
   getTaggerCoverArtUrl(trackId: string): string {
     const params = new URLSearchParams();
-    // Include auth params for browser img requests (no Authorization header)
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
 
-    return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover?${params.toString()}`;
+    return `${this.serverUrl}/api/tagger/session/edits/${encodeURIComponent(trackId)}/cover?${params.toString()}`;
   }
 
   /**
@@ -2901,7 +2873,7 @@ export class FerrotuneClient {
     }
 
     const url = this.buildAdminUrl(
-      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
+      `/api/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
     );
 
     const headers = this.getAuthHeaders();
@@ -2929,7 +2901,7 @@ export class FerrotuneClient {
    */
   async deleteTaggerReplacementAudio(trackId: string): Promise<void> {
     await this.request(
-      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
+      `/api/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
       {
         method: "DELETE",
       },
@@ -2942,17 +2914,11 @@ export class FerrotuneClient {
    */
   getReplacementAudioStreamUrl(trackId: string): string {
     const params = new URLSearchParams();
-    // Add auth params for Audio element compatibility
-    if (this.username && this.password) {
-      params.set("u", this.username);
-      params.set("p", this.password);
-    } else if (this.apiKey) {
-      params.set("apiKey", this.apiKey);
-    }
+    this.addUrlToken(params);
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
 
-    return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio/stream?${params.toString()}`;
+    return `${this.serverUrl}/api/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio/stream?${params.toString()}`;
   }
 
   // === Playlist Folder Management ===
@@ -2966,7 +2932,7 @@ export class FerrotuneClient {
     name: string,
     parentId?: string | null,
   ): Promise<PlaylistFolderResponse> {
-    return this.request<PlaylistFolderResponse>("/ferrotune/playlist-folders", {
+    return this.request<PlaylistFolderResponse>("/api/playlist-folders", {
       method: "POST",
       body: JSON.stringify({
         name,
@@ -2985,7 +2951,7 @@ export class FerrotuneClient {
     folderId: string | null,
   ): Promise<void> {
     await this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/move`,
+      `/api/playlists/${encodeURIComponent(playlistId)}/move`,
       {
         method: "PATCH",
         body: JSON.stringify({ folderId }),
@@ -2999,7 +2965,7 @@ export class FerrotuneClient {
    */
   async deletePlaylistFolder(folderId: string): Promise<void> {
     await this.request(
-      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}`,
+      `/api/playlist-folders/${encodeURIComponent(folderId)}`,
       {
         method: "DELETE",
       },
@@ -3030,7 +2996,7 @@ export class FerrotuneClient {
     }
 
     return this.request<PlaylistFolderResponse>(
-      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}`,
+      `/api/playlist-folders/${encodeURIComponent(folderId)}`,
       {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -3058,7 +3024,7 @@ export class FerrotuneClient {
     file: File | Blob,
   ): Promise<void> {
     const url = this.buildAdminUrl(
-      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}/cover`,
+      `/api/playlist-folders/${encodeURIComponent(folderId)}/cover`,
     );
 
     const headers = this.getAuthHeaders();
@@ -3086,7 +3052,7 @@ export class FerrotuneClient {
    */
   async deletePlaylistFolderCover(folderId: string): Promise<void> {
     await this.request(
-      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}/cover`,
+      `/api/playlist-folders/${encodeURIComponent(folderId)}/cover`,
       {
         method: "DELETE",
       },

@@ -29,8 +29,15 @@ async fn every_entity_counts_cleanly_on_sqlite() {
     // Each entity's `count()` forces SeaORM to issue a SELECT and decode
     // nothing; any compile-time column mismatch surfaces as a `DbErr`.
     entity::albums::Entity::find().count(&db).await.unwrap();
-    entity::api_keys::Entity::find().count(&db).await.unwrap();
     entity::artists::Entity::find().count(&db).await.unwrap();
+    entity::auth_sessions::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
+    entity::auth_url_tokens::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
     entity::cover_art_thumbnails::Entity::find()
         .count(&db)
         .await

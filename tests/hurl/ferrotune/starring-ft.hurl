@@ -10,31 +10,31 @@
 # ============================================================================
 
 # Get a song ID for starring tests
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 song_id: jsonpath "$.songs[0].id"
 
 # Get an artist ID from match list song data
-GET {{base_url}}/ferrotune/artists
+GET {{base_url}}/api/artists
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 artist_id: jsonpath "$.artists.index[0].artist[0].id"
 
-GET {{base_url}}/ferrotune/artists/{{artist_id}}
+GET {{base_url}}/api/artists/{{artist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 album_id: jsonpath "$.artist.album[0].id"
 
 # ============================================================================
-# POST /ferrotune/star
+# POST /api/star
 # ============================================================================
 
 # Star a song
-POST {{base_url}}/ferrotune/star
+POST {{base_url}}/api/star
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -43,7 +43,7 @@ Content-Type: application/json
 HTTP 204
 
 # Star an album
-POST {{base_url}}/ferrotune/star
+POST {{base_url}}/api/star
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -52,7 +52,7 @@ Content-Type: application/json
 HTTP 204
 
 # Star an artist
-POST {{base_url}}/ferrotune/star
+POST {{base_url}}/api/star
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -61,14 +61,14 @@ Content-Type: application/json
 HTTP 204
 
 # Starring with no items is valid (no-op)
-POST {{base_url}}/ferrotune/star
+POST {{base_url}}/api/star
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {}
 HTTP 204
 
 # Unauthenticated request should fail
-POST {{base_url}}/ferrotune/star
+POST {{base_url}}/api/star
 Content-Type: application/json
 {
   "id": ["test"]
@@ -76,24 +76,24 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# GET /ferrotune/starred
+# GET /api/starred
 # ============================================================================
 
 # Get all starred items - fields may be omitted if empty (skip_serializing_if)
-GET {{base_url}}/ferrotune/starred
+GET {{base_url}}/api/starred
 Authorization: Basic {{auth_basic}}
 HTTP 200
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/starred
+GET {{base_url}}/api/starred
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/rating
+# POST /api/rating
 # ============================================================================
 
 # Set rating on a song (1-5)
-POST {{base_url}}/ferrotune/rating
+POST {{base_url}}/api/rating
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -103,7 +103,7 @@ Content-Type: application/json
 HTTP 204
 
 # Set rating to 0 (removes rating)
-POST {{base_url}}/ferrotune/rating
+POST {{base_url}}/api/rating
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -113,7 +113,7 @@ Content-Type: application/json
 HTTP 204
 
 # Invalid rating (too high) should fail
-POST {{base_url}}/ferrotune/rating
+POST {{base_url}}/api/rating
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -123,7 +123,7 @@ Content-Type: application/json
 HTTP 400
 
 # Invalid rating (negative) should fail
-POST {{base_url}}/ferrotune/rating
+POST {{base_url}}/api/rating
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -133,7 +133,7 @@ Content-Type: application/json
 HTTP 400
 
 # Unauthenticated request should fail
-POST {{base_url}}/ferrotune/rating
+POST {{base_url}}/api/rating
 Content-Type: application/json
 {
   "id": "{{song_id}}",
@@ -142,11 +142,11 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/unstar
+# POST /api/unstar
 # ============================================================================
 
 # Unstar the song
-POST {{base_url}}/ferrotune/unstar
+POST {{base_url}}/api/unstar
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -155,7 +155,7 @@ Content-Type: application/json
 HTTP 204
 
 # Unstar the album
-POST {{base_url}}/ferrotune/unstar
+POST {{base_url}}/api/unstar
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -164,7 +164,7 @@ Content-Type: application/json
 HTTP 204
 
 # Unstar the artist
-POST {{base_url}}/ferrotune/unstar
+POST {{base_url}}/api/unstar
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -173,14 +173,14 @@ Content-Type: application/json
 HTTP 204
 
 # Unstarring with no items is valid (no-op)
-POST {{base_url}}/ferrotune/unstar
+POST {{base_url}}/api/unstar
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {}
 HTTP 204
 
 # Unauthenticated request should fail
-POST {{base_url}}/ferrotune/unstar
+POST {{base_url}}/api/unstar
 Content-Type: application/json
 {
   "id": ["test"]
@@ -188,6 +188,6 @@ Content-Type: application/json
 HTTP 401
 
 # Verify starred returns successfully (items now unstarred)
-GET {{base_url}}/ferrotune/starred
+GET {{base_url}}/api/starred
 Authorization: Basic {{auth_basic}}
 HTTP 200

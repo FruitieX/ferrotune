@@ -76,8 +76,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
       await nativeInitSession({
         serverUrl: serverConnection.serverUrl,
         username: serverConnection.username ?? "",
-        password: serverConnection.password,
-        apiKey: serverConnection.apiKey,
+        sessionToken: serverConnection.sessionToken,
         sessionId: currentSessionId,
         clientId: clientId || undefined,
       });

@@ -6,7 +6,7 @@ $schema: 'https://moonrepo.dev/schemas/project.json'
 # Project metadata
 project:
   name: 'ferrotune'
-  description: 'A Subsonic-compatible music server written in Rust'
+  description: 'A self-hosted music server written in Rust'
   channel: '#ferrotune'
 
 # File groups for task inputs

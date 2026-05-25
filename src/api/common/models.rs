@@ -230,7 +230,7 @@ pub struct DirectoryIndex {
 pub struct DirectoryArtist {
     pub id: String,
     pub name: String,
-    // These optional fields are used in Indexes but not in Ferrotune Indexes (yet, or Subsonic specific)
+    // These optional fields are used in Indexes but not in Ferrotune Indexes (yet, or native API specific)
     // We'll include them as optional
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<String>,

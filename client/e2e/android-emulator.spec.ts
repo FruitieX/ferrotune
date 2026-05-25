@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import {
   test,
+  loginForSession,
   playFirstSong,
   type ServerInfo,
   waitForPlayerReady,
@@ -238,8 +239,8 @@ function pickDevice(devices: AndroidDevice[]): AndroidDevice {
   );
 }
 
-function buildAuthParams(server: ServerInfo): string {
-  return `u=${server.username}&p=${server.password}&v=1.16.1&c=e2e-test`;
+function basicAuthHeader(server: ServerInfo): string {
+  return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`;
 }
 
 async function setServerPreference(
@@ -248,10 +249,11 @@ async function setServerPreference(
   value: unknown,
 ): Promise<void> {
   const response = await fetch(
-    `${server.url}/ferrotune/preferences/${encodeURIComponent(key)}?${buildAuthParams(server)}`,
+    `${server.url}/api/preferences/${encodeURIComponent(key)}`,
     {
       method: "PUT",
       headers: {
+        Authorization: basicAuthHeader(server),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ value }),
@@ -283,21 +285,30 @@ async function prepareAndroidApp(
   const page = await webView.page();
 
   await page.waitForLoadState("domcontentloaded");
-  await setStoredConnection(page, {
-    serverUrl: toAndroidEmulatorUrl(server.url),
+  const login = await loginForSession(server.url, {
     username: server.username,
     password: server.password,
+  });
+  await setStoredConnection(page, {
+    serverUrl: toAndroidEmulatorUrl(server.url),
+    username: login.user.username,
+    userId: login.user.id,
+    email: login.user.email ?? null,
+    isAdmin: login.user.isAdmin,
+    sessionToken: login.sessionToken,
+    sessionExpiresAt: login.sessionExpiresAt,
+    urlToken: login.urlToken,
+    urlTokenExpiresAt: login.urlTokenExpiresAt,
   });
   await page.reload();
   await waitForAuthenticatedHome(page, 30000);
 
-  const authParams = buildAuthParams(server);
-  const resetResponse = await fetch(
-    `${server.url}/ferrotune/testing/reset?${authParams}`,
-    {
-      method: "POST",
+  const resetResponse = await fetch(`${server.url}/api/testing/reset`, {
+    method: "POST",
+    headers: {
+      Authorization: basicAuthHeader(server),
     },
-  );
+  });
 
   if (!resetResponse.ok) {
     throw new Error(

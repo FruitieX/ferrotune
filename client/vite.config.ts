@@ -89,8 +89,7 @@ export default defineConfig(({ command }) => {
       strictPort: true,
       allowedHosts: true,
       proxy: {
-        "/ferrotune": "http://localhost:4040",
-        "/rest": "http://localhost:4040",
+        "/api": "http://localhost:4040",
       },
     },
     preview: {

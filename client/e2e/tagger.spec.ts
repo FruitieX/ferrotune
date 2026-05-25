@@ -71,8 +71,7 @@ test.describe("Tagger", () => {
 
     const searchResponse = page.waitForResponse(
       (response) =>
-        response.url().includes("/ferrotune/search") &&
-        response.status() === 200,
+        response.url().includes("/api/search") && response.status() === 200,
     );
     await dialog.getByPlaceholder(/search/i).fill("First Song");
     await searchResponse;
@@ -93,7 +92,7 @@ test.describe("Tagger", () => {
   test("shows an error when add from library loads no selected tracks", async ({
     authenticatedPage: page,
   }) => {
-    await page.route("**/ferrotune/tagger/stage-library", async (route) => {
+    await page.route("**/api/tagger/stage-library", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -113,8 +112,7 @@ test.describe("Tagger", () => {
 
     const searchResponse = page.waitForResponse(
       (response) =>
-        response.url().includes("/ferrotune/search") &&
-        response.status() === 200,
+        response.url().includes("/api/search") && response.status() === 200,
     );
     await dialog.getByPlaceholder(/search/i).fill("First Song");
     await searchResponse;

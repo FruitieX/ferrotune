@@ -13,8 +13,6 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub password_hash: String,
     #[sea_orm(column_type = "Text", nullable)]
-    pub subsonic_token: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
     pub email: Option<String>,
     pub is_admin: bool,
     pub created_at: DateTimeWithTimeZone,
@@ -30,8 +28,6 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::api_keys::Entity")]
-    ApiKeys,
     #[sea_orm(has_many = "super::disabled_songs::Entity")]
     DisabledSongs,
     #[sea_orm(has_many = "super::listening_sessions::Entity")]
@@ -70,12 +66,6 @@ pub enum Relation {
     UserPlaylistOverrides,
     #[sea_orm(has_one = "super::user_preferences::Entity")]
     UserPreferences,
-}
-
-impl Related<super::api_keys::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::ApiKeys.def()
-    }
 }
 
 impl Related<super::disabled_songs::Entity> for Entity {

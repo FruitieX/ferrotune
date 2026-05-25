@@ -478,8 +478,7 @@ export async function nativeUpdateStarredState(
 export async function nativeInitSession(config: {
   serverUrl: string;
   username: string;
-  password?: string;
-  apiKey?: string;
+  sessionToken?: string;
   sessionId?: string;
   clientId?: string;
 }): Promise<void> {

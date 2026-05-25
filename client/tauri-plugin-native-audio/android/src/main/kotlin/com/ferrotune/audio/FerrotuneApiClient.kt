@@ -21,8 +21,7 @@ import java.util.concurrent.TimeUnit
 data class SessionConfig(
     val serverUrl: String,
     val username: String? = null,
-    val password: String? = null,
-    val apiKey: String? = null,
+    val sessionToken: String? = null,
     val sessionId: String? = null,
     val clientId: String? = null,
 )
@@ -70,7 +69,7 @@ data class QueueWindow(
 )
 
 /**
- * Response from GET /ferrotune/queue/current-window.
+ * Response from GET /api/queue/current-window.
  */
 data class GetQueueResponse(
     val sourceType: String? = null,
@@ -84,7 +83,7 @@ data class GetQueueResponse(
 )
 
 /**
- * Response from POST /ferrotune/queue/position, /shuffle, /repeat.
+ * Response from POST /api/queue/position, /shuffle, /repeat.
  */
 data class QueueSuccessResponse(
     val success: Boolean,
@@ -116,7 +115,7 @@ class FerrotuneApiClient {
 
     fun setSessionConfig(config: SessionConfig) {
         Log.d(TAG, "Session configured: serverUrl=${config.serverUrl}, " +
-            "username=${config.username}, hasApiKey=${config.apiKey != null}, " +
+            "username=${config.username}, hasSessionToken=${config.sessionToken != null}, " +
             "sessionId=${config.sessionId}")
         sessionConfig = config
     }
@@ -154,19 +153,13 @@ class FerrotuneApiClient {
     }
 
     /**
-     * Return auth headers for HTTP requests (Basic auth or API key).
+    * Return auth headers for HTTP requests.
      * Used by ExoPlayer's data source factory for streaming/cover art.
      */
     fun getAuthHeaders(): Map<String, String> {
         val config = getConfig()
-        return if (config.username != null && config.password != null) {
-            val credentials = android.util.Base64.encodeToString(
-                "${config.username}:${config.password}".toByteArray(),
-                android.util.Base64.NO_WRAP
-            )
-            mapOf("Authorization" to "Basic $credentials")
-        } else if (config.apiKey != null) {
-            mapOf("X-Api-Key" to config.apiKey)
+        return if (config.sessionToken != null) {
+            mapOf("Authorization" to "Bearer ${config.sessionToken}")
         } else {
             emptyMap()
         }
@@ -177,7 +170,7 @@ class FerrotuneApiClient {
      */
     fun buildStreamUrl(songId: String, settings: PlaybackSettings, timeOffsetSeconds: Long = 0): String {
         val config = getConfig()
-        val uriBuilder = Uri.parse("${config.serverUrl}/ferrotune/stream").buildUpon()
+        val uriBuilder = Uri.parse("${config.serverUrl}/api/stream").buildUpon()
         appendCommonParams(uriBuilder)
         uriBuilder.appendQueryParameter("id", songId)
         if (settings.transcodingEnabled) {
@@ -195,7 +188,7 @@ class FerrotuneApiClient {
      */
     fun buildCoverArtUrl(coverArtId: String, size: Int = 1024): String {
         val config = getConfig()
-        val uriBuilder = Uri.parse("${config.serverUrl}/ferrotune/cover-art").buildUpon()
+        val uriBuilder = Uri.parse("${config.serverUrl}/api/cover-art").buildUpon()
         appendCommonParams(uriBuilder)
         uriBuilder.appendQueryParameter("id", coverArtId)
         uriBuilder.appendQueryParameter("size", size.toString())
@@ -203,50 +196,39 @@ class FerrotuneApiClient {
     }
 
     /**
-     * Add auth headers for JSON API calls (Basic auth or API key).
+    * Add auth headers for JSON API calls.
      */
     private fun addAuthHeaders(requestBuilder: Request.Builder) {
         val config = getConfig()
-        if (config.username != null && config.password != null) {
-            val credentials = android.util.Base64.encodeToString(
-                "${config.username}:${config.password}".toByteArray(),
-                android.util.Base64.NO_WRAP
-            )
-            requestBuilder.addHeader("Authorization", "Basic $credentials")
-        } else if (config.apiKey != null) {
-            // API key in query param is handled at URL build time
-            // For JSON API calls, use it as a query parameter
+        if (config.sessionToken != null) {
+            requestBuilder.addHeader("Authorization", "Bearer ${config.sessionToken}")
         }
     }
 
     /**
-     * Build a URL for API calls with optional API key auth.
+    * Build a URL for API calls.
      */
     private fun buildApiUrl(path: String, queryParams: Map<String, String> = emptyMap()): String {
         val config = getConfig()
         val uriBuilder = Uri.parse("${config.serverUrl}$path").buildUpon()
-        // Add API key to query params if using API key auth (no Basic auth)
-        if (config.apiKey != null && (config.username == null || config.password == null)) {
-            uriBuilder.appendQueryParameter("apiKey", config.apiKey)
-        }
         queryParams.forEach { (k, v) -> uriBuilder.appendQueryParameter(k, v) }
         return uriBuilder.build().toString()
     }
 
     /**
-     * GET /ferrotune/queue/current-window?radius=N
+     * GET /api/queue/current-window?radius=N
      */
     fun getQueueWindow(radius: Int = 20): GetQueueResponse {
         val config = getConfig()
         val params = mutableMapOf("radius" to radius.toString())
         config.sessionId?.let { params["sessionId"] = it }
-        val url = buildApiUrl("/ferrotune/queue/current-window", params)
+        val url = buildApiUrl("/api/queue/current-window", params)
         val request = Request.Builder().url(url).get().also { addAuthHeaders(it) }.build()
         return executeRequest(request) { body -> parseGetQueueResponse(JSONObject(body)) }
     }
 
     /**
-     * POST /ferrotune/queue/position
+     * POST /api/queue/position
      */
     fun updatePosition(currentIndex: Int, positionMs: Long, reshuffle: Boolean = false): QueueSuccessResponse {
         val json = JSONObject().apply {
@@ -257,7 +239,7 @@ class FerrotuneApiClient {
             config.sessionId?.let { put("sessionId", it) }
             config.clientId?.let { put("clientId", it) }
         }
-        val url = buildApiUrl("/ferrotune/queue/position")
+        val url = buildApiUrl("/api/queue/position")
         val request = Request.Builder()
             .url(url)
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -274,14 +256,14 @@ class FerrotuneApiClient {
     }
 
     /**
-     * POST /ferrotune/queue/shuffle
+     * POST /api/queue/shuffle
      */
     fun toggleShuffle(enabled: Boolean): QueueSuccessResponse {
         val json = JSONObject().apply {
             put("enabled", enabled)
             getConfig().sessionId?.let { put("sessionId", it) }
         }
-        val url = buildApiUrl("/ferrotune/queue/shuffle")
+        val url = buildApiUrl("/api/queue/shuffle")
         val request = Request.Builder()
             .url(url)
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -298,14 +280,14 @@ class FerrotuneApiClient {
     }
 
     /**
-     * POST /ferrotune/queue/repeat
+     * POST /api/queue/repeat
      */
     fun setRepeatMode(mode: String): QueueSuccessResponse {
         val json = JSONObject().apply {
             put("mode", mode)
             getConfig().sessionId?.let { put("sessionId", it) }
         }
-        val url = buildApiUrl("/ferrotune/queue/repeat")
+        val url = buildApiUrl("/api/queue/repeat")
         val request = Request.Builder()
             .url(url)
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -320,7 +302,7 @@ class FerrotuneApiClient {
     }
 
     /**
-     * POST /ferrotune/scrobbles
+     * POST /api/scrobbles
      */
     fun scrobble(
         songId: String,
@@ -336,7 +318,7 @@ class FerrotuneApiClient {
             if (queueSourceType != null) put("queueSourceType", queueSourceType)
             if (queueSourceId != null) put("queueSourceId", queueSourceId)
         }
-        val url = buildApiUrl("/ferrotune/scrobbles")
+        val url = buildApiUrl("/api/scrobbles")
         val request = Request.Builder()
             .url(url)
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -355,7 +337,7 @@ class FerrotuneApiClient {
     }
 
     /**
-     * POST /ferrotune/sessions/:id/heartbeat
+     * POST /api/sessions/:id/heartbeat
      * Sends playback state to the server so followers see correct is_playing.
      */
     fun sendHeartbeat(
@@ -377,7 +359,7 @@ class FerrotuneApiClient {
             if (currentSongTitle != null) put("currentSongTitle", currentSongTitle)
             if (currentSongArtist != null) put("currentSongArtist", currentSongArtist)
         }
-        val url = buildApiUrl("/ferrotune/sessions/$sessionId/heartbeat")
+        val url = buildApiUrl("/api/sessions/$sessionId/heartbeat")
         val request = Request.Builder()
             .url(url)
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -395,7 +377,7 @@ class FerrotuneApiClient {
     }
 
     /**
-     * POST /ferrotune/sessions/:id/command with action=takeOver.
+     * POST /api/sessions/:id/command with action=takeOver.
      * Used by native media controls when the WebView is not initiating playback.
      */
     fun takeOver(positionMs: Long? = null, currentIndex: Int? = null) {
@@ -409,7 +391,7 @@ class FerrotuneApiClient {
             if (positionMs != null) put("positionMs", positionMs)
             if (currentIndex != null) put("currentIndex", currentIndex)
         }
-        val url = buildApiUrl("/ferrotune/sessions/$sessionId/command")
+        val url = buildApiUrl("/api/sessions/$sessionId/command")
         val request = Request.Builder()
             .url(url)
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -539,7 +521,7 @@ class FerrotuneApiClient {
 
         disconnectSSE()
 
-        var sseUrl = buildApiUrl("/ferrotune/sessions/$sessionId/events")
+        var sseUrl = buildApiUrl("/api/sessions/$sessionId/events")
         // Append clientId and clientName as query params for client registration
         val separator = if (sseUrl.contains("?")) "&" else "?"
         val params = mutableListOf<String>()

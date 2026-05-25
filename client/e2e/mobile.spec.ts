@@ -17,44 +17,8 @@ import {
   waitForPlayerReady,
   playFirstSong,
 } from "./fixtures";
+import { setServerPreference } from "./app-helpers";
 import type { Locator, Page } from "@playwright/test";
-
-async function setServerPreference(page: Page, key: string, value: unknown) {
-  await page.evaluate(
-    async ({ preferenceKey, nextValue }) => {
-      const connection = JSON.parse(
-        localStorage.getItem("ferrotune-connection") || "null",
-      );
-
-      if (
-        !connection?.serverUrl ||
-        !connection.username ||
-        !connection.password
-      ) {
-        throw new Error("Missing authenticated connection in localStorage");
-      }
-
-      const response = await fetch(
-        `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/preferences/${encodeURIComponent(preferenceKey)}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
-          },
-          body: JSON.stringify({ value: nextValue }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to update '${preferenceKey}' preference: ${response.status}`,
-        );
-      }
-    },
-    { preferenceKey: key, nextValue: value },
-  );
-}
 
 async function setQueuePanelPreference(page: Page, value: boolean) {
   await setServerPreference(page, "queue-panel-open", value);

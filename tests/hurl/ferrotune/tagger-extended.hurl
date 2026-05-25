@@ -8,11 +8,11 @@
 # @readonly_tags: false
 
 # ============================================================================
-# POST /ferrotune/tagger/upload
+# POST /api/tagger/upload
 # ============================================================================
 
 # Upload a real file from fixtures
-POST {{base_url}}/ferrotune/tagger/upload
+POST {{base_url}}/api/tagger/upload
 Authorization: Basic {{auth_basic}}
 [MultipartFormData]
 file: file,tests/fixtures/music/simple.mp3; audio/mpeg
@@ -30,11 +30,11 @@ jsonpath "$.files[0].tags" isCollection
 staged_file_id: jsonpath "$.files[0].id"
 
 # ============================================================================
-# POST /ferrotune/tagger/upload (Second file for cleanup tests)
+# POST /api/tagger/upload (Second file for cleanup tests)
 # ============================================================================
 
 # Upload a second file to test deletion
-POST {{base_url}}/ferrotune/tagger/upload
+POST {{base_url}}/api/tagger/upload
 Authorization: Basic {{auth_basic}}
 [MultipartFormData]
 file: file,tests/fixtures/music/simple.mp3; audio/mpeg
@@ -46,28 +46,28 @@ jsonpath "$.files" count == 1
 delete_candidate_id: jsonpath "$.files[0].id"
 
 # ============================================================================
-# GET /ferrotune/tagger/staged/:id/cover
+# GET /api/tagger/staged/:id/cover
 # ============================================================================
 
 # Get cover art for the staged file (simple.mp3 has embedded cover)
-GET {{base_url}}/ferrotune/tagger/staged/{{delete_candidate_id}}/cover
+GET {{base_url}}/api/tagger/staged/{{delete_candidate_id}}/cover
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 header "Content-Type" contains "image/"
 
 # ============================================================================
-# DELETE /ferrotune/tagger/staged/:id
+# DELETE /api/tagger/staged/:id
 # ============================================================================
 
 # Delete the cleanup candidate
-DELETE {{base_url}}/ferrotune/tagger/staged/{{delete_candidate_id}}
+DELETE {{base_url}}/api/tagger/staged/{{delete_candidate_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 # [Asserts] removed because 204 has no body
 
 # Verify it's gone
-GET {{base_url}}/ferrotune/tagger/staged
+GET {{base_url}}/api/tagger/staged
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -76,11 +76,11 @@ jsonpath "$.files[?(@.id == '{{delete_candidate_id}}')]" count == 0
 jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" count == 1
 
 # ============================================================================
-# GET /ferrotune/tagger/staged
+# GET /api/tagger/staged
 # ============================================================================
 
 # Verify the uploaded file appears in staged files
-GET {{base_url}}/ferrotune/tagger/staged
+GET {{base_url}}/api/tagger/staged
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -89,25 +89,25 @@ jsonpath "$.files" isCollection
 jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" count == 1
 
 # ============================================================================
-# GET /ferrotune/tagger/orphaned
+# GET /api/tagger/orphaned
 # ============================================================================
 
 # Verify the uploaded file appears as orphaned (not in active session)
-GET {{base_url}}/ferrotune/tagger/orphaned
+GET {{base_url}}/api/tagger/orphaned
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.fileIds" includes "{{staged_file_id}}"
 
 # ============================================================================
-# POST /ferrotune/tagger/check-conflicts
+# POST /api/tagger/check-conflicts
 # ============================================================================
 
 # Check for conflict: Rename staged file to an existing library path
 # We need to find a valid music folder ID first.
 
 # 1. Get Music Folder ID
-GET {{base_url}}/ferrotune/music-folders
+GET {{base_url}}/api/music-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
@@ -116,7 +116,7 @@ music_folder_id: jsonpath "$.musicFolders[0].id"
 # 2. Check Conflict
 # Attempt to rename staged file to match an existing file path known from fixtures
 # "Test Artist/Test Album/02 - Second Song.mp3" exists in the processed library struture
-POST {{base_url}}/ferrotune/tagger/check-conflicts
+POST {{base_url}}/api/tagger/check-conflicts
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -136,11 +136,11 @@ jsonpath "$.conflicts[0].songId" == "{{staged_file_id}}"
 jsonpath "$.conflicts[0].suggestedPath" != "Test Artist/Test Album/02 - Second Song.mp3"
 
 # ============================================================================
-# GET /ferrotune/tagger/staged/:id/stream
+# GET /api/tagger/staged/:id/stream
 # ============================================================================
 
 # Stream the staged file
-GET {{base_url}}/ferrotune/tagger/staged/{{staged_file_id}}/stream
+GET {{base_url}}/api/tagger/staged/{{staged_file_id}}/stream
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -149,18 +149,18 @@ header "Content-Type" == "audio/mpeg"
 header "Content-Length" exists
 
 # ============================================================================
-# POST /ferrotune/tagger/rescan
+# POST /api/tagger/rescan
 # ============================================================================
 
 # Get a song from library to test rescan
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 random_song_id: jsonpath "$.songs[0].id"
 
 # Rescan library file
-POST {{base_url}}/ferrotune/tagger/rescan
+POST {{base_url}}/api/tagger/rescan
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -172,12 +172,12 @@ jsonpath "$.success" == true
 jsonpath "$.rescannedCount" == 1
 
 # ============================================================================
-# POST /ferrotune/tagger/save
+# POST /api/tagger/save
 # ============================================================================
 
 # Save (Import) the staged file to the library
 # This effectively moves it from staging to the music folder
-POST {{base_url}}/ferrotune/tagger/save
+POST {{base_url}}/api/tagger/save
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -203,21 +203,21 @@ imported_song_id: jsonpath "$.newSongIds[0]"
 # ============================================================================
 
 # Verify it's gone from staged list
-GET {{base_url}}/ferrotune/tagger/staged
+GET {{base_url}}/api/tagger/staged
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" count == 0
 
 # Trigger a library scan to pick up the new file
-POST {{base_url}}/ferrotune/scan
+POST {{base_url}}/api/scan
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {}
 HTTP 202
 
 # Wait for scan to complete using retry (polling)
-GET {{base_url}}/ferrotune/scan/status
+GET {{base_url}}/api/scan/status
 Authorization: Basic {{auth_basic}}
 [Options]
 retry: 20
@@ -227,7 +227,7 @@ HTTP 200
 jsonpath "$.scanning" == false
 
 # Verify "Unique Imported Song" exists
-GET {{base_url}}/ferrotune/search?query=Unique%20Imported%20Song
+GET {{base_url}}/api/search?query=Unique%20Imported%20Song
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -237,11 +237,11 @@ jsonpath "$.searchResult.song[0].title" == "Unique Imported Song"
 verified_song_id: jsonpath "$.searchResult.song[0].id"
 
 # ============================================================================
-# POST /ferrotune/tagger/rename
+# POST /api/tagger/rename
 # ============================================================================
 
 # Rename the imported song
-POST {{base_url}}/ferrotune/tagger/rename
+POST {{base_url}}/api/tagger/rename
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -262,7 +262,7 @@ jsonpath "$.errors" count == 0
 jsonpath "$.errors[0].error" not exists
 
 # Verify rename by searching (might need scan, but rename usually updates DB immediately in Ferrotune)
-GET {{base_url}}/ferrotune/songs/{{verified_song_id}}
+GET {{base_url}}/api/songs/{{verified_song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

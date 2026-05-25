@@ -230,7 +230,7 @@ test.describe("Playback", () => {
           return audio?.currentSrc || audio?.src || "";
         }),
       )
-      .toContain("/ferrotune/stream");
+      .toContain("/api/stream");
 
     const streamUrl = await page.evaluate(() => {
       const audio = Array.from(document.querySelectorAll("audio")).find(

@@ -8,26 +8,26 @@
 # @readonly_tags: false
 
 # ============================================================================
-# GET /ferrotune/tagger/session
+# GET /api/tagger/session
 # ============================================================================
 
 # Get session (may be empty initially)
-GET {{base_url}}/ferrotune/tagger/session
+GET {{base_url}}/api/tagger/session
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.tracks" isCollection
 
 # Unauthenticated request should fail
-GET {{base_url}}/ferrotune/tagger/session
+GET {{base_url}}/api/tagger/session
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/tagger/stage-library
+# POST /api/tagger/stage-library
 # ============================================================================
 
 # First get song IDs to stage
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
@@ -35,7 +35,7 @@ song_id: jsonpath "$.songs[0].id"
 song_id_2: jsonpath "$.songs[1].id"
 
 # Stage library tracks - returns tracks array with metadata
-POST {{base_url}}/ferrotune/tagger/stage-library
+POST {{base_url}}/api/tagger/stage-library
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -46,11 +46,11 @@ HTTP 200
 jsonpath "$.tracks" isCollection
 
 # ============================================================================
-# PUT /ferrotune/tagger/session/tracks
+# PUT /api/tagger/session/tracks
 # ============================================================================
 
 # Set session tracks (replace all) - requires tracks array with id+trackType
-PUT {{base_url}}/ferrotune/tagger/session/tracks
+PUT {{base_url}}/api/tagger/session/tracks
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -62,11 +62,11 @@ Content-Type: application/json
 HTTP 204
 
 # ============================================================================
-# GET /ferrotune/tagger/session (after setting tracks)
+# GET /api/tagger/session (after setting tracks)
 # ============================================================================
 
 # Session should now have tracks
-GET {{base_url}}/ferrotune/tagger/session
+GET {{base_url}}/api/tagger/session
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -74,11 +74,11 @@ jsonpath "$.tracks" isCollection
 jsonpath "$.tracks" count >= 2
 
 # ============================================================================
-# POST /ferrotune/tagger/session/tracks
+# POST /api/tagger/session/tracks
 # ============================================================================
 
 # Add more tracks to session (returns 204 No Content)
-POST {{base_url}}/ferrotune/tagger/session/tracks
+POST {{base_url}}/api/tagger/session/tracks
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -89,11 +89,11 @@ Content-Type: application/json
 HTTP 204
 
 # ============================================================================
-# POST /ferrotune/tagger/session/tracks/remove
+# POST /api/tagger/session/tracks/remove
 # ============================================================================
 
 # Remove tracks from session by IDs
-POST {{base_url}}/ferrotune/tagger/session/tracks/remove
+POST {{base_url}}/api/tagger/session/tracks/remove
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -102,20 +102,20 @@ Content-Type: application/json
 HTTP 204
 
 # ============================================================================
-# DELETE /ferrotune/tagger/session/tracks/:id
+# DELETE /api/tagger/session/tracks/:id
 # ============================================================================
 
 # Remove track from session
-DELETE {{base_url}}/ferrotune/tagger/session/tracks/{{song_id}}
+DELETE {{base_url}}/api/tagger/session/tracks/{{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # ============================================================================
-# PUT /ferrotune/tagger/session/edits/:id
+# PUT /api/tagger/session/edits/:id
 # ============================================================================
 
 # Re-add tracks first
-PUT {{base_url}}/ferrotune/tagger/session/tracks
+PUT {{base_url}}/api/tagger/session/tracks
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -126,7 +126,7 @@ Content-Type: application/json
 HTTP 204
 
 # Create a pending edit for a track
-PUT {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}
+PUT {{base_url}}/api/tagger/session/edits/{{song_id}}
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -139,11 +139,11 @@ Content-Type: application/json
 HTTP 204
 
 # ============================================================================
-# GET /ferrotune/tagger/session/edits
+# GET /api/tagger/session/edits
 # ============================================================================
 
 # Get pending edits - should have the edit we just created
-GET {{base_url}}/ferrotune/tagger/session/edits
+GET {{base_url}}/api/tagger/session/edits
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -154,16 +154,16 @@ jsonpath "$.edits['{{song_id}}']" exists
 jsonpath "$.edits['{{song_id}}'].editedTags.TITLE" == "Test Title"
 
 # ============================================================================
-# DELETE /ferrotune/tagger/session/edits/:id
+# DELETE /api/tagger/session/edits/:id
 # ============================================================================
 
 # Delete the pending edit for a track
-DELETE {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}
+DELETE {{base_url}}/api/tagger/session/edits/{{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # Verify edit was deleted
-GET {{base_url}}/ferrotune/tagger/session/edits
+GET {{base_url}}/api/tagger/session/edits
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -171,11 +171,11 @@ jsonpath "$.edits" exists
 jsonpath "$.edits['{{song_id}}']" not exists
 
 # ============================================================================
-# PUT /ferrotune/tagger/session/edits/:id/cover
+# PUT /api/tagger/session/edits/:id/cover
 # ============================================================================
 
 # Upload cover art for a track edit
-PUT {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/cover
+PUT {{base_url}}/api/tagger/session/edits/{{song_id}}/cover
 Authorization: Basic {{auth_basic}}
 [MultipartFormData]
 file: file,tests/fixtures/cover.png; image/png
@@ -184,37 +184,37 @@ HTTP 200
 jsonpath "$.success" == true
 
 # ============================================================================
-# GET /ferrotune/tagger/session/edits/:id/cover
+# GET /api/tagger/session/edits/:id/cover
 # ============================================================================
 
 # Get the uploaded cover art
-GET {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/cover
+GET {{base_url}}/api/tagger/session/edits/{{song_id}}/cover
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 header "Content-Type" contains "image/"
 
 # ============================================================================
-# DELETE /ferrotune/tagger/session/edits/:id/cover
+# DELETE /api/tagger/session/edits/:id/cover
 # ============================================================================
 
 # Remove the cover art edit (revert to original/none)
-DELETE {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/cover
+DELETE {{base_url}}/api/tagger/session/edits/{{song_id}}/cover
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # Verify cover is gone (should return 404 or default?)
 # API usually returns 404 if no custom cover edit exists
-GET {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/cover
+GET {{base_url}}/api/tagger/session/edits/{{song_id}}/cover
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
 # ============================================================================
-# PUT /ferrotune/tagger/session/edits/:id/replacement-audio
+# PUT /api/tagger/session/edits/:id/replacement-audio
 # ============================================================================
 
 # Upload replacement audio
-PUT {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/replacement-audio
+PUT {{base_url}}/api/tagger/session/edits/{{song_id}}/replacement-audio
 Authorization: Basic {{auth_basic}}
 [MultipartFormData]
 file: file,tests/fixtures/music/simple.mp3; audio/mpeg
@@ -223,31 +223,31 @@ HTTP 200
 jsonpath "$.success" == true
 
 # ============================================================================
-# GET /ferrotune/tagger/session/edits/:id/replacement-audio/stream
+# GET /api/tagger/session/edits/:id/replacement-audio/stream
 # ============================================================================
 
 # Stream the replacement audio
-GET {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/replacement-audio/stream
+GET {{base_url}}/api/tagger/session/edits/{{song_id}}/replacement-audio/stream
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 header "Content-Type" == "audio/mpeg"
 
 # ============================================================================
-# DELETE /ferrotune/tagger/session/edits/:id/replacement-audio
+# DELETE /api/tagger/session/edits/:id/replacement-audio
 # ============================================================================
 
 # Remove replacement audio
-DELETE {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}/replacement-audio
+DELETE {{base_url}}/api/tagger/session/edits/{{song_id}}/replacement-audio
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # ============================================================================
-# POST /ferrotune/tagger/session/save
+# POST /api/tagger/session/save
 # ============================================================================
 
 # First, setup a valid edit to save (change title)
-PUT {{base_url}}/ferrotune/tagger/session/edits/{{song_id}}
+PUT {{base_url}}/api/tagger/session/edits/{{song_id}}
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -260,7 +260,7 @@ Content-Type: application/json
 HTTP 204
 
 # Save session (apply edits)
-POST {{base_url}}/ferrotune/tagger/session/save
+POST {{base_url}}/api/tagger/session/save
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -272,17 +272,17 @@ jsonpath "$.success" == true
 jsonpath "$.savedCount" == 1
 
 # Verify title change via API
-GET {{base_url}}/ferrotune/songs/{{song_id}}
+GET {{base_url}}/api/songs/{{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.song.title" == "Saved Session Title"
 
 # ============================================================================
-# POST /ferrotune/tagger/session/save-stream
+# POST /api/tagger/session/save-stream
 # ============================================================================
 # Prepare another edit for save-stream
-PUT {{base_url}}/ferrotune/tagger/session/edits/{{song_id_2}}
+PUT {{base_url}}/api/tagger/session/edits/{{song_id_2}}
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -296,7 +296,7 @@ HTTP 204
 
 # Save session with stream output (SSE)
 # Note: Hurl doesn't fully support SSE stream verification, but we can check the connection opens
-POST {{base_url}}/ferrotune/tagger/session/save-stream
+POST {{base_url}}/api/tagger/session/save-stream
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -307,20 +307,20 @@ HTTP 200
 header "Content-Type" contains "text/event-stream"
 
 # ============================================================================
-# DELETE /ferrotune/tagger/session/edits
+# DELETE /api/tagger/session/edits
 # ============================================================================
 
 # Clear all pending edits
-DELETE {{base_url}}/ferrotune/tagger/session/edits
+DELETE {{base_url}}/api/tagger/session/edits
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # ============================================================================
-# PATCH /ferrotune/tagger/session
+# PATCH /api/tagger/session
 # ============================================================================
 
 # Update session settings
-PATCH {{base_url}}/ferrotune/tagger/session
+PATCH {{base_url}}/api/tagger/session
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -331,7 +331,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify settings were updated
-GET {{base_url}}/ferrotune/tagger/session
+GET {{base_url}}/api/tagger/session
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -340,22 +340,22 @@ jsonpath "$.showComputedPath" == true
 jsonpath "$.detailsPanelOpen" == true
 
 # ============================================================================
-# GET /ferrotune/tagger/scripts
+# GET /api/tagger/scripts
 # ============================================================================
 
 # Get rename scripts
-GET {{base_url}}/ferrotune/tagger/scripts
+GET {{base_url}}/api/tagger/scripts
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.scripts" isCollection
 
 # ============================================================================
-# PUT /ferrotune/tagger/scripts
+# PUT /api/tagger/scripts
 # ============================================================================
 
 # Save a custom script (request body is raw array of scripts)
-PUT {{base_url}}/ferrotune/tagger/scripts
+PUT {{base_url}}/api/tagger/scripts
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 [
@@ -369,7 +369,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify script was saved
-GET {{base_url}}/ferrotune/tagger/scripts
+GET {{base_url}}/api/tagger/scripts
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -379,25 +379,25 @@ jsonpath "$.scripts[?(@.id == 'test-script')]" count == 1
 jsonpath "$.scripts[?(@.id == 'test-script')].name" nth 0 == "Test Script"
 
 # ============================================================================
-# DELETE /ferrotune/tagger/scripts/:id
+# DELETE /api/tagger/scripts/:id
 # ============================================================================
 
 # Delete the test script
-DELETE {{base_url}}/ferrotune/tagger/scripts/test-script
+DELETE {{base_url}}/api/tagger/scripts/test-script
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # ============================================================================
-# DELETE /ferrotune/tagger/session
+# DELETE /api/tagger/session
 # ============================================================================
 
 # Clear session
-DELETE {{base_url}}/ferrotune/tagger/session
+DELETE {{base_url}}/api/tagger/session
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # Verify session is cleared
-GET {{base_url}}/ferrotune/tagger/session
+GET {{base_url}}/api/tagger/session
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

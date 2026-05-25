@@ -1,7 +1,7 @@
 //! Common play queue utilities.
 //!
 //! This module provides shared functionality for play queue operations,
-//! used by both Subsonic and Ferrotune APIs.
+//! used by both native API and Ferrotune APIs.
 
 /// Find the index of a song ID in a list of song IDs
 /// Returns the index as i64, or 0 if not found

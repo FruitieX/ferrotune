@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Test: Get play history
-GET {{base_url}}/ferrotune/history
+GET {{base_url}}/api/history
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

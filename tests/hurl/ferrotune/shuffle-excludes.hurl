@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Test: Get all shuffle excludes (initially empty)
-GET {{base_url}}/ferrotune/shuffle-excludes
+GET {{base_url}}/api/shuffle-excludes
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -21,13 +21,14 @@ jsonpath "$.songIds" isCollection
 # ============================================================================
 
 # First, get a song ID
-GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=test&songCount=1
+GET {{base_url}}/api/search?query=test&songCount=1
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-song_id: jsonpath "$.subsonic-response.searchResult3.song[0].id"
+song_id: jsonpath "$.searchResult.song[0].id"
 
 # Test: Get shuffle exclude status for a song
-GET {{base_url}}/ferrotune/songs/{{song_id}}/shuffle-exclude
+GET {{base_url}}/api/songs/{{song_id}}/shuffle-exclude
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -38,7 +39,7 @@ jsonpath "$.excluded" isBoolean
 # ============================================================================
 
 # Test: Set shuffle exclude for a song
-PUT {{base_url}}/ferrotune/songs/{{song_id}}/shuffle-exclude
+PUT {{base_url}}/api/songs/{{song_id}}/shuffle-exclude
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -49,14 +50,14 @@ HTTP 200
 jsonpath "$.excluded" == true
 
 # Verify it's now in the list
-GET {{base_url}}/ferrotune/shuffle-excludes
+GET {{base_url}}/api/shuffle-excludes
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.songIds" includes "{{song_id}}"
 
 # Test: Remove shuffle exclude
-PUT {{base_url}}/ferrotune/songs/{{song_id}}/shuffle-exclude
+PUT {{base_url}}/api/songs/{{song_id}}/shuffle-exclude
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -71,7 +72,7 @@ jsonpath "$.excluded" == false
 # ============================================================================
 
 # Test: Bulk set shuffle excludes
-POST {{base_url}}/ferrotune/shuffle-excludes/bulk
+POST {{base_url}}/api/shuffle-excludes/bulk
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -81,14 +82,14 @@ Content-Type: application/json
 HTTP 200
 
 # Verify it worked
-GET {{base_url}}/ferrotune/songs/{{song_id}}/shuffle-exclude
+GET {{base_url}}/api/songs/{{song_id}}/shuffle-exclude
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.excluded" == true
 
 # Clean up
-POST {{base_url}}/ferrotune/shuffle-excludes/bulk
+POST {{base_url}}/api/shuffle-excludes/bulk
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {

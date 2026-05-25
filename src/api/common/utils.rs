@@ -1,7 +1,7 @@
 //! Common utility functions for the API
 //!
 //! This module provides reusable utility functions that are used across
-//! both the OpenSubsonic and Ferrotune APIs.
+//! both the native API and Ferrotune APIs.
 
 use crate::thumbnails::ThumbnailSize;
 use chrono::{DateTime, Utc};

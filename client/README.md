@@ -9,7 +9,7 @@ pnpm install
 pnpm run dev
 ```
 
-The development server runs on [http://localhost:3000](http://localhost:3000) and proxies `/ferrotune` and `/rest` requests to the backend on port 4040.
+The development server runs on [http://localhost:3000](http://localhost:3000) and proxies `/api` requests to the backend on port 4040.
 
 ## Build
 

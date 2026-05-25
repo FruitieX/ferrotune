@@ -6,7 +6,7 @@ trigger: always_on
 
 ## Project Overview
 
-**Ferrotune** is an OpenSubsonic-compatible music server written in Rust with a Vite/React web client. It enables users to stream their personal music libraries using any Subsonic-compatible client application.
+**Ferrotune** is a self-hosted music server written in Rust with a Vite/React web client. It enables users to stream and curate their personal music libraries through Ferrotune's native web and mobile clients.
 
 ### Technology Stack
 | Component | Technology |
@@ -17,8 +17,7 @@ trigger: always_on
 | Task Runner | Moon |
 
 ### Architecture
-- **OpenSubsonic API** (`/rest` port 4040) - Client-facing API for Subsonic ecosystem
-- **Admin API** (`/ferrotune` port 4040) - REST API for administration
+- **Native API** (`/api` port 4040) - JSON API used by the web and mobile clients
 - **Web Client** (`client/`) - Vite/React web interface
 
 ---
@@ -29,8 +28,7 @@ trigger: always_on
 ferrotune/
 ├── src/                      # Rust backend
 │   ├── main.rs               # CLI entry point
-│   ├── api/subsonic/         # OpenSubsonic endpoints
-│   ├── api/ferrotune/        # Admin API
+│   ├── api/                  # Native API routes, auth extractors, and shared API helpers
 │   └── db/                   # Database queries
 ├── client/                   # Vite/React frontend
 │   ├── src/app/              # App router pages
@@ -42,7 +40,6 @@ ferrotune/
 │   ├── hurl/                 # Hurl HTTP test scripts
 │   └── fixtures/             # Test audio files
 └── docs/                     # Extended documentation
-    ├── API_STATUS.md         # Endpoint implementation status
     └── TESTING.md            # Comprehensive testing guide
 ```
 
@@ -150,29 +147,21 @@ moon run client:test-e2e-ui
 
 ### Backend (Rust)
 
-**Response Format**: Endpoints support both JSON and XML via `FormatResponse`:
-```rust
-pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Response>> {
-    Ok(FormatResponse::new(user.format, response))
-}
-```
+**Response Format**: Native API endpoints return JSON and use HTTP status codes directly.
 
-**Authentication**: Uses `AuthenticatedUser` extractor. Three methods:
-1. API Key: `?k=<token>`
-2. Token + Salt: `?t=<hash>&s=<salt>`
-3. Plain Password: `?p=<password>` (testing only)
+**Authentication**: Uses the `FerrotuneAuthenticatedUser` extractor. Browser and app clients use bearer session tokens; tests and command-line tools may use HTTP Basic auth. URL-only browser surfaces use short-lived scoped URL tokens.
 
 **Error Handling**: Use `Error` enum in `error.rs`:
 - `Error::NotFound(msg)` → 404
 - `Error::InvalidRequest(msg)` → 400
 - `Error::Unauthorized(msg)` → 401
 
-**Query Parameters**: Use custom deserializers in `query.rs` for Subsonic's quirky parameter handling (single values OR arrays).
+**Query Parameters**: Use custom deserializers in `query.rs` where endpoints need duplicate-key query parameters or single-value/array compatibility.
 
 ### Frontend (Vite/React)
 
 **State Management**: Jotai atoms in `src/lib/store/`
-**API Client**: `src/lib/api/client.ts` wraps OpenSubsonic calls
+**API Client**: `src/lib/api/client.ts` wraps native `/api` calls
 **Components**: Shadcn/ui components in `src/components/ui/`
 
 ---
@@ -207,7 +196,7 @@ pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Res
 
 ```typescript
 // ✅ Good - Use buildEndpoint for query parameters
-const endpoint = buildEndpoint(`/ferrotune/artists/${id}`, {
+const endpoint = buildEndpoint(`/api/artists/${id}`, {
   sort: options?.sort,
   sortDir: options?.sortDir,
   filter: options?.filter,
@@ -234,14 +223,12 @@ if (options?.sort) params.set("sort", options.sort);
 
 Read these when working on specific areas:
 
-- **[docs/API_STATUS.md](docs/API_STATUS.md)** - OpenSubsonic endpoint implementation status
 - **[docs/TESTING.md](docs/TESTING.md)** - Comprehensive testing guide with examples
 
 ---
 
 ## Resources
 
-- [OpenSubsonic API Spec](https://opensubsonic.netlify.app/)
 - [Hurl Documentation](https://hurl.dev/)
 - [Axum Documentation](https://docs.rs/axum/latest/axum/)
 - [Playwright Documentation](https://playwright.dev/)
@@ -253,7 +240,7 @@ Read these when working on specific areas:
 - Filtering and sorting logic is always implemented serverside, NEVER clientside. The server will anyway need to support filtering and sorting, since it's supposed to materialize playback queues from queueSource info so that we can efficiently start playback of giant track lists without loading everything clientside.
 - Always use virtualization (react-virtual) and "infinite scroll" for lists showing data from the library (e.g., library views, playlists, queue, search results, etc.) to ensure good performance with large libraries.
 - Always use moon tasks where applicable since these make use of caching
-- Only opensubsonic API endpoints need to support both JSON and XML responses. The ferrotune API is JSON-only. We should keep the opensubsonic API compatible with the spec as much as possible. If there's anything requiring out of spec behaviour, we should create a ferrotune-specific endpoint instead and implement the behaviour there.
+- The native Ferrotune API is JSON-only and mounted under `/api`.
 - We're using React Compiler, so we do not need to use React.memo or useMemo/useCallback anywhere.
 - Don't add linter ignores, instead fix the underlying issue.
 - After finishing your changes, run `moon run pre-ci` to ensure everything passes.

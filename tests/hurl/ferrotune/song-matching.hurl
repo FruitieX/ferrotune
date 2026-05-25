@@ -6,11 +6,11 @@
 # @requires_scan
 
 # ============================================================================
-# GET /ferrotune/songs/match-list (legacy endpoint)
+# GET /api/songs/match-list (legacy endpoint)
 # ============================================================================
 
 # Test: Get match list returns all songs
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -18,11 +18,11 @@ jsonpath "$.total" >= 0
 jsonpath "$.songs" isCollection
 
 # ============================================================================
-# POST /ferrotune/songs/match
+# POST /api/songs/match
 # ============================================================================
 
 # Test: Match tracks with exact title match
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -46,7 +46,7 @@ jsonpath "$.results" count == 1
 jsonpath "$.results[0].score" isFloat
 
 # Test: Match empty tracks returns empty results
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -61,7 +61,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 0
 
 # Test: Match with only title enabled
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -84,7 +84,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 1
 
 # Test: Match with raw string fallback when no structured fields
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -107,7 +107,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 1
 
 # Test: Match with no usable search terms returns score 0
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -132,7 +132,7 @@ jsonpath "$.results[0].score" == 0.0
 jsonpath "$.results[0].song" not exists
 
 # Test: Match multiple tracks in batch
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -169,7 +169,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 3
 
 # Test: Unauthorized request returns 401
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Content-Type: application/json
 {
   "tracks": [],
@@ -184,7 +184,7 @@ HTTP 401
 # ============================================================================
 
 # Test: Match fixture song with exact title and artist
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -211,7 +211,7 @@ jsonpath "$.results[0].song.artist" == "Test Artist"
 jsonpath "$.results[0].score" >= 0.9
 
 # Test: Match with extra words (remix, feat, etc) - token-based should handle this
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -237,7 +237,7 @@ jsonpath "$.results[0].song" != null
 jsonpath "$.results[0].score" >= 0.5
 
 # Test: Match with slightly different album name
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -262,7 +262,7 @@ jsonpath "$.results[0].song" != null
 jsonpath "$.results[0].song.title" == "FLAC Track One"
 
 # Test: Match using only partial information (title only)
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -287,7 +287,7 @@ jsonpath "$.results[0].song" != null
 jsonpath "$.results[0].song.title" == "Second Song"
 
 # Test: Duration bonus scoring
-POST {{base_url}}/ferrotune/songs/match
+POST {{base_url}}/api/songs/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -313,11 +313,11 @@ jsonpath "$.results[0].song" != null
 jsonpath "$.results[0].score" >= 0.9
 
 # ============================================================================
-# POST /ferrotune/albums/match
+# POST /api/albums/match
 # ============================================================================
 
 # Test: Match albums with exact name and artist
-POST {{base_url}}/ferrotune/albums/match
+POST {{base_url}}/api/albums/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -339,7 +339,7 @@ jsonpath "$.results[0].album.artist" == "Test Artist"
 jsonpath "$.results[0].score" >= 0.9
 
 # Test: Match empty albums returns empty results
-POST {{base_url}}/ferrotune/albums/match
+POST {{base_url}}/api/albums/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -352,7 +352,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 0
 
 # Test: Match album with only name (no artist)
-POST {{base_url}}/ferrotune/albums/match
+POST {{base_url}}/api/albums/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -372,7 +372,7 @@ jsonpath "$.results[0].album" != null
 jsonpath "$.results[0].album.name" == "Another Album"
 
 # Test: Match album with no usable search terms returns score 0
-POST {{base_url}}/ferrotune/albums/match
+POST {{base_url}}/api/albums/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -392,7 +392,7 @@ jsonpath "$.results[0].score" == 0.0
 jsonpath "$.results[0].album" not exists
 
 # Test: Match multiple albums in batch
-POST {{base_url}}/ferrotune/albums/match
+POST {{base_url}}/api/albums/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -418,7 +418,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 3
 
 # Test: Unauthorized request returns 401
-POST {{base_url}}/ferrotune/albums/match
+POST {{base_url}}/api/albums/match
 Content-Type: application/json
 {
   "albums": [],
@@ -427,11 +427,11 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# POST /ferrotune/artists/match
+# POST /api/artists/match
 # ============================================================================
 
 # Test: Match artists with exact name
-POST {{base_url}}/ferrotune/artists/match
+POST {{base_url}}/api/artists/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -450,7 +450,7 @@ jsonpath "$.results[0].artist.name" == "Test Artist"
 jsonpath "$.results[0].score" >= 0.9
 
 # Test: Match empty artists returns empty results
-POST {{base_url}}/ferrotune/artists/match
+POST {{base_url}}/api/artists/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -462,7 +462,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 0
 
 # Test: Match artist with no name returns score 0
-POST {{base_url}}/ferrotune/artists/match
+POST {{base_url}}/api/artists/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -480,7 +480,7 @@ jsonpath "$.results[0].score" == 0.0
 jsonpath "$.results[0].artist" not exists
 
 # Test: Match multiple artists in batch
-POST {{base_url}}/ferrotune/artists/match
+POST {{base_url}}/api/artists/match
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -502,7 +502,7 @@ jsonpath "$.results" isCollection
 jsonpath "$.results" count == 3
 
 # Test: Unauthorized request returns 401
-POST {{base_url}}/ferrotune/artists/match
+POST {{base_url}}/api/artists/match
 Content-Type: application/json
 {
   "artists": []
@@ -510,11 +510,11 @@ Content-Type: application/json
 HTTP 401
 
 # ============================================================================
-# GET /ferrotune/match-dictionary
+# GET /api/match-dictionary
 # ============================================================================
 
 # Test: Get match dictionary
-GET {{base_url}}/ferrotune/match-dictionary
+GET {{base_url}}/api/match-dictionary
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

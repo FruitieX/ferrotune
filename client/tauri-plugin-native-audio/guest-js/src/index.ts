@@ -115,16 +115,14 @@ export async function getSafeAreaInsets(): Promise<{ top: number; bottom: number
 export async function initSession(config: {
   serverUrl: string;
   username: string;
-  password?: string;
-  apiKey?: string;
+  sessionToken?: string;
   sessionId?: string;
   clientId?: string;
 }): Promise<void> {
   await invoke("plugin:native-audio|init_session", {
     serverUrl: config.serverUrl,
     username: config.username,
-    password: config.password,
-    apiKey: config.apiKey,
+    sessionToken: config.sessionToken,
     sessionId: config.sessionId,
     clientId: config.clientId,
   });

@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn embedded_server_config_stays_sqlite_only() {
-        let data_dir = PathBuf::from("/tmp/ferrotune-embedded-test");
+        let data_dir = PathBuf::from("/tmp/api-embedded-test");
         let config = build_embedded_config(&data_dir, "secret");
 
         assert_eq!(config.database.backend, DatabaseBackend::Sqlite);

@@ -9,7 +9,6 @@ import {
   Music2,
   Loader2,
   Server,
-  Key,
   User,
   Lock,
   AlertCircle,
@@ -27,7 +26,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Collapsible,
   CollapsibleContent,
@@ -45,7 +43,7 @@ import {
   type SavedAccount,
 } from "@/lib/store/auth";
 import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
-import type { ServerConnection } from "@/lib/api/types";
+import type { AuthLoginResponse, ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 import {
   isTauri,
@@ -65,7 +63,6 @@ export default function LoginPage() {
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
-  const [apiKey, setApiKey] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
@@ -116,12 +113,9 @@ export default function LoginPage() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-        const response = await fetch(
-          `${setupCheckUrl}/ferrotune/setup/status`,
-          {
-            signal: controller.signal,
-          },
-        );
+        const response = await fetch(`${setupCheckUrl}/api/setup/status`, {
+          signal: controller.signal,
+        });
         clearTimeout(timeoutId);
 
         if (!response.ok) {
@@ -167,25 +161,24 @@ export default function LoginPage() {
     try {
       // Get the embedded server URL and password
       const embeddedUrl = getApiBaseUrl();
-      const embeddedPassword = await getEmbeddedAdminPassword();
+      let embeddedPassword = await getEmbeddedAdminPassword();
 
       if (!embeddedPassword) {
         // Server might not be ready yet, wait a bit
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        const retryPassword = await getEmbeddedAdminPassword();
-        if (!retryPassword) {
+        embeddedPassword = await getEmbeddedAdminPassword();
+        if (!embeddedPassword) {
           throw new Error("Embedded server not ready. Please try again.");
         }
       }
 
-      const connection: ServerConnection = {
-        serverUrl: embeddedUrl,
-        username: "admin",
-        password: embeddedPassword || "",
-      };
-
-      const client = initializeClient(connection);
       setConnectionStatus("connecting");
+      const connection = await loginToServer(
+        embeddedUrl,
+        "admin",
+        embeddedPassword,
+      );
+      const client = initializeClient(connection);
 
       await client.ping();
 
@@ -207,7 +200,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleConnect = async (authMethod: "apikey" | "password") => {
+  const handleConnect = async () => {
     setIsConnecting(true);
     setError(null);
     setConnectionError(null);
@@ -230,27 +223,13 @@ export default function LoginPage() {
         url = `http://${url}`;
       }
 
-      // Build connection object
-      const connection: ServerConnection = {
-        serverUrl: url,
-      };
-
-      if (authMethod === "apikey") {
-        if (!apiKey.trim()) {
-          throw new Error("API key is required");
-        }
-        connection.apiKey = apiKey.trim();
-      } else {
-        if (!username.trim() || !password) {
-          throw new Error("Username and password are required");
-        }
-        connection.username = username.trim();
-        connection.password = password;
+      if (!username.trim() || !password) {
+        throw new Error("Username and password are required");
       }
 
-      // Initialize client and test connection
-      const client = initializeClient(connection);
       setConnectionStatus("connecting");
+      const connection = await loginToServer(url, username.trim(), password);
+      const client = initializeClient(connection);
 
       await client.ping();
 
@@ -280,6 +259,31 @@ export default function LoginPage() {
     }
   };
 
+  const loginToServer = async (
+    url: string,
+    loginUsername: string,
+    loginPassword: string,
+  ): Promise<ServerConnection> => {
+    const bootstrapClient = initializeClient({ serverUrl: url });
+    const response = await bootstrapClient.login(loginUsername, loginPassword);
+    return connectionFromLogin(url, response);
+  };
+
+  const connectionFromLogin = (
+    url: string,
+    response: AuthLoginResponse,
+  ): ServerConnection => ({
+    serverUrl: url,
+    username: response.user.username,
+    userId: response.user.id,
+    email: response.user.email,
+    isAdmin: response.user.isAdmin,
+    sessionToken: response.sessionToken,
+    sessionExpiresAt: response.sessionExpiresAt,
+    urlToken: response.urlToken,
+    urlTokenExpiresAt: response.urlTokenExpiresAt,
+  });
+
   const saveAccount = (connection: ServerConnection) => {
     const key = accountKey(connection);
     const account: SavedAccount = {
@@ -303,13 +307,23 @@ export default function LoginPage() {
     setConnectionError(null);
 
     try {
-      const client = initializeClient(account);
+      let client = initializeClient(account);
+      let connection = account;
       setConnectionStatus("connecting");
+      if (account.sessionToken) {
+        const urlToken = await client.refreshUrlToken();
+        connection = {
+          ...account,
+          urlToken: urlToken.urlToken,
+          urlTokenExpiresAt: urlToken.urlTokenExpiresAt,
+        };
+        client = initializeClient(connection);
+      }
       await client.ping();
 
-      setConnection(account);
+      setConnection(connection);
       setConnectionStatus("connected");
-      saveAccount(account);
+      saveAccount(connection);
       router.push("/");
     } catch (err) {
       console.error("Quick connect error:", err);
@@ -493,121 +507,69 @@ export default function LoginPage() {
                     </div>
                   )}
 
-                  {/* Auth method tabs */}
-                  <Tabs defaultValue="password" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="password">Password</TabsTrigger>
-                      <TabsTrigger value="apikey">API Key</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="password" className="space-y-4 mt-4">
-                      <div className="space-y-2">
-                        <label
-                          htmlFor="username"
-                          className="text-sm font-medium flex items-center gap-2"
-                        >
-                          <User className="w-4 h-4" />
-                          Username
-                        </label>
-                        <Input
-                          id="username"
-                          placeholder="admin"
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                          disabled={isConnecting}
-                          autoCapitalize="off"
-                          autoCorrect="off"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label
-                          htmlFor="password"
-                          className="text-sm font-medium flex items-center gap-2"
-                        >
-                          <Lock className="w-4 h-4" />
-                          Password
-                        </label>
-                        <Input
-                          id="password"
-                          type="password"
-                          placeholder="Enter your password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (
-                              e.key === "Enter" &&
-                              username &&
-                              password &&
-                              !isConnecting
-                            ) {
-                              handleConnect("password");
-                            }
-                          }}
-                          disabled={isConnecting}
-                        />
-                      </div>
-
-                      <Button
-                        className="w-full"
-                        onClick={() => handleConnect("password")}
-                        disabled={isConnecting || !username || !password}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="username"
+                        className="text-sm font-medium flex items-center gap-2"
                       >
-                        {isConnecting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          "Connect"
-                        )}
-                      </Button>
-                    </TabsContent>
+                        <User className="w-4 h-4" />
+                        Username
+                      </label>
+                      <Input
+                        id="username"
+                        placeholder="admin"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        disabled={isConnecting}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                      />
+                    </div>
 
-                    <TabsContent value="apikey" className="space-y-4 mt-4">
-                      <div className="space-y-2">
-                        <label
-                          htmlFor="api-key"
-                          className="text-sm font-medium flex items-center gap-2"
-                        >
-                          <Key className="w-4 h-4" />
-                          API Key
-                        </label>
-                        <Input
-                          id="api-key"
-                          type="password"
-                          placeholder="Enter your API key"
-                          value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && apiKey && !isConnecting) {
-                              handleConnect("apikey");
-                            }
-                          }}
-                          disabled={isConnecting}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          API keys provide secure authentication without sending
-                          passwords
-                        </p>
-                      </div>
-
-                      <Button
-                        className="w-full"
-                        onClick={() => handleConnect("apikey")}
-                        disabled={isConnecting || !apiKey}
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="password"
+                        className="text-sm font-medium flex items-center gap-2"
                       >
-                        {isConnecting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          "Connect"
-                        )}
-                      </Button>
-                    </TabsContent>
-                  </Tabs>
+                        <Lock className="w-4 h-4" />
+                        Password
+                      </label>
+                      <Input
+                        id="password"
+                        type="password"
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "Enter" &&
+                            username &&
+                            password &&
+                            !isConnecting
+                          ) {
+                            handleConnect();
+                          }
+                        }}
+                        disabled={isConnecting}
+                      />
+                    </div>
+
+                    <Button
+                      className="w-full"
+                      onClick={() => handleConnect()}
+                      disabled={isConnecting || !username || !password}
+                    >
+                      {isConnecting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        "Connect"
+                      )}
+                    </Button>
+                  </div>
 
                   {/* Server URL - in Advanced collapsible on web (non-mobile Tauri) */}
                   {!isMobileTauri && (

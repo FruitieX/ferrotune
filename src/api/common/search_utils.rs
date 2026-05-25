@@ -11,7 +11,7 @@ use crate::api::common::search::{
 };
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::{format_datetime_iso, format_datetime_iso_ms};
-use crate::api::subsonic::inline_thumbnails::{
+use crate::api::inline_thumbnails::{
     get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
 };
 use crate::db::models::ItemType;

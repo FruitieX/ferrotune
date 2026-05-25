@@ -362,7 +362,7 @@ pub async fn scan_library_with_progress(
             }
             // Update folder with error
             if !opts.dry_run {
-                let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
+                let _ = crate::api::music_folders::update_folder_scan_error(
                     &runtime_database,
                     folder.id,
                     &error_msg,
@@ -379,7 +379,7 @@ pub async fn scan_library_with_progress(
                 state.log("ERROR", &error_msg).await;
             }
             if !opts.dry_run {
-                let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
+                let _ = crate::api::music_folders::update_folder_scan_error(
                     &runtime_database,
                     folder.id,
                     &error_msg,
@@ -400,7 +400,7 @@ pub async fn scan_library_with_progress(
                 state.log("ERROR", &error_msg).await;
             }
             if !opts.dry_run {
-                let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
+                let _ = crate::api::music_folders::update_folder_scan_error(
                     &runtime_database,
                     folder.id,
                     &error_msg,
@@ -553,12 +553,11 @@ pub async fn scan_library_with_progress(
             match &folder_result {
                 Ok(_) => {
                     // Update last_scanned_at timestamp on success
-                    if let Err(e) =
-                        crate::api::ferrotune::music_folders::update_folder_scan_timestamp(
-                            &runtime_database,
-                            folder.id,
-                        )
-                        .await
+                    if let Err(e) = crate::api::music_folders::update_folder_scan_timestamp(
+                        &runtime_database,
+                        folder.id,
+                    )
+                    .await
                     {
                         tracing::warn!("Failed to update folder scan timestamp: {}", e);
                     }
@@ -566,13 +565,12 @@ pub async fn scan_library_with_progress(
                 Err(e) => {
                     // Store error message on failure
                     let error_msg = e.to_string();
-                    if let Err(update_err) =
-                        crate::api::ferrotune::music_folders::update_folder_scan_error(
-                            &runtime_database,
-                            folder.id,
-                            &error_msg,
-                        )
-                        .await
+                    if let Err(update_err) = crate::api::music_folders::update_folder_scan_error(
+                        &runtime_database,
+                        folder.id,
+                        &error_msg,
+                    )
+                    .await
                     {
                         tracing::warn!("Failed to update folder scan error: {}", update_err);
                     }

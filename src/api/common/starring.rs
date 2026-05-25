@@ -1,7 +1,7 @@
 //! Common starring and rating utilities.
 //!
 //! This module provides shared functionality for starring/favoriting items
-//! and rating operations, used by both Subsonic and Ferrotune APIs.
+//! and rating operations, used by both native API and Ferrotune APIs.
 
 use crate::api::common::browse::song_to_response_with_stats;
 use crate::api::common::models::{AlbumResponse, ArtistResponse, SongPlayStats, SongResponse};

@@ -88,7 +88,12 @@ export default function ProfilePage() {
     staleTime: 60000, // Cache for 1 minute
   });
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await getClient()?.logout();
+    } catch (error) {
+      console.warn("Failed to revoke server session during logout", error);
+    }
     queryClient.clear();
     setConnection(null);
     clearQueue();

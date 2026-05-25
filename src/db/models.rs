@@ -13,19 +13,6 @@ pub struct User {
     pub email: Option<String>,
     pub is_admin: bool,
     pub created_at: DateTime<Utc>,
-    /// Plaintext password for OpenSubsonic token+salt authentication (MD5-based)
-    /// This is required for legacy Subsonic protocol compatibility.
-    /// For better security, users should use API key authentication.
-    pub subsonic_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
-pub struct ApiKey {
-    pub token: String,
-    pub user_id: i64,
-    pub name: String,
-    pub created_at: DateTime<Utc>,
-    pub last_used: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
@@ -586,7 +573,7 @@ pub struct PlayQueue {
     pub session_id: Option<String>,
     /// Optimistic concurrency version counter, incremented on each mutation
     pub version: i64,
-    /// Which API created this queue: 'ferrotune' (live session) or 'subsonic' (save/restore)
+    /// Which runtime surface created this queue.
     pub source_api: String,
 }
 

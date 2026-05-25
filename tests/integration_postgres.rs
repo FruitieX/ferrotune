@@ -136,7 +136,7 @@ fn scan_library_via_api(server: &TestServer) -> Result<(), String> {
     let client = reqwest::blocking::Client::new();
 
     client
-        .post(format!("{}/ferrotune/scan", server.base_url))
+        .post(format!("{}/api/scan", server.base_url))
         .basic_auth(&server.admin_user, Some(&server.admin_password))
         .json(&serde_json::json!({}))
         .send()
@@ -147,7 +147,7 @@ fn scan_library_via_api(server: &TestServer) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let status: serde_json::Value = client
-            .get(format!("{}/ferrotune/scan/full", server.base_url))
+            .get(format!("{}/api/scan/full", server.base_url))
             .basic_auth(&server.admin_user, Some(&server.admin_password))
             .send()
             .map_err(|e| format!("Failed to poll scan status: {}", e))?

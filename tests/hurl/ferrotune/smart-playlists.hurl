@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Create a smart playlist matching all songs (playCount >= 0)
-POST {{base_url}}/ferrotune/smart-playlists
+POST {{base_url}}/api/smart-playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -43,7 +43,7 @@ jsonpath "$.name" == "Test Smart Playlist"
 # ============================================================================
 
 # List all smart playlists
-GET {{base_url}}/ferrotune/smart-playlists
+GET {{base_url}}/api/smart-playlists
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -56,7 +56,7 @@ jsonpath "$.smartPlaylists[0].rules" exists
 # ============================================================================
 
 # Get the created playlist
-GET {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}
+GET {{base_url}}/api/smart-playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -69,7 +69,7 @@ jsonpath "$.songCount" >= 0
 # ============================================================================
 
 # Update name and rules
-PUT {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}
+PUT {{base_url}}/api/smart-playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -88,7 +88,7 @@ Content-Type: application/json
 HTTP 204
 
 # Verify update
-GET {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}
+GET {{base_url}}/api/smart-playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -101,7 +101,7 @@ jsonpath "$.rules.conditions[0].field" == "year"
 # ============================================================================
 
 # Get songs from the smart playlist
-GET {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}/songs?offset=0&count=10
+GET {{base_url}}/api/smart-playlists/{{playlist_id}}/songs?offset=0&count=10
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -114,7 +114,7 @@ jsonpath "$.songs" isCollection
 # ============================================================================
 
 # Materialize into a regular playlist
-POST {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}/materialize
+POST {{base_url}}/api/smart-playlists/{{playlist_id}}/materialize
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -128,23 +128,24 @@ jsonpath "$.playlistId" exists
 jsonpath "$.name" == "Materialized From Smart"
 jsonpath "$.songCount" >= 0
 
-# Verify regular playlist was created (using Subsonic API for checking)
-GET {{base_url}}/rest/getPlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{materialized_id}}
+# Verify regular playlist was created
+GET {{base_url}}/api/playlists/{{materialized_id}}
+Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.subsonic-response.playlist.id" == "{{materialized_id}}"
+jsonpath "$.id" == "{{materialized_id}}"
 
 # ============================================================================
 # DELETE SMART PLAYLIST
 # ============================================================================
 
 # Delete the smart playlist
-DELETE {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}
+DELETE {{base_url}}/api/smart-playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
 # Verify deletion
-GET {{base_url}}/ferrotune/smart-playlists/{{playlist_id}}
+GET {{base_url}}/api/smart-playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]
@@ -155,7 +156,7 @@ jsonpath "$.error" contains "not found"
 # ============================================================================
 
 # Get a song ID for testing
-GET {{base_url}}/ferrotune/songs/match-list
+GET {{base_url}}/api/songs/match-list
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
@@ -163,7 +164,7 @@ test_song_id: jsonpath "$.songs[0].id"
 test_song_id2: jsonpath "$.songs[1].id"
 
 # Create two playlists and add different songs to each
-POST {{base_url}}/ferrotune/playlists
+POST {{base_url}}/api/playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -176,7 +177,7 @@ HTTP 200
 [Captures]
 test_playlist_a_id: jsonpath "$.playlistId"
 
-POST {{base_url}}/ferrotune/playlists
+POST {{base_url}}/api/playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -190,7 +191,7 @@ HTTP 200
 test_playlist_b_id: jsonpath "$.playlistId"
 
 # Create smart playlist with multi-select inPlaylist (array of IDs)
-POST {{base_url}}/ferrotune/smart-playlists
+POST {{base_url}}/api/smart-playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -214,14 +215,14 @@ HTTP 201
 multi_playlist_sp_id: jsonpath "$.id"
 
 # Verify the smart playlist contains songs from both playlists
-GET {{base_url}}/ferrotune/smart-playlists/{{multi_playlist_sp_id}}/songs?offset=0&count=100
+GET {{base_url}}/api/smart-playlists/{{multi_playlist_sp_id}}/songs?offset=0&count=100
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.totalCount" >= 2
 
 # Clean up
-DELETE {{base_url}}/ferrotune/smart-playlists/{{multi_playlist_sp_id}}
+DELETE {{base_url}}/api/smart-playlists/{{multi_playlist_sp_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
@@ -230,7 +231,7 @@ HTTP 204
 # ============================================================================
 
 # Create a folder
-POST {{base_url}}/ferrotune/playlist-folders
+POST {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -241,7 +242,7 @@ HTTP 200
 test_folder_id: jsonpath "$.id"
 
 # Move playlist A into the folder
-PATCH {{base_url}}/ferrotune/playlists/{{test_playlist_a_id}}/move
+PATCH {{base_url}}/api/playlists/{{test_playlist_a_id}}/move
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -250,12 +251,12 @@ Content-Type: application/json
 HTTP 204
 
 # Verify move worked by checking playlist info
-GET {{base_url}}/ferrotune/playlist-folders
+GET {{base_url}}/api/playlist-folders
 Authorization: Basic {{auth_basic}}
 HTTP 200
 
 # Create smart playlist with inPlaylistFolder filter
-POST {{base_url}}/ferrotune/smart-playlists
+POST {{base_url}}/api/smart-playlists
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
@@ -279,25 +280,25 @@ HTTP 201
 folder_sp_id: jsonpath "$.id"
 
 # Verify the smart playlist contains songs from the folder's playlists
-GET {{base_url}}/ferrotune/smart-playlists/{{folder_sp_id}}/songs?offset=0&count=100
+GET {{base_url}}/api/smart-playlists/{{folder_sp_id}}/songs?offset=0&count=100
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.totalCount" >= 1
 
 # Clean up
-DELETE {{base_url}}/ferrotune/smart-playlists/{{folder_sp_id}}
+DELETE {{base_url}}/api/smart-playlists/{{folder_sp_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
-DELETE {{base_url}}/ferrotune/playlists/{{test_playlist_a_id}}
+DELETE {{base_url}}/api/playlists/{{test_playlist_a_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
-DELETE {{base_url}}/ferrotune/playlists/{{test_playlist_b_id}}
+DELETE {{base_url}}/api/playlists/{{test_playlist_b_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
 
-DELETE {{base_url}}/ferrotune/playlist-folders/{{test_folder_id}}
+DELETE {{base_url}}/api/playlist-folders/{{test_folder_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204

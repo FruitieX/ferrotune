@@ -214,24 +214,25 @@ type Credentials = {
   password: string;
 };
 
+type AuthLoginResponse = {
+  user: {
+    id: number;
+    username: string;
+    email?: string | null;
+    isAdmin: boolean;
+  };
+  sessionToken: string;
+  sessionExpiresAt: string;
+  urlToken: string;
+  urlTokenExpiresAt: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
 function isScanStatus(value: unknown): value is ScanStatus {
   return isRecord(value) && typeof value.scanning === "boolean";
-}
-
-function authParams(username: string, password: string): string {
-  const params = new URLSearchParams({
-    u: username,
-    p: password,
-    v: "1.16.1",
-    c: "e2e-test",
-    f: "json",
-  });
-
-  return params.toString();
 }
 
 function basicAuthHeader({ username, password }: Credentials): string {
@@ -254,18 +255,40 @@ async function fetchOrThrow(
   return response;
 }
 
+export async function loginForSession(
+  baseUrl: string,
+  credentials: Credentials,
+): Promise<AuthLoginResponse> {
+  const response = await fetchOrThrow(
+    `${baseUrl}/api/auth/login`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: credentials.username,
+        password: credentials.password,
+        clientName: "playwright-e2e",
+      }),
+    },
+    "Create auth session",
+  );
+
+  return (await response.json()) as AuthLoginResponse;
+}
+
 async function waitForScanComplete(
   baseUrl: string,
-  username: string,
-  password: string,
+  credentials: Credentials,
 ): Promise<void> {
   const deadline = Date.now() + 60000;
-  const query = authParams(username, password);
 
   while (Date.now() < deadline) {
     const response = await fetchOrThrow(
-      `${baseUrl}/ferrotune/scan/full?${query}`,
-      { method: "GET" },
+      `${baseUrl}/api/scan/full`,
+      {
+        method: "GET",
+        headers: { Authorization: basicAuthHeader(credentials) },
+      },
       "Scan status request",
     );
     const status: unknown = await response.json();
@@ -296,13 +319,14 @@ async function seedServer(
   instanceName: string,
   musicDir: string,
 ): Promise<void> {
-  const bootstrapQuery = authParams(bootstrap.username, bootstrap.password);
-
   await fetchOrThrow(
-    `${baseUrl}/ferrotune/music-folders?${bootstrapQuery}`,
+    `${baseUrl}/api/music-folders`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: basicAuthHeader(bootstrap),
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         name: "Test Music",
         path: musicDir,
@@ -313,7 +337,7 @@ async function seedServer(
   );
 
   await fetchOrThrow(
-    `${baseUrl}/ferrotune/users`,
+    `${baseUrl}/api/users`,
     {
       method: "POST",
       headers: {
@@ -331,13 +355,14 @@ async function seedServer(
     "Create primary test user",
   );
 
-  const query = authParams(primary.username, primary.password);
-
   await fetchOrThrow(
-    `${baseUrl}/ferrotune/config?${query}`,
+    `${baseUrl}/api/config`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: basicAuthHeader(primary),
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         serverName: `Ferrotune E2E ${instanceName}`,
         maxCoverSize: 512,
@@ -348,19 +373,25 @@ async function seedServer(
   );
 
   await fetchOrThrow(
-    `${baseUrl}/ferrotune/scan?${query}`,
+    `${baseUrl}/api/scan`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: basicAuthHeader(primary),
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({}),
     },
     "Start library scan",
   );
-  await waitForScanComplete(baseUrl, primary.username, primary.password);
+  await waitForScanComplete(baseUrl, primary);
 
   await fetchOrThrow(
-    `${baseUrl}/ferrotune/setup/complete?${query}`,
-    { method: "POST" },
+    `${baseUrl}/api/setup/complete`,
+    {
+      method: "POST",
+      headers: { Authorization: basicAuthHeader(primary) },
+    },
     "Complete setup",
   );
 }
@@ -431,8 +462,9 @@ async function spawnServer(instanceName: string): Promise<ServerInfo> {
   });
 
   // Wait for server to be ready
-  const pingUrl = `http://127.0.0.1:${port}/rest/ping?u=${bootstrap.username}&p=${bootstrap.password}&v=1.16.1&c=test&f=json`;
-  const ready = await waitForServer(pingUrl);
+  const ready = await waitForServer(
+    `http://127.0.0.1:${port}/api/setup/status`,
+  );
 
   if (!ready) {
     console.error(
@@ -463,10 +495,21 @@ async function setupAuthenticatedPage(page: Page, server: ServerInfo) {
 
   await resetState(page, server);
 
-  await setStoredConnection(page, {
-    serverUrl: server.url,
+  const login = await loginForSession(server.url, {
     username: server.username,
     password: server.password,
+  });
+
+  await setStoredConnection(page, {
+    serverUrl: server.url,
+    username: login.user.username,
+    userId: login.user.id,
+    email: login.user.email ?? null,
+    isAdmin: login.user.isAdmin,
+    sessionToken: login.sessionToken,
+    sessionExpiresAt: login.sessionExpiresAt,
+    urlToken: login.urlToken,
+    urlTokenExpiresAt: login.urlTokenExpiresAt,
   });
 
   // Navigate back into the app explicitly so we don't get stuck reloading /login.
@@ -751,7 +794,7 @@ export async function login(
 /**
  * Helper to reset all server state for test isolation.
  *
- * This calls the /ferrotune/testing/reset endpoint which clears:
+ * This calls the /api/testing/reset endpoint which clears:
  * - Play queues and preferences
  * - Starred items and ratings
  * - Playlists and smart playlists
@@ -764,10 +807,11 @@ export async function resetServerState(
   page: Page,
   server: ServerInfo,
 ): Promise<void> {
-  const authParams = `u=${server.username}&p=${server.password}&v=1.16.1&c=e2e-test`;
-  const response = await page.request.post(
-    `${server.url}/ferrotune/testing/reset?${authParams}`,
-  );
+  const response = await page.request.post(`${server.url}/api/testing/reset`, {
+    headers: {
+      Authorization: basicAuthHeader(server),
+    },
+  });
 
   if (!response.ok()) {
     const body = await response.text();
@@ -779,11 +823,41 @@ export async function resetServerState(
  * Helper to clear browser state (localStorage, sessionStorage).
  */
 export async function clearBrowserState(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.open("ferrotune-cache");
+      request.onerror = () => resolve();
+      request.onsuccess = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains("cache-store")) {
+          db.close();
+          resolve();
+          return;
+        }
+
+        const tx = db.transaction("cache-store", "readwrite");
+        tx.objectStore("cache-store").clear();
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      };
+    });
+
     // Clear storage but keep auth state
     const connection = localStorage.getItem("ferrotune-connection");
     localStorage.clear();
     sessionStorage.clear();
+    delete (
+      globalThis as typeof globalThis & {
+        __ferrotuneServerStorageState?: unknown;
+      }
+    ).__ferrotuneServerStorageState;
+
     // Restore connection so page stays authenticated
     if (connection) {
       localStorage.setItem("ferrotune-connection", connection);

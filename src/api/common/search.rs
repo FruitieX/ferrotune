@@ -1,7 +1,7 @@
 //! Common search logic and utilities.
 //!
 //! This module provides shared search-related functionality used by both
-//! the OpenSubsonic API and the Ferrotune Admin API.
+//! the native API API and the Ferrotune Admin API.
 //!
 //! DB-bound functions execute dialect-specific SQL directly via
 //! `sea_orm::Statement`. SQLite uses FTS5 (`MATCH`), PostgreSQL uses
@@ -526,7 +526,7 @@ async fn count_songs_unified(
     Ok(row.map(|r| r.count).unwrap_or(0))
 }
 
-/// Search parameters shared by both OpenSubsonic search3 and Ferrotune search endpoints.
+/// Search parameters shared by both native API search3 and Ferrotune search endpoints.
 #[derive(Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]

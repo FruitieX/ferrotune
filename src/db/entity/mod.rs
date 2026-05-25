@@ -3,8 +3,9 @@
 pub mod prelude;
 
 pub mod albums;
-pub mod api_keys;
 pub mod artists;
+pub mod auth_sessions;
+pub mod auth_url_tokens;
 pub mod cover_art_thumbnails;
 pub mod disabled_songs;
 pub mod listening_sessions;
