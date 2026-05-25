@@ -1,18 +1,19 @@
-# Ferrotune
+# ![Ferrotune logo](/docs/logo.png)
 
-A self-hosted music server written in Rust with a Vite/React web client.
+A self-hosted music server written in Rust with a React web client and Tauri Android client.
 
-AI tools were used during development. Review important behavior yourself before relying on it.
+AI tools were used during development. You have been warned.
 
-Ferrotune is experimental software and not yet ready for production use. Back up your music library and database before installing.
+Ferrotune is experimental software. Back up your music library before installing. Periodically back up your Ferrotune database if you end up using it long-term.
 
 Ferrotune focuses on:
 
+- Performance and user experience
 - A built-in web client for playback, administration, and library curation
-- A native JSON API used by the web and mobile clients
-- Import tools for playlists, favorites, and play history
-- Listening statistics and library management features
-- Large-library performance with virtualization, lazy loading, and server-side queue materialization
+- Import tools for playlists, favorites, and play history to onboard from existing platforms
+- Listening statistics and library management features (smart playlists, tag editing, batch renaming, etc)
+
+A more complete feature list can be found in [docs/FEATURES.md](docs/FEATURES.md).
 
 ![Screenshot of the Ferrotune web client showing the home page](/docs/screenshot.png)
 
@@ -47,7 +48,7 @@ docker run -d \
 
 On first run, open `http://localhost:4040` in your browser, follow the guided setup wizard, and add `/music` as your library path inside the container.
 
-### Direct Binary Examples
+### Binary Examples
 
 SQLite with a dedicated data directory:
 
@@ -80,6 +81,21 @@ moon run :dev
 
 # Run the full local validation suite
 moon run pre-ci
+
+# Build release binary with embedded UI
+moon run build-release-ui
+```
+
+## Deploying Android .apk
+
+Make sure you've connected an Android device with USB debugging enabled, run `adb usb` and make sure `adb devices` lists your device.
+
+Then run:
+
+```bash
+nix develop .#android
+
+moon run client:tauri-android-deploy
 ```
 
 ## License

@@ -1,0 +1,101 @@
+# Features
+
+## Server
+
+- **Self-hosted music server** for streaming and curating a personal music library
+- **Built-in web client** served by the same backend for browser-based playback and administration
+- **Simple deployment options** with SQLite by default and optional PostgreSQL storage
+- **Guided first-run setup** for getting from a fresh install to a usable server
+- **Multi-user accounts and library access** with admin roles and per-folder visibility
+- **Multiple music folders** with names, paths, watch settings, and folder-level stats
+- **Library scanning and watching** for full scans, incremental scans, dry runs, single-folder scans, and changed-file rescans
+- **Broad audio format support** for MP3, FLAC, Ogg, Opus, M4A/AAC, MP4, and WAV libraries
+- **Duplicate detection** for finding repeated files across a library
+- **ReplayGain analysis** with computed loudness and true-peak data
+- **Waveform analysis** for rich player progress visualizations
+- **Bliss similarity analysis** for acoustic song recommendations and song radio
+- **Cover art processing** with extraction, resizing, caching, thumbnails, and inline artwork responses
+- **Streaming, downloads, and transcoding** with seekable playback, Opus/Ogg conversion, bitrate limits, ReplayGain, and cache reuse
+- **Artist, album, song, genre, and filesystem browsing** with server-side pagination
+- **Full-library search** across artists, albums, and songs
+- **Server-side sorting and filtering** so large views and playback queues stay consistent
+- **Curated album and song lists** for discovery, recently added music, frequent plays, recent plays, favorites, years, and genres
+- **Personalized Home data** for Continue Listening, Most Played Recently, Recently Added, Forgotten Favorites, Discover, and generated sections
+- **Continue Listening** for resuming recent albums, playlists, smart playlists, song radio, history, and generated queues
+- **Favorites and ratings** for songs, albums, and artists
+- **Listening history and period reviews** with durations, skips, source information, play counts, top tracks, top albums, and top artists
+- **Scrobble and play-count imports** for bringing existing listening history into Ferrotune
+- **Last.fm integration** for account connection, now-playing updates, scrobbling, and configuration
+- **Playlist management** with import, editing, reordering, song add/remove, and paginated playlist contents
+- **Playlist folders and sharing** with hierarchy, ordering, custom folder covers, per-user edit permissions, and ownership transfer
+- **Playlist import matching** with missing-entry preservation, fuzzy song/album/artist matching, and match dictionary reuse
+- **Smart playlists** with AND/OR rules, sorting, max-song limits, public visibility, folders, pagination, and materialization into regular playlists
+- **Server-side playback queues** generated from albums, artists, playlists, smart playlists, genres, search, favorites, history, directories, song radio, and generated lists
+- **Large queue windows** for adding, removing, moving, clearing, shuffling, repeating, and updating playback position without loading every track client-side
+- **Multi-client playback sessions** with connected clients, audio ownership, followers, remote commands, and live events
+- **Shuffle exclusions and disabled songs** for controlling what appears in normal playback without deleting files
+- **Recycle bin and history cleanup** for restoring, permanently deleting, purging songs, and cleaning up scrobbles or listening sessions
+- **Tagger backend and workspaces** for uploaded files, existing library tracks, batch edits, cover art, replacement audio, rescans, saves, renames, progress, and reusable scripts
+- **Account-scoped preferences** for syncing client settings through the server
+
+## Web client
+
+- **Responsive web client** for desktop, tablet, and mobile browser use
+- **Guided setup, login, and account switching** for first-run configuration, returning users, and saved servers
+- **Desktop and mobile navigation** with sidebar, mobile nav, swipeable footer, and queue sheet layouts
+- **Persistent player bar** with now-playing metadata, cover art, progress, volume, shuffle, repeat, and queue controls
+- **Fullscreen player** with larger artwork, connected-client controls, Cast state, progress controls, and mobile-friendly playback actions
+- **Gapless web playback** using next-track prebuffering
+- **Audio quality controls** for ReplayGain, transcoding bitrate, seek behavior, clipping detection, and waveform scrubbing
+- **Virtualized queue** with scroll-to-current, add next/end, remove, move, shuffle, repeat, clear, and source links
+- **Remote playback ownership** for taking over playback locally or controlling another connected client
+- **Chromecast casting** through a dedicated Cast client path
+- **Keyboard shortcuts** for common playback and navigation actions
+- **Customizable Home dashboard** with configurable sections and per-account preferences
+- **Quick action tiles** that can open, play, or shuffle favorites, history, generated sections, playlists, smart playlists, and saved accounts
+- **Continue Listening shelf** for jumping back into recent albums, playlists, smart playlists, song radio, and generated queues
+- **Library browser** for artists, albums, songs, genres, and files
+- **Large-library views** with grid/list modes, virtualization, infinite loading, and scroll restoration
+- **Server-backed filtering and sorting** with advanced text, number, date, boolean, library, playlist, and playlist-folder filters
+- **Artist, album, and genre pages** with discographies, cover art, track listings, playback actions, favorites, ratings, and bulk selection
+- **Filesystem browser** for folder-by-folder navigation and directory-based playback
+- **Advanced search** with full-library results, filters, recent query state, and media actions
+- **Favorites hub** with song, album, and artist tabs
+- **Listening history and cleanup** for browsing, filtering, selecting, and deleting scrobbles or listening sessions
+- **Import hub** for music uploads, playlist imports, favorite imports, play-count imports, scans, and recycle-bin access
+- **Playlist import wizard** for M3U, M3U8, PLS, and CSV files with automatic matching, manual review, missing-entry preservation, and original-line export
+- **Favorites and play-count import wizards** for CSV or JSON favorites, scrobbles, play counts, and timestamped listening sessions
+- **Playlist organizer** with folders, custom folder covers, create/edit/delete/move actions, ordering, and shared playlist indicators
+- **Playlist detail tools** for virtualized songs, filtering, sorting, custom order, missing entries, mass resolve, refined matching, sharing, and ownership transfer
+- **Smart playlist builder** with presets, AND/OR rules, dynamic fields, sort settings, max-song limits, folders, preview, editing, and materialization
+- **Song Radio page** built from server-side similarity results
+- **Context menus and drawers** for songs, albums, artists, genres, playlists, smart playlists, folders, and queue entries
+- **Bulk actions** for playing, queueing, starring, unstarring, adding to playlists, merging playlists, disabling songs, and shuffle-excluding songs
+- **Details and artwork dialogs** for inspecting media and opening larger cover art
+- **Tagger workspace** with spreadsheet-style metadata editing for uploaded files and existing library tracks
+- **Persistent tagger sessions** with visible columns, staged tracks, pending edits, cover-art edits, replacement audio, scripts, and active rename settings
+- **Rename and tag scripts** with a script manager, conflict checks, dangerous-character handling, and find-misnamed-songs workflow
+- **Admin scan dashboard** with scan controls, live progress, virtualized logs, and ReplayGain/waveform/bliss analysis toggles
+- **Admin management screens** for music folders, users, library access, server settings, and recycle-bin operations
+- **Settings and Last.fm** for appearance, player behavior, account/server information, Last.fm connection, and scrobble settings
+- **Profile and Your Review** with account details, listening stats, yearly/monthly totals, top music, inline artwork, playback actions, and playlist creation from top tracks
+- **Lazy artwork and local caches** for smoother browsing on large libraries
+- **Now-playing title and favicon** updates based on the current track
+
+## Android client
+
+- **Tauri Android app** that reuses the responsive web client UI
+- **Native Android playback service** built on Media3 and ExoPlayer
+- **Background playback** when the app is minimized or the screen is off
+- **System media controls** in notifications and on the lock screen
+- **Bluetooth and headset controls** with track metadata
+- **Autonomous native queue playback** for skip, shuffle, repeat, position sync, and queue-window prefetching without keeping the WebView in charge
+- **Mobile scrobbling and listening progress** while playback continues in the background
+- **Native ReplayGain processing** with clipping callbacks back into the web UI
+- **Synced playback settings** for transcoding, ReplayGain, scrobble threshold, shuffle, and repeat
+- **Resilient mobile streaming** with large buffers, retry handling, and a local stream cache
+- **Background session events** for ownership changes, remote commands, and queue updates
+- **Rich media artwork** in Android notifications and Wear-friendly fallback artwork
+- **Star from media controls** through the custom Android media-session action
+- **Edge-to-edge mobile UI** with safe-area handling and resume repaint fixes
+- **Plain-HTTP server support** for self-hosted LAN deployments from the secure Android WebView
