@@ -2,90 +2,70 @@
 
 A self-hosted music server written in Rust with a Vite/React web client.
 
-⚠️ Note on AI usage: Claude Opus 4.5 was used during development of this project.
+AI tools were used during development. Review important behavior yourself before relying on it.
 
-⚠️ **Experimental Software**: Ferrotune is under active development and not yet ready for production use. **Please backup your music library before installing.** It is advised to take regular backups of the database as well.
+Ferrotune is experimental software and not yet ready for production use. Back up your music library and database before installing.
 
-- **Modern web client**
-  - Built-in web UI for administration, library curation and playback on desktop
-- **User-friendly data migration**
-  - Import playlists, play counts, favorites from e.g. CSV files
-  - UI with smart matching of imported data to library
-  - Supports importing playlist entries with no matches in library, with deferred matching
-- **Native API**
-  - JSON API used by the web and mobile clients
-- **Configless operation**
-  - Runtime settings use environment variables and the web UI
-- **Listening statistics**
-  - Track your listening history and habits
-- **High performance**
-  - Lists in the UI are virtualized and lazy loaded
-  - Playback queue is computed serverside, so starting playback from a list with 10k tracks is fast
+Ferrotune focuses on:
+
+- A built-in web client for playback, administration, and library curation
+- A native JSON API used by the web and mobile clients
+- Import tools for playlists, favorites, and play history
+- Listening statistics and library management features
+- Large-library performance with virtualization, lazy loading, and server-side queue materialization
+
+![Screenshot of the Ferrotune web client showing the home page](/docs/screenshot.png)
 
 ## Quick Start
 
+### Docker Examples
+
+Container images are published to `ghcr.io/fruitiex/ferrotune`. Use a release tag when available; `:main` tracks the latest build from the default branch.
+
+SQLite with a persistent data volume:
+
 ```bash
-moon run install
-ferrotune serve
+docker run -d \
+  --name ferrotune \
+  -p 4040:4040 \
+  -v /path/to/music:/music:ro \
+  -v ferrotune-data:/data \
+  ghcr.io/fruitiex/ferrotune:main
 ```
 
-On first run, open `http://localhost:4040` in your browser to:
-1. Sign in with default credentials (admin/admin)
-2. Change your password
-3. Add your music folders
-4. Scan your library
+Postgres with a persistent cache/data volume:
 
-### Environment Variables
+```bash
+docker run -d \
+  --name ferrotune \
+  -p 4040:4040 \
+  -v /path/to/music:/music:ro \
+  -v ferrotune-data:/data \
+  -e FERROTUNE_DATABASE_URL="postgres://ferrotune:ferrotune@postgres:5432/ferrotune" \
+  ghcr.io/fruitiex/ferrotune:main
+```
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `FERROTUNE_DATABASE_URL` | Database connection URL. | unset (falls back to SQLite at `FERROTUNE_DATA_DIR`) |
-| `FERROTUNE_DATA_DIR` | Directory for database and cache | Platform-specific |
-| `FERROTUNE_TRANSCODE_CACHE_PATH` | Directory for byte-range-addressable transcoded stream cache | `$TMPDIR/ferrotune/transcodes` |
-| `FERROTUNE_TRANSCODE_CACHE_MAX_MB` | Max transcoded stream cache size in MiB before LRU eviction | `10240` |
-| `FERROTUNE_HOST` | Server bind address | `127.0.0.1` |
-| `FERROTUNE_PORT` | Server port | `4040` |
+On first run, open `http://localhost:4040` in your browser, follow the guided setup wizard, and add `/music` as your library path inside the container.
 
-`FERROTUNE_DATABASE_URL` accepted schemes:
+### Direct Binary Examples
 
-- `sqlite:///absolute/path/to/file.db` or `sqlite:relative.db` — SQLite file
-- `postgres://user:pw@host:5432/dbname` or `postgresql://…` — PostgreSQL server
+SQLite with a dedicated data directory:
 
-Example (configless Postgres):
+```bash
+FERROTUNE_DATA_DIR=/var/lib/ferrotune \
+  ferrotune serve
+```
+
+This stores the default SQLite database at `/var/lib/ferrotune/ferrotune.db` and cache data under `/var/lib/ferrotune/cache/`.
+
+Postgres:
 
 ```bash
 FERROTUNE_DATABASE_URL="postgres://ferrotune:ferrotune@localhost:5432/ferrotune" \
-  ferrotune serve --host 0.0.0.0 --port 4040
+  ferrotune serve
 ```
 
-When `FERROTUNE_DATA_DIR` is set:
-- Database: `$FERROTUNE_DATA_DIR/ferrotune.db` (if `FERROTUNE_DATABASE_URL` is unset)
-- Cache: `$FERROTUNE_DATA_DIR/cache/`
-
-For Kubernetes/container deployments, point the transcode cache at an ephemeral volume:
-
-```bash
-FERROTUNE_TRANSCODE_CACHE_PATH=/cache/transcodes \
-FERROTUNE_TRANSCODE_CACHE_MAX_MB=20480 \
-  ferrotune serve --host 0.0.0.0 --port 4040
-```
-
-## CLI Commands
-
-```bash
-# Start the server (default command)
-ferrotune serve --host 0.0.0.0 --port 4040
-
-# Scan music library
-ferrotune scan              # Incremental scan
-ferrotune scan --full       # Full rescan (refresh all metadata)
-ferrotune scan --folder 1   # Scan specific folder
-ferrotune scan --dry-run    # Preview changes
-
-# User management
-ferrotune create-user --username alice --password secret --admin
-ferrotune set-password --username alice --password newsecret
-```
+For the full environment variable reference, see [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
 
 ## Development
 
@@ -98,8 +78,8 @@ nix develop
 # Start backend + frontend dev servers
 moon run :dev
 
-# Run CI checks
-moon run ci-all
+# Run the full local validation suite
+moon run pre-ci
 ```
 
 ## License
