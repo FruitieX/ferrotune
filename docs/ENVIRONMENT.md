@@ -13,6 +13,16 @@ Ferrotune is configured primarily through `FERROTUNE_*` environment variables. T
 | `FERROTUNE_TRANSCODE_CACHE_PATH` | system temp dir + `/ferrotune/transcodes` | Directory used for the byte-range-addressable transcode cache. Useful when you want the transcode cache on a dedicated or ephemeral volume. |
 | `FERROTUNE_TRANSCODE_CACHE_MAX_MB` | `10240` | Maximum transcode cache size in MiB before LRU eviction. |
 
+## Logging
+
+Ferrotune logs through `tracing_subscriber` and honors the standard `RUST_LOG` environment variable. Without `RUST_LOG`, the server defaults to `ferrotune=info,tower_http=info`. For production incident debugging, prefer this first:
+
+```bash
+RUST_LOG=ferrotune=debug,tower_http=info
+```
+
+This enables Ferrotune's own stream/transcode/API diagnostics while avoiding broad lower-level HTTP debug noise. Logs can reveal listening activity, song ids, request timing, and library paths, so avoid retaining or sharing them more widely than needed. Do not enable header-level request logging unless Authorization and token-bearing query parameters are verified as redacted.
+
 ## CORS Configuration
 
 These variables only matter when the server is bound to a non-local host. When running on `127.0.0.1` or `localhost`, Ferrotune allows any origin for local development.

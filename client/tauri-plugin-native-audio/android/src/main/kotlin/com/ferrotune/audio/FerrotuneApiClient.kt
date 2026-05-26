@@ -22,6 +22,7 @@ data class SessionConfig(
     val serverUrl: String,
     val username: String? = null,
     val sessionToken: String? = null,
+    val sessionExpiresAt: String? = null,
     val sessionId: String? = null,
     val clientId: String? = null,
 )
@@ -116,11 +117,25 @@ class FerrotuneApiClient {
     fun setSessionConfig(config: SessionConfig) {
         Log.d(TAG, "Session configured: serverUrl=${config.serverUrl}, " +
             "username=${config.username}, hasSessionToken=${config.sessionToken != null}, " +
-            "sessionId=${config.sessionId}")
+            "hasSessionExpiresAt=${config.sessionExpiresAt != null}, sessionId=${config.sessionId}")
+        NativeAudioLogger.info(
+            TAG,
+            "api_session_configured",
+            "Ferrotune API session configured",
+            mapOf(
+                "serverUrl" to config.serverUrl,
+                "username" to config.username,
+                "hasSessionToken" to (config.sessionToken != null),
+                "hasSessionExpiresAt" to (config.sessionExpiresAt != null),
+                "sessionId" to config.sessionId,
+                "clientId" to config.clientId,
+            ),
+        )
         sessionConfig = config
     }
 
     fun clearSessionConfig() {
+        NativeAudioLogger.info(TAG, "api_session_cleared", "Ferrotune API session config cleared")
         sessionConfig = null
     }
 
@@ -132,9 +147,16 @@ class FerrotuneApiClient {
         val config = sessionConfig
         if (config != null) {
             Log.d(TAG, "Updating sessionId: ${config.sessionId} -> $sessionId")
+            NativeAudioLogger.info(
+                TAG,
+                "api_session_id_updated",
+                "Ferrotune API session id updated",
+                mapOf("oldSessionId" to config.sessionId, "newSessionId" to sessionId),
+            )
             sessionConfig = config.copy(sessionId = sessionId)
         } else {
             Log.w(TAG, "updateSessionId called but no session config set yet")
+            NativeAudioLogger.warn(TAG, "api_session_id_update_ignored", "updateSessionId called without session config")
         }
     }
 
@@ -180,6 +202,19 @@ class FerrotuneApiClient {
         if (timeOffsetSeconds > 0) {
             uriBuilder.appendQueryParameter("timeOffset", timeOffsetSeconds.toString())
         }
+        NativeAudioLogger.debug(
+            TAG,
+            "stream_url_built",
+            "Built native stream URL metadata",
+            mapOf(
+                "songId" to songId,
+                "transcoding" to settings.transcodingEnabled,
+                "bitrate" to settings.transcodingBitrate,
+                "format" to if (settings.transcodingEnabled) "opus" else null,
+                "timeOffsetSeconds" to timeOffsetSeconds,
+                "hasAuthHeader" to (config.sessionToken != null),
+            ),
+        )
         return uriBuilder.build().toString()
     }
 
@@ -329,10 +364,23 @@ class FerrotuneApiClient {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Scrobble failed: ${response.code} for song $songId")
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "scrobble_failed",
+                        "Scrobble failed",
+                        mapOf("songId" to songId, "httpStatus" to response.code),
+                    )
                 }
             }
         } catch (e: IOException) {
             Log.w(TAG, "Scrobble network error for song $songId", e)
+            NativeAudioLogger.warn(
+                TAG,
+                "scrobble_network_error",
+                "Scrobble network error",
+                mapOf("songId" to songId),
+                e,
+            )
         }
     }
 
@@ -369,10 +417,34 @@ class FerrotuneApiClient {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Heartbeat failed: ${response.code}")
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "heartbeat_failed",
+                        "Playback heartbeat failed",
+                        mapOf(
+                            "sessionId" to sessionId,
+                            "httpStatus" to response.code,
+                            "currentIndex" to currentIndex,
+                            "positionMs" to positionMs,
+                            "currentSongId" to currentSongId,
+                        ),
+                    )
                 }
             }
         } catch (e: IOException) {
             Log.w(TAG, "Heartbeat network error", e)
+            NativeAudioLogger.warn(
+                TAG,
+                "heartbeat_network_error",
+                "Playback heartbeat network error",
+                mapOf(
+                    "sessionId" to sessionId,
+                    "currentIndex" to currentIndex,
+                    "positionMs" to positionMs,
+                    "currentSongId" to currentSongId,
+                ),
+                e,
+            )
         }
     }
 
@@ -401,16 +473,51 @@ class FerrotuneApiClient {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "takeOver failed: ${response.code}")
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "takeover_failed",
+                        "Session takeOver command failed",
+                        mapOf(
+                            "sessionId" to sessionId,
+                            "clientId" to clientId,
+                            "httpStatus" to response.code,
+                            "positionMs" to positionMs,
+                            "currentIndex" to currentIndex,
+                        ),
+                    )
                 }
             }
         } catch (e: IOException) {
             Log.w(TAG, "takeOver network error", e)
+            NativeAudioLogger.warn(
+                TAG,
+                "takeover_network_error",
+                "Session takeOver network error",
+                mapOf(
+                    "sessionId" to sessionId,
+                    "clientId" to clientId,
+                    "positionMs" to positionMs,
+                    "currentIndex" to currentIndex,
+                ),
+                e,
+            )
         }
     }
 
     private fun <T> executeRequest(request: Request, parser: (String) -> T): T {
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                NativeAudioLogger.warn(
+                    TAG,
+                    "api_request_failed",
+                    "Ferrotune API request failed",
+                    mapOf(
+                        "method" to request.method,
+                        "path" to request.url.encodedPath,
+                        "httpStatus" to response.code,
+                        "message" to response.message,
+                    ),
+                )
                 throw IOException("API request failed: ${response.code} ${response.message} for ${request.url}")
             }
             val body = response.body?.string() ?: throw IOException("Empty response body")
@@ -516,6 +623,7 @@ class FerrotuneApiClient {
         val config = getConfig()
         val sessionId = config.sessionId ?: run {
             Log.w(TAG, "connectSSE: no sessionId configured, skipping")
+            NativeAudioLogger.warn(TAG, "sse_connect_skipped", "connectSSE skipped: no sessionId configured")
             return
         }
 
@@ -535,6 +643,12 @@ class FerrotuneApiClient {
         currentEventSource = factory.newEventSource(request, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 Log.d(TAG, "SSE connected for session $sessionId")
+                NativeAudioLogger.info(
+                    TAG,
+                    "sse_open",
+                    "SSE connected",
+                    mapOf("sessionId" to sessionId, "httpStatus" to response.code),
+                )
                 listener.onConnected()
             }
 
@@ -547,16 +661,31 @@ class FerrotuneApiClient {
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "SSE: failed to parse event: $data", e)
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "sse_parse_failed",
+                        "SSE event parse failed",
+                        mapOf("sessionId" to sessionId, "eventType" to type, "eventId" to id),
+                        e,
+                    )
                 }
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 Log.w(TAG, "SSE disconnected (code=${response?.code})", t)
+                NativeAudioLogger.warn(
+                    TAG,
+                    "sse_failure",
+                    "SSE disconnected",
+                    mapOf("sessionId" to sessionId, "httpStatus" to response?.code),
+                    t,
+                )
                 listener.onDisconnected()
             }
 
             override fun onClosed(eventSource: EventSource) {
                 Log.d(TAG, "SSE closed for session $sessionId")
+                NativeAudioLogger.info(TAG, "sse_closed", "SSE closed", mapOf("sessionId" to sessionId))
                 listener.onDisconnected()
             }
         })

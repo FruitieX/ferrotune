@@ -48,37 +48,69 @@ export function SwipeableFooter({ children }: SwipeableFooterProps) {
 
   // Track if we're currently in an opening gesture
   const isDraggingRef = useRef(false);
+  const dragStartYRef = useRef(0);
+  const currentUpwardOffsetRef = useRef(0);
 
   // Thresholds for gesture detection
   const SWIPE_THRESHOLD = 50;
   const VELOCITY_THRESHOLD = 300;
 
+  const getPointerClientY = (event: MouseEvent | TouchEvent | PointerEvent) => {
+    if ("touches" in event && event.touches.length > 0) {
+      return event.touches[0].clientY;
+    }
+    if ("changedTouches" in event && event.changedTouches.length > 0) {
+      return event.changedTouches[0].clientY;
+    }
+    if ("clientY" in event) return event.clientY;
+    return 0;
+  };
+
   // Handle drag start
-  const handleDragStart = () => {
+  const handleDragStart = (event: MouseEvent | TouchEvent | PointerEvent) => {
+    if (openAnimationControls) {
+      openAnimationControls.stop();
+      openAnimationControls = null;
+    }
+    dragStartYRef.current = getPointerClientY(event);
+    currentUpwardOffsetRef.current = 0;
     isDraggingRef.current = true;
   };
 
   // Handle drag updates - directly update the shared MotionValue
   const handleDrag = (
-    _event: MouseEvent | TouchEvent | PointerEvent,
-    info: PanInfo,
+    event: MouseEvent | TouchEvent | PointerEvent,
+    _info: PanInfo,
   ) => {
-    // Only update for upward drags (negative offset)
-    if (info.offset.y < 0) {
-      // Directly set the shared motion value - no React re-renders
-      fullscreenOpenDragY.set(info.offset.y);
-    }
+    const upwardOffset = Math.max(
+      0,
+      dragStartYRef.current - getPointerClientY(event),
+    );
+    currentUpwardOffsetRef.current = upwardOffset;
+
+    // Directly set the shared motion value - no React re-renders.
+    // Clamp downward return to 0 so dragging back down cannot leave the
+    // fullscreen preview parked at an old upward position.
+    fullscreenOpenDragY.set(-upwardOffset);
   };
 
   // Handle drag end to determine if we should open fullscreen
   const handleDragEnd = (
-    _event: MouseEvent | TouchEvent | PointerEvent,
+    event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
     isDraggingRef.current = false;
-    const { offset, velocity } = info;
+    const { velocity } = info;
+    const upwardOffset = Math.max(
+      0,
+      dragStartYRef.current - getPointerClientY(event),
+    );
+    currentUpwardOffsetRef.current = upwardOffset;
+    const isCancellingOpen = velocity.y > VELOCITY_THRESHOLD;
     const shouldOpenFullscreen =
-      offset.y < -SWIPE_THRESHOLD || velocity.y < -VELOCITY_THRESHOLD;
+      !isCancellingOpen &&
+      (upwardOffset > SWIPE_THRESHOLD ||
+        (upwardOffset > 0 && velocity.y < -VELOCITY_THRESHOLD));
 
     if (shouldOpenFullscreen && currentTrack) {
       // Animate to fully open position then set state
@@ -106,6 +138,7 @@ export function SwipeableFooter({ children }: SwipeableFooterProps) {
         damping: 30,
       });
     }
+    currentUpwardOffsetRef.current = 0;
   };
 
   // On large screens or when there's no track, render children directly

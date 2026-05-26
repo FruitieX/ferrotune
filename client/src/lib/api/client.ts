@@ -51,6 +51,7 @@ import type {
   SetLibraryAccessRequest,
   AuthLoginResponse,
   AuthMeResponse,
+  AuthSessionRefreshResponse,
   AuthUrlTokenResponse,
   PlaylistResponse,
   ForgottenFavoritesResponse,
@@ -312,6 +313,16 @@ export class FerrotuneClient {
     return this.request<AuthMeResponse>("/api/auth/me");
   }
 
+  async refreshSession(): Promise<AuthSessionRefreshResponse> {
+    const response = await this.request<AuthSessionRefreshResponse>(
+      "/api/auth/refresh",
+      { method: "POST" },
+      true,
+    );
+    this.sessionExpiresAt = response.sessionExpiresAt;
+    return response;
+  }
+
   async refreshUrlToken(scope: string = "all"): Promise<AuthUrlTokenResponse> {
     const response = await this.request<AuthUrlTokenResponse>(
       "/api/auth/url-token",
@@ -322,15 +333,18 @@ export class FerrotuneClient {
     );
     this.urlToken = response.urlToken;
     this.urlTokenExpiresAt = response.urlTokenExpiresAt;
+    this.sessionExpiresAt = response.sessionExpiresAt;
     return response;
   }
 
-  async ensureUrlToken(scope: string = "all"): Promise<void> {
+  async ensureUrlToken(
+    scope: string = "all",
+  ): Promise<AuthUrlTokenResponse | null> {
     if (!this.sessionToken || !this.shouldRefreshUrlToken()) {
-      return;
+      return null;
     }
 
-    await this.refreshUrlToken(scope);
+    return this.refreshUrlToken(scope);
   }
 
   // System endpoints

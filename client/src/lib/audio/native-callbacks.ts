@@ -14,6 +14,7 @@ import {
   nativeSeek,
   nativeUpdateStarredState,
   type NativeAudioCallbacks,
+  type NativePlaybackErrorDetails,
 } from "@/lib/audio/native-engine";
 import {
   updateListeningSession,
@@ -125,25 +126,38 @@ export function createNativeCallbacks({
     }
   };
 
-  const onError = (message: string, trackId?: string) => {
+  const onError = (
+    message: string,
+    trackId?: string,
+    details?: NativePlaybackErrorDetails,
+  ) => {
     if (!hasCurrentSessionQueue()) {
       return;
     }
 
-    console.error("[NativeAudio] Error:", message, trackId);
+    console.error("[NativeAudio] Error:", message, trackId, details);
     settersRef.current.setPlaybackError({
       message,
       trackId,
       trackTitle: stateRef.current.currentSong?.title,
       timestamp: Date.now(),
+      category: details?.category,
+      httpStatusCode: details?.httpStatusCode,
+      nativeErrorCode: details?.errorCode,
+      retryable: details?.retryable,
     });
     settersRef.current.setPlaybackState("error");
 
     const trackName = stateRef.current.currentSong?.title || "Unknown track";
-    toast.error(`Playback failed: ${trackName}`, {
-      description: message,
-      duration: 5000,
-    });
+    toast.error(
+      details?.category === "auth"
+        ? "Playback needs sign-in"
+        : `Playback failed: ${trackName}`,
+      {
+        description: message,
+        duration: 5000,
+      },
+    );
   };
 
   const onTrackChange = (

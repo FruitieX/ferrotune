@@ -23,6 +23,7 @@ import { formatDuration } from "@/lib/utils/format";
 
 interface WaveformProgressBarProps {
   className?: string;
+  active?: boolean;
 }
 
 // Colors for different bar states
@@ -77,7 +78,10 @@ function easeOutCubic(t: number): number {
 // Stable empty array to avoid creating new references on each render
 const EMPTY_HEIGHTS: number[] = [];
 
-export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
+export function WaveformProgressBar({
+  className,
+  active = true,
+}: WaveformProgressBarProps) {
   const currentTrack = useAtomValue(currentSongAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
@@ -190,6 +194,8 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   // Reads sourceHeights from ref and computes barCount from actual container
   // width to avoid stale closure issues during resize.
   const draw = () => {
+    if (!active) return;
+
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
@@ -303,6 +309,20 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     drawRef.current = draw;
   });
 
+  useEffect(() => {
+    if (active) return;
+
+    const a = anim.current;
+    if (a.rafId !== null) {
+      cancelAnimationFrame(a.rafId);
+      a.rafId = null;
+    }
+    if (progressRafRef.current !== null) {
+      cancelAnimationFrame(progressRafRef.current);
+      progressRafRef.current = null;
+    }
+  }, [active]);
+
   // Animation loop
   useEffect(() => {
     animateRef.current = (time: number) => {
@@ -342,14 +362,6 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     };
   });
 
-  const startAnim = () => {
-    const a = anim.current;
-    if (a.rafId === null) {
-      a.lastTime = 0;
-      a.rafId = requestAnimationFrame(animateRef.current);
-    }
-  };
-
   // Handle track changes — animate crossfade between tracks
   // Skip animation on initial mount (show waveform immediately)
   const hasMountedRef = useRef(false);
@@ -362,12 +374,21 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     }
     if (trackId === a.trackId) return;
 
+    if (!active) {
+      a.trackId = trackId;
+      return;
+    }
+
     a.outgoingSource = lastSourceRef.current;
     a.outProgress = 0.001;
     a.inProgress = 0;
     a.trackId = trackId;
-    startAnim();
-  }, [trackId]);
+
+    if (a.rafId === null) {
+      a.lastTime = 0;
+      a.rafId = requestAnimationFrame(animateRef.current);
+    }
+  }, [trackId, active]);
 
   // Keep lastSourceRef in sync with loaded waveform data
   useEffect(() => {
@@ -391,6 +412,8 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   // Use requestAnimationFrame for smooth visual updates, but get the actual
   // progress from atomProgress (which correctly handles transcoding time offsets)
   useEffect(() => {
+    if (!active) return;
+
     const isPlaying = playbackState === "playing";
 
     if (isPlaying) {
@@ -417,12 +440,14 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         progressRafRef.current = null;
       }
     };
-  }, [playbackState, atomProgress]);
+  }, [active, playbackState, atomProgress]);
 
   // Redraw on visual changes, container resize, or new waveform data
   useEffect(() => {
+    if (!active) return;
+
     drawRef.current();
-  }, [containerWidth, primaryColor, isDarkMode, effectiveHeights]);
+  }, [active, containerWidth, primaryColor, isDarkMode, effectiveHeights]);
 
   // Event handlers
   const getPercentFromEvent = (clientX: number) => {

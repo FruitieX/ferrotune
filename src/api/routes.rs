@@ -28,6 +28,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/auth/login", post(auth_routes::login))
         .route("/auth/logout", post(auth_routes::logout))
         .route("/auth/me", get(auth_routes::me))
+        .route("/auth/refresh", post(auth_routes::refresh_session))
         .route("/auth/url-token", post(auth_routes::create_url_token))
         // Home page batch endpoint
         .route("/home", get(home::get_home))

@@ -14,6 +14,7 @@ use axum::{
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -37,6 +38,12 @@ pub async fn stream(
     headers: HeaderMap,
     Query(params): Query<StreamParams>,
 ) -> Result<Response> {
+    let started_at = Instant::now();
+    let range_header = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+
     // Get song from database
     let song = crate::db::repo::browse::get_song_by_id(&state.database, &params.id)
         .await?
@@ -93,6 +100,18 @@ pub async fn stream(
     let needs_transcoding =
         params.format.is_some() || params.max_bit_rate.is_some() || params.time_offset.is_some();
 
+    tracing::info!(
+        song_id = %params.id,
+        user_id = user.user_id,
+        file_format = %song.file_format,
+        requested_format = params.format.as_deref().unwrap_or("original"),
+        max_bit_rate = params.max_bit_rate,
+        time_offset_seconds = params.time_offset.unwrap_or(0),
+        range = range_header.as_deref().unwrap_or(""),
+        transcoding = needs_transcoding,
+        "Media stream request"
+    );
+
     if needs_transcoding {
         // Determine target format and bitrate
         let target_format = params.format.as_deref().unwrap_or("opus");
@@ -125,7 +144,7 @@ pub async fn stream(
                     .or(song.original_replaygain_track_peak),
             };
 
-            return transcode_with_cache(
+            let response = transcode_with_cache(
                 &state.config.cache,
                 &headers,
                 &canonical_path,
@@ -135,6 +154,15 @@ pub async fn stream(
                 params.seek_mode.as_deref().unwrap_or("coarse") == "accurate",
             )
             .await;
+            log_media_stream_result(
+                &params.id,
+                user.user_id,
+                "transcoded",
+                range_header.as_deref(),
+                started_at,
+                &response,
+            );
+            return response;
         }
     }
 
@@ -149,7 +177,16 @@ pub async fn stream(
     if let Some(range_header) = headers.get(header::RANGE) {
         if let Ok(range_str) = range_header.to_str() {
             if let Some(range) = parse_range(range_str, file_size) {
-                return serve_range(file, range, file_size, content_type).await;
+                let response = serve_range(file, range, file_size, content_type).await;
+                log_media_stream_result(
+                    &params.id,
+                    user.user_id,
+                    "direct",
+                    Some(range_str),
+                    started_at,
+                    &response,
+                );
+                return response;
             }
         }
     }
@@ -158,13 +195,63 @@ pub async fn stream(
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
 
-    Ok(Response::builder()
+    let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_LENGTH, file_size)
         .header(header::ACCEPT_RANGES, "bytes")
         .body(body)
-        .unwrap())
+        .unwrap();
+    tracing::info!(
+        song_id = %params.id,
+        user_id = user.user_id,
+        stream_kind = "direct",
+        status = response.status().as_u16(),
+        bytes = file_size,
+        range = "",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "Media stream response"
+    );
+    Ok(response)
+}
+
+fn log_media_stream_result(
+    song_id: &str,
+    user_id: i64,
+    stream_kind: &str,
+    range_header: Option<&str>,
+    started_at: Instant,
+    response: &Result<Response>,
+) {
+    match response {
+        Ok(response) => tracing::info!(
+            song_id = %song_id,
+            user_id,
+            stream_kind,
+            status = response.status().as_u16(),
+            bytes = response_content_length(response),
+            range = range_header.unwrap_or(""),
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "Media stream response"
+        ),
+        Err(error) => tracing::warn!(
+            song_id = %song_id,
+            user_id,
+            stream_kind,
+            range = range_header.unwrap_or(""),
+            elapsed_ms = started_at.elapsed().as_millis(),
+            error = %error,
+            "Media stream failed"
+        ),
+    }
+}
+
+fn response_content_length(response: &Response) -> Option<u64> {
+    response
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
 }
 
 #[derive(Debug)]

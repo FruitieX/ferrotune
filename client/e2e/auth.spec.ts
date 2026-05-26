@@ -3,7 +3,8 @@
  */
 
 import type { Page } from "@playwright/test";
-import { test, expect, login } from "./fixtures";
+import { test, expect, login, loginForSession } from "./fixtures";
+import { setStoredConnection, waitForAuthenticatedHome } from "./app-helpers";
 
 async function persistedQueryBlobIncludes(
   page: Page,
@@ -35,6 +36,55 @@ async function persistedQueryBlobIncludes(
       };
     });
   }, expectedText);
+}
+
+async function storedConnectionSessionExpiresAt(
+  page: Page,
+): Promise<string | null> {
+  return page.evaluate(() => {
+    const value = localStorage.getItem("ferrotune-connection");
+    if (!value) {
+      return null;
+    }
+
+    const connection = JSON.parse(value);
+    return typeof connection.sessionExpiresAt === "string"
+      ? connection.sessionExpiresAt
+      : null;
+  });
+}
+
+async function savedAccountSessionExpiresAt(
+  page: Page,
+  serverUrl: string,
+  userId: number,
+): Promise<string | null> {
+  return page.evaluate(
+    ({ accountServerUrl, accountUserId }) => {
+      const value = localStorage.getItem("ferrotune-saved-accounts");
+      if (!value) {
+        return null;
+      }
+
+      const accounts = JSON.parse(value);
+      if (!Array.isArray(accounts)) {
+        return null;
+      }
+
+      const account = accounts.find(
+        (candidate) =>
+          candidate &&
+          typeof candidate === "object" &&
+          candidate.serverUrl === accountServerUrl &&
+          candidate.userId === accountUserId,
+      );
+
+      return typeof account?.sessionExpiresAt === "string"
+        ? account.sessionExpiresAt
+        : null;
+    },
+    { accountServerUrl: serverUrl, accountUserId: userId },
+  );
 }
 
 test.describe("Authentication", () => {
@@ -120,6 +170,49 @@ test.describe("Authentication", () => {
     await expect(
       page.getByText(/recently added|random|welcome/i),
     ).toBeVisible();
+  });
+
+  test("refreshes stale local session expiry before redirecting", async ({
+    page,
+    server,
+  }) => {
+    const loginResponse = await loginForSession(server.url, {
+      username: server.username,
+      password: server.password,
+    });
+    const staleLocalExpiry = new Date(Date.now() - 60_000).toISOString();
+    const storedConnection = {
+      serverUrl: server.url,
+      username: loginResponse.user.username,
+      userId: loginResponse.user.id,
+      email: loginResponse.user.email ?? null,
+      isAdmin: loginResponse.user.isAdmin,
+      sessionToken: loginResponse.sessionToken,
+      sessionExpiresAt: staleLocalExpiry,
+      urlToken: loginResponse.urlToken,
+      urlTokenExpiresAt: loginResponse.urlTokenExpiresAt,
+    };
+
+    await setStoredConnection(page, storedConnection);
+    await page.evaluate((account) => {
+      localStorage.setItem(
+        "ferrotune-saved-accounts",
+        JSON.stringify([{ ...account, label: "Saved account" }]),
+      );
+    }, storedConnection);
+
+    await page.goto("/");
+
+    await waitForAuthenticatedHome(page);
+    await expect(page).not.toHaveURL(/\/login/);
+    await expect
+      .poll(() => storedConnectionSessionExpiresAt(page))
+      .toBe(loginResponse.sessionExpiresAt);
+    await expect
+      .poll(() =>
+        savedAccountSessionExpiresAt(page, server.url, loginResponse.user.id),
+      )
+      .toBe(loginResponse.sessionExpiresAt);
   });
 
   test("discover keeps the cached cards visible during background refresh", async ({

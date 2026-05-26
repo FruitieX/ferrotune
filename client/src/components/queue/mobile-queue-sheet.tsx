@@ -169,17 +169,23 @@ export function MobileQueueSheet() {
 
   // Track if we're in the middle of a gesture-based close animation
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);
-  // Keep the sheet mounted while gesture-close visuals finish after isOpen is false.
+  // Keep the sheet mounted for one render after the visual close so the
+  // AnimatePresence exit can use the instant gesture-close path.
   const [keepGestureCloseRendered, setKeepGestureCloseRendered] =
     useState(false);
-  // Track if we're currently dragging (to control backdrop opacity source)
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingSheet, setIsDraggingSheet] = useState(false);
+  // Track whether the entry animation has finished so queue work can stay off
+  // the critical animation path.
+  const [isSheetSettled, setIsSheetSettled] = useState(false);
 
   // Motion values for swipe-to-close (horizontal)
   const dragX = useMotionValue(0);
   // Opacity fades as the view is dragged right
-  const sheetOpacity = useTransform(dragX, [0, SHEET_WIDTH / 2], [1, 0.5]);
   const backdropOpacity = useTransform(dragX, [0, SHEET_WIDTH], [1, 0]);
+  const backdropBlur = useTransform(
+    backdropOpacity,
+    (opacity) => `blur(${Math.max(0, opacity) * 8}px)`,
+  );
 
   // Track if we've already scrolled for this open state
   const hasScrolledRef = useRef(false);
@@ -188,9 +194,12 @@ export function MobileQueueSheet() {
   useEffect(() => {
     if (!isOpen) {
       hasScrolledRef.current = false;
+      setIsSheetSettled(false);
       if (!isClosingViaGesture && !keepGestureCloseRendered) {
         dragX.set(0);
       }
+    } else {
+      setIsSheetSettled(false);
     }
   }, [isOpen, isClosingViaGesture, keepGestureCloseRendered, dragX]);
 
@@ -198,19 +207,19 @@ export function MobileQueueSheet() {
   useEffect(() => {
     if (
       isOpen &&
+      isSheetSettled &&
       !isQueueLoading &&
       queueState &&
       queueState.totalCount > 0 &&
       !hasScrolledRef.current
     ) {
       hasScrolledRef.current = true;
-      // Use a small delay to ensure the virtualized list is mounted
-      const timer = setTimeout(() => {
+      const rafId = requestAnimationFrame(() => {
         queueDisplayRef.current?.scrollToNowPlaying("auto");
-      }, 100);
-      return () => clearTimeout(timer);
+      });
+      return () => cancelAnimationFrame(rafId);
     }
-  }, [isOpen, isQueueLoading, queueState]);
+  }, [isOpen, isSheetSettled, isQueueLoading, queueState]);
 
   // Handle Escape key to close
   useEffect(() => {
@@ -281,17 +290,16 @@ export function MobileQueueSheet() {
     _event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
-    setIsDragging(false);
     const { offset, velocity } = info;
     // Close if swiped right far enough or fast enough
     const shouldClose = offset.x > 100 || velocity.x > 500;
 
     if (shouldClose) {
-      // Mark that we're closing via gesture so exit animation is skipped
+      // Mark that we're closing via gesture so the layer becomes
+      // non-interactive while the motion value handles the visual close.
+      setIsDraggingSheet(false);
       setIsClosingViaGesture(true);
       setKeepGestureCloseRendered(true);
-      // Persist the closed state immediately so this layer becomes
-      // non-interactive during the visual close animation.
       setIsOpen(false);
       // Animate off-screen then close - use window width to ensure fully offscreen
       const targetX =
@@ -301,16 +309,16 @@ export function MobileQueueSheet() {
         duration: 0.5,
         ease: [0.32, 0.72, 0, 1],
       }).then(() => {
-        setKeepGestureCloseRendered(false);
+        requestAnimationFrame(() => {
+          setKeepGestureCloseRendered(false);
+        });
       });
     } else {
       // Snap back to origin
-      animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 });
+      animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
+        () => setIsDraggingSheet(false),
+      );
     }
-  };
-
-  const handleDragStart = () => {
-    setIsDragging(true);
   };
 
   const shouldRender = isOpen || keepGestureCloseRendered;
@@ -318,8 +326,15 @@ export function MobileQueueSheet() {
   const handleExitComplete = () => {
     if (!isClosingViaGesture) return;
     setIsClosingViaGesture(false);
+    setIsDraggingSheet(false);
     setKeepGestureCloseRendered(false);
     dragX.set(0);
+  };
+
+  const handleSheetAnimationComplete = () => {
+    if (isOpen && !isClosingViaGesture) {
+      setIsSheetSettled(true);
+    }
   };
 
   // Only render on mobile (when fullscreen is open and queue is requested)
@@ -328,24 +343,34 @@ export function MobileQueueSheet() {
     return null;
   }
 
+  const useGestureBackdrop = isDraggingSheet || isClosingViaGesture;
+
   return (
     <AnimatePresence onExitComplete={handleExitComplete}>
       {shouldRender && (
         <>
           {/* Backdrop */}
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{
+              opacity: 0,
+              backdropFilter: "blur(0px)",
+            }}
+            animate={{
+              opacity: 1,
+              backdropFilter: "blur(8px)",
+            }}
             exit={
               isClosingViaGesture
-                ? { opacity: 0, transition: { duration: 0 } }
-                : { opacity: 0 }
+                ? { transition: { duration: 0 } }
+                : {
+                    opacity: 0,
+                    backdropFilter: "blur(0px)",
+                  }
             }
             transition={{ duration: 0.3 }}
             style={{
-              // Only use motion value during drag, otherwise let framer handle opacity
-              opacity:
-                isDragging || isClosingViaGesture ? backdropOpacity : undefined,
+              opacity: useGestureBackdrop ? backdropOpacity : undefined,
+              backdropFilter: useGestureBackdrop ? backdropBlur : undefined,
               pointerEvents: isOpen && !isClosingViaGesture ? "auto" : "none",
             }}
             className="fixed inset-0 z-60 bg-black/50"
@@ -356,6 +381,7 @@ export function MobileQueueSheet() {
           <motion.div
             data-queue-panel="open"
             data-gesture-closing={isClosingViaGesture ? "true" : undefined}
+            data-sheet-settled={isSheetSettled ? "true" : "false"}
             role="dialog"
             aria-label="Queue"
             aria-modal="true"
@@ -363,7 +389,7 @@ export function MobileQueueSheet() {
             animate={{ x: 0 }}
             exit={
               isClosingViaGesture
-                ? { x: 0, opacity: 0, transition: { duration: 0 } }
+                ? { transition: { duration: 0 } }
                 : { x: "100%" }
             }
             transition={{
@@ -373,19 +399,15 @@ export function MobileQueueSheet() {
             }}
             style={{
               x: dragX,
-              // Only apply drag-based opacity during active drag or gesture close.
-              // During normal enter/exit animations, let framer-motion handle opacity
-              // to avoid NaN from percentage-based initial values interacting with useTransform.
-              opacity:
-                isDragging || isClosingViaGesture ? sheetOpacity : undefined,
               pointerEvents: isOpen && !isClosingViaGesture ? "auto" : "none",
             }}
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={{ left: 0, right: 0.5 }}
             dragDirectionLock
-            onDragStart={handleDragStart}
+            onDragStart={() => setIsDraggingSheet(true)}
             onDragEnd={handleDragEnd}
+            onAnimationComplete={handleSheetAnimationComplete}
             className={cn(
               "fixed top-0 right-0 bottom-0 z-60 w-full sm:w-100 bg-background border-l border-border flex flex-col",
               // Disable text selection during swipe
@@ -445,6 +467,7 @@ export function MobileQueueSheet() {
             />
             <VirtualizedQueueDisplay
               ref={queueDisplayRef}
+              suspendWork={!isSheetSettled || isClosingViaGesture}
               onNavigate={() => {
                 // Close both the queue sheet and fullscreen player when navigating
                 setIsOpen(false);

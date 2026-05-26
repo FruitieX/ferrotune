@@ -116,6 +116,7 @@ export async function initSession(config: {
   serverUrl: string;
   username: string;
   sessionToken?: string;
+  sessionExpiresAt?: string;
   sessionId?: string;
   clientId?: string;
 }): Promise<void> {
@@ -123,6 +124,7 @@ export async function initSession(config: {
     serverUrl: config.serverUrl,
     username: config.username,
     sessionToken: config.sessionToken,
+    sessionExpiresAt: config.sessionExpiresAt,
     sessionId: config.sessionId,
     clientId: config.clientId,
   });

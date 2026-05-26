@@ -20,6 +20,7 @@ export type { ArtistsIndex } from './ArtistsIndex';
 export type { AuthLoginRequest } from './AuthLoginRequest';
 export type { AuthLoginResponse } from './AuthLoginResponse';
 export type { AuthMeResponse } from './AuthMeResponse';
+export type { AuthSessionRefreshResponse } from './AuthSessionRefreshResponse';
 export type { AuthUrlTokenRequest } from './AuthUrlTokenRequest';
 export type { AuthUrlTokenResponse } from './AuthUrlTokenResponse';
 export type { AuthUserResponse } from './AuthUserResponse';

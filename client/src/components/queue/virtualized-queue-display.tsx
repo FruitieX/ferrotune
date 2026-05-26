@@ -255,6 +255,7 @@ function VirtualQueueItem({
 
 interface VirtualizedQueueDisplayProps {
   variant?: "mobile" | "desktop";
+  suspendWork?: boolean;
   /** Called when user navigates away via a link (for closing fullscreen etc.) */
   onNavigate?: () => void;
 }
@@ -277,7 +278,7 @@ export const VirtualizedQueueDisplay = forwardRef<
   VirtualizedQueueDisplayHandle,
   VirtualizedQueueDisplayProps
 >(function VirtualizedQueueDisplay(
-  { variant: _variant = "desktop", onNavigate },
+  { variant: _variant = "desktop", suspendWork = false, onNavigate },
   ref,
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -377,6 +378,8 @@ export const VirtualizedQueueDisplay = forwardRef<
   // 2. Now playing is in the bottom 25% of the visible area
   // If scrolling, bring now playing to the middle of the viewport
   useEffect(() => {
+    if (suspendWork) return;
+
     // Skip during queue restoration (page load)
     if (isRestoring) return;
 
@@ -432,11 +435,13 @@ export const VirtualizedQueueDisplay = forwardRef<
       }
       // If not visible, don't scroll (user scrolled elsewhere)
     }
-  }, [currentIndex, isRestoring]);
+  }, [currentIndex, isRestoring, suspendWork]);
 
   // When a new queue starts (detected by instanceId changing), reset state
   // The instanceId field uniquely identifies each queue instance on the server (UUID)
   useEffect(() => {
+    if (suspendWork) return;
+
     // Skip during queue restoration (page load)
     if (isRestoring) return;
 
@@ -473,12 +478,19 @@ export const VirtualizedQueueDisplay = forwardRef<
         behavior: "auto",
       });
     }
-  }, [queueState?.source?.instanceId, isRestoring, virtualizer, currentIndex]);
+  }, [
+    queueState?.source?.instanceId,
+    isRestoring,
+    virtualizer,
+    currentIndex,
+    suspendWork,
+  ]);
 
   // Check for more data to fetch when scroll position changes
   // Uses debouncing to prevent request spam during rapid scrolling
   // In-flight requests are allowed to complete - only aborted when queue source changes
   useEffect(() => {
+    if (suspendWork) return;
     if (totalCount === 0) return;
 
     // Debounce the fetch to avoid spamming requests during rapid scrolling
@@ -557,7 +569,14 @@ export const VirtualizedQueueDisplay = forwardRef<
     };
     // Include songs in deps so effect re-evaluates after new data loads,
     // picking up any remaining gaps that weren't covered by the previous fetch
-  }, [firstVisible, lastVisible, totalCount, fetchQueueRange, songs]);
+  }, [
+    firstVisible,
+    lastVisible,
+    totalCount,
+    fetchQueueRange,
+    songs,
+    suspendWork,
+  ]);
 
   // Reset fetched ranges when shuffle state changes
   // Note: queue source changes are handled in the source change effect above

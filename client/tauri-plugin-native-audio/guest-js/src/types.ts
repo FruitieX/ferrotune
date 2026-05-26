@@ -85,6 +85,14 @@ export interface ErrorEvent {
   message: string;
   /** ID of the track that caused the error (if applicable) */
   trackId?: string;
+  /** Native playback error category */
+  category?: "auth" | "network" | "http" | "source-missing" | "range" | "decode" | "unknown";
+  /** HTTP response code when the failure came from an HTTP stream request */
+  httpStatusCode?: number;
+  /** Media3 PlaybackException error code */
+  errorCode?: number;
+  /** Whether native playback considered the error retryable */
+  retryable?: boolean;
 }
 
 /**

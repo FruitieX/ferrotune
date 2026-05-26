@@ -5,6 +5,7 @@
 # Generated test fixtures (regenerate with scripts/generate-test-fixtures.sh)
 /tests/fixtures/music/
 /tests/fixtures/cover.png
+/test-results
 
 # Moon cache
 /.moon/cache/

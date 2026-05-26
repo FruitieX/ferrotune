@@ -341,6 +341,7 @@ export type { SetLibraryAccessRequest } from "./generated";
 export type { AuthLoginRequest } from "./generated";
 export type { AuthLoginResponse } from "./generated";
 export type { AuthMeResponse } from "./generated";
+export type { AuthSessionRefreshResponse } from "./generated";
 export type { AuthUrlTokenRequest } from "./generated";
 export type { AuthUrlTokenResponse } from "./generated";
 export type { AuthUserResponse } from "./generated";

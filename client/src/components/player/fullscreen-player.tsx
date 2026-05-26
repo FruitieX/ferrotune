@@ -3,10 +3,10 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   motion,
-  AnimatePresence,
   useMotionValue,
   useTransform,
   animate,
+  type AnimationPlaybackControls,
   type PanInfo,
 } from "framer-motion";
 import {
@@ -182,6 +182,8 @@ function FullscreenVolumeControls({
   );
 }
 
+type AlbumArtPreviewDirection = "previous" | "next";
+
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
   const currentTrack = useAtomValue(currentSongAtom);
@@ -192,6 +194,7 @@ export function FullscreenPlayer() {
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
+  const queuePanelOpen = useAtomValue(queuePanelOpenAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
   const audioDuration = useAtomValue(durationAtom);
@@ -207,12 +210,17 @@ export function FullscreenPlayer() {
 
   // Ref to track whether a close gesture animation is pending (can be cancelled on re-open)
   const closePendingRef = useRef(false);
+  const closeAnimationFallbackRef = useRef<number | null>(null);
 
   // Track if user is actively dragging the sheet (for backdrop opacity)
   const [isDraggingSheet, setIsDraggingSheet] = useState(false);
 
   // Track if we're currently opening via gesture (shared motion value is being dragged)
   const [isOpeningWithGesture, setIsOpeningWithGesture] = useState(false);
+  const isOpeningWithGestureRef = useRef(false);
+  const openGestureWasActiveRef = useRef(false);
+  const [isClosedAnimationSettled, setIsClosedAnimationSettled] =
+    useState(true);
 
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
@@ -225,8 +233,21 @@ export function FullscreenPlayer() {
   // Album art horizontal swipe state
   const queueWindow = useAtomValue(queueWindowAtom);
   const albumArtDragX = useMotionValue(0);
+  const albumArtDragCaptureX = useMotionValue(0);
+  const dragY = useMotionValue(0);
   const albumArtContainerRef = useRef<HTMLDivElement>(null);
   const [isSwipingAlbumArt, setIsSwipingAlbumArt] = useState(false);
+  const [albumArtDismissPreviewDirection, setAlbumArtDismissPreviewDirection] =
+    useState<AlbumArtPreviewDirection | null>(null);
+  const albumArtDismissAnimationRef = useRef<AnimationPlaybackControls | null>(
+    null,
+  );
+  const albumArtDismissAnimationSettledRef = useRef(false);
+  const albumArtMaxHorizontalDistanceRef = useRef(0);
+  const albumArtMaxVerticalDistanceRef = useRef(0);
+  const albumArtCurrentDownwardDistanceRef = useRef(0);
+  const albumArtVerticalCloseRef = useRef(false);
+  const albumArtDragStartYRef = useRef(0);
 
   // Get adjacent tracks for album art swipe preview
   const prevTrack =
@@ -248,6 +269,31 @@ export function FullscreenPlayer() {
   // Album art swipe transforms
   const SWIPE_THRESHOLD = 50;
   const VELOCITY_THRESHOLD = 300;
+  const CLOSE_SWIPE_THRESHOLD = 100;
+  const CLOSE_VELOCITY_THRESHOLD = 500;
+  const CLOSE_GESTURE_ANIMATION_MS = 400;
+  const ALBUM_ART_VERTICAL_CANCEL_THRESHOLD = 40;
+  const ALBUM_ART_PREVIEW_GAP = 16;
+  const viewportHeight =
+    typeof window !== "undefined" ? window.innerHeight : 800;
+
+  const getAlbumArtSwipeDistance = () =>
+    (albumArtContainerRef.current?.offsetWidth ?? 300) + ALBUM_ART_PREVIEW_GAP;
+
+  const clampAlbumArtDragX = (value: number) => {
+    const swipeDistance = getAlbumArtSwipeDistance();
+    const leftLimit = nextTrack ? -swipeDistance : 0;
+    const rightLimit = prevTrack ? swipeDistance : 0;
+    return Math.min(rightLimit, Math.max(leftLimit, value));
+  };
+
+  const getAlbumArtPreviewDirection = (
+    value: number,
+  ): AlbumArtPreviewDirection | null => {
+    if (value > 0) return "previous";
+    if (value < 0) return "next";
+    return null;
+  };
 
   const albumArtOpacity = useTransform(
     albumArtDragX,
@@ -256,7 +302,7 @@ export function FullscreenPlayer() {
   );
 
   const prevAlbumArtX = useTransform(albumArtDragX, (v) =>
-    v > 0 ? v - (albumArtContainerRef.current?.offsetWidth ?? 300) - 16 : -9999,
+    v > 0 ? v - getAlbumArtSwipeDistance() : -9999,
   );
   const prevAlbumArtOpacity = useTransform(
     albumArtDragX,
@@ -265,7 +311,7 @@ export function FullscreenPlayer() {
   );
 
   const nextAlbumArtX = useTransform(albumArtDragX, (v) =>
-    v < 0 ? v + (albumArtContainerRef.current?.offsetWidth ?? 300) + 16 : 9999,
+    v < 0 ? v + getAlbumArtSwipeDistance() : 9999,
   );
   const nextAlbumArtOpacity = useTransform(
     albumArtDragX,
@@ -278,26 +324,242 @@ export function FullscreenPlayer() {
   useLayoutEffect(() => {
     if (currentTrack?.id !== prevTrackIdRef.current) {
       prevTrackIdRef.current = currentTrack?.id;
+      albumArtDismissAnimationRef.current?.stop();
+      albumArtDismissAnimationRef.current = null;
       albumArtDragX.set(0);
+      albumArtDragCaptureX.set(0);
+      albumArtVerticalCloseRef.current = false;
     }
-  }, [currentTrack?.id, albumArtDragX]);
+  }, [currentTrack?.id, albumArtDragX, albumArtDragCaptureX]);
+
+  const stopAlbumArtDismissAnimation = () => {
+    albumArtDismissAnimationRef.current?.stop();
+    albumArtDismissAnimationRef.current = null;
+  };
+
+  const animateAlbumArtToRest = () => {
+    stopAlbumArtDismissAnimation();
+    albumArtDismissAnimationSettledRef.current = false;
+    albumArtDismissAnimationRef.current = animate(albumArtDragX, 0, {
+      type: "spring",
+      stiffness: 500,
+      damping: 50,
+      onComplete: () => {
+        albumArtDismissAnimationRef.current = null;
+        if (albumArtVerticalCloseRef.current) {
+          albumArtDismissAnimationSettledRef.current = true;
+          albumArtDragX.set(0);
+        }
+      },
+    });
+  };
+
+  const resetAlbumArtGesture = () => {
+    albumArtMaxHorizontalDistanceRef.current = 0;
+    albumArtMaxVerticalDistanceRef.current = 0;
+    albumArtCurrentDownwardDistanceRef.current = 0;
+    albumArtVerticalCloseRef.current = false;
+    albumArtDismissAnimationSettledRef.current = false;
+    setAlbumArtDismissPreviewDirection(null);
+    albumArtDragStartYRef.current = 0;
+  };
+
+  const getPointerClientY = (event: MouseEvent | TouchEvent | PointerEvent) => {
+    if ("touches" in event && event.touches.length > 0) {
+      return event.touches[0].clientY;
+    }
+    if ("changedTouches" in event && event.changedTouches.length > 0) {
+      return event.changedTouches[0].clientY;
+    }
+    if ("clientY" in event) return event.clientY;
+    return 0;
+  };
+
+  const clearGestureCloseFallback = () => {
+    if (closeAnimationFallbackRef.current === null) return;
+
+    window.clearTimeout(closeAnimationFallbackRef.current);
+    closeAnimationFallbackRef.current = null;
+  };
+
+  const settleGestureClosed = () => {
+    closePendingRef.current = false;
+    clearGestureCloseFallback();
+    resetAlbumArtGesture();
+    isOpeningWithGestureRef.current = false;
+    setIsOpen(false);
+    setIsOpeningWithGesture(false);
+    setIsClosedAnimationSettled(true);
+    setIsClosingViaGesture(false);
+    setIsDraggingSheet(false);
+    setIsSwipingAlbumArt(false);
+    requestAnimationFrame(() => {
+      fullscreenOpenDragY.set(0);
+      stopAlbumArtDismissAnimation();
+      albumArtDragX.set(0);
+      albumArtDragCaptureX.set(0);
+      dragY.set(0);
+    });
+  };
+
+  const scheduleGestureCloseFallback = () => {
+    clearGestureCloseFallback();
+    closeAnimationFallbackRef.current = window.setTimeout(() => {
+      if (closePendingRef.current) settleGestureClosed();
+    }, getGestureCloseDurationMs() + 32);
+  };
+
+  const getGestureCloseDurationMs = () => {
+    const remainingDistance = Math.max(0, viewportHeight - dragY.get());
+    const progressDuration =
+      (remainingDistance / viewportHeight) * CLOSE_GESTURE_ANIMATION_MS;
+    return Math.min(
+      CLOSE_GESTURE_ANIMATION_MS,
+      Math.max(120, progressDuration),
+    );
+  };
+
+  const finishGestureClose = () => {
+    // If cancelled (user re-opened), bail out
+    if (!closePendingRef.current) return;
+    settleGestureClosed();
+  };
+
+  const closeWithGestureAnimation = () => {
+    // If isOpen is still false we're dismissing during the opening gesture.
+    // Cancel the open spring so its onComplete never fires, then let the
+    // component settle back to the hidden offscreen state.
+    if (!isOpen) {
+      cancelFullscreenOpen();
+      if (!closePendingRef.current) settleGestureClosed();
+      return;
+    }
+
+    setIsClosedAnimationSettled(false);
+    setIsClosingViaGesture(true);
+    setIsDraggingSheet(true);
+    closePendingRef.current = true;
+    // Keep the logical fullscreen state open while the gesture-owned
+    // MotionValue animates the visual sheet out. The atom is closed in
+    // settleGestureClosed, after the layer has been hidden.
+    dragY.stop();
+    const closeDurationMs = getGestureCloseDurationMs();
+    animate(dragY, viewportHeight, {
+      type: "tween",
+      duration: closeDurationMs / 1000,
+      ease: [0.32, 0.72, 0, 1],
+      onComplete: finishGestureClose,
+    }).then(finishGestureClose);
+    scheduleGestureCloseFallback();
+  };
+
+  const handleAlbumArtDragStart = (
+    event: MouseEvent | TouchEvent | PointerEvent,
+  ) => {
+    stopAlbumArtDismissAnimation();
+    albumArtDragCaptureX.set(0);
+    resetAlbumArtGesture();
+    albumArtDragStartYRef.current = getPointerClientY(event);
+    setIsSwipingAlbumArt(true);
+  };
+
+  const handleAlbumArtDrag = (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    albumArtDragCaptureX.set(0);
+
+    const horizontalDistance = Math.abs(info.offset.x);
+    const downwardDistance = Math.max(
+      0,
+      getPointerClientY(_event) - albumArtDragStartYRef.current,
+    );
+    albumArtCurrentDownwardDistanceRef.current = downwardDistance;
+
+    albumArtMaxHorizontalDistanceRef.current = Math.max(
+      albumArtMaxHorizontalDistanceRef.current,
+      horizontalDistance,
+    );
+    albumArtMaxVerticalDistanceRef.current = Math.max(
+      albumArtMaxVerticalDistanceRef.current,
+      downwardDistance,
+    );
+
+    if (albumArtVerticalCloseRef.current) {
+      if (albumArtDismissAnimationSettledRef.current) {
+        albumArtDragX.set(0);
+      }
+      dragY.set(downwardDistance);
+      return;
+    }
+
+    if (downwardDistance > 0) {
+      if (!isDraggingSheet) setIsDraggingSheet(true);
+      dragY.set(downwardDistance);
+    }
+
+    if (downwardDistance >= ALBUM_ART_VERTICAL_CANCEL_THRESHOLD) {
+      if (!albumArtVerticalCloseRef.current) {
+        albumArtVerticalCloseRef.current = true;
+        setAlbumArtDismissPreviewDirection(
+          getAlbumArtPreviewDirection(albumArtDragX.get()) ??
+            getAlbumArtPreviewDirection(info.offset.x),
+        );
+        setIsDraggingSheet(true);
+      }
+      animateAlbumArtToRest();
+      dragY.set(downwardDistance);
+      return;
+    }
+
+    albumArtDragX.set(clampAlbumArtDragX(info.offset.x));
+  };
 
   const handleAlbumArtDragEnd = async (
     _event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
-    const currentDragX = albumArtDragX.get();
+    albumArtDragCaptureX.set(0);
+    const verticalDistance = albumArtMaxVerticalDistanceRef.current;
+    const currentDownwardDistance = albumArtCurrentDownwardDistanceRef.current;
+    const horizontalDistance = albumArtMaxHorizontalDistanceRef.current;
+    const shouldCloseFullscreen =
+      albumArtVerticalCloseRef.current &&
+      (currentDownwardDistance > CLOSE_SWIPE_THRESHOLD ||
+        (currentDownwardDistance > ALBUM_ART_VERTICAL_CANCEL_THRESHOLD &&
+          info.velocity.y > CLOSE_VELOCITY_THRESHOLD));
+
+    if (albumArtVerticalCloseRef.current) {
+      setIsSwipingAlbumArt(false);
+      resetAlbumArtGesture();
+
+      if (shouldCloseFullscreen) {
+        closeWithGestureAnimation();
+      } else {
+        animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
+          () => {
+            setIsDraggingSheet(false);
+          },
+        );
+      }
+      return;
+    }
+
+    const wasPrimarilyHorizontal = horizontalDistance > verticalDistance;
+    const currentDragX = clampAlbumArtDragX(albumArtDragX.get());
     const shouldGoNext =
+      wasPrimarilyHorizontal &&
       (currentDragX < -SWIPE_THRESHOLD ||
         info.velocity.x < -VELOCITY_THRESHOLD) &&
       nextTrack;
     const shouldGoPrev =
+      wasPrimarilyHorizontal &&
       (currentDragX > SWIPE_THRESHOLD ||
         info.velocity.x > VELOCITY_THRESHOLD) &&
       prevTrack;
 
     if (shouldGoNext) {
-      const width = albumArtContainerRef.current?.offsetWidth ?? 300;
+      const width = getAlbumArtSwipeDistance();
       await animate(albumArtDragX, -width, {
         type: "spring",
         stiffness: 500,
@@ -305,7 +567,7 @@ export function FullscreenPlayer() {
       });
       next();
     } else if (shouldGoPrev) {
-      const width = albumArtContainerRef.current?.offsetWidth ?? 300;
+      const width = getAlbumArtSwipeDistance();
       await animate(albumArtDragX, width, {
         type: "spring",
         stiffness: 500,
@@ -313,44 +575,48 @@ export function FullscreenPlayer() {
       });
       previous();
     } else {
-      animate(albumArtDragX, 0, {
-        type: "spring",
-        stiffness: 500,
-        damping: 30,
-      });
+      animateAlbumArtToRest();
+    }
+    if (dragY.get() > 0) {
+      animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
+        () => setIsDraggingSheet(false),
+      );
     }
     setIsSwipingAlbumArt(false);
+    resetAlbumArtGesture();
   };
 
-  // Motion values for swipe-to-close
-  const dragY = useMotionValue(0);
+  useEffect(() => {
+    return () => {
+      albumArtDismissAnimationRef.current?.stop();
+      albumArtDismissAnimationRef.current = null;
+    };
+  }, []);
 
   // Backdrop opacity during close gesture - fades as user drags down
-  const closeBackdropOpacity = useTransform(
-    dragY,
-    [0, typeof window !== "undefined" ? window.innerHeight : 800],
-    [1, 0],
+  const closeBackdropOpacity = useTransform(dragY, [0, viewportHeight], [1, 0]);
+  const closeBackdropBlur = useTransform(
+    closeBackdropOpacity,
+    (opacity) => `blur(${Math.max(0, opacity) * 4}px)`,
   );
 
   // Backdrop opacity during open gesture - fades in as user swipes up
   const openBackdropOpacity = useTransform(fullscreenOpenDragY, (latest) => {
     if (latest >= 0) return 0;
-    const windowHeight =
-      typeof window !== "undefined" ? window.innerHeight : 800;
-    const progress = Math.min(1, Math.abs(latest) / windowHeight);
+    const progress = Math.min(1, Math.abs(latest) / viewportHeight);
     return progress;
   });
+  const openBackdropBlur = useTransform(
+    openBackdropOpacity,
+    (opacity) => `blur(${Math.max(0, opacity) * 4}px)`,
+  );
 
   // Transform the shared open gesture drag value to Y position for the sheet
   // fullscreenOpenDragY is negative (upward swipe), we need to convert to Y position
   // When dragY is 0, sheet is at 100% (offscreen), when dragY is -innerHeight, sheet is at 0% (visible)
   const openGestureY = useTransform(fullscreenOpenDragY, (latest) => {
     if (latest >= 0) return "100%";
-    const progress = Math.min(
-      1,
-      Math.abs(latest) /
-        (typeof window !== "undefined" ? window.innerHeight : 800),
-    );
+    const progress = Math.min(1, Math.abs(latest) / viewportHeight);
     return `${(1 - progress) * 100}%`;
   });
 
@@ -361,11 +627,56 @@ export function FullscreenPlayer() {
   useEffect(() => {
     const unsubscribe = fullscreenOpenDragY.on("change", (latest) => {
       // We're opening when the drag value is negative (swiping up)
-      const opening = latest < -10; // Small threshold to avoid flickering
+      const opening = latest < 0;
+      if (isOpeningWithGestureRef.current === opening) return;
+
+      isOpeningWithGestureRef.current = opening;
       setIsOpeningWithGesture(opening);
+      if (opening) {
+        openGestureWasActiveRef.current = true;
+        setIsClosedAnimationSettled(false);
+      }
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      openGestureWasActiveRef.current = false;
+      return;
+    }
+
+    if (
+      !openGestureWasActiveRef.current ||
+      isOpeningWithGesture ||
+      isClosingViaGesture ||
+      isDraggingSheet
+    ) {
+      return;
+    }
+
+    openGestureWasActiveRef.current = false;
+    queueMicrotask(() => setIsClosedAnimationSettled(true));
+  }, [isOpen, isOpeningWithGesture, isClosingViaGesture, isDraggingSheet]);
+
+  useEffect(() => {
+    return () => {
+      if (closeAnimationFallbackRef.current !== null) {
+        window.clearTimeout(closeAnimationFallbackRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !isClosedAnimationSettled ||
+      (!isOpen && !isClosingViaGesture && !isDraggingSheet)
+    ) {
+      return;
+    }
+
+    queueMicrotask(() => setIsClosedAnimationSettled(false));
+  }, [isOpen, isClosingViaGesture, isDraggingSheet, isClosedAnimationSettled]);
 
   // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
   // Also cancel any pending close animation timeout to prevent stale closes
@@ -383,7 +694,7 @@ export function FullscreenPlayer() {
       if (closePendingRef.current) {
         closePendingRef.current = false;
         // Defer setState to avoid synchronous set-state-in-effect lint rule.
-        // The derived useCloseGestureStyles uses && !isOpen, so render is
+        // The visual close guard includes isClosingViaGesture, so render is
         // correct even before this microtask fires.
         queueMicrotask(() => setIsClosingViaGesture(false));
       }
@@ -399,7 +710,10 @@ export function FullscreenPlayer() {
     if (!isOpen && !isClosingViaGesture) {
       dragY.set(0);
       // Safety: clear any lingering open gesture state so shouldRender goes false
-      queueMicrotask(() => setIsOpeningWithGesture(false));
+      queueMicrotask(() => {
+        isOpeningWithGestureRef.current = false;
+        setIsOpeningWithGesture(false);
+      });
     }
   }, [isOpen, isClosingViaGesture, dragY]);
 
@@ -567,48 +881,17 @@ export function FullscreenPlayer() {
     _event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
-    setIsDraggingSheet(false);
     const { offset, velocity } = info;
-    const shouldClose = offset.y > 100 || velocity.y > 500;
+    const shouldClose =
+      offset.y > CLOSE_SWIPE_THRESHOLD || velocity.y > CLOSE_VELOCITY_THRESHOLD;
 
     if (shouldClose) {
-      // If isOpen is still false we're dismissing during the opening gesture.
-      // Cancel the open spring so its onComplete never fires, then let the
-      // component unmount naturally via shouldRender going false.
-      if (!isOpen) {
-        cancelFullscreenOpen();
-        // fullscreenOpenDragY is already reset to 0 by cancelFullscreenOpen,
-        // which will cause isOpeningWithGesture → false → shouldRender → false
-        // and AnimatePresence will handle the exit.
-        dragY.set(0);
-        return;
-      }
-
-      // Mark that we're closing via gesture so we use motion values instead of AnimatePresence
-      setIsClosingViaGesture(true);
-      closePendingRef.current = true;
-      // Animate off-screen then close. The .then() fires exactly when
-      // the animation finishes, avoiding setTimeout timing issues.
-      animate(dragY, window.innerHeight, {
-        type: "tween",
-        duration: 0.4,
-        ease: [0.32, 0.72, 0, 1],
-      }).then(() => {
-        // If cancelled (user re-opened), bail out
-        if (!closePendingRef.current) return;
-        closePendingRef.current = false;
-        // Close first while isClosingViaGesture is still true so the exit render
-        // uses the instant exit path (useCloseGestureStyles = true)
-        setIsOpen(false);
-        // Reset gesture state and dragY after the exit render
-        requestAnimationFrame(() => {
-          setIsClosingViaGesture(false);
-          dragY.set(0);
-        });
-      });
+      closeWithGestureAnimation();
     } else {
       // Snap back to origin
-      animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 });
+      animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
+        () => setIsDraggingSheet(false),
+      );
     }
   };
 
@@ -619,443 +902,509 @@ export function FullscreenPlayer() {
 
   const isEnded = playbackState === "ended";
 
-  // Should we render the player? Either when open or during opening gesture
-  // Note: During gesture close, isOpen is still true until the animation completes
-  const shouldRender = isOpen || isOpeningWithGesture;
-
   if (!currentTrack) return null;
 
   // Determine animation state:
   // - During opening gesture: use the shared motion value for smooth 60fps animation
   // - During closing gesture: use dragY motion value
-  // - Button open/close: use AnimatePresence (initial/animate/exit)
+  // - Button open/close: use regular Framer animate state
   const useGestureAnimation = isOpeningWithGesture && !isOpen;
+  const useOpenGestureSheetPosition =
+    !isOpen &&
+    (isOpeningWithGesture ||
+      (openGestureWasActiveRef.current && !isClosedAnimationSettled));
 
   // Only use motion value styles for gesture-based interactions
-  // For button-triggered open/close, let AnimatePresence handle everything
-  const useOpenGestureBackdrop = useGestureAnimation;
-  // Use close gesture styles only when actively animating the close (not during drag)
-  // During drag, animate prop stays active and framer-motion handles the coordination
-  const useCloseGestureStyles = isClosingViaGesture && !isOpen;
+  // For button-triggered open/close, let animate handle everything
+  const useOpenGestureBackdrop = useOpenGestureSheetPosition;
   // Use motion value for backdrop during drag OR close animation
-  // Include isClosingViaGesture (not just useCloseGestureStyles) because isOpen is still
-  // true during the close animation timeout, but we still need the backdrop to fade
   const useDragBackdrop = isDraggingSheet || isClosingViaGesture;
+  const useDragSheetPosition = isDraggingSheet || isClosingViaGesture;
+  const isOverlayVisible =
+    isOpen ||
+    isOpeningWithGesture ||
+    isClosingViaGesture ||
+    isDraggingSheet ||
+    !isClosedAnimationSettled;
+  const isInteractive = isOpen && !isClosingViaGesture;
+  const shouldCaptureBackdropPointerEvents = isOverlayVisible;
+  const sheetOpacity = isOverlayVisible ? 1 : 0;
+  const sheetVisibility = isOverlayVisible ? "visible" : "hidden";
+  const sheetPointerEvents = isInteractive ? "auto" : "none";
+  const backdropPointerEvents = shouldCaptureBackdropPointerEvents
+    ? "auto"
+    : "none";
 
-  // Safety: ensure all state is clean after AnimatePresence finishes exit
-  const handleExitComplete = () => {
-    closePendingRef.current = false;
-    setIsClosingViaGesture(false);
-    setIsOpeningWithGesture(false);
-    setIsDraggingSheet(false);
-    dragY.set(0);
+  const handleContentAnimationComplete = () => {
+    if (!isOpen && !isOpeningWithGesture && !isClosingViaGesture) {
+      setIsClosedAnimationSettled(true);
+    }
   };
 
   return (
-    <AnimatePresence onExitComplete={handleExitComplete}>
-      {shouldRender && (
-        <>
-          {/* Backdrop - fades in/out */}
-          <motion.div
-            key="fullscreen-backdrop"
-            initial={useOpenGestureBackdrop ? { opacity: 0 } : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={
-              useCloseGestureStyles
-                ? { transition: { duration: 0 } } // Skip exit animation - already handled by closeBackdropOpacity
-                : { opacity: 0 }
-            }
-            transition={
-              useOpenGestureBackdrop || useDragBackdrop
-                ? { duration: 0 } // Instant - motion value controls opacity during gestures
-                : { duration: 0.3 }
-            }
-            style={
-              useOpenGestureBackdrop
-                ? {
-                    opacity: openBackdropOpacity,
-                    pointerEvents: isClosingViaGesture ? "none" : "auto",
-                  }
-                : useDragBackdrop
-                  ? {
-                      opacity: closeBackdropOpacity,
-                      pointerEvents: isClosingViaGesture ? "none" : "auto",
-                    }
-                  : { pointerEvents: isClosingViaGesture ? "none" : "auto" }
-            }
-            className="fixed inset-0 z-50 bg-black/60"
-          />
+    <>
+      {/* Backdrop - fades in/out */}
+      <motion.div
+        key="fullscreen-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{
+          opacity: isOpen ? 1 : 0,
+          backdropFilter: isOpen ? "blur(4px)" : "blur(0px)",
+        }}
+        transition={
+          useOpenGestureBackdrop || useDragBackdrop
+            ? { duration: 0 } // Instant - motion value controls opacity during gestures
+            : { duration: 0.3 }
+        }
+        style={
+          useOpenGestureBackdrop
+            ? {
+                opacity: openBackdropOpacity,
+                backdropFilter: openBackdropBlur,
+                pointerEvents: backdropPointerEvents,
+                visibility: sheetVisibility,
+              }
+            : useDragBackdrop
+              ? {
+                  opacity: closeBackdropOpacity,
+                  backdropFilter: closeBackdropBlur,
+                  pointerEvents: backdropPointerEvents,
+                  visibility: sheetVisibility,
+                }
+              : {
+                  pointerEvents: backdropPointerEvents,
+                  visibility: sheetVisibility,
+                }
+        }
+        className="fixed inset-0 z-50 bg-black/60"
+        data-testid="fullscreen-backdrop"
+      />
 
-          {/* Content - slides up/down, also draggable to close on small screens */}
-          <motion.div
-            key="fullscreen-content"
-            initial={useGestureAnimation ? false : { y: "100%" }}
-            animate={{ y: 0 }}
-            exit={
-              useCloseGestureStyles
-                ? { transition: { duration: 0 } } // Skip exit animation - already handled by dragY
-                : { y: "100%" }
-            }
-            transition={
-              useGestureAnimation || isClosingViaGesture
-                ? { duration: 0 } // Instant - motion value controls position during gestures
-                : { type: "tween", duration: 0.4, ease: [0.32, 0.72, 0, 1] }
-            }
-            style={
-              useGestureAnimation
-                ? {
-                    y: openGestureY,
-                    touchAction: isSmallScreen ? "none" : "auto",
-                    pointerEvents: isClosingViaGesture ? "none" : "auto",
-                  }
-                : isSmallScreen
-                  ? {
-                      // Always use dragY on small screens - framer-motion's drag will sync it
-                      y: dragY,
-                      touchAction: "none",
-                      pointerEvents: isClosingViaGesture ? "none" : "auto",
-                    }
-                  : {
-                      touchAction: "auto",
-                      pointerEvents: isClosingViaGesture ? "none" : "auto",
-                    }
-            }
-            drag={isSmallScreen ? "y" : false}
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.5 }}
-            dragDirectionLock
-            onDragStart={isSmallScreen ? handleDragStart : undefined}
-            onDragEnd={isSmallScreen ? handleDragEnd : undefined}
-            data-fullscreen-player="true"
-            className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
-          >
-            {/* Background - isolated to prevent re-renders on currentTime changes */}
-            <FullscreenBackground coverArt={currentTrack?.coverArt} />
+      {/* Content - slides up/down, also draggable to close on small screens */}
+      <motion.div
+        key="fullscreen-content"
+        initial={false}
+        animate={{ y: isOpen ? 0 : "100%" }}
+        transition={
+          useOpenGestureSheetPosition || useDragSheetPosition
+            ? { duration: 0 } // Instant - motion value controls position during gestures
+            : { type: "tween", duration: 0.4, ease: [0.32, 0.72, 0, 1] }
+        }
+        style={
+          useOpenGestureSheetPosition
+            ? {
+                y: openGestureY,
+                touchAction: isSmallScreen ? "none" : "auto",
+                opacity: sheetOpacity,
+                pointerEvents: sheetPointerEvents,
+                visibility: sheetVisibility,
+              }
+            : isSmallScreen && useDragSheetPosition
+              ? {
+                  y: dragY,
+                  touchAction: "none",
+                  opacity: sheetOpacity,
+                  pointerEvents: sheetPointerEvents,
+                  visibility: sheetVisibility,
+                }
+              : {
+                  touchAction: isSmallScreen ? "none" : "auto",
+                  opacity: sheetOpacity,
+                  pointerEvents: sheetPointerEvents,
+                  visibility: sheetVisibility,
+                }
+        }
+        drag={isSmallScreen ? "y" : false}
+        dragConstraints={{ top: 0, bottom: viewportHeight }}
+        dragElastic={{ top: 0, bottom: 0 }}
+        dragDirectionLock
+        dragMomentum={false}
+        onDragStart={isSmallScreen ? handleDragStart : undefined}
+        onDragEnd={isSmallScreen ? handleDragEnd : undefined}
+        onAnimationComplete={handleContentAnimationComplete}
+        data-fullscreen-player="true"
+        data-fullscreen-gesture-phase={
+          useGestureAnimation
+            ? "opening"
+            : isClosingViaGesture
+              ? "closing"
+              : isOpen
+                ? "open"
+                : "closed"
+        }
+        aria-hidden={!isInteractive}
+        className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
+      >
+        {/* Background - isolated to prevent re-renders on currentTime changes */}
+        <FullscreenBackground coverArt={currentTrack?.coverArt} />
 
-            {/* Content wrapper - pt-safe pushes UI below status bar while blur extends into it */}
-            <div className="relative z-10 flex flex-col h-full w-full pt-safe">
-              {/* Inner container with max-width and padding */}
-              <div className="flex flex-col h-full max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto w-full px-6 py-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsOpen(false)}
-                    className="rounded-full"
-                  >
-                    <ChevronDown className="w-6 h-6" />
-                  </Button>
-                  <div className="text-center min-w-0 flex-1 mx-2">
-                    {followerSessionName ? (
-                      <ResponsiveDropdownMenu
-                        trigger={
-                          <button
-                            type="button"
-                            className="mx-auto max-w-full rounded-md px-2 py-1 text-center hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                            aria-label={`Open playback clients, currently playing on ${followerSessionName}`}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onTouchStart={(e) => e.stopPropagation()}
-                          >
-                            <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
-                              {isCastClientName(followerClientName) ? (
-                                <Cast className="w-3 h-3" />
-                              ) : followerClientName === "ferrotune-mobile" ? (
-                                <Smartphone className="w-3 h-3" />
-                              ) : (
-                                <Monitor className="w-3 h-3" />
-                              )}
-                              Playing on
-                            </p>
-                            <p className="text-sm font-medium truncate">
-                              {followerSessionName}
-                            </p>
-                          </button>
-                        }
-                        renderMenuContent={(components) => (
-                          <ConnectedClientsMenuItems components={components} />
-                        )}
-                        contentClassName="w-64"
-                        align="center"
-                        side="bottom"
-                        drawerTitle="Playback Clients"
-                      />
-                    ) : (
-                      <>
-                        <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                          {isEnded ? "Queue Ended" : "Playing from"}
-                        </p>
-                        <p className="text-sm font-medium truncate">
-                          {queueState?.source?.name ||
-                            (queueState?.source?.type === "library"
-                              ? "Library"
-                              : "Queue")}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  <SongDropdownMenu
-                    song={currentTrack}
-                    onNavigate={handleMenuNavigate}
+        {/* Content wrapper - pt-safe pushes UI below status bar while blur extends into it */}
+        <div className="relative z-10 flex flex-col h-full w-full pt-safe">
+          {/* Inner container with max-width and padding */}
+          <div className="flex flex-col h-full max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto w-full px-6 py-4">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close fullscreen player"
+                onClick={() => setIsOpen(false)}
+                onPointerDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                className="rounded-full"
+              >
+                <ChevronDown className="w-6 h-6" />
+              </Button>
+              <div className="text-center min-w-0 flex-1 mx-2">
+                {followerSessionName ? (
+                  <ResponsiveDropdownMenu
                     trigger={
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="rounded-full"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
+                      <button
+                        type="button"
+                        className="mx-auto max-w-full rounded-md px-2 py-1 text-center hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        aria-label={`Open playback clients, currently playing on ${followerSessionName}`}
                         onPointerDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
                       >
-                        <MoreHorizontal className="w-5 h-5" />
-                        <span className="sr-only">More options</span>
-                      </Button>
+                        <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
+                          {isCastClientName(followerClientName) ? (
+                            <Cast className="w-3 h-3" />
+                          ) : followerClientName === "ferrotune-mobile" ? (
+                            <Smartphone className="w-3 h-3" />
+                          ) : (
+                            <Monitor className="w-3 h-3" />
+                          )}
+                          Playing on
+                        </p>
+                        <p className="text-sm font-medium truncate">
+                          {followerSessionName}
+                        </p>
+                      </button>
                     }
+                    renderMenuContent={(components) => (
+                      <ConnectedClientsMenuItems components={components} />
+                    )}
+                    contentClassName="w-64"
+                    align="center"
+                    side="bottom"
+                    drawerTitle="Playback Clients"
                   />
-                </div>
-
-                {/* Album Art */}
-                <div
-                  ref={albumArtContainerRef}
-                  className="flex-1 flex items-center justify-center py-6 xl:py-10 min-h-0 overflow-hidden relative"
-                >
-                  {/* Previous track preview (swipe right) */}
-                  {isSmallScreen && prevTrack && isSwipingAlbumArt && (
-                    <motion.div
-                      className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
-                      style={{ x: prevAlbumArtX, opacity: prevAlbumArtOpacity }}
-                    >
-                      <CoverImage
-                        src={prevCoverArtUrl}
-                        alt={prevTrack.album ?? prevTrack.title}
-                        colorSeed={prevTrack.album ?? undefined}
-                        type="song"
-                        size="full"
-                        className="rounded-lg shadow-2xl w-full h-full object-cover"
-                      />
-                    </motion.div>
-                  )}
-
-                  {/* Current track album art */}
-                  <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: 0.1 }}
-                    className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] max-h-full aspect-square"
-                    style={
-                      isSmallScreen
-                        ? {
-                            x: albumArtDragX,
-                            opacity: albumArtOpacity,
-                            touchAction: "pan-y",
-                          }
-                        : undefined
-                    }
-                    drag={isSmallScreen ? "x" : false}
-                    dragConstraints={{ left: 0, right: 0 }}
-                    dragElastic={0.5}
-                    dragDirectionLock
-                    onDragStart={() => setIsSwipingAlbumArt(true)}
-                    onDragEnd={
-                      isSmallScreen ? handleAlbumArtDragEnd : undefined
-                    }
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                      {followerSessionName
+                        ? "Playing on"
+                        : isEnded
+                          ? "Queue Ended"
+                          : "Playing from"}
+                    </p>
+                    <p className="text-sm font-medium truncate">
+                      {followerSessionName ||
+                        queueState?.source?.name ||
+                        (queueState?.source?.type === "library"
+                          ? "Library"
+                          : "Queue")}
+                    </p>
+                  </>
+                )}
+              </div>
+              <SongDropdownMenu
+                song={currentTrack}
+                onNavigate={handleMenuNavigate}
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="w-5 h-5" />
+                    <span className="sr-only">More options</span>
+                  </Button>
+                }
+              />
+            </div>
+
+            {/* Album Art */}
+            <div
+              ref={albumArtContainerRef}
+              className="flex-1 flex items-center justify-center py-6 xl:py-10 min-h-0 overflow-hidden relative"
+            >
+              {/* Previous track preview (swipe right) */}
+              {isSmallScreen &&
+                !useGestureAnimation &&
+                prevTrack &&
+                albumArtDismissPreviewDirection !== "next" &&
+                isSwipingAlbumArt && (
+                  <motion.div
+                    className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
+                    style={{
+                      x: prevAlbumArtX,
+                      opacity: prevAlbumArtOpacity,
+                    }}
                   >
                     <CoverImage
-                      src={coverArtUrl}
-                      alt={currentTrack.album ?? currentTrack.title}
-                      colorSeed={currentTrack.album ?? undefined}
+                      src={prevCoverArtUrl}
+                      alt={prevTrack.album ?? prevTrack.title}
+                      colorSeed={prevTrack.album ?? undefined}
                       type="song"
                       size="full"
                       className="rounded-lg shadow-2xl w-full h-full object-cover"
-                      priority
                     />
                   </motion.div>
+                )}
 
-                  {/* Next track preview (swipe left) */}
-                  {isSmallScreen && nextTrack && isSwipingAlbumArt && (
-                    <motion.div
-                      className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
-                      style={{ x: nextAlbumArtX, opacity: nextAlbumArtOpacity }}
-                    >
-                      <CoverImage
-                        src={nextCoverArtUrl}
-                        alt={nextTrack.album ?? nextTrack.title}
-                        colorSeed={nextTrack.album ?? undefined}
-                        type="song"
-                        size="full"
-                        className="rounded-lg shadow-2xl w-full h-full object-cover"
-                      />
-                    </motion.div>
-                  )}
-                </div>
-
-                {/* Track Info */}
+              {/* Current track album art */}
+              <motion.div
+                initial={
+                  useGestureAnimation ? false : { scale: 0.9, opacity: 0 }
+                }
+                animate={{ scale: 1, opacity: 1 }}
+                transition={
+                  useGestureAnimation ? { duration: 0 } : { delay: 0.1 }
+                }
+                className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] max-h-full aspect-square"
+                style={
+                  isSmallScreen
+                    ? { x: albumArtDragCaptureX, touchAction: "pan-y" }
+                    : undefined
+                }
+                drag={
+                  isSmallScreen && !useGestureAnimation && !isClosingViaGesture
+                    ? "x"
+                    : false
+                }
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0}
+                dragDirectionLock
+                dragMomentum={false}
+                onDragStart={handleAlbumArtDragStart}
+                onDrag={isSmallScreen ? handleAlbumArtDrag : undefined}
+                onDragEnd={isSmallScreen ? handleAlbumArtDragEnd : undefined}
+              >
                 <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className="flex items-center justify-between mb-6"
+                  className="w-full h-full"
+                  style={
+                    isSmallScreen
+                      ? { x: albumArtDragX, opacity: albumArtOpacity }
+                      : undefined
+                  }
+                  data-testid="fullscreen-album-art"
                 >
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-bold truncate">
-                      {currentTrack.title}
-                    </h2>
-                    <p className="text-muted-foreground truncate">
-                      {currentTrack.artist}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full shrink-0"
-                    onClick={toggleStar}
+                  <CoverImage
+                    src={coverArtUrl}
+                    alt={currentTrack.album ?? currentTrack.title}
+                    colorSeed={currentTrack.album ?? undefined}
+                    type="song"
+                    size="full"
+                    className="rounded-lg shadow-2xl w-full h-full object-cover"
+                    priority
+                  />
+                </motion.div>
+              </motion.div>
+
+              {/* Next track preview (swipe left) */}
+              {isSmallScreen &&
+                !useGestureAnimation &&
+                nextTrack &&
+                albumArtDismissPreviewDirection !== "previous" &&
+                isSwipingAlbumArt && (
+                  <motion.div
+                    className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
+                    style={{
+                      x: nextAlbumArtX,
+                      opacity: nextAlbumArtOpacity,
+                    }}
                   >
-                    <Heart
-                      className={cn(
-                        "w-6 h-6",
-                        isStarred && "fill-red-500 text-red-500",
-                      )}
+                    <CoverImage
+                      src={nextCoverArtUrl}
+                      alt={nextTrack.album ?? nextTrack.title}
+                      colorSeed={nextTrack.album ?? undefined}
+                      type="song"
+                      size="full"
+                      className="rounded-lg shadow-2xl w-full h-full object-cover"
                     />
-                  </Button>
-                </motion.div>
-
-                {/* Progress */}
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.3 }}
-                  className="space-y-2 mb-6"
-                >
-                  {/* Progress bar - waveform or simple based on preference */}
-                  <div className="relative h-6 md:h-4">
-                    {progressBarStyle === "waveform" ? (
-                      <WaveformProgressBar className="absolute inset-x-0 top-1/2" />
-                    ) : (
-                      <Slider
-                        value={[isEnded ? 0 : progress]}
-                        max={duration}
-                        step={1}
-                        onValueChange={handleProgressChange}
-                        onValueCommit={handleProgressCommit}
-                        className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
-                        disabled={isEnded}
-                      />
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="tabular-nums">
-                      {formatDuration(isEnded ? 0 : Math.floor(progress))}
-                    </span>
-                    <span className="tabular-nums">
-                      {formatDuration(isEnded ? 0 : duration)}
-                    </span>
-                  </div>
-                </motion.div>
-
-                {/* Controls */}
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.4 }}
-                  className="flex items-center justify-center gap-6 mb-8"
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "rounded-full",
-                      queueState?.isShuffled &&
-                        "text-primary hover:text-primary",
-                    )}
-                    onClick={() => toggleShuffle()}
-                  >
-                    <Shuffle className="w-5 h-5" />
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full w-12 h-12"
-                    onClick={previous}
-                  >
-                    <SkipBack className="w-7 h-7" />
-                  </Button>
-
-                  <Button
-                    size="icon"
-                    className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
-                    onClick={togglePlayPause}
-                  >
-                    {playbackState === "playing" ? (
-                      <Pause className="w-8 h-8" />
-                    ) : (
-                      <Play className="w-8 h-8 ml-1" />
-                    )}
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full w-12 h-12"
-                    onClick={next}
-                  >
-                    <SkipForward className="w-7 h-7" />
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "rounded-full",
-                      repeatMode !== "off" && "text-primary hover:text-primary",
-                    )}
-                    onClick={cycleRepeat}
-                  >
-                    {repeatMode === "one" ? (
-                      <Repeat1 className="w-5 h-5" />
-                    ) : (
-                      <Repeat className="w-5 h-5" />
-                    )}
-                  </Button>
-                </motion.div>
-
-                {/* Bottom bar */}
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.5 }}
-                  className="flex items-center justify-between pb-4"
-                >
-                  {/* Volume - hidden when session owner uses native/system volume */}
-                  {shouldShowVolume && (
-                    <FullscreenVolumeControls
-                      volumeContainerRef={volumeContainerRef}
-                      volume={volume}
-                      isMuted={isMuted}
-                      setVolume={setVolume}
-                      setIsMuted={setIsMuted}
-                    />
-                  )}
-
-                  {/* Queue button */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto rounded-full gap-2"
-                    onClick={openQueue}
-                  >
-                    <ListMusic className="w-4 h-4" />
-                    Queue
-                  </Button>
-                </motion.div>
-              </div>
+                  </motion.div>
+                )}
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+
+            {/* Track Info */}
+            <motion.div
+              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={
+                useGestureAnimation ? { duration: 0 } : { delay: 0.2 }
+              }
+              className="flex items-center justify-between mb-6"
+            >
+              <div className="min-w-0 flex-1">
+                <h2 className="text-xl font-bold truncate">
+                  {currentTrack.title}
+                </h2>
+                <p className="text-muted-foreground truncate">
+                  {currentTrack.artist}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full shrink-0"
+                onClick={toggleStar}
+              >
+                <Heart
+                  className={cn(
+                    "w-6 h-6",
+                    isStarred && "fill-red-500 text-red-500",
+                  )}
+                />
+              </Button>
+            </motion.div>
+
+            {/* Progress */}
+            <motion.div
+              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={
+                useGestureAnimation ? { duration: 0 } : { delay: 0.3 }
+              }
+              className="space-y-2 mb-6"
+            >
+              {/* Progress bar - waveform or simple based on preference */}
+              <div className="relative h-6 md:h-4">
+                {progressBarStyle === "waveform" ? (
+                  <WaveformProgressBar
+                    active={isOverlayVisible && !queuePanelOpen}
+                    className="absolute inset-x-0 top-1/2"
+                  />
+                ) : (
+                  <Slider
+                    value={[isEnded ? 0 : progress]}
+                    max={duration}
+                    step={1}
+                    onValueChange={handleProgressChange}
+                    onValueCommit={handleProgressCommit}
+                    className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
+                    disabled={isEnded}
+                  />
+                )}
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span className="tabular-nums">
+                  {formatDuration(isEnded ? 0 : Math.floor(progress))}
+                </span>
+                <span className="tabular-nums">
+                  {formatDuration(isEnded ? 0 : duration)}
+                </span>
+              </div>
+            </motion.div>
+
+            {/* Controls */}
+            <motion.div
+              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={
+                useGestureAnimation ? { duration: 0 } : { delay: 0.4 }
+              }
+              className="flex items-center justify-center gap-6 mb-8"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-full",
+                  queueState?.isShuffled && "text-primary hover:text-primary",
+                )}
+                onClick={() => toggleShuffle()}
+              >
+                <Shuffle className="w-5 h-5" />
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full w-12 h-12"
+                onClick={previous}
+              >
+                <SkipBack className="w-7 h-7" />
+              </Button>
+
+              <Button
+                size="icon"
+                className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
+                onClick={togglePlayPause}
+              >
+                {playbackState === "playing" ? (
+                  <Pause className="w-8 h-8" />
+                ) : (
+                  <Play className="w-8 h-8 ml-1" />
+                )}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full w-12 h-12"
+                onClick={next}
+              >
+                <SkipForward className="w-7 h-7" />
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-full",
+                  repeatMode !== "off" && "text-primary hover:text-primary",
+                )}
+                onClick={cycleRepeat}
+              >
+                {repeatMode === "one" ? (
+                  <Repeat1 className="w-5 h-5" />
+                ) : (
+                  <Repeat className="w-5 h-5" />
+                )}
+              </Button>
+            </motion.div>
+
+            {/* Bottom bar */}
+            <motion.div
+              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={
+                useGestureAnimation ? { duration: 0 } : { delay: 0.5 }
+              }
+              className="flex items-center justify-between pb-4"
+            >
+              {/* Volume - hidden when session owner uses native/system volume */}
+              {shouldShowVolume && (
+                <FullscreenVolumeControls
+                  volumeContainerRef={volumeContainerRef}
+                  volume={volume}
+                  isMuted={isMuted}
+                  setVolume={setVolume}
+                  setIsMuted={setIsMuted}
+                />
+              )}
+
+              {/* Queue button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto rounded-full gap-2"
+                onClick={openQueue}
+              >
+                <ListMusic className="w-4 h-4" />
+                Queue
+              </Button>
+            </motion.div>
+          </div>
+        </div>
+      </motion.div>
+    </>
   );
 }

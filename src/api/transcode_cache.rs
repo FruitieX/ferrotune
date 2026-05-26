@@ -12,7 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::{watch, Mutex};
@@ -92,6 +92,7 @@ impl TranscodeCache {
         replaygain_info: ReplayGainInfo,
         accurate_seek: bool,
     ) -> Result<Response> {
+        let started_at = Instant::now();
         tokio::fs::create_dir_all(&self.root).await?;
 
         let key = build_cache_key(
@@ -120,11 +121,53 @@ impl TranscodeCache {
             .get(header::RANGE)
             .and_then(|value| value.to_str().ok())
             .and_then(parse_range_spec);
+        let range_label = range.map(|range| format!("{range:?}"));
+        let cache_key = entry.key.clone();
+        let initial_progress = entry.progress();
 
-        match range {
-            Some(range) => self.serve_range(entry, range).await,
-            None => self.serve_full(entry).await,
+        tracing::debug!(
+            song_id = %config.song_id,
+            cache_key = %cache_key,
+            range = range_label.as_deref().unwrap_or(""),
+            initial_size = initial_progress.size,
+            initial_complete = initial_progress.complete,
+            initial_failed = initial_progress.failed,
+            time_offset_seconds,
+            bitrate = config.bitrate,
+            accurate_seek,
+            "Transcode cache request"
+        );
+
+        let response = match range {
+            Some(range) => self.serve_range(entry.clone(), range).await,
+            None => self.serve_full(entry.clone()).await,
+        };
+        let final_progress = entry.progress();
+
+        match &response {
+            Ok(response) => tracing::debug!(
+                song_id = %config.song_id,
+                cache_key = %cache_key,
+                range = range_label.as_deref().unwrap_or(""),
+                status = response.status().as_u16(),
+                bytes = response_content_length(response),
+                cache_size = final_progress.size,
+                cache_complete = final_progress.complete,
+                cache_failed = final_progress.failed,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "Transcode cache response"
+            ),
+            Err(error) => tracing::warn!(
+                song_id = %config.song_id,
+                cache_key = %cache_key,
+                range = range_label.as_deref().unwrap_or(""),
+                elapsed_ms = started_at.elapsed().as_millis(),
+                error = %error,
+                "Transcode cache failed"
+            ),
         }
+
+        response
     }
 
     async fn get_or_create_entry(&self, key: TranscodeCacheKey) -> Result<Arc<CacheEntry>> {
@@ -801,6 +844,14 @@ fn build_response(builder: axum::http::response::Builder, body: Body) -> Result<
     builder
         .body(body)
         .map_err(|error| Error::Internal(format!("Could not build response: {error}")))
+}
+
+fn response_content_length(response: &Response) -> Option<u64> {
+    response
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
 }
 
 fn now_unix_seconds() -> u64 {

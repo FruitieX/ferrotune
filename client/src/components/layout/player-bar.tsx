@@ -8,6 +8,7 @@ import {
   useMotionValue,
   useTransform,
   animate,
+  type AnimationPlaybackControls,
   type PanInfo,
 } from "framer-motion";
 import Link from "next/link";
@@ -232,6 +233,10 @@ function SwipeableNowPlaying({
 
   // Motion values for drag tracking - declared early so useEffect can reference it
   const dragX = useMotionValue(0);
+  const dragCaptureX = useMotionValue(0);
+  const horizontalDismissAnimationRef =
+    useRef<AnimationPlaybackControls | null>(null);
+  const horizontalDismissAnimationSettledRef = useRef(false);
   // Track vertical offset during drag to dampen horizontal movement
   const dragStartY = useRef(0);
   // Track whether drag has been "dismissed" (user swiped up far enough for fullscreen)
@@ -240,6 +245,7 @@ function SwipeableNowPlaying({
   const maxHorizontalDistance = useRef(0);
   // Track maximum vertical distance traveled during this drag gesture (for tap detection after fullscreen dismiss)
   const maxVerticalDistance = useRef(0);
+  const currentUpwardOffset = useRef(0);
 
   // Measure container width on mount and resize
   useEffect(() => {
@@ -263,11 +269,12 @@ function SwipeableNowPlaying({
       // Track changed - reset drag position if we were waiting for this
       if (pendingTrackChangeFromId.current !== null) {
         dragX.set(0);
+        dragCaptureX.set(0);
         pendingTrackChangeFromId.current = null;
       }
       prevTrackIdRef.current = track.id;
     }
-  }, [track.id, dragX]);
+  }, [track.id, dragX, dragCaptureX]);
 
   // Clean up isAnimating state after track change
   const prevTrackIdForAnimationRef = useRef(track.id);
@@ -298,11 +305,12 @@ function SwipeableNowPlaying({
       pendingTrackChangeFromId.current = null;
       skipNextAnimation = false;
       dragX.set(0);
+      dragCaptureX.set(0);
       setIsAnimating(false);
     }, 3000);
 
     return () => clearTimeout(timeout);
-  }, [isAnimating, dragX]);
+  }, [isAnimating, dragX, dragCaptureX]);
 
   const prevTrack =
     queueWindow?.songs.find(
@@ -374,7 +382,38 @@ function SwipeableNowPlaying({
     [1, 0.5, 0],
   );
 
+  const stopHorizontalDismissAnimation = () => {
+    horizontalDismissAnimationRef.current?.stop();
+    horizontalDismissAnimationRef.current = null;
+  };
+
+  const animateHorizontalDragToRest = () => {
+    stopHorizontalDismissAnimation();
+    horizontalDismissAnimationSettledRef.current = false;
+    horizontalDismissAnimationRef.current = animate(dragX, 0, {
+      type: "spring",
+      stiffness: 500,
+      damping: 30,
+      onComplete: () => {
+        horizontalDismissAnimationRef.current = null;
+        if (isDragDismissed.current) {
+          horizontalDismissAnimationSettledRef.current = true;
+          dragX.set(0);
+        }
+      },
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      horizontalDismissAnimationRef.current?.stop();
+      horizontalDismissAnimationRef.current = null;
+    };
+  }, []);
+
   const handleDragStart = (event: MouseEvent | TouchEvent | PointerEvent) => {
+    stopHorizontalDismissAnimation();
+    dragCaptureX.set(0);
     // Capture initial Y position to track upward movement
     if ("touches" in event) {
       dragStartY.current = event.touches[0].clientY;
@@ -383,14 +422,18 @@ function SwipeableNowPlaying({
     }
     // Reset state for new gesture
     isDragDismissed.current = false;
+    horizontalDismissAnimationSettledRef.current = false;
     maxHorizontalDistance.current = 0;
     maxVerticalDistance.current = 0;
+    currentUpwardOffset.current = 0;
   };
 
   const handleDrag = (
     event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
+    dragCaptureX.set(0);
+
     // Track maximum horizontal distance for tap detection
     maxHorizontalDistance.current = Math.max(
       maxHorizontalDistance.current,
@@ -408,6 +451,7 @@ function SwipeableNowPlaying({
     // Only consider UPWARD movement (dragStartY - currentY > 0)
     // Downward movement should not affect horizontal drag
     const upwardOffset = Math.max(0, dragStartY.current - currentY);
+    currentUpwardOffset.current = upwardOffset;
 
     // Track max vertical distance for tap detection
     maxVerticalDistance.current = Math.max(
@@ -415,40 +459,71 @@ function SwipeableNowPlaying({
       upwardOffset,
     );
 
-    // Update the shared fullscreenOpenDragY so the fullscreen player preview follows
-    if (upwardOffset > 0) {
-      fullscreenOpenDragY.set(-upwardOffset);
-    }
+    // Update the shared fullscreenOpenDragY so the fullscreen player preview
+    // follows the finger both upward and back down to zero.
+    fullscreenOpenDragY.set(-upwardOffset);
 
     // If drag was dismissed (user swiped up past threshold), keep at center
     if (isDragDismissed.current) {
-      dragX.set(0);
+      if (horizontalDismissAnimationSettledRef.current) {
+        dragX.set(0);
+      }
       return;
     }
 
     // Check if we've crossed the threshold to dismiss the horizontal drag
     if (upwardOffset >= VERTICAL_DISMISS_THRESHOLD) {
-      // Dismiss the drag - snap back to center and ignore further movement
+      // Dismiss the horizontal drag once and ignore further horizontal movement.
       isDragDismissed.current = true;
-      dragX.set(0);
+      animateHorizontalDragToRest();
       return;
     }
 
-    // Apply damping factor that fades from 1x to 0x as we approach the threshold
-    const dampingFactor = 1 - upwardOffset / VERTICAL_DISMISS_THRESHOLD;
-    dragX.set(info.offset.x * dampingFactor);
+    dragX.set(info.offset.x);
   };
 
   const handleDragEnd = async (
     _event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
-    // If drag was dismissed, do nothing (already snapped back)
-    if (isDragDismissed.current || isAnimating) {
+    dragCaptureX.set(0);
+    const { velocity } = info;
+    const shouldOpenFullscreen =
+      currentUpwardOffset.current >= VERTICAL_DISMISS_THRESHOLD &&
+      velocity.y <= VELOCITY_THRESHOLD;
+
+    if (isDragDismissed.current) {
+      if (shouldOpenFullscreen) {
+        await animate(fullscreenOpenDragY, -window.innerHeight, {
+          type: "spring",
+          stiffness: 400,
+          damping: 35,
+        });
+        onOpenFullscreen();
+        fullscreenOpenDragY.set(0);
+        dragCaptureX.set(0);
+      } else {
+        await animate(fullscreenOpenDragY, 0, {
+          type: "spring",
+          stiffness: 500,
+          damping: 30,
+        });
+        dragCaptureX.set(0);
+      }
+      currentUpwardOffset.current = 0;
+      isDragDismissed.current = false;
+      horizontalDismissAnimationSettledRef.current = false;
       return;
     }
 
-    const { velocity } = info;
+    if (isAnimating) {
+      animate(fullscreenOpenDragY, 0, {
+        type: "spring",
+        stiffness: 500,
+        damping: 30,
+      });
+      return;
+    }
 
     // Only trigger track skip if the gesture was primarily horizontal.
     // This prevents vertical swipes (to open/dismiss fullscreen) from
@@ -496,7 +571,13 @@ function SwipeableNowPlaying({
     } else {
       // Snap back to center with animation
       animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 });
+      animate(fullscreenOpenDragY, 0, {
+        type: "spring",
+        stiffness: 500,
+        damping: 30,
+      });
     }
+    currentUpwardOffset.current = 0;
   };
 
   return (
@@ -590,43 +671,52 @@ function SwipeableNowPlaying({
           className="flex flex-1 items-center gap-3 min-w-0 text-left relative z-10"
           drag="x"
           dragConstraints={{ left: 0, right: 0 }}
-          dragElastic={1}
+          dragElastic={0}
+          dragMomentum={false}
           onDragStart={handleDragStart}
           onDrag={handleDrag}
           onDragEnd={handleDragEnd}
           style={{
             touchAction: "pan-y",
-            x: dragX,
-            opacity: currentOpacity,
+            x: dragCaptureX,
           }}
           whileDrag={{ scale: 0.98 }}
           transition={{ type: "spring", stiffness: 500, damping: 30 }}
         >
           <motion.div
-            key={track.id}
-            // Skip animation when coming from a swipe - the preview was already in position
-            initial={shouldSkipAnimation ? false : { scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="shrink-0 album-glow"
+            className="flex flex-1 items-center gap-3 min-w-0 w-full"
+            data-testid="now-playing-swipe-target"
+            style={{
+              x: dragX,
+              opacity: currentOpacity,
+            }}
           >
-            <CoverImage
-              src={coverArtUrl}
-              inlineData={track.coverArtData}
-              alt={track.album || "Album cover"}
-              colorSeed={track.album || track.title}
-              type="song"
-              size="sm"
-              className="w-14 h-14"
-            />
+            <motion.div
+              key={track.id}
+              // Skip animation when coming from a swipe - the preview was already in position
+              initial={shouldSkipAnimation ? false : { scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="shrink-0 album-glow"
+            >
+              <CoverImage
+                src={coverArtUrl}
+                inlineData={track.coverArtData}
+                alt={track.album || "Album cover"}
+                colorSeed={track.album || track.title}
+                type="song"
+                size="sm"
+                className="w-14 h-14"
+              />
+            </motion.div>
+            <div className="min-w-0">
+              <span className="block text-sm font-medium text-foreground truncate">
+                {track.title}
+              </span>
+              <span className="block text-xs text-muted-foreground truncate">
+                {track.artist}
+              </span>
+            </div>
           </motion.div>
-          <div className="min-w-0">
-            <span className="block text-sm font-medium text-foreground truncate">
-              {track.title}
-            </span>
-            <span className="block text-xs text-muted-foreground truncate">
-              {track.artist}
-            </span>
-          </div>
         </motion.button>
       </div>
     </SongContextMenu>

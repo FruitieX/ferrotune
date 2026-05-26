@@ -319,6 +319,7 @@ export default function LoginPage() {
         const urlToken = await client.refreshUrlToken();
         connection = {
           ...account,
+          sessionExpiresAt: urlToken.sessionExpiresAt,
           urlToken: urlToken.urlToken,
           urlTokenExpiresAt: urlToken.urlTokenExpiresAt,
         };

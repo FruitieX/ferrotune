@@ -89,7 +89,11 @@ function mapNativeStatusToAppState(
 export interface NativeAudioCallbacks {
   onStateChange: (state: AppPlaybackState) => void;
   onProgress: (currentTime: number, duration: number, buffered: number) => void;
-  onError: (message: string, trackId?: string) => void;
+  onError: (
+    message: string,
+    trackId?: string,
+    details?: NativePlaybackErrorDetails,
+  ) => void;
   onTrackChange: (
     track: NativeTrackInfo | undefined,
     queueIndex: number,
@@ -103,6 +107,44 @@ export interface NativeAudioCallbacks {
   }) => void;
   onScrobble?: (trackId: string) => void;
   onClipping?: (peakOverDb: number) => void;
+}
+
+export type NativePlaybackErrorCategory =
+  | "auth"
+  | "network"
+  | "http"
+  | "source-missing"
+  | "range"
+  | "decode"
+  | "unknown";
+
+export interface NativePlaybackErrorDetails {
+  category: NativePlaybackErrorCategory;
+  httpStatusCode?: number;
+  errorCode?: number;
+  retryable?: boolean;
+}
+
+function isNativePlaybackErrorCategory(
+  value: unknown,
+): value is NativePlaybackErrorCategory {
+  return (
+    value === "auth" ||
+    value === "network" ||
+    value === "http" ||
+    value === "source-missing" ||
+    value === "range" ||
+    value === "decode" ||
+    value === "unknown"
+  );
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 /**
@@ -194,6 +236,14 @@ export async function initNativeAudioEngine(
           engineState.callbacks?.onError(
             data?.message ?? "Unknown error",
             data?.trackId,
+            {
+              category: isNativePlaybackErrorCategory(data?.category)
+                ? data.category
+                : "unknown",
+              httpStatusCode: optionalNumber(data?.httpStatusCode),
+              errorCode: optionalNumber(data?.errorCode),
+              retryable: optionalBoolean(data?.retryable),
+            },
           );
           break;
         case "track-change":
@@ -479,6 +529,7 @@ export async function nativeInitSession(config: {
   serverUrl: string;
   username: string;
   sessionToken?: string;
+  sessionExpiresAt?: string;
   sessionId?: string;
   clientId?: string;
 }): Promise<void> {

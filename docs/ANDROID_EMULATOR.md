@@ -46,6 +46,31 @@ moon run client:test-android-emulator
 
 That task always rebuilds and reinstalls the debug Android app before running Playwright, so it does not rely on whatever APK is already present on the device.
 
+## Pulling Android Diagnostics Over ADB
+
+Native audio diagnostics are written to app-specific external storage so they can be collected later over USB without opening an in-app diagnostics screen. The default app id is `com.ferrotune.music`, and the primary device path is:
+
+```text
+/sdcard/Android/data/com.ferrotune.music/files/diagnostics/native-audio/
+```
+
+From the repository root, collect a bundle with:
+
+```bash
+bash scripts/pull-android-diagnostics.sh
+```
+
+The script writes a timestamped directory under `test-results/android-diagnostics/` containing the native JSONL diagnostics, device/package metadata, and a fresh logcat tail for the native audio tags. Set `ANDROID_SERIAL` when more than one emulator or phone is attached.
+
+Run this inside the Android nix shell if `adb` is not on your normal `PATH`:
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' develop .#android
+bash scripts/pull-android-diagnostics.sh
+```
+
+If the external app-specific directory is unavailable, the script tries a `run-as com.ferrotune.music` fallback for debuggable builds. That fallback is not expected to work for non-debuggable installs.
+
 ## Device selection
 
 - Use `ANDROID_SERIAL` to target a specific emulator/device when multiple are attached.

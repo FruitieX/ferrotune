@@ -46,6 +46,8 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
     const nativeSessionInitKey = [
       serverConnection.serverUrl,
       serverConnection.username ?? "",
+      serverConnection.sessionToken ?? "",
+      serverConnection.sessionExpiresAt ?? "",
       currentSessionId,
       clientId ?? "",
     ].join("\u0000");
@@ -77,6 +79,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
         serverUrl: serverConnection.serverUrl,
         username: serverConnection.username ?? "",
         sessionToken: serverConnection.sessionToken,
+        sessionExpiresAt: serverConnection.sessionExpiresAt,
         sessionId: currentSessionId,
         clientId: clientId || undefined,
       });

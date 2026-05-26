@@ -106,11 +106,10 @@ class PlaybackService : MediaSessionService() {
         // This should be long enough to cover ExoPlayer's gapless pre-decode buffer
         // but short enough that the volume difference on the current track's tail is inaudible.
         private const val REPLAYGAIN_PRE_APPLY_LEAD_MS = 500L
-        // Treat network errors this close to the end of a transcoded track as a
-        // transition failure and advance the queue instead of restarting the
-        // current stream from the beginning.
-        private const val NETWORK_ERROR_TRACK_END_GRACE_MS = 2_000L
-        private const val TRANSCODED_STREAM_RESTART_END_GRACE_MS = 15_000L
+        // Only treat an internal transcoded stream restart as a natural end
+        // when the absolute track position is already at the end. Wider
+        // thresholds can turn mobile network resets into silent skips.
+        private const val TRANSCODED_STREAM_RESTART_END_GRACE_MS = 750L
         // Keep a large rolling buffer for mobile playback so brief coverage
         // drops are absorbed from cache instead of forcing a restart.
         private const val STREAM_MIN_BUFFER_MS = 10 * 60 * 1000
@@ -142,6 +141,13 @@ class PlaybackService : MediaSessionService() {
         // SimpleCache is a singleton — only one instance may exist per cache directory.
         // We keep it in the companion object so it survives service re-creation.
         private var streamCache: SimpleCache? = null
+    }
+
+    private enum class DiagnosticLevel {
+        DEBUG,
+        INFO,
+        WARN,
+        ERROR,
     }
 
     private val binder = LocalBinder()
@@ -243,8 +249,9 @@ class PlaybackService : MediaSessionService() {
 
     // Track retry count for network errors to prevent infinite loops
     private var networkRetryCount = 0
-    private val MAX_NETWORK_RETRIES = 2
-    private val NETWORK_RETRY_DELAY_MS = 1500L
+    private val MAX_NETWORK_RETRIES = 5
+    private val NETWORK_RETRY_BASE_DELAY_MS = 1_500L
+    private val NETWORK_RETRY_MAX_DELAY_MS = 10_000L
     private var pendingNetworkRetryRunnable: Runnable? = null
     private var pendingNetworkRetryTrackId: String? = null
 
@@ -270,6 +277,11 @@ class PlaybackService : MediaSessionService() {
     // Timeout to stop service after extended inactivity (paused)
     private val inactivityTimeoutRunnable = Runnable {
         Log.d(TAG, "Inactivity timeout - stopping service")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "service_inactivity_timeout",
+            "PlaybackService inactivity timeout fired",
+        )
         if (!player.isPlaying) {
             stopSelf()
         }
@@ -282,6 +294,12 @@ class PlaybackService : MediaSessionService() {
             }
 
             Log.i(TAG, "Received ACTION_AUDIO_BECOMING_NOISY")
+            logPlaybackDiagnostic(
+                DiagnosticLevel.WARN,
+                "audio_becoming_noisy_broadcast",
+                "Received Android audio becoming noisy broadcast",
+                mapOf("remainingNoisyOutputs" to audioDeviceTypeNames(getNoisyAudioOutputDevices())),
+            )
             // Let ExoPlayer's own becoming-noisy receiver handle the broadcast
             // first when it is active. If Media3 was not listening for some
             // reason, this posted fallback still pauses on the next loop turn.
@@ -291,6 +309,12 @@ class PlaybackService : MediaSessionService() {
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            logPlaybackDiagnostic(
+                DiagnosticLevel.DEBUG,
+                "audio_devices_added",
+                "Audio output devices added",
+                mapOf("addedDevices" to audioDeviceTypeNames(addedDevices.asList())),
+            )
             refreshAudioOutputRouteSnapshot("devices added=${audioDeviceTypeNames(addedDevices.asList())}")
         }
 
@@ -306,6 +330,17 @@ class PlaybackService : MediaSessionService() {
                     "removedNoisy=${audioDeviceTypeNames(removedNoisyOutputs)}, " +
                     "hadNoisyAudioOutput=$hadNoisyOutputBeforeRemoval, " +
                     "currentNoisyOutputs=${audioDeviceTypeNames(currentNoisyOutputs)}"
+            )
+            logPlaybackDiagnostic(
+                DiagnosticLevel.INFO,
+                "audio_devices_removed",
+                "Audio output devices removed",
+                mapOf(
+                    "removedDevices" to audioDeviceTypeNames(removedDevices.asList()),
+                    "removedNoisyDevices" to audioDeviceTypeNames(removedNoisyOutputs),
+                    "hadNoisyOutputBeforeRemoval" to hadNoisyOutputBeforeRemoval,
+                    "currentNoisyOutputs" to audioDeviceTypeNames(currentNoisyOutputs),
+                ),
             )
 
             if (removedNoisyOutputs.isEmpty() || !hadNoisyOutputBeforeRemoval) {
@@ -387,7 +422,9 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        NativeAudioLogger.initialize(applicationContext)
         Log.d(TAG, "PlaybackService created")
+        NativeAudioLogger.info(TAG, "service_created", "PlaybackService created")
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // Set up clipping detection callback (posts to main thread for event emission)
@@ -459,7 +496,9 @@ class PlaybackService : MediaSessionService() {
                 loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo,
             ): Long {
                 if (!playbackSettings.transcodingEnabled) {
-                    return super.getRetryDelayMsFor(loadErrorInfo)
+                    val retryDelayMs = super.getRetryDelayMsFor(loadErrorInfo)
+                    logLoadErrorDecision(loadErrorInfo, retryDelayMs)
+                    return retryDelayMs
                 }
 
                 val httpError = loadErrorInfo.exception as? InvalidResponseCodeException
@@ -470,17 +509,21 @@ class PlaybackService : MediaSessionService() {
                     responseCode != 408 &&
                     responseCode != 429
                 ) {
+                    logLoadErrorDecision(loadErrorInfo, C.TIME_UNSET)
                     return C.TIME_UNSET
                 }
 
                 if (loadErrorInfo.errorCount > TRANSCODED_STREAM_LOAD_RETRY_COUNT) {
+                    logLoadErrorDecision(loadErrorInfo, C.TIME_UNSET)
                     return C.TIME_UNSET
                 }
 
-                return minOf(
+                val retryDelayMs = minOf(
                     TRANSCODED_STREAM_LOAD_RETRY_BASE_DELAY_MS * loadErrorInfo.errorCount,
                     TRANSCODED_STREAM_LOAD_RETRY_MAX_DELAY_MS,
                 )
+                logLoadErrorDecision(loadErrorInfo, retryDelayMs)
+                return retryDelayMs
             }
         }
 
@@ -732,6 +775,11 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "service_destroyed",
+            "PlaybackService destroyed",
+        )
         unregisterAudioRouteCallbacks()
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(inactivityTimeoutRunnable)
@@ -756,6 +804,12 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "task_removed",
+            "PlaybackService task removed",
+            mapOf("willStopSelf" to (!player.playWhenReady || player.mediaItemCount == 0)),
+        )
         // Use playWhenReady instead of isPlaying. When a track naturally ends
         // (STATE_ENDED), isPlaying is false but playWhenReady is still true.
         // This gives the JS side time to advance to the next track.
@@ -774,6 +828,11 @@ class PlaybackService : MediaSessionService() {
 
     fun play() {
         Log.d(TAG, "play()")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "play_requested",
+            "Explicit native play requested",
+        )
         claimNativeSessionOwnership("explicit play", getAbsolutePlaybackPositionMs(), serverQueueIndex)
         clearAudioOutputLossPause("explicit play()")
         if (player.mediaItemCount == 0 && apiClient.hasSessionConfig()) {
@@ -808,6 +867,13 @@ class PlaybackService : MediaSessionService() {
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "play(): failed to bootstrap queue from server", e)
+                    NativeAudioLogger.error(
+                        TAG,
+                        "queue_bootstrap_failed",
+                        "play() failed to bootstrap queue from server",
+                        mapOf("queueIndex" to serverQueueIndex),
+                        e,
+                    )
                     handler.post {
                         emitError("Failed to load queue: ${e.message}", null)
                     }
@@ -821,6 +887,11 @@ class PlaybackService : MediaSessionService() {
 
     fun pause() {
         Log.d(TAG, "pause()")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "pause_requested",
+            "Explicit native pause requested",
+        )
         markPlaybackPauseIntent("explicit pause()")
         clearPendingNetworkRetry("explicit pause()")
         player.pause()
@@ -828,6 +899,11 @@ class PlaybackService : MediaSessionService() {
 
     fun stop() {
         Log.d(TAG, "stop()")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "stop_requested",
+            "Explicit native stop requested",
+        )
         markPlaybackPauseIntent("explicit stop()")
         nextQueueLoadGeneration("stop")
         clearPendingNetworkRetry("stop")
@@ -858,6 +934,18 @@ class PlaybackService : MediaSessionService() {
 
     private fun resetSessionBoundary(reason: String, clearConfig: Boolean) {
         Log.d(TAG, "resetSessionBoundary: $reason")
+        NativeAudioLogger.info(
+            TAG,
+            "session_reset",
+            "Resetting native playback session boundary",
+            mapOf(
+                "reason" to reason,
+                "clearConfig" to clearConfig,
+                "currentTrackId" to currentTrack?.id,
+                "queueIndex" to serverQueueIndex,
+                "positionMs" to getAbsolutePlaybackPositionMs(),
+            ),
+        )
         markPlaybackPauseIntent(reason)
         nextQueueLoadGeneration(reason)
         clearPendingNetworkRetry(reason)
@@ -955,6 +1043,21 @@ class PlaybackService : MediaSessionService() {
         val authHeaders = apiClient.getAuthHeaders()
         httpDataSourceFactory?.setDefaultRequestProperties(authHeaders)
         artworkDataSourceFactory?.setDefaultRequestProperties(authHeaders)
+        Log.d(TAG, "initSession: updated Media3 auth headers, hasAuthorization=${authHeaders.containsKey("Authorization")}")
+        NativeAudioLogger.info(
+            TAG,
+            "session_initialized",
+            "PlaybackService session initialized",
+            mapOf(
+                "serverUrl" to config.serverUrl,
+                "username" to config.username,
+                "hasSessionToken" to (config.sessionToken != null),
+                "hasSessionExpiresAt" to (config.sessionExpiresAt != null),
+                "sessionId" to config.sessionId,
+                "clientId" to config.clientId,
+                "hasAuthorization" to authHeaders.containsKey("Authorization"),
+            ),
+        )
         // Connect SSE for remote control if session ID is available
         connectSessionSSE()
     }
@@ -969,6 +1072,7 @@ class PlaybackService : MediaSessionService() {
             override fun onConnected() {
                 sseConnected = true
                 Log.d(TAG, "SSE remote control connected")
+                NativeAudioLogger.info(TAG, "sse_connected", "SSE remote control connected")
             }
 
             override fun onEvent(event: SessionEvent) {
@@ -980,6 +1084,16 @@ class PlaybackService : MediaSessionService() {
                 // requires main-thread access, but this callback runs on OkHttp thread
                 handler.post {
                     sseConnected = false
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "sse_disconnected",
+                        "SSE remote control disconnected",
+                        mapOf(
+                            "nativeOwnsSession" to nativeOwnsSession,
+                            "isActive" to isActive,
+                            "hasSessionConfig" to apiClient.hasSessionConfig(),
+                        ),
+                    )
                     // Auto-reconnect after delay if playback is active
                     if (nativeOwnsSession && isActive && apiClient.hasSessionConfig()) {
                         sseReconnectRunnable = Runnable { connectSessionSSE() }
@@ -1304,8 +1418,25 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "startPlayback(total=$totalCount, index=$currentIndex, " +
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
             "sourceType=$sourceType, sourceId=$sourceId)")
+        NativeAudioLogger.info(
+            TAG,
+            "start_playback",
+            "Native startPlayback requested",
+            mapOf(
+                "totalCount" to totalCount,
+                "currentIndex" to currentIndex,
+                "isShuffled" to isShuffled,
+                "repeatMode" to repeatMode,
+                "playWhenReady" to playWhenReady,
+                "startPositionMs" to startPositionMs,
+                "sessionId" to sessionId,
+                "sourceType" to sourceType,
+                "sourceId" to sourceId,
+            ),
+        )
         if (!apiClient.hasSessionConfig()) {
             Log.w(TAG, "startPlayback ignored: session is not configured yet")
+            NativeAudioLogger.warn(TAG, "start_playback_ignored", "startPlayback ignored: session is not configured yet")
             return
         }
         if (sessionId != null) {
@@ -1375,6 +1506,16 @@ class PlaybackService : MediaSessionService() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch initial queue window", e)
+                NativeAudioLogger.error(
+                    TAG,
+                    "initial_queue_window_failed",
+                    "Failed to fetch initial queue window",
+                    mapOf(
+                        "requestedIndex" to currentIndex,
+                        "totalCount" to totalCount,
+                    ),
+                    e,
+                )
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "startPlayback error")) return@post
                     emitError("Failed to load queue: ${e.message}", null)
@@ -1520,6 +1661,18 @@ class PlaybackService : MediaSessionService() {
         isFetching = true
         Log.d(TAG, "Prefetching: ahead=$needsMoreAhead, behind=$needsMoreBehind, " +
             "serverPos=$serverPos, loaded=$loadedRangeStart..${loadedRangeEnd - 1}")
+        NativeAudioLogger.debug(
+            TAG,
+            "queue_prefetch_start",
+            "Prefetching queue window",
+            mapOf(
+                "needsMoreAhead" to needsMoreAhead,
+                "needsMoreBehind" to needsMoreBehind,
+                "serverPosition" to serverPos,
+                "loadedRangeStart" to loadedRangeStart,
+                "loadedRangeEnd" to loadedRangeEnd,
+            ),
+        )
         val generation = queueLoadGeneration
 
         apiExecutor.execute {
@@ -1534,6 +1687,17 @@ class PlaybackService : MediaSessionService() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Prefetch failed", e)
+                NativeAudioLogger.error(
+                    TAG,
+                    "queue_prefetch_failed",
+                    "Prefetch failed",
+                    mapOf(
+                        "queueIndex" to serverQueueIndex,
+                        "loadedRangeStart" to loadedRangeStart,
+                        "loadedRangeEnd" to loadedRangeEnd,
+                    ),
+                    e,
+                )
                 handler.post { isFetching = false }
             }
         }
@@ -2433,6 +2597,19 @@ class PlaybackService : MediaSessionService() {
                         "Skipping stale network retry for ${trackAtError.id}; " +
                             "currentMediaId=$currentMediaId currentTrack=${track.id} currentQueueIndex=$serverQueueIndex"
                     )
+                    NativeAudioLogger.debug(
+                        TAG,
+                        "network_retry_stale",
+                        "Skipping stale network retry",
+                        mapOf(
+                            "trackId" to trackAtError.id,
+                            "currentTrackId" to track.id,
+                            "queueIndexAtError" to queueIndexAtError,
+                            "currentQueueIndex" to serverQueueIndex,
+                            "mediaIdAtError" to mediaIdAtError,
+                            "currentMediaId" to currentMediaId,
+                        ),
+                    )
                     return
                 }
 
@@ -2455,15 +2632,6 @@ class PlaybackService : MediaSessionService() {
                             "over livePositionMs=$livePositionMs and errorPositionMs=$positionMsAtError"
                     )
                 }
-                if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
-                    Log.d(
-                        TAG,
-                        "Network retry reached track end for ${track.id} at ${retryPositionMs}ms; advancing instead"
-                    )
-                    autonomousSkipNext()
-                    return
-                }
-
                 if (playbackSettings.transcodingEnabled) {
                     // For transcoded streams, rebuild URL with the furthest
                     // known playback position so a transient player reset at
@@ -2485,6 +2653,20 @@ class PlaybackService : MediaSessionService() {
                         "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
                             "for ${track.id} (retryPositionMs=$retryPositionMs, errorPositionMs=$positionMsAtError)"
                     )
+                    NativeAudioLogger.info(
+                        TAG,
+                        "network_retry_execute",
+                        "Reloaded transcoded stream for network retry",
+                        mapOf(
+                            "trackId" to track.id,
+                            "queueIndex" to serverQueueIndex,
+                            "retryPositionMs" to retryPositionMs,
+                            "errorPositionMs" to positionMsAtError,
+                            "timeOffsetSeconds" to timeOffsetSeconds,
+                            "networkRetryCount" to networkRetryCount,
+                            "transcoding" to true,
+                        ),
+                    )
                 } else {
                     seekTimeOffsetMs = 0
                     lastKnownGoodPositionMs = retryPositionMs
@@ -2502,25 +2684,49 @@ class PlaybackService : MediaSessionService() {
                         "Network retry: re-prepared non-transcoded stream at ${retryPositionMs}ms " +
                             "for ${track.id} (errorPositionMs=$positionMsAtError)"
                     )
+                    NativeAudioLogger.info(
+                        TAG,
+                        "network_retry_execute",
+                        "Re-prepared non-transcoded stream for network retry",
+                        mapOf(
+                            "trackId" to track.id,
+                            "queueIndex" to serverQueueIndex,
+                            "retryPositionMs" to retryPositionMs,
+                            "errorPositionMs" to positionMsAtError,
+                            "networkRetryCount" to networkRetryCount,
+                            "transcoding" to false,
+                        ),
+                    )
                 }
             }
         }
 
         pendingNetworkRetryRunnable = retryRunnable
         pendingNetworkRetryTrackId = trackAtError.id
-        handler.postDelayed(retryRunnable, NETWORK_RETRY_DELAY_MS)
+        val delayMs = networkRetryDelayMs()
+        Log.d(TAG, "Scheduling network retry for ${trackAtError.id} in ${delayMs}ms")
+        NativeAudioLogger.warn(
+            TAG,
+            "network_retry_scheduled",
+            "Scheduling network retry",
+            mapOf(
+                "trackId" to trackAtError.id,
+                "queueIndex" to queueIndexAtError,
+                "mediaId" to mediaIdAtError,
+                "positionMs" to positionMsAtError,
+                "delayMs" to delayMs,
+                "networkRetryCount" to networkRetryCount,
+                "maxNetworkRetries" to MAX_NETWORK_RETRIES,
+                "transcoding" to playbackSettings.transcodingEnabled,
+            ),
+        )
+        handler.postDelayed(retryRunnable, delayMs)
     }
-    private fun shouldAdvanceInsteadOfRetryOnNetworkError(
-        track: TrackInfo,
-        absolutePositionMs: Long,
-    ): Boolean {
-        if (repeatMode == "one") return false
-        if (track.durationMs <= 0) return false
 
-        val remainingMs = track.durationMs - absolutePositionMs
-        if (remainingMs > NETWORK_ERROR_TRACK_END_GRACE_MS) return false
-
-        return repeatMode == "all" || serverQueueIndex + 1 < serverTotalCount
+    private fun networkRetryDelayMs(): Long {
+        val retryAttempt = networkRetryCount.coerceAtLeast(1)
+        val exponentialDelay = NETWORK_RETRY_BASE_DELAY_MS * (1L shl (retryAttempt - 1).coerceAtMost(4))
+        return minOf(exponentialDelay, NETWORK_RETRY_MAX_DELAY_MS)
     }
 
     private fun handleTranscodedStreamRestart(
@@ -2550,6 +2756,8 @@ class PlaybackService : MediaSessionService() {
             Long.MAX_VALUE
         }
         val closestRemainingMs = minOf(trackRemainingMs, streamRemainingMs)
+        val isConfirmedTrackEnd = track.durationMs > 0 &&
+            trackRemainingMs <= TRANSCODED_STREAM_RESTART_END_GRACE_MS
         lastKnownGoodPositionMs = maxOf(lastKnownGoodPositionMs, absoluteOldPositionMs)
         Log.d(
             TAG,
@@ -2558,6 +2766,23 @@ class PlaybackService : MediaSessionService() {
                 "(absolute=$absoluteOldPositionMs, remaining=$closestRemainingMs, " +
                 "offset=$seekTimeOffsetMs, repeat=$repeatMode)"
         )
+        NativeAudioLogger.warn(
+            TAG,
+            "transcoded_stream_restart",
+            "Transcoded stream restarted internally",
+            mapOf(
+                "trackId" to track.id,
+                "oldPositionMs" to oldPosition.positionMs,
+                "newPositionMs" to newPosition.positionMs,
+                "absoluteOldPositionMs" to absoluteOldPositionMs,
+                "trackRemainingMs" to trackRemainingMs,
+                "streamRemainingMs" to streamRemainingMs,
+                "isConfirmedTrackEnd" to isConfirmedTrackEnd,
+                "seekTimeOffsetMs" to seekTimeOffsetMs,
+                "lastKnownGoodPositionMs" to lastKnownGoodPositionMs,
+                "repeatMode" to repeatMode,
+            ),
+        )
 
         if (repeatMode == "one") {
             if (seekTimeOffsetMs > 0) {
@@ -2565,12 +2790,70 @@ class PlaybackService : MediaSessionService() {
                 return true
             }
             return false
-        } else if (closestRemainingMs > TRANSCODED_STREAM_RESTART_END_GRACE_MS) {
+        } else if (!isConfirmedTrackEnd) {
             seek(absoluteOldPositionMs)
         } else {
             autonomousSkipNext()
         }
         return true
+    }
+
+    private fun findHttpStatusCode(error: Throwable): Int? {
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is InvalidResponseCodeException) {
+                return current.responseCode
+            }
+            current = current.cause
+        }
+        return null
+    }
+
+    private fun logPlaybackIncident(
+        error: PlaybackException,
+        classification: PlaybackErrorClassification,
+        httpStatusCode: Int?,
+        track: TrackInfo?,
+        positionMs: Long,
+    ) {
+        val durationMs = track?.durationMs ?: 0
+        val remainingMs = if (durationMs > 0) durationMs - positionMs else null
+        Log.e(
+            TAG,
+            "Playback incident: category=${classification.category.jsValue}, " +
+                "retryable=${classification.retryable}, httpStatus=$httpStatusCode, " +
+                "errorCode=${error.errorCode}, trackId=${track?.id}, " +
+                "queueIndex=$serverQueueIndex, positionMs=$positionMs, " +
+                "durationMs=$durationMs, remainingMs=$remainingMs, " +
+                "seekTimeOffsetMs=$seekTimeOffsetMs, lastKnownGoodPositionMs=$lastKnownGoodPositionMs, " +
+                "transcoding=${playbackSettings.transcodingEnabled}, " +
+                "bitrate=${playbackSettings.transcodingBitrate}, " +
+                "networkRetryCount=$networkRetryCount/$MAX_NETWORK_RETRIES",
+            error,
+        )
+        NativeAudioLogger.error(
+            TAG,
+            "playback_incident",
+            "Playback incident",
+            mapOf(
+                "category" to classification.category.jsValue,
+                "retryable" to classification.retryable,
+                "httpStatus" to httpStatusCode,
+                "errorCode" to error.errorCode,
+                "trackId" to track?.id,
+                "queueIndex" to serverQueueIndex,
+                "positionMs" to positionMs,
+                "durationMs" to durationMs,
+                "remainingMs" to remainingMs,
+                "seekTimeOffsetMs" to seekTimeOffsetMs,
+                "lastKnownGoodPositionMs" to lastKnownGoodPositionMs,
+                "transcoding" to playbackSettings.transcodingEnabled,
+                "bitrate" to playbackSettings.transcodingBitrate,
+                "networkRetryCount" to networkRetryCount,
+                "maxNetworkRetries" to MAX_NETWORK_RETRIES,
+            ),
+            error,
+        )
     }
 
     fun nextTrack() {
@@ -2780,6 +3063,104 @@ class PlaybackService : MediaSessionService() {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
+    private fun logPlaybackDiagnostic(
+        level: DiagnosticLevel,
+        event: String,
+        message: String,
+        fields: Map<String, Any?> = emptyMap(),
+    ) {
+        val diagnosticFields = playbackDiagnosticFields(fields)
+        when (level) {
+            DiagnosticLevel.DEBUG -> NativeAudioLogger.debug(TAG, event, message, diagnosticFields)
+            DiagnosticLevel.INFO -> NativeAudioLogger.info(TAG, event, message, diagnosticFields)
+            DiagnosticLevel.WARN -> NativeAudioLogger.warn(TAG, event, message, diagnosticFields)
+            DiagnosticLevel.ERROR -> NativeAudioLogger.error(TAG, event, message, diagnosticFields)
+        }
+    }
+
+    private fun playbackDiagnosticFields(extraFields: Map<String, Any?> = emptyMap()): Map<String, Any?> {
+        val fields = linkedMapOf<String, Any?>()
+        val playerInitialized = ::player.isInitialized
+        val trackDurationMs = currentTrack?.durationMs?.takeIf { it > 0 }
+
+        fields["playerInitialized"] = playerInitialized
+        fields["currentTrackId"] = currentTrack?.id
+        fields["currentTrackDurationMs"] = trackDurationMs
+        fields["queueIndex"] = serverQueueIndex
+        fields["localQueueIndex"] = queueIndex
+        fields["queueLength"] = queue.size
+        fields["serverTotalCount"] = serverTotalCount
+        fields["sourceType"] = queueSourceType
+        fields["sourceId"] = queueSourceId
+        fields["nativeOwnsSession"] = nativeOwnsSession
+        fields["sseConnected"] = sseConnected
+        fields["hasSessionConfig"] = apiClient.hasSessionConfig()
+        fields["networkRetryCount"] = networkRetryCount
+        fields["pendingNetworkRetryTrackId"] = pendingNetworkRetryTrackId
+        fields["transcoding"] = playbackSettings.transcodingEnabled
+        fields["pausedForAudioOutputLoss"] = pausedForAudioOutputLoss
+        fields["networkAvailable"] = runCatching { isNetworkAvailable() }.getOrNull()
+
+        if (playerInitialized) {
+            val playerDurationMs = diagnosticTimeMs(player.duration)
+            val playerBufferedPositionMs = diagnosticTimeMs(player.bufferedPosition)
+            val playbackState = player.playbackState
+
+            fields["mediaId"] = player.currentMediaItem?.mediaId
+            fields["exoIndex"] = player.currentMediaItemIndex
+            fields["mediaItemCount"] = player.mediaItemCount
+            fields["positionMs"] = getAbsolutePlaybackPositionMs()
+            fields["playerPositionMs"] = diagnosticTimeMs(player.currentPosition)
+            fields["durationMs"] = trackDurationMs ?: playerDurationMs
+            fields["playerDurationMs"] = playerDurationMs
+            fields["bufferedPositionMs"] = playerBufferedPositionMs?.let { it + seekTimeOffsetMs }
+            fields["playerBufferedPositionMs"] = playerBufferedPositionMs
+            fields["bufferedPercentage"] = player.bufferedPercentage
+            fields["seekTimeOffsetMs"] = seekTimeOffsetMs
+            fields["lastKnownGoodPositionMs"] = lastKnownGoodPositionMs
+            fields["playbackState"] = playbackStateName(playbackState)
+            fields["playbackStateCode"] = playbackState
+            fields["playWhenReady"] = player.playWhenReady
+            fields["isPlaying"] = player.isPlaying
+            fields["isLoading"] = player.isLoading
+            fields["isActive"] = isActive
+        }
+
+        fields.putAll(extraFields)
+        return fields
+    }
+
+    private fun diagnosticTimeMs(value: Long): Long? {
+        return if (value == C.TIME_UNSET || value < 0) null else value
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun logLoadErrorDecision(
+        loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo,
+        retryDelayMs: Long,
+    ) {
+        val httpError = loadErrorInfo.exception as? InvalidResponseCodeException
+        val willRetry = retryDelayMs != C.TIME_UNSET
+        NativeAudioLogger.warn(
+            TAG,
+            if (willRetry) "media_load_retry" else "media_load_failure_terminal",
+            if (willRetry) "Media load error will be retried" else "Media load error will not be retried",
+            mapOf(
+                "currentTrackId" to currentTrack?.id,
+                "queueIndex" to serverQueueIndex,
+                "errorCount" to loadErrorInfo.errorCount,
+                "dataType" to loadErrorInfo.mediaLoadData.dataType,
+                "trackType" to loadErrorInfo.mediaLoadData.trackType,
+                "httpStatus" to httpError?.responseCode,
+                "willRetry" to willRetry,
+                "retryDelayMs" to diagnosticTimeMs(retryDelayMs),
+                "transcoding" to playbackSettings.transcodingEnabled,
+                "networkAvailable" to runCatching { isNetworkAvailable() }.getOrNull(),
+            ),
+            loadErrorInfo.exception,
+        )
+    }
+
     private fun registerAudioRouteCallbacks() {
         refreshAudioOutputRouteSnapshot("register callbacks")
 
@@ -2808,11 +3189,24 @@ class PlaybackService : MediaSessionService() {
     private fun refreshAudioOutputRouteSnapshot(reason: String) {
         val noisyOutputs = getNoisyAudioOutputDevices()
         hadNoisyAudioOutput = noisyOutputs.isNotEmpty()
+        val noisyOutputNames = audioDeviceTypeNames(noisyOutputs)
+        val routeQuery = if (canQueryMediaOutputRoute()) "media-route" else "connected-outputs"
         Log.d(
             TAG,
             "Audio route snapshot ($reason): hadNoisyAudioOutput=$hadNoisyAudioOutput, " +
-                "noisyOutputs=${audioDeviceTypeNames(noisyOutputs)}, " +
-                "routeQuery=${if (canQueryMediaOutputRoute()) "media-route" else "connected-outputs"}"
+                "noisyOutputs=$noisyOutputNames, " +
+                "routeQuery=$routeQuery"
+        )
+        logPlaybackDiagnostic(
+            DiagnosticLevel.DEBUG,
+            "audio_route_snapshot",
+            "Audio output route snapshot refreshed",
+            mapOf(
+                "reason" to reason,
+                "hadNoisyAudioOutput" to hadNoisyAudioOutput,
+                "noisyOutputs" to noisyOutputNames,
+                "routeQuery" to routeQuery,
+            ),
         )
     }
 
@@ -2876,6 +3270,12 @@ class PlaybackService : MediaSessionService() {
     private fun clearAudioOutputLossPause(reason: String) {
         if (pausedForAudioOutputLoss) {
             Log.i(TAG, "Clearing audio-output-loss pause guard: $reason")
+            logPlaybackDiagnostic(
+                DiagnosticLevel.INFO,
+                "audio_output_loss_guard_cleared",
+                "Clearing audio-output-loss pause guard",
+                mapOf("reason" to reason),
+            )
         }
         pausedForAudioOutputLoss = false
     }
@@ -2883,6 +3283,15 @@ class PlaybackService : MediaSessionService() {
     private fun markPlaybackPauseIntent(reason: String) {
         playbackIntentGeneration += 1
         Log.d(TAG, "Playback pause intent generation=$playbackIntentGeneration: $reason")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.DEBUG,
+            "playback_pause_intent_marked",
+            "Playback pause intent generation advanced",
+            mapOf(
+                "reason" to reason,
+                "playbackIntentGeneration" to playbackIntentGeneration,
+            ),
+        )
     }
 
     private fun shouldStartPlaybackAfterAudioOutputLoss(
@@ -2900,6 +3309,16 @@ class PlaybackService : MediaSessionService() {
                     "(requestGeneration=$playbackIntentGenerationAtRequest, " +
                     "currentGeneration=$playbackIntentGeneration)"
             )
+            logPlaybackDiagnostic(
+                DiagnosticLevel.INFO,
+                "auto_play_suppressed_newer_pause",
+                "Suppressing automatic playback after a newer pause intent",
+                mapOf(
+                    "reason" to reason,
+                    "requestGeneration" to playbackIntentGenerationAtRequest,
+                    "currentGeneration" to playbackIntentGeneration,
+                ),
+            )
             return false
         }
         if (!pausedForAudioOutputLoss) {
@@ -2907,6 +3326,12 @@ class PlaybackService : MediaSessionService() {
         }
 
         Log.i(TAG, "Suppressing automatic playback after audio-output loss: $reason")
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "auto_play_suppressed_audio_output_loss",
+            "Suppressing automatic playback after audio-output loss",
+            mapOf("reason" to reason),
+        )
         return false
     }
 
@@ -2921,6 +3346,15 @@ class PlaybackService : MediaSessionService() {
                     "playWhenReady=${player.playWhenReady}, playbackState=${player.playbackState}, " +
                     "noisyOutputs=${audioDeviceTypeNames(noisyOutputs)}"
             )
+            logPlaybackDiagnostic(
+                DiagnosticLevel.DEBUG,
+                "audio_output_loss_ignored",
+                "Ignoring audio output loss while playback is not active",
+                mapOf(
+                    "reason" to reason,
+                    "remainingNoisyOutputs" to audioDeviceTypeNames(noisyOutputs),
+                ),
+            )
             return
         }
 
@@ -2929,6 +3363,15 @@ class PlaybackService : MediaSessionService() {
             TAG,
             "Pausing playback after audio output loss: $reason, " +
                 "remainingNoisyOutputs=${audioDeviceTypeNames(noisyOutputs)}"
+        )
+        logPlaybackDiagnostic(
+            DiagnosticLevel.WARN,
+            "audio_output_loss_pause",
+            "Pausing playback after audio output loss",
+            mapOf(
+                "reason" to reason,
+                "remainingNoisyOutputs" to audioDeviceTypeNames(noisyOutputs),
+            ),
         )
         pause()
     }
@@ -2954,6 +3397,16 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun playbackStateName(playbackState: Int): String {
+        return when (playbackState) {
+            Player.STATE_IDLE -> "IDLE"
+            Player.STATE_BUFFERING -> "BUFFERING"
+            Player.STATE_READY -> "READY"
+            Player.STATE_ENDED -> "ENDED"
+            else -> "UNKNOWN($playbackState)"
+        }
+    }
+
     private fun playWhenReadyChangeReasonName(reason: Int): String {
         return when (reason) {
             Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> "USER_REQUEST"
@@ -2961,6 +3414,36 @@ class PlaybackService : MediaSessionService() {
             Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> "AUDIO_BECOMING_NOISY"
             Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE -> "REMOTE"
             Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM -> "END_OF_MEDIA_ITEM"
+            else -> "UNKNOWN($reason)"
+        }
+    }
+
+    private fun mediaItemTransitionReasonName(reason: Int): String {
+        return when (reason) {
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "REPEAT"
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "AUTO"
+            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "SEEK"
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+            else -> "UNKNOWN($reason)"
+        }
+    }
+
+    private fun timelineChangeReasonName(reason: Int): String {
+        return when (reason) {
+            Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+            Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE -> "SOURCE_UPDATE"
+            else -> "UNKNOWN($reason)"
+        }
+    }
+
+    private fun positionDiscontinuityReasonName(reason: Int): String {
+        return when (reason) {
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION -> "AUTO_TRANSITION"
+            Player.DISCONTINUITY_REASON_SEEK -> "SEEK"
+            Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT -> "SEEK_ADJUSTMENT"
+            Player.DISCONTINUITY_REASON_SKIP -> "SKIP"
+            Player.DISCONTINUITY_REASON_REMOVE -> "REMOVE"
+            Player.DISCONTINUITY_REASON_INTERNAL -> "INTERNAL"
             else -> "UNKNOWN($reason)"
         }
     }
@@ -3415,11 +3898,44 @@ class PlaybackService : MediaSessionService() {
         })
     }
 
-    private fun emitError(message: String, trackId: String?) {
+    private fun emitError(
+        message: String,
+        trackId: String?,
+        classification: PlaybackErrorClassification? = null,
+        httpStatusCode: Int? = null,
+        errorCode: Int? = null,
+    ) {
+        NativeAudioLogger.error(
+            TAG,
+            "playback_error_emitted",
+            message,
+            mapOf(
+                "trackId" to trackId,
+                "category" to classification?.category?.jsValue,
+                "retryable" to classification?.retryable,
+                "httpStatusCode" to httpStatusCode,
+                "errorCode" to errorCode,
+                "queueIndex" to serverQueueIndex,
+                "positionMs" to getAbsolutePlaybackPositionMs(),
+                "transcoding" to playbackSettings.transcodingEnabled,
+                "networkRetryCount" to networkRetryCount,
+                "maxNetworkRetries" to MAX_NETWORK_RETRIES,
+            ),
+        )
         eventEmitter?.invoke(AudioEvents.ERROR, JSObject().apply {
             put("message", message)
             if (trackId != null) {
                 put("trackId", trackId)
+            }
+            if (classification != null) {
+                put("category", classification.category.jsValue)
+                put("retryable", classification.retryable)
+            }
+            if (httpStatusCode != null) {
+                put("httpStatusCode", httpStatusCode)
+            }
+            if (errorCode != null) {
+                put("errorCode", errorCode)
             }
         })
     }
@@ -3443,6 +3959,18 @@ class PlaybackService : MediaSessionService() {
     private inner class PlayerListener : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             Log.d(TAG, "onPlaybackStateChanged: $playbackState")
+            logPlaybackDiagnostic(
+                when (playbackState) {
+                    Player.STATE_IDLE, Player.STATE_ENDED -> DiagnosticLevel.INFO
+                    else -> DiagnosticLevel.DEBUG
+                },
+                "player_state_changed",
+                "ExoPlayer playback state changed",
+                mapOf(
+                    "newPlaybackState" to playbackStateName(playbackState),
+                    "newPlaybackStateCode" to playbackState,
+                ),
+            )
 
             // Restore volume after track transition completes
             if (playbackState == Player.STATE_READY) {
@@ -3509,11 +4037,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-            val reasonStr = when (reason) {
-                Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
-                Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE -> "SOURCE_UPDATE"
-                else -> "UNKNOWN($reason)"
-            }
+            val reasonStr = timelineChangeReasonName(reason)
             val window = Timeline.Window()
             val currentIndex = player.currentMediaItemIndex
             val currentWindow = if (currentIndex in 0 until timeline.windowCount) {
@@ -3533,6 +4057,22 @@ class PlaybackService : MediaSessionService() {
                     "live=${currentWindow?.liveConfiguration != null}, " +
                     "placeholder=${currentWindow?.isPlaceholder}"
             )
+            logPlaybackDiagnostic(
+                DiagnosticLevel.DEBUG,
+                "timeline_changed",
+                "ExoPlayer timeline changed",
+                mapOf(
+                    "reason" to reasonStr,
+                    "reasonCode" to reason,
+                    "windowCount" to timeline.windowCount,
+                    "timelineCurrentIndex" to currentIndex,
+                    "timelineDurationMs" to diagnosticTimeMs(durationMs),
+                    "isSeekable" to currentWindow?.isSeekable,
+                    "isDynamic" to currentWindow?.isDynamic,
+                    "isLive" to (currentWindow?.liveConfiguration != null),
+                    "isPlaceholder" to currentWindow?.isPlaceholder,
+                ),
+            )
         }
 
         override fun onAvailableCommandsChanged(commands: Player.Commands) {
@@ -3545,9 +4085,26 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: ${playWhenReadyChangeReasonName(reason)}")
+            val reasonName = playWhenReadyChangeReasonName(reason)
+            Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: $reasonName")
+            logPlaybackDiagnostic(
+                if (playWhenReady) DiagnosticLevel.DEBUG else DiagnosticLevel.INFO,
+                "play_when_ready_changed",
+                "ExoPlayer playWhenReady changed",
+                mapOf(
+                    "newPlayWhenReady" to playWhenReady,
+                    "reason" to reasonName,
+                    "reasonCode" to reason,
+                ),
+            )
             if (playWhenReady && !nativeOwnsSession) {
                 Log.d(TAG, "Suppressing playWhenReady while not session owner")
+                logPlaybackDiagnostic(
+                    DiagnosticLevel.WARN,
+                    "play_suppressed_not_owner",
+                    "Suppressing playWhenReady because native does not own the session",
+                    mapOf("reason" to reasonName, "reasonCode" to reason),
+                )
                 player.playWhenReady = false
                 emitStateChange()
                 return
@@ -3555,6 +4112,12 @@ class PlaybackService : MediaSessionService() {
             if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) {
                 pausedForAudioOutputLoss = true
                 Log.i(TAG, "ExoPlayer paused playback because audio is becoming noisy")
+                logPlaybackDiagnostic(
+                    DiagnosticLevel.WARN,
+                    "exo_audio_becoming_noisy_pause",
+                    "ExoPlayer paused playback because audio is becoming noisy",
+                    mapOf("reason" to reasonName, "reasonCode" to reason),
+                )
             } else if (playWhenReady && (
                     reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST ||
                         reason == Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE
@@ -3583,10 +4146,10 @@ class PlaybackService : MediaSessionService() {
                 }
             } else {
                 markPlaybackPauseIntent(
-                    "playWhenReady=false reason=${playWhenReadyChangeReasonName(reason)}"
+                    "playWhenReady=false reason=$reasonName"
                 )
                 clearPendingNetworkRetry(
-                    "playWhenReady=false reason=${playWhenReadyChangeReasonName(reason)}"
+                    "playWhenReady=false reason=$reasonName"
                 )
                 lastProgressTimestamp = 0
                 handler.removeCallbacks(progressRunnable)
@@ -3602,7 +4165,22 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val reasonName = mediaItemTransitionReasonName(reason)
+            val previousTrackId = currentTrack?.id
             Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason, exoIndex: ${player.currentMediaItemIndex}")
+            logPlaybackDiagnostic(
+                DiagnosticLevel.INFO,
+                "media_item_transition",
+                "ExoPlayer media item transition",
+                mapOf(
+                    "previousTrackId" to previousTrackId,
+                    "newMediaId" to mediaItem?.mediaId,
+                    "reason" to reasonName,
+                    "reasonCode" to reason,
+                    "newExoIndex" to player.currentMediaItemIndex,
+                    "newServerQueueIndex" to exoIndexToServerPosition.getOrNull(player.currentMediaItemIndex),
+                ),
+            )
             clearPendingNetworkRetry("media item transition")
 
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED &&
@@ -3648,37 +4226,33 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "onPlayerError: ${error.message}", error)
-
-            // Retry on network errors (IO_ERROR) if we haven't exceeded the limit.
-            // If source-level retry is exhausted, reload transcoded streams
-            // with the correct timeOffset to avoid restarting from position 0.
-            val isNetworkError = error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-                error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
-                error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
-
             val trackAtError = currentTrack
             val queueIndexAtError = serverQueueIndex
             val mediaIdAtError = player.currentMediaItem?.mediaId ?: trackAtError?.id
             val livePositionMsAtError = getAbsolutePlaybackPositionMs()
             val positionMsAtError = maxOf(livePositionMsAtError, lastKnownGoodPositionMs)
+            val httpStatusCode = findHttpStatusCode(error)
+            val classification = classifyPlaybackError(
+                error.errorCode,
+                httpStatusCode,
+                error.message,
+            )
+            logPlaybackIncident(
+                error,
+                classification,
+                httpStatusCode,
+                trackAtError,
+                positionMsAtError,
+            )
 
-            if (isNetworkError && networkRetryCount < MAX_NETWORK_RETRIES && trackAtError != null) {
-                if (shouldAdvanceInsteadOfRetryOnNetworkError(trackAtError, positionMsAtError)) {
-                    Log.d(
-                        TAG,
-                        "Network error near track end for ${trackAtError.id} at ${positionMsAtError}ms; advancing instead of retrying"
-                    )
-                    autonomousSkipNext()
-                    return
-                }
-
+            if (classification.retryable && networkRetryCount < MAX_NETWORK_RETRIES && trackAtError != null) {
                 networkRetryCount++
                 Log.d(
                     TAG,
                     "Network error retry $networkRetryCount/$MAX_NETWORK_RETRIES for track ${trackAtError.id} " +
-                        "at ${positionMsAtError}ms (queueIndex=$queueIndexAtError, transcoding=${playbackSettings.transcodingEnabled})"
+                        "at ${positionMsAtError}ms (queueIndex=$queueIndexAtError, " +
+                        "category=${classification.category.jsValue}, httpStatus=$httpStatusCode, " +
+                        "transcoding=${playbackSettings.transcodingEnabled})"
                 )
                 scheduleNetworkRetry(
                     trackAtError,
@@ -3689,7 +4263,18 @@ class PlaybackService : MediaSessionService() {
                 return
             }
 
-            emitError(error.message ?: "Unknown playback error", currentTrack?.id)
+            val terminalMessage = if (classification.retryable && networkRetryCount >= MAX_NETWORK_RETRIES) {
+                "Network interrupted while streaming after $MAX_NETWORK_RETRIES retries."
+            } else {
+                classification.message
+            }
+            emitError(
+                terminalMessage,
+                currentTrack?.id,
+                classification,
+                httpStatusCode,
+                error.errorCode,
+            )
             emitStateChange()
         }
 
@@ -3718,10 +4303,27 @@ class PlaybackService : MediaSessionService() {
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
+            val reasonName = positionDiscontinuityReasonName(reason)
             Log.d(
                 TAG,
                 "onPositionDiscontinuity: old=${oldPosition.positionMs}, new=${newPosition.positionMs}, " +
                     "reason=$reason, offset=$seekTimeOffsetMs"
+            )
+            logPlaybackDiagnostic(
+                DiagnosticLevel.DEBUG,
+                "position_discontinuity",
+                "ExoPlayer position discontinuity",
+                mapOf(
+                    "reason" to reasonName,
+                    "reasonCode" to reason,
+                    "oldPositionMs" to diagnosticTimeMs(oldPosition.positionMs),
+                    "newPositionMs" to diagnosticTimeMs(newPosition.positionMs),
+                    "oldMediaItemIndex" to oldPosition.mediaItemIndex,
+                    "newMediaItemIndex" to newPosition.mediaItemIndex,
+                    "oldMediaItemId" to oldPosition.mediaItem?.mediaId,
+                    "newMediaItemId" to newPosition.mediaItem?.mediaId,
+                    "seekTimeOffsetMs" to seekTimeOffsetMs,
+                ),
             )
             if (handleTranscodedStreamRestart(oldPosition, newPosition, reason)) return
 

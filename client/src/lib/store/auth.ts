@@ -19,6 +19,12 @@ export const savedAccountsAtom = atomWithStorage<SavedAccount[]>(
   [],
 );
 
+export interface AuthSessionUpdate {
+  sessionExpiresAt?: string;
+  urlToken?: string;
+  urlTokenExpiresAt?: string;
+}
+
 /**
  * Generate a unique key for an account (user identity + server URL).
  */
@@ -61,20 +67,85 @@ export const isClientInitializedAtom = atom(false);
 // Derived atom for checking if connected (only valid after hydration)
 export const isConnectedAtom = atom((get) => {
   const connection = get(serverConnectionAtom);
-  return connection !== null && isSessionUsable(connection);
+  return connection !== null && hasSessionToken(connection);
 });
 
-function isSessionUsable(connection: ServerConnection): boolean {
-  if (!connection.sessionToken) {
+export const authSessionUpdateAtom = atom(
+  null,
+  (get, set, update: AuthSessionUpdate) => {
+    const connection = get(serverConnectionAtom);
+    if (!connection) {
+      return;
+    }
+
+    const updatedConnection = connectionWithAuthSessionUpdate(
+      connection,
+      update,
+    );
+    if (updatedConnection !== connection) {
+      set(serverConnectionAtom, updatedConnection);
+    }
+
+    const key = accountKey(connection);
+    set(savedAccountsAtom, (accounts) =>
+      accounts.map((account) => {
+        if (accountKey(account) !== key) {
+          return account;
+        }
+
+        const updatedAccount = connectionWithAuthSessionUpdate(account, update);
+        if (updatedAccount === account) {
+          return account;
+        }
+
+        return { ...updatedAccount, label: account.label };
+      }),
+    );
+  },
+);
+
+export function hasSessionToken(connection: ServerConnection): boolean {
+  return !!connection.sessionToken;
+}
+
+export function isSessionExpired(connection: ServerConnection): boolean {
+  if (!connection.sessionExpiresAt) {
     return false;
   }
 
-  if (!connection.sessionExpiresAt) {
-    return true;
+  const expiresAt = Date.parse(connection.sessionExpiresAt);
+  return !Number.isFinite(expiresAt) || expiresAt <= Date.now();
+}
+
+function connectionWithAuthSessionUpdate(
+  connection: ServerConnection,
+  update: AuthSessionUpdate,
+): ServerConnection {
+  const sessionExpiresAt =
+    update.sessionExpiresAt !== undefined
+      ? update.sessionExpiresAt
+      : connection.sessionExpiresAt;
+  const urlToken =
+    update.urlToken !== undefined ? update.urlToken : connection.urlToken;
+  const urlTokenExpiresAt =
+    update.urlTokenExpiresAt !== undefined
+      ? update.urlTokenExpiresAt
+      : connection.urlTokenExpiresAt;
+
+  if (
+    sessionExpiresAt === connection.sessionExpiresAt &&
+    urlToken === connection.urlToken &&
+    urlTokenExpiresAt === connection.urlTokenExpiresAt
+  ) {
+    return connection;
   }
 
-  const expiresAt = Date.parse(connection.sessionExpiresAt);
-  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+  return {
+    ...connection,
+    sessionExpiresAt,
+    urlToken,
+    urlTokenExpiresAt,
+  };
 }
 
 // Connection status

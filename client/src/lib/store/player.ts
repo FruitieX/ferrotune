@@ -35,6 +35,17 @@ export interface PlaybackError {
   message: string;
   trackId?: string;
   trackTitle?: string;
+  category?:
+    | "auth"
+    | "network"
+    | "http"
+    | "source-missing"
+    | "range"
+    | "decode"
+    | "unknown";
+  httpStatusCode?: number;
+  nativeErrorCode?: number;
+  retryable?: boolean;
   timestamp: number;
 }
 export const playbackErrorAtom = atom<PlaybackError | null>(null);

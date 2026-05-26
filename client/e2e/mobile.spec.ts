@@ -158,6 +158,275 @@ async function swipeQueueSheetClosed(page: Page, queueSheet: Locator) {
   }
 }
 
+async function swipePlayerBarFullscreenOpen(page: Page, playerBar: Locator) {
+  const box = await playerBar.boundingBox();
+  if (!box) {
+    throw new Error("Player bar bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const endY = Math.max(8, startY - Math.max(180, box.height * 2));
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, endY, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function swipePlayerBarFullscreenOpenThenCancel(
+  page: Page,
+  playerBar: Locator,
+) {
+  const box = await playerBar.boundingBox();
+  if (!box) {
+    throw new Error("Player bar bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const sideDragX = startX - 64;
+  const openPreviewY = Math.max(8, startY - Math.max(240, box.height * 3));
+  const cancelY = Math.min(startY + 48, box.y + box.height + 48);
+  const swipeTarget = playerBar.getByTestId("now-playing-swipe-target");
+  const swipeTargetBox = await swipeTarget.boundingBox();
+  if (!swipeTargetBox) {
+    throw new Error("Now playing swipe target bounding box was not available");
+  }
+  const initialTargetX = swipeTargetBox.x;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(sideDragX, startY + 4, { steps: 4 });
+  await page.mouse.move(sideDragX, openPreviewY, { steps: 12 });
+  await expect
+    .poll(
+      async () => {
+        const currentBox = await swipeTarget.boundingBox();
+        return Math.abs((currentBox?.x ?? initialTargetX) - initialTargetX);
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(8);
+  await page.mouse.move(sideDragX - 72, openPreviewY + 8, { steps: 4 });
+  await expect
+    .poll(
+      async () => {
+        const currentBox = await swipeTarget.boundingBox();
+        return Math.abs((currentBox?.x ?? initialTargetX) - initialTargetX);
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(8);
+  await page.mouse.move(sideDragX, cancelY, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function waitForFullscreenPlayerSettled(fullscreenPlayer: Locator) {
+  const closeButton = fullscreenPlayer.getByRole("button", {
+    name: /close fullscreen player/i,
+  });
+
+  await expect(closeButton).toBeVisible({ timeout: 10000 });
+  await expect
+    .poll(
+      async () => {
+        const box = await fullscreenPlayer.boundingBox();
+        return Math.abs(box?.y ?? Number.POSITIVE_INFINITY);
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(8);
+  await expect
+    .poll(
+      async () => {
+        const box = await closeButton.boundingBox();
+        return box?.y ?? Number.POSITIVE_INFINITY;
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(160);
+}
+
+async function swipeFullscreenDownFromAlbumArt(page: Page, albumArt: Locator) {
+  const box = await albumArt.boundingBox();
+  if (!box) {
+    throw new Error("Fullscreen album art bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const endY = Math.min(
+    startY + Math.max(180, box.height / 2),
+    box.y + box.height - 8,
+  );
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, endY, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function swipeFullscreenDownAfterAlbumArtSideDrag(
+  page: Page,
+  fullscreenPlayer: Locator,
+  albumArt: Locator,
+) {
+  const box = await albumArt.boundingBox();
+  if (!box) {
+    throw new Error("Fullscreen album art bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const sideDragX = startX - 44;
+  const endY = Math.min(
+    startY + Math.max(200, box.height / 2),
+    box.y + box.height - 8,
+  );
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(sideDragX, startY + 8, { steps: 4 });
+  await page.mouse.move(sideDragX, endY, { steps: 12 });
+  await page.mouse.up();
+
+  const releaseBox = await fullscreenPlayer.boundingBox();
+  const backdrop = page.getByTestId("fullscreen-backdrop");
+  const backdropStyle = await backdrop.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      opacity: Number.parseFloat(style.opacity),
+      backdropFilter: style.backdropFilter,
+    };
+  });
+  const viewportHeight = page.viewportSize()?.height ?? 0;
+
+  return {
+    releaseSheetY: releaseBox?.y ?? viewportHeight,
+    releaseBackdropOpacity: backdropStyle.opacity,
+    releaseBackdropFilter: backdropStyle.backdropFilter,
+    viewportHeight,
+  };
+}
+
+async function dragAlbumArtSideThenDownThenUp(
+  page: Page,
+  fullscreenPlayer: Locator,
+  albumArt: Locator,
+) {
+  const sheetBox = await fullscreenPlayer.boundingBox();
+  const artBox = await albumArt.boundingBox();
+  if (!sheetBox || !artBox) {
+    throw new Error(
+      "Fullscreen player or album art bounding box was not available",
+    );
+  }
+
+  const startX = artBox.x + artBox.width / 2;
+  const startY = artBox.y + artBox.height / 2;
+  const sideDragX = startX - 72;
+  const afterRestSideDragX = sideDragX - 96;
+  const downY = Math.min(startY + 84, artBox.y + artBox.height - 8);
+  const upY = startY + 28;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(sideDragX, startY + 4, { steps: 4 });
+
+  const artSideBox = await albumArt.boundingBox();
+
+  await page.mouse.move(sideDragX, downY, { steps: 10 });
+
+  const sheetDownBox = await fullscreenPlayer.boundingBox();
+  const artDownBox = await albumArt.boundingBox();
+
+  await expect
+    .poll(
+      async () => {
+        const currentBox = await albumArt.boundingBox();
+        return Math.abs((currentBox?.x ?? artBox.x) - artBox.x);
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(8);
+
+  const artRestBox = await albumArt.boundingBox();
+
+  await page.mouse.move(afterRestSideDragX, downY + 8, { steps: 4 });
+
+  await expect
+    .poll(
+      async () => {
+        const currentBox = await albumArt.boundingBox();
+        return Math.abs((currentBox?.x ?? artBox.x) - artBox.x);
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(8);
+
+  const artAfterRestSideBox = await albumArt.boundingBox();
+
+  await page.mouse.move(afterRestSideDragX, upY, { steps: 10 });
+
+  const sheetUpBox = await fullscreenPlayer.boundingBox();
+  const artUpBox = await albumArt.boundingBox();
+
+  await page.mouse.up();
+
+  return {
+    initialSheetY: sheetBox.y,
+    sheetDownY: sheetDownBox?.y ?? sheetBox.y,
+    sheetUpY: sheetUpBox?.y ?? sheetBox.y,
+    initialArtX: artBox.x,
+    artSideX: artSideBox?.x ?? artBox.x,
+    artDownX: artDownBox?.x ?? artBox.x,
+    artRestX: artRestBox?.x ?? artBox.x,
+    artAfterRestSideX: artAfterRestSideBox?.x ?? artBox.x,
+    artUpX: artUpBox?.x ?? artBox.x,
+  };
+}
+
+async function dragAlbumArtPastHorizontalLimit(page: Page, albumArt: Locator) {
+  const box = await albumArt.boundingBox();
+  if (!box) {
+    throw new Error("Fullscreen album art bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const farPastNextX = startX - box.width * 2.5;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(farPastNextX, startY, { steps: 12 });
+
+  const draggedBox = await albumArt.boundingBox();
+  await page.mouse.up();
+
+  return {
+    initialX: box.x,
+    draggedX: draggedBox?.x ?? box.x,
+    maxExpectedDistance: box.width + 40,
+  };
+}
+
+async function swipeFullscreenClosed(page: Page, fullscreenPlayer: Locator) {
+  const box = await fullscreenPlayer.boundingBox();
+  if (!box) {
+    throw new Error("Fullscreen player bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + 96;
+  const endY = Math.min(box.y + box.height - 8, startY + 260);
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, endY, { steps: 12 });
+  await page.mouse.up();
+}
+
 test.describe("Mobile Tests", () => {
   test("can login with valid credentials", async ({ page, server }) => {
     await login(page, {
@@ -350,6 +619,232 @@ test.describe("Mobile Tests", () => {
     await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
   });
 
+  test("swiping player bar up opens fullscreen player", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+
+    await swipePlayerBarFullscreenOpen(page, playerBar);
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await expect(fullscreenPlayer).toHaveAttribute(
+      "data-fullscreen-gesture-phase",
+      "open",
+    );
+    await expect(
+      fullscreenPlayer.getByRole("button", { name: /^queue$/i }),
+    ).toBeVisible();
+  });
+
+  test("dragging player bar back down cancels fullscreen open", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+
+    await swipePlayerBarFullscreenOpenThenCancel(page, playerBar);
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("fullscreen-backdrop")).not.toBeVisible();
+
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+    await fullscreenPlayer
+      .getByRole("button", { name: /close fullscreen player/i })
+      .click();
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+
+    const searchNavLink = page
+      .getByTestId("mobile-nav")
+      .locator('a[href="/search"]')
+      .first();
+    await expect(searchNavLink).toBeVisible();
+    await searchNavLink.tap();
+    await expect(page).toHaveURL(/\/search/);
+  });
+
+  test("swiping fullscreen down closes and hides it", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+
+    await swipeFullscreenClosed(page, fullscreenPlayer);
+
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+    await expect(
+      fullscreenPlayer.getByRole("button", {
+        name: /close fullscreen player/i,
+      }),
+    ).not.toBeVisible();
+    await expect(
+      fullscreenPlayer.getByRole("button", { name: /^queue$/i }),
+    ).not.toBeVisible();
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+  });
+
+  test("album art vertical swipe closes fullscreen without skipping", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+
+    await swipeFullscreenDownFromAlbumArt(
+      page,
+      fullscreenPlayer.getByTestId("fullscreen-album-art"),
+    );
+
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+  });
+
+  test("album art diagonal close releases fullscreen backdrop", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+
+    const releaseState = await swipeFullscreenDownAfterAlbumArtSideDrag(
+      page,
+      fullscreenPlayer,
+      fullscreenPlayer.getByTestId("fullscreen-album-art"),
+    );
+
+    expect(releaseState.releaseSheetY).toBeLessThan(
+      releaseState.viewportHeight - 80,
+    );
+    expect(releaseState.releaseBackdropOpacity).toBeGreaterThan(0);
+    expect(releaseState.releaseBackdropFilter).not.toBe("none");
+
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("fullscreen-backdrop")).not.toBeVisible();
+
+    const searchNavLink = page
+      .getByTestId("mobile-nav")
+      .locator('a[href="/search"]')
+      .first();
+    await expect(searchNavLink).toBeVisible();
+    await searchNavLink.tap();
+    await expect(page).toHaveURL(/\/search/);
+  });
+
+  test("album art side drag hands off to vertical sheet drag", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+
+    const positions = await dragAlbumArtSideThenDownThenUp(
+      page,
+      fullscreenPlayer,
+      fullscreenPlayer.getByTestId("fullscreen-album-art"),
+    );
+
+    expect(positions.sheetDownY).toBeGreaterThan(positions.initialSheetY + 32);
+    expect(positions.sheetUpY).toBeLessThan(positions.sheetDownY - 24);
+    const sideDelta = Math.abs(positions.artSideX - positions.initialArtX);
+    const downDelta = Math.abs(positions.artDownX - positions.initialArtX);
+    const restDelta = Math.abs(positions.artRestX - positions.initialArtX);
+    const afterRestSideDelta = Math.abs(
+      positions.artAfterRestSideX - positions.initialArtX,
+    );
+    const upDelta = Math.abs(positions.artUpX - positions.initialArtX);
+    expect(sideDelta).toBeGreaterThan(24);
+    expect(downDelta).toBeLessThanOrEqual(sideDelta + 8);
+    expect(restDelta).toBeLessThan(8);
+    expect(afterRestSideDelta).toBeLessThan(8);
+    expect(upDelta).toBeLessThanOrEqual(sideDelta + 8);
+
+    await expect
+      .poll(
+        async () => {
+          const box = await fullscreenPlayer
+            .getByTestId("fullscreen-album-art")
+            .boundingBox();
+          return Math.abs(
+            (box?.x ?? positions.initialArtX) - positions.initialArtX,
+          );
+        },
+        { timeout: 10000 },
+      )
+      .toBeLessThan(8);
+
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+    await swipeFullscreenDownFromAlbumArt(
+      page,
+      fullscreenPlayer.getByTestId("fullscreen-album-art"),
+    );
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+  });
+
+  test("album art horizontal swipe stops at adjacent track position", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+
+    const dragState = await dragAlbumArtPastHorizontalLimit(
+      page,
+      fullscreenPlayer.getByTestId("fullscreen-album-art"),
+    );
+
+    expect(
+      Math.abs(dragState.draggedX - dragState.initialX),
+    ).toBeLessThanOrEqual(dragState.maxExpectedDistance);
+  });
+
   test("tap reaches fullscreen player while queue gesture close animates", async ({
     authenticatedPage: page,
   }) => {
@@ -361,12 +856,11 @@ test.describe("Mobile Tests", () => {
 
     const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
     await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
 
-    const closeButton = fullscreenPlayer.locator("button").first();
-    const closeButtonBox = await closeButton.boundingBox();
-    if (!closeButtonBox) {
-      throw new Error("Fullscreen close button bounding box was not available");
-    }
+    const closeButton = fullscreenPlayer.getByRole("button", {
+      name: /close fullscreen player/i,
+    });
 
     await fullscreenPlayer.getByRole("button", { name: /^queue$/i }).click();
 
@@ -376,10 +870,36 @@ test.describe("Mobile Tests", () => {
     await swipeQueueSheetClosed(page, queueSheet);
     await expect(queueSheet).toHaveAttribute("data-gesture-closing", "true");
 
-    await page.mouse.click(
-      closeButtonBox.x + closeButtonBox.width / 2,
-      closeButtonBox.y + closeButtonBox.height / 2,
-    );
+    await closeButton.tap();
+
+    await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test("first tap after queue swipe close reaches fullscreen", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+
+    const closeButton = fullscreenPlayer.getByRole("button", {
+      name: /close fullscreen player/i,
+    });
+
+    await fullscreenPlayer.getByRole("button", { name: /^queue$/i }).click();
+    const queueSheet = page.getByRole("dialog", { name: /queue/i });
+    await expect(queueSheet).toBeVisible({ timeout: 10000 });
+
+    await swipeQueueSheetClosed(page, queueSheet);
+    await expect(queueSheet).not.toBeVisible({ timeout: 10000 });
+
+    await closeButton.tap();
 
     await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
   });

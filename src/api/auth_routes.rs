@@ -70,10 +70,20 @@ pub struct AuthMeResponse {
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AuthSessionRefreshResponse {
+    #[ts(type = "string")]
+    pub session_expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AuthUrlTokenResponse {
     pub url_token: String,
     #[ts(type = "string")]
     pub url_token_expires_at: DateTime<Utc>,
+    #[ts(type = "string")]
+    pub session_expires_at: DateTime<Utc>,
 }
 
 pub async fn login(
@@ -85,7 +95,7 @@ pub async fn login(
         &state.database,
         user.id,
         request.client_name.as_deref(),
-        session_duration(),
+        auth_sessions::session_duration(),
     )
     .await?;
     let url_token = auth_sessions::create_url_token(
@@ -129,6 +139,21 @@ pub async fn me(user: FerrotuneAuthenticatedUser) -> FerrotuneApiResult<Json<Aut
     }))
 }
 
+pub async fn refresh_session(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> FerrotuneApiResult<Json<AuthSessionRefreshResponse>> {
+    let token = bearer_token_from_headers(&headers)
+        .ok_or_else(|| Error::Auth("Bearer session required".to_string()))?;
+    let authenticated = auth_sessions::authenticate_session_token(&state.database, token)
+        .await?
+        .ok_or_else(|| Error::Auth("Invalid or expired session".to_string()))?;
+
+    Ok(Json(AuthSessionRefreshResponse {
+        session_expires_at: authenticated.expires_at,
+    }))
+}
+
 pub async fn create_url_token(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -152,6 +177,7 @@ pub async fn create_url_token(
     Ok(Json(AuthUrlTokenResponse {
         url_token: url_token.token,
         url_token_expires_at: url_token.expires_at,
+        session_expires_at: authenticated.expires_at,
     }))
 }
 
@@ -182,10 +208,6 @@ fn bearer_token_from_headers(headers: &HeaderMap) -> Option<&str> {
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|token| !token.is_empty())
-}
-
-fn session_duration() -> Duration {
-    Duration::days(30)
 }
 
 fn url_token_duration() -> Duration {

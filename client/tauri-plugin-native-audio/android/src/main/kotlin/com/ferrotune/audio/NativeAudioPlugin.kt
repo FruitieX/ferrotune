@@ -68,6 +68,7 @@ internal class InitSessionArgs {
     lateinit var serverUrl: String
     lateinit var username: String
     var sessionToken: String? = null
+    var sessionExpiresAt: String? = null
     var sessionId: String? = null
     var clientId: String? = null
 }
@@ -136,6 +137,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             Log.d(TAG, "PlaybackService connected")
+            NativeAudioLogger.debug(TAG, "service_connected", "PlaybackService connected")
             val connectedService = (service as PlaybackService.LocalBinder).getService()
             playbackService = connectedService
             connectedService.setEventEmitter { event, data ->
@@ -152,13 +154,16 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
 
         override fun onServiceDisconnected(name: ComponentName?) {
             Log.d(TAG, "PlaybackService disconnected")
+            NativeAudioLogger.warn(TAG, "service_disconnected", "PlaybackService disconnected")
             playbackService = null
         }
     }
 
     override fun load(webView: WebView) {
         super.load(webView)
+        NativeAudioLogger.initialize(activity.applicationContext)
         Log.d(TAG, "NativeAudioPlugin loaded")
+        NativeAudioLogger.debug(TAG, "plugin_loaded", "NativeAudioPlugin loaded")
         webViewRef = webView
         // Allow mixed content: the WebView loads from https://tauri.localhost but
         // API requests go to the user's server over plain HTTP. Without this,
@@ -269,6 +274,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     // Cleanup is handled when activity/service lifecycle ends
     fun cleanup() {
         Log.d(TAG, "NativeAudioPlugin cleanup")
+        NativeAudioLogger.debug(TAG, "plugin_cleanup", "NativeAudioPlugin cleanup")
         scope.cancel()
         releaseMediaController()
         unbindPlaybackService()
@@ -636,14 +642,29 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     serverUrl = args.serverUrl,
                     username = args.username,
                     sessionToken = args.sessionToken,
+                    sessionExpiresAt = args.sessionExpiresAt,
                     sessionId = args.sessionId,
                     clientId = args.clientId
                 )
                 lastSessionConfig = config
+                NativeAudioLogger.info(
+                    TAG,
+                    "init_session",
+                    "Native session initialized from JS",
+                    mapOf(
+                        "serverUrl" to args.serverUrl,
+                        "username" to args.username,
+                        "hasSessionToken" to (args.sessionToken != null),
+                        "hasSessionExpiresAt" to (args.sessionExpiresAt != null),
+                        "sessionId" to args.sessionId,
+                        "clientId" to args.clientId,
+                    ),
+                )
                 service.initSession(config)
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in initSession()", e)
+                NativeAudioLogger.error(TAG, "init_session_failed", "Error in initSession()", throwable = e)
                 invoke.reject(e.message)
             }
         }
@@ -777,9 +798,11 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         try {
             val args = invoke.parseArgs(DebugLogArgs::class.java)
             Log.d(TAG, "[JS] ${args.message}")
+            NativeAudioLogger.debug(TAG, "js_debug_log", "[JS] ${args.message}")
             invoke.resolve()
         } catch (e: Exception) {
             Log.e(TAG, "Error in debugLog()", e)
+            NativeAudioLogger.error(TAG, "js_debug_log_failed", "Error in debugLog()", throwable = e)
             invoke.reject(e.message)
         }
     }
