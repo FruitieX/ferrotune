@@ -127,7 +127,7 @@ export function ArtistDropdownMenu({
     <Button
       variant="ghost"
       size="icon"
-      className="h-8 w-8 bg-background/80 hover:bg-background"
+      className="h-8 w-8 bg-background/80 hover:bg-background active:bg-background"
       onClick={(e) => {
         e.stopPropagation();
       }}

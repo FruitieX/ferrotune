@@ -295,7 +295,7 @@ function MusicFolderCard({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => onDelete(folder.id)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Delete
             </AlertDialogAction>

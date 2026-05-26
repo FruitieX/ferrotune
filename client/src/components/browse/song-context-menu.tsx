@@ -663,7 +663,7 @@ function SongDialogs({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDeletion}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80"
             >
               Mark for Deletion
             </AlertDialogAction>
@@ -928,7 +928,7 @@ export function SongContextMenu({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkActions.handleConfirmDeletion}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80"
             >
               Mark for Deletion
             </AlertDialogAction>
@@ -1024,7 +1024,7 @@ export function SongDropdownMenu({
     <Button
       variant="ghost"
       size="icon"
-      className="h-8 w-8 bg-background/80 hover:bg-background"
+      className="h-8 w-8 bg-background/80 hover:bg-background active:bg-background"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

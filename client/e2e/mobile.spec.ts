@@ -43,6 +43,74 @@ async function expectProgressTimeOverlayOpacity(
     .toBe(expectedOpacity);
 }
 
+interface FeedbackSnapshot {
+  backgroundColor: string;
+  borderColor: string;
+  boxShadow: string;
+  filter: string;
+  scale: string;
+  transform: string;
+}
+
+async function getFeedbackSnapshot(
+  locator: Locator,
+): Promise<FeedbackSnapshot> {
+  return locator.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+
+    return {
+      backgroundColor: style.backgroundColor,
+      borderColor: style.borderColor,
+      boxShadow: style.boxShadow,
+      filter: style.filter,
+      scale: style.scale,
+      transform: style.transform,
+    };
+  });
+}
+
+function hasFeedbackChange(
+  before: FeedbackSnapshot,
+  after: FeedbackSnapshot,
+): boolean {
+  return (
+    before.backgroundColor !== after.backgroundColor ||
+    before.borderColor !== after.borderColor ||
+    before.boxShadow !== after.boxShadow ||
+    before.filter !== after.filter ||
+    before.scale !== after.scale ||
+    before.transform !== after.transform
+  );
+}
+
+async function expectPressedFeedback(
+  page: Page,
+  locator: Locator,
+): Promise<void> {
+  await expect(locator).toBeVisible({ timeout: 10000 });
+
+  const before = await getFeedbackSnapshot(locator);
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error("Pressed feedback target bounding box was not available");
+  }
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+
+  try {
+    await expect
+      .poll(
+        async () =>
+          hasFeedbackChange(before, await getFeedbackSnapshot(locator)),
+        { timeout: 3000 },
+      )
+      .toBe(true);
+  } finally {
+    await page.mouse.up();
+  }
+}
+
 async function addSecondarySavedAccount(page: Page) {
   await page.evaluate(() => {
     const connection = JSON.parse(
@@ -506,6 +574,36 @@ test.describe("Mobile Tests", () => {
       .getByRole("button", { name: /play|pause/i })
       .first();
     await expect(playPauseButton).toBeVisible();
+  });
+
+  test("shared interactive surfaces show pressed feedback on mobile", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/");
+
+    const bottomNav = page.getByTestId("mobile-nav");
+    const searchNavLink = bottomNav.locator('a[href="/search"]').first();
+    await expectPressedFeedback(page, searchNavLink);
+    await expect(page).toHaveURL(/\/search/);
+
+    await page.goto("/library/songs");
+    await expectPressedFeedback(
+      page,
+      page.getByRole("button", { name: /view options/i }),
+    );
+    await page.getByRole("button", { name: /^list$/i }).click();
+
+    const songRow = page
+      .locator('[data-testid="song-row"], [data-testid="media-row"]')
+      .first();
+    await expectPressedFeedback(page, songRow);
+
+    await page.goto("/library/albums");
+    await page.getByRole("button", { name: /view options/i }).click();
+    await page.getByRole("button", { name: /^grid$/i }).click();
+
+    const albumCard = page.locator('[data-testid="media-card"]').first();
+    await expectPressedFeedback(page, albumCard);
   });
 
   test("hides progress seek overlay after touch tap", async ({

@@ -101,7 +101,7 @@ export function DrawerMenuItem({
   const close = useDrawerClose();
 
   const itemClassName = cn(
-    "flex w-full cursor-default items-center gap-3 rounded-lg px-3 py-3 text-left text-sm outline-none select-none active:bg-accent [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5",
+    "flex w-full touch-manipulation cursor-default items-center gap-3 rounded-lg px-3 py-3 text-left text-sm outline-none select-none active:bg-accent [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5",
     disabled && "opacity-50 pointer-events-none",
     className,
   );
@@ -181,7 +181,7 @@ export function DrawerMenuCollapsibleTrigger({
     <button
       type="button"
       onClick={() => setOpen(!open)}
-      className="flex w-full cursor-default items-center gap-3 rounded-lg px-3 py-3 text-sm outline-none select-none active:bg-accent [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5"
+      className="flex w-full touch-manipulation cursor-default items-center gap-3 rounded-lg px-3 py-3 text-sm outline-none select-none active:bg-accent [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5"
     >
       {children}
       <ChevronDown
@@ -230,7 +230,7 @@ export function DrawerMenuCheckboxItem({
       type="button"
       onClick={onCheckedChange}
       className={cn(
-        "flex w-full cursor-default items-center gap-3 rounded-lg px-3 py-3 text-sm outline-none select-none active:bg-accent",
+        "flex w-full touch-manipulation cursor-default items-center gap-3 rounded-lg px-3 py-3 text-sm outline-none select-none active:bg-accent",
         className,
       )}
     >

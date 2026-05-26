@@ -767,7 +767,7 @@ export function BulkActionsBar(
                 onDelete?.();
                 setDeleteConfirmOpen(false);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Delete
             </AlertDialogAction>
@@ -795,7 +795,7 @@ export function BulkActionsBar(
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleBulkMarkForDeletion}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Mark for Deletion
             </AlertDialogAction>

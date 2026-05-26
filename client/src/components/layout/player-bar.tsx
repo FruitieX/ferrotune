@@ -1151,7 +1151,7 @@ function FollowerIndicator() {
         trigger={
           <button
             type="button"
-            className="pointer-events-auto flex max-w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            className="pointer-events-auto flex max-w-full min-w-0 touch-manipulation items-center justify-center gap-1.5 rounded-md px-2 hover:bg-primary/15 active:bg-primary/20 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             aria-label={`Open playback clients, currently playing on ${sessionName}`}
           >
             <Icon className="w-3 h-3 shrink-0" />

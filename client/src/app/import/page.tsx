@@ -79,7 +79,7 @@ export default function ImportPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {/* Tag Editor / Tagger - First & Most Prominent */}
         <Card
-          className="hover:border-primary/50 transition-colors cursor-pointer group border-primary/30 bg-primary/5"
+          className="hover:border-primary/50 active:border-primary/70 active:bg-primary/10 transition-colors cursor-pointer group border-primary/30 bg-primary/5 touch-manipulation active:scale-[0.995]"
           onClick={() => router.push("/tagger")}
         >
           <CardHeader>
@@ -126,7 +126,7 @@ export default function ImportPage() {
 
         {/* Import Playlists */}
         <Card
-          className="hover:border-primary/50 transition-colors cursor-pointer group"
+          className="hover:border-primary/50 active:border-primary/70 active:bg-accent/40 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]"
           onClick={() => setPlaylistDialogOpen(true)}
         >
           <CardHeader>
@@ -173,7 +173,7 @@ export default function ImportPage() {
 
         {/* Import Favorites */}
         <Card
-          className="hover:border-primary/50 transition-colors cursor-pointer group"
+          className="hover:border-primary/50 active:border-primary/70 active:bg-accent/40 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]"
           onClick={() => setFavoritesDialogOpen(true)}
         >
           <CardHeader>
@@ -215,7 +215,7 @@ export default function ImportPage() {
 
         {/* Import Play Counts */}
         <Card
-          className="hover:border-primary/50 transition-colors cursor-pointer group"
+          className="hover:border-primary/50 active:border-primary/70 active:bg-accent/40 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]"
           onClick={() => setPlayCountsDialogOpen(true)}
         >
           <CardHeader>
@@ -262,7 +262,7 @@ export default function ImportPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {/* Scanner Card */}
           <Card
-            className="hover:border-primary/50 transition-colors cursor-pointer group"
+            className="hover:border-primary/50 active:border-primary/70 active:bg-accent/40 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]"
             onClick={openFullScan}
           >
             <CardHeader>
@@ -282,7 +282,7 @@ export default function ImportPage() {
 
           {/* Recycle Bin Card */}
           <Link href="/admin/recycle-bin">
-            <Card className="hover:border-primary/50 transition-colors cursor-pointer group h-full">
+            <Card className="hover:border-primary/50 active:border-primary/70 active:bg-accent/40 transition-colors cursor-pointer group h-full touch-manipulation active:scale-[0.995]">
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-destructive/10 rounded-lg">

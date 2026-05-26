@@ -797,7 +797,7 @@ export default function LibraryLayout({
                   key={tab.href}
                   href={tab.href}
                   className={cn(
-                    "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0",
+                    "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 touch-manipulation active:scale-[0.98] active:bg-accent/80 active:text-foreground",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     isActive
                       ? "bg-accent text-accent-foreground"

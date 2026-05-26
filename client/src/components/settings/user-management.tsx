@@ -84,7 +84,7 @@ function UserCard({
 
   return (
     <>
-      <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+      <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation active:scale-[0.995]">
         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
           <User className="w-5 h-5 text-primary" />
         </div>
@@ -159,7 +159,7 @@ function UserCard({
                 onDelete(user);
                 setShowDeleteDialog(false);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Delete
             </AlertDialogAction>

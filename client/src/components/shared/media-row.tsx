@@ -12,8 +12,8 @@ import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 // Shared row container styles
 export const rowContainerStyles = cn(
   "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md",
-  "hover:bg-accent/70 transition-all cursor-pointer",
-  "border-l-2 border-transparent hover:border-primary",
+  "hover:bg-accent/70 active:bg-accent/80 transition-all cursor-pointer touch-manipulation active:scale-[0.995]",
+  "border-l-2 border-transparent hover:border-primary active:border-primary/80",
 );
 
 // Shared action button styles
@@ -158,7 +158,7 @@ export function MediaRow({
             "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
               ? "bg-primary border-primary text-primary-foreground"
-              : "border-muted-foreground/50 hover:border-primary/50",
+              : "border-muted-foreground/50 hover:border-primary/50 active:border-primary/80 active:bg-accent/80",
           )}
         >
           {isSelected && <Check className="w-3 h-3" />}
@@ -186,7 +186,10 @@ export function MediaRow({
         "group/cover relative w-10 h-10 overflow-hidden shrink-0",
         coverShape === "circle" ? "rounded-full" : "rounded",
         // On mobile, make the entire cover art area clickable for songs (no href)
-        !hasFinePointer && onPlay && !href && "cursor-pointer",
+        !hasFinePointer &&
+          onPlay &&
+          !href &&
+          "cursor-pointer touch-feedback active:brightness-75",
       )}
       onClick={
         !hasFinePointer && onPlay && !href

@@ -128,10 +128,10 @@ function VirtualQueueItem({
         data-testid="queue-item"
         data-queue-position={entry.position}
         className={cn(
-          "flex items-center gap-2 p-2 rounded-lg group",
+          "flex items-center gap-2 p-2 rounded-lg group touch-manipulation transition-[background-color,scale] active:scale-[0.995]",
           isCurrent
-            ? "bg-primary/10 border border-primary/20"
-            : "bg-card hover:bg-muted/50",
+            ? "bg-primary/10 border border-primary/20 active:bg-primary/15"
+            : "bg-card hover:bg-muted/50 active:bg-muted/70",
         )}
         style={{ height: ITEM_HEIGHT }}
       >
@@ -144,7 +144,7 @@ function VirtualQueueItem({
 
         {/* Cover art with play button */}
         <div
-          className="group/cover relative shrink-0 cursor-pointer"
+          className="group/cover relative shrink-0 cursor-pointer touch-feedback active:brightness-75"
           onClick={isCurrent ? onTogglePlayPause : onPlay}
         >
           <CoverImage
@@ -158,7 +158,7 @@ function VirtualQueueItem({
           <button
             type="button"
             aria-label={coverButtonLabel}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity rounded cursor-pointer"
             onClick={(event) => {
               event.stopPropagation();
 

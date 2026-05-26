@@ -43,7 +43,7 @@ export function MobileNav() {
               href={item.href}
               className={cn(
                 "flex flex-col items-center justify-center gap-1 w-full h-full",
-                "text-muted-foreground transition-colors",
+                "text-muted-foreground transition-colors touch-manipulation active:bg-accent/70 active:text-foreground",
                 isActive && "text-primary",
               )}
             >

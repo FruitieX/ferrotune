@@ -111,7 +111,7 @@ function QueueSourceDisplay() {
     return (
       <Link
         href={link}
-        className="block px-4 py-2 border-b border-border hover:bg-muted/50 transition-colors"
+        className="block px-4 py-2 border-b border-border hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation"
       >
         {content}
       </Link>

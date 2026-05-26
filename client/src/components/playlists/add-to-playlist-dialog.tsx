@@ -341,7 +341,7 @@ export function AddToPlaylistDialog({
                     setNewPlaylistName(searchQuery.trim());
                     setShowCreateNew(true);
                   }}
-                  className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-accent/70 transition-all text-left"
+                  className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-accent/70 active:bg-accent/80 transition-all text-left touch-manipulation active:scale-[0.99]"
                   disabled={isPending}
                 >
                   <div className="w-10 h-10 rounded-md bg-primary/20 flex items-center justify-center">
@@ -485,7 +485,7 @@ export function AddToPlaylistDialog({
             )}
             <AlertDialogAction
               onClick={() => handleDuplicateResponse("add-all")}
-              className="bg-yellow-600 hover:bg-yellow-700"
+              className="bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800"
             >
               Add Anyway
             </AlertDialogAction>
@@ -520,9 +520,9 @@ function PlaylistOption({
       onClick={onSelect}
       disabled={disabled}
       className={cn(
-        "flex items-center gap-3 w-full p-2 rounded-md transition-colors text-left overflow-hidden",
-        "hover:bg-accent/70",
-        isSelected && "bg-accent/50",
+        "flex items-center gap-3 w-full p-2 rounded-md transition-colors text-left overflow-hidden touch-manipulation active:scale-[0.99]",
+        "hover:bg-accent/70 active:bg-accent/80",
+        isSelected && "bg-accent/50 active:bg-accent/70",
         disabled && "opacity-50 cursor-not-allowed",
         alreadyContainsSong && "bg-primary/5 border border-primary/20",
       )}

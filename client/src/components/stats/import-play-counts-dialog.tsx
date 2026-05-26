@@ -1585,7 +1585,7 @@ export function ImportPlayCountsDialog({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmAndImport}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Replace and Import
             </AlertDialogAction>
@@ -1607,7 +1607,7 @@ export function ImportPlayCountsDialog({
             <AlertDialogCancel>Continue Editing</AlertDialogCancel>
             <AlertDialogAction
               onClick={resetAndClose}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Discard
             </AlertDialogAction>

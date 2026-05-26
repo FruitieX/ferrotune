@@ -1027,7 +1027,7 @@ function DroppableBreadcrumb({
       ref={setNodeRef}
       onClick={onClick}
       className={cn(
-        "px-2 py-1 -mx-2 -my-1 rounded transition-colors hover:text-foreground",
+        "px-2 py-1 -mx-2 -my-1 rounded transition-colors hover:text-foreground active:text-foreground active:bg-accent touch-manipulation active:scale-[0.98]",
         isOver && "bg-emerald-500/20 text-emerald-500",
       )}
     >
@@ -1076,7 +1076,7 @@ function DroppableFolderGridCard({
         ref={setNodeRef}
         onClick={() => onNavigate(folder.path)}
         className={cn(
-          "group relative flex flex-col items-center text-left w-full rounded-lg transition-colors hover:bg-accent/50 p-4 cursor-pointer",
+          "group relative flex flex-col items-center text-left w-full rounded-lg transition-colors hover:bg-accent/50 active:bg-accent/70 p-4 cursor-pointer touch-manipulation active:scale-[0.98]",
           isOver && "bg-emerald-500/20 ring-2 ring-emerald-500",
         )}
         role="button"
@@ -1204,9 +1204,9 @@ function DroppableFolderListRow({
         ref={setNodeRef}
         onClick={handleClick}
         className={cn(
-          "w-full flex items-center gap-4 py-2 px-4 pr-6 rounded-md hover:bg-accent/50 transition-colors group cursor-pointer",
+          "w-full flex items-center gap-4 py-2 px-4 pr-6 rounded-md hover:bg-accent/50 active:bg-accent/70 transition-colors group cursor-pointer touch-manipulation active:scale-[0.995]",
           isOver && "bg-emerald-500/20 ring-2 ring-emerald-500",
-          isSelected && "bg-primary/10",
+          isSelected && "bg-primary/10 active:bg-primary/15",
         )}
       >
         {/* Index or selection checkbox */}
@@ -1218,7 +1218,7 @@ function DroppableFolderListRow({
                   "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
                   isSelected
                     ? "bg-primary border-primary text-primary-foreground"
-                    : "border-muted-foreground/50 hover:border-primary",
+                    : "border-muted-foreground/50 hover:border-primary active:border-primary/80 active:bg-accent/80",
                 )}
                 onClick={(e) => {
                   e.stopPropagation();

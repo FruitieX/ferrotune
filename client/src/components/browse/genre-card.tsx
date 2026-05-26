@@ -98,7 +98,7 @@ export function GenreCard({
       <div
         className={cn(
           "group relative h-24 rounded-lg overflow-hidden cursor-pointer media-card",
-          "hover:ring-2 hover:ring-primary/50 transition-shadow",
+          "hover:ring-2 hover:ring-primary/50 active:ring-2 active:ring-primary/70 transition-shadow touch-manipulation active:scale-[0.98]",
           isSelected && "ring-2 ring-primary",
           className,
         )}
@@ -121,7 +121,7 @@ export function GenreCard({
                 "w-6 h-6 rounded-full flex items-center justify-center transition-colors",
                 isSelected
                   ? "bg-primary text-primary-foreground"
-                  : "bg-black/30 hover:bg-black/50 text-white",
+                  : "bg-black/30 hover:bg-black/50 active:bg-black/70 text-white",
               )}
               onClick={(e) => {
                 e.preventDefault();
@@ -157,7 +157,7 @@ export function GenreCard({
         <Link
           href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
           prefetch={false}
-          className="absolute inset-0 flex flex-col justify-end p-4"
+          className="absolute inset-0 flex flex-col justify-end p-4 touch-feedback active:brightness-90"
           onClick={(e) => {
             if (isSelectionMode) {
               e.preventDefault();

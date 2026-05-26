@@ -90,7 +90,7 @@ function TopArtistCard({
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(rank * 0.02, 0.3) }}
-      className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+      className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation active:scale-[0.995]"
     >
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
         {rank}
@@ -109,7 +109,7 @@ function TopArtistCard({
           <button
             type="button"
             aria-label="Play"
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity cursor-pointer rounded-full"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity cursor-pointer rounded-full"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -168,7 +168,7 @@ function TopAlbumCard({
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(rank * 0.02, 0.3) }}
-      className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+      className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation active:scale-[0.995]"
     >
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
         {rank}
@@ -186,7 +186,7 @@ function TopAlbumCard({
           <button
             type="button"
             aria-label="Play"
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity cursor-pointer rounded"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity cursor-pointer rounded"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -258,7 +258,7 @@ function TopTrackCard({
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: Math.min(rank * 0.02, 0.3) }}
-      className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+      className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation active:scale-[0.995]"
     >
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
         {rank}
@@ -276,7 +276,7 @@ function TopTrackCard({
           <button
             type="button"
             aria-label="Play"
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity cursor-pointer rounded"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity cursor-pointer rounded"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();

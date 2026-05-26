@@ -1273,7 +1273,7 @@ export function ImportFavoritesDialog({
             <AlertDialogCancel>Continue Editing</AlertDialogCancel>
             <AlertDialogAction
               onClick={resetAndClose}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Discard
             </AlertDialogAction>

@@ -265,10 +265,10 @@ export function AddSongToPlaylistDialog({
                 <div
                   key={song.id}
                   className={cn(
-                    "flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors",
+                    "flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors touch-manipulation active:scale-[0.99]",
                     selectedSong?.id === song.id
-                      ? "bg-primary/10"
-                      : "hover:bg-accent/50",
+                      ? "bg-primary/10 active:bg-primary/15"
+                      : "hover:bg-accent/50 active:bg-accent/70",
                   )}
                   onClick={() => handleSelectSong(song)}
                   onDoubleClick={() => handleDoubleClickSong(song)}

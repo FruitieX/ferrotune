@@ -116,8 +116,8 @@ export function MissingEntryRow({
   const rowContent = (
     <div
       className={cn(
-        "group flex items-center gap-4 px-4 pr-6 h-[54px] rounded-md transition-colors cursor-pointer",
-        "bg-orange-500/5 hover:bg-orange-500/10",
+        "group flex items-center gap-4 px-4 pr-6 h-[54px] rounded-md transition-colors cursor-pointer touch-manipulation active:scale-[0.995]",
+        "bg-orange-500/5 hover:bg-orange-500/10 active:bg-orange-500/15",
         "border-l-2 border-orange-500/50",
         isSelected && "ring-2 ring-primary bg-primary/20",
       )}
@@ -149,7 +149,7 @@ export function MissingEntryRow({
               "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
               isSelected
                 ? "bg-primary border-primary text-primary-foreground"
-                : "border-muted-foreground/50 hover:border-primary/50",
+                : "border-muted-foreground/50 hover:border-primary/50 active:border-primary/80 active:bg-accent/80",
             )}
           >
             {isSelected && <Check className="w-3 h-3" />}
@@ -403,10 +403,10 @@ export function MissingEntryCard({
     <article
       data-testid="missing-entry-card"
       className={cn(
-        "group relative p-4 rounded-lg cursor-pointer",
-        "bg-orange-500/5 hover:bg-orange-500/10 transition-all",
-        "border border-orange-500/30 hover:border-orange-500/50",
-        "hover:shadow-lg hover:shadow-orange-500/10",
+        "group relative p-4 rounded-lg cursor-pointer touch-manipulation active:scale-[0.98]",
+        "bg-orange-500/5 hover:bg-orange-500/10 active:bg-orange-500/15 transition-all",
+        "border border-orange-500/30 hover:border-orange-500/50 active:border-orange-500/70",
+        "hover:shadow-lg hover:shadow-orange-500/10 active:shadow-md active:shadow-orange-500/10",
         isSelected && "ring-2 ring-primary bg-primary/10",
       )}
       onClick={() => setRefineDialogOpen(true)}
@@ -427,7 +427,7 @@ export function MissingEntryCard({
               type="button"
               className={cn(
                 "w-6 h-6 rounded border-2 flex items-center justify-center transition-all",
-                "bg-black/50 hover:bg-black/70",
+                "bg-black/50 hover:bg-black/70 active:bg-black/80 touch-manipulation active:scale-95",
                 isSelected
                   ? "bg-primary border-primary text-primary-foreground"
                   : "border-white/80 hover:border-primary/80",
@@ -450,7 +450,7 @@ export function MissingEntryCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white"
+                className="h-8 w-8 bg-black/50 hover:bg-black/70 active:bg-black/80 text-white"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="w-4 h-4" />

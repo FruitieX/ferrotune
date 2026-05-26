@@ -355,10 +355,10 @@ export function TrackSearchPanel({
                 <button
                   key={song.id}
                   className={cn(
-                    "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden",
+                    "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden touch-manipulation active:scale-[0.99]",
                     isSelectedSong
-                      ? "bg-primary/10 ring-1 ring-primary"
-                      : "hover:bg-accent",
+                      ? "bg-primary/10 ring-1 ring-primary active:bg-primary/15"
+                      : "hover:bg-accent active:bg-accent/80",
                   )}
                   onClick={() => handleSelectSong(song)}
                   onDoubleClick={() => handleDoubleClickSong(song)}

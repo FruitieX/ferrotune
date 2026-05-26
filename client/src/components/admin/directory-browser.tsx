@@ -253,8 +253,9 @@ export function DirectoryBrowser({
                       key={entry.path}
                       className={cn(
                         "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer",
-                        "hover:bg-accent/50 transition-colors",
-                        isHighlighted && "bg-primary/15 hover:bg-primary/20",
+                        "hover:bg-accent/50 active:bg-accent/70 transition-colors touch-manipulation active:scale-[0.995]",
+                        isHighlighted &&
+                          "bg-primary/15 hover:bg-primary/20 active:bg-primary/25",
                         !entry.readable && "opacity-50",
                       )}
                     >

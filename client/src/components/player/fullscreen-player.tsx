@@ -1061,7 +1061,7 @@ export function FullscreenPlayer() {
                     trigger={
                       <button
                         type="button"
-                        className="mx-auto max-w-full rounded-md px-2 py-1 text-center hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        className="mx-auto max-w-full touch-manipulation rounded-md px-2 py-1 text-center hover:bg-primary/10 active:bg-primary/20 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                         aria-label={`Open playback clients, currently playing on ${followerSessionName}`}
                         onPointerDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}

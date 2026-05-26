@@ -831,7 +831,7 @@ export default function ManageHistoryPage() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80"
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}
             >

@@ -68,7 +68,7 @@ export function PlaylistBreadcrumb({ playlistName }: PlaylistBreadcrumbProps) {
           {index > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
           <button
             onClick={() => navigateToFolder(item.path)}
-            className="hover:text-foreground transition-colors px-1 py-0.5 rounded hover:bg-accent"
+            className="hover:text-foreground active:text-foreground transition-colors px-1 py-0.5 rounded hover:bg-accent active:bg-accent touch-manipulation active:scale-[0.97]"
           >
             {index === 0 ? <Home className="w-4 h-4" /> : item.label}
           </button>

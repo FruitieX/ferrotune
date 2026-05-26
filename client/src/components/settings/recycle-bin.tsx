@@ -376,7 +376,7 @@ export function RecycleBin() {
                 {recycleBin.songs.map((song) => (
                   <div
                     key={song.id}
-                    className={`flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-pointer ${
+                    className={`flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 active:bg-muted/70 cursor-pointer touch-manipulation active:scale-[0.995] ${
                       selectedIds.has(song.id) ? "bg-muted" : ""
                     }`}
                     onClick={() => toggleSelection(song.id)}
@@ -468,7 +468,7 @@ export function RecycleBin() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90"
+              className="bg-destructive hover:bg-destructive/90 active:bg-destructive/80"
               onClick={confirmDelete}
               disabled={deleteMutation.isPending}
             >
@@ -527,7 +527,7 @@ export function RecycleBin() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90"
+              className="bg-destructive hover:bg-destructive/90 active:bg-destructive/80"
               onClick={() => emptyMutation.mutate()}
               disabled={emptyMutation.isPending}
             >

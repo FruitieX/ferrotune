@@ -271,7 +271,7 @@ export function FolderContextMenu({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteFolderMutation.mutate()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
               disabled={deleteFolderMutation.isPending}
             >
               {deleteFolderMutation.isPending ? "Deleting..." : "Delete"}
@@ -512,7 +512,7 @@ export function FolderDropdownMenu({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteFolderMutation.mutate()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
               disabled={deleteFolderMutation.isPending}
             >
               {deleteFolderMutation.isPending ? "Deleting..." : "Delete"}

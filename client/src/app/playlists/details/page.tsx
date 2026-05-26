@@ -959,7 +959,7 @@ function PlaylistDetailContent() {
                   <span>•</span>
                   <Badge
                     variant="secondary"
-                    className="bg-orange-500/20 text-orange-500 h-5 cursor-pointer hover:bg-orange-500/30 transition-colors"
+                    className="bg-orange-500/20 text-orange-500 h-5 cursor-pointer hover:bg-orange-500/30 active:bg-orange-500/40 transition-colors"
                     onClick={() => setMassResolveDialogOpen(true)}
                   >
                     <AlertCircle className="w-3 h-3 mr-1" />
@@ -1342,7 +1342,7 @@ function PlaylistDetailContent() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteMutation.mutate()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Delete
             </AlertDialogAction>
@@ -1371,7 +1371,7 @@ function PlaylistDetailContent() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmRemoveSelected}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Remove
             </AlertDialogAction>
@@ -1399,7 +1399,7 @@ function PlaylistDetailContent() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmRemoveSingleSong}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70"
             >
               Remove
             </AlertDialogAction>

@@ -304,6 +304,74 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+@layer utilities {
+  .touch-feedback {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition-property:
+      background-color, border-color, color, box-shadow, opacity, filter, scale;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .touch-feedback:active {
+    scale: 0.98;
+  }
+
+  .touch-feedback-subtle:active {
+    background-color: color-mix(in oklch, var(--accent) 70%, transparent);
+  }
+
+  .touch-feedback-muted:active {
+    background-color: color-mix(in oklch, var(--muted) 65%, transparent);
+  }
+
+  .touch-feedback-strong:active {
+    background-color: color-mix(in oklch, var(--primary) 24%, transparent);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  button:not(:disabled),
+  a[href],
+  [role="button"],
+  [data-slot="tabs-trigger"],
+  [data-slot="select-trigger"],
+  [data-slot="select-item"],
+  [data-slot="dropdown-menu-item"],
+  [data-slot="context-menu-item"],
+  [data-slot="command-item"],
+  .cursor-pointer,
+  .media-row,
+  .media-card {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:not(:disabled):active,
+  a[href]:active,
+  [role="button"]:not([aria-disabled="true"]):active,
+  .cursor-pointer:active {
+    filter: brightness(0.9);
+  }
+
+  .media-row:active,
+  .media-row:has(a:active),
+  .media-row:has(button:active) {
+    scale: 0.995;
+    background-color: color-mix(in oklch, var(--accent) 80%, transparent);
+    border-color: color-mix(in oklch, var(--primary) 80%, transparent);
+  }
+
+  .media-card:active,
+  .media-card:has(a:active),
+  .media-card:has(button:active) {
+    scale: 0.98;
+    background-color: color-mix(in oklch, var(--accent) 75%, transparent);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+  }
+}
+
 /* Now playing bar visualizer animation */
 @keyframes bar-bounce-1 {
   0%,

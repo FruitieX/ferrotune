@@ -303,7 +303,7 @@ export function SearchPageContent() {
                         <button
                           key={h}
                           type="button"
-                          className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors text-left text-sm cursor-pointer"
+                          className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 active:bg-muted/70 transition-colors text-left text-sm cursor-pointer touch-manipulation active:scale-[0.99]"
                           onMouseDown={(e) => {
                             e.preventDefault();
                             setQuery(h);
@@ -575,7 +575,7 @@ function SearchHistory({
           <button
             key={q}
             type="button"
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left cursor-pointer"
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted/50 active:bg-muted/70 transition-colors text-left cursor-pointer touch-manipulation active:scale-[0.99]"
             onClick={() => onSelect(q)}
           >
             <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -655,7 +655,7 @@ function PlaylistSearchCard({ playlist }: { playlist: Playlist }) {
   return (
     <Link
       href={`/playlists/details?id=${playlist.id}`}
-      className="group block p-4 rounded-lg bg-card hover:bg-accent/70 hover:shadow-lg hover:shadow-black/20 transition-all"
+      className="group block p-4 rounded-lg bg-card hover:bg-accent/70 active:bg-accent/80 hover:shadow-lg hover:shadow-black/20 active:shadow-md active:shadow-black/20 transition-all touch-manipulation active:scale-[0.98]"
     >
       <div className="relative mb-4">
         <CoverImage

@@ -164,7 +164,7 @@ export default function AdministrationPage() {
           transition={{ delay: 0.5 }}
         >
           <Link href="/admin/recycle-bin">
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+            <Card className="cursor-pointer hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation active:scale-[0.995]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-lg bg-destructive/10 flex items-center justify-center">

@@ -452,9 +452,11 @@ export function TrackRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 p-2 rounded-md group",
+        "flex items-center gap-3 p-2 rounded-md group touch-manipulation active:scale-[0.995]",
         track.locked && "opacity-60",
-        track.match ? "hover:bg-accent/50 cursor-pointer" : "bg-orange-500/10",
+        track.match
+          ? "hover:bg-accent/50 active:bg-accent/70 cursor-pointer"
+          : "bg-orange-500/10",
       )}
       style={{ minHeight: TRACK_ROW_HEIGHT - 4 }} // Fixed height for virtualization (minus padding)
       onClick={handleRowClick}

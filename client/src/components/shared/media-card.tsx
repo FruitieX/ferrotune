@@ -102,8 +102,8 @@ export function MediaCard({
       aria-current={isActive ? "true" : undefined}
       className={cn(
         "group relative p-2 md:p-4 rounded-lg bg-card media-card",
-        "hover:bg-accent/70 transition-all cursor-pointer",
-        "hover:shadow-lg hover:shadow-black/20",
+        "hover:bg-accent/70 active:bg-accent/80 transition-all cursor-pointer touch-manipulation active:scale-[0.98]",
+        "hover:shadow-lg hover:shadow-black/20 active:shadow-md active:shadow-black/20",
         isActive && "bg-accent/30 ring-2 ring-primary/40",
         isSelected && "ring-2 ring-primary bg-primary/10",
         className,
@@ -127,7 +127,7 @@ export function MediaCard({
               type="button"
               className={cn(
                 "w-6 h-6 rounded border-2 flex items-center justify-center transition-all",
-                "bg-black/50 hover:bg-black/70",
+                "bg-black/50 hover:bg-black/70 active:bg-black/80 touch-manipulation active:scale-95",
                 isSelected
                   ? "bg-primary border-primary text-primary-foreground"
                   : "border-white/80 hover:border-primary/80",
@@ -144,7 +144,11 @@ export function MediaCard({
         )}
 
         {/* Cover art with play overlay - wrapped in Link */}
-        <Link href={href} prefetch={false} className="block group/cover">
+        <Link
+          href={href}
+          prefetch={false}
+          className="block group/cover touch-feedback active:brightness-90"
+        >
           <div
             className={cn(
               "relative aspect-square overflow-hidden",
@@ -195,7 +199,11 @@ export function MediaCard({
       <div
         className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
-        <Link href={href} prefetch={false} className="block min-w-0">
+        <Link
+          href={href}
+          prefetch={false}
+          className="block min-w-0 touch-feedback active:text-primary"
+        >
           <h3
             className={cn(
               "font-semibold text-foreground group-hover:text-primary transition-colors flex items-center gap-1.5 min-w-0",

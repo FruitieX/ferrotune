@@ -691,7 +691,7 @@ function LibraryCard({ library }: LibraryCardProps) {
       <div
         className={cn(
           "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
-          "hover:bg-muted/50 transition-colors cursor-pointer group",
+          "hover:bg-muted/50 active:bg-muted/70 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]",
         )}
       >
         {/* Library icon */}
@@ -894,8 +894,9 @@ function DirectoryRow({
           <div
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
-              "hover:bg-muted/50 transition-colors cursor-pointer group",
-              isSelected && "bg-primary/10 hover:bg-primary/15",
+              "hover:bg-muted/50 active:bg-muted/70 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]",
+              isSelected &&
+                "bg-primary/10 hover:bg-primary/15 active:bg-primary/20",
             )}
           >
             {/* Selection checkbox */}
@@ -904,7 +905,7 @@ function DirectoryRow({
                 "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer",
                 isSelected
                   ? "bg-primary border-primary text-primary-foreground"
-                  : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50",
+                  : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50 active:border-primary/80 active:bg-accent/80",
               )}
               onClick={(e) => {
                 e.preventDefault();
@@ -930,7 +931,7 @@ function DirectoryRow({
                 aria-label="Play folder"
                 className={cn(
                   "absolute inset-0 flex items-center justify-center rounded",
-                  "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
+                  "bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity",
                   "cursor-pointer",
                 )}
                 onClick={(e) => {
@@ -1105,8 +1106,9 @@ function FileRow({
           onDoubleClick={handleDoubleClick}
           className={cn(
             "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
-            "hover:bg-muted/50 transition-colors cursor-pointer group",
-            isSelected && "bg-primary/10 hover:bg-primary/15",
+            "hover:bg-muted/50 active:bg-muted/70 transition-colors cursor-pointer group touch-manipulation active:scale-[0.995]",
+            isSelected &&
+              "bg-primary/10 hover:bg-primary/15 active:bg-primary/20",
           )}
         >
           {/* Selection checkbox */}
@@ -1115,7 +1117,7 @@ function FileRow({
               "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer",
               isSelected
                 ? "bg-primary border-primary text-primary-foreground"
-                : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50",
+                : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50 active:border-primary/80 active:bg-accent/80",
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -1141,7 +1143,7 @@ function FileRow({
               aria-label="Play"
               className={cn(
                 "absolute inset-0 flex items-center justify-center rounded",
-                "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
+                "bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity",
                 "cursor-pointer",
               )}
               onClick={(e) => {

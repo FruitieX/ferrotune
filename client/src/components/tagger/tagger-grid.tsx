@@ -2304,7 +2304,7 @@ export function TaggerGrid({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDeletion}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80"
             >
               Mark for Deletion
             </AlertDialogAction>
