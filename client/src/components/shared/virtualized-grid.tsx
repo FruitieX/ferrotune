@@ -83,6 +83,10 @@ export function VirtualizedGrid<T>({
   onFirstVisibleIndexChangeRef.current = onFirstVisibleIndexChange;
   onScrollChangeRef.current = onScrollChange;
 
+  const ensureRangeRef = useRef(ensureRange);
+  ensureRangeRef.current = ensureRange;
+  const hasEnsureRange = ensureRange !== undefined;
+
   // Get scroll element (main content area) - stored in ref for stability
   const getScrollElement = () => {
     return document.getElementById("main-scroll-container");
@@ -206,7 +210,7 @@ export function VirtualizedGrid<T>({
 
   // Sparse pagination: request loading of visible item range (debounced)
   useEffect(() => {
-    if (!ensureRange) return;
+    if (!hasEnsureRange) return;
 
     const debounceTimeout = setTimeout(() => {
       const firstVirtualRow = virtualRows[0];
@@ -215,11 +219,11 @@ export function VirtualizedGrid<T>({
 
       const startIndex = firstVirtualRow.index * columnCount;
       const endIndex = (lastVirtualRow.index + 1) * columnCount - 1;
-      ensureRange(startIndex, endIndex);
+      ensureRangeRef.current?.(startIndex, endIndex);
     }, ENSURE_RANGE_DEBOUNCE_MS);
 
     return () => clearTimeout(debounceTimeout);
-  }, [ensureRange, virtualRows, columnCount]);
+  }, [hasEnsureRange, virtualRows, columnCount]);
 
   // Sequential pagination: fetch more when approaching the end of loaded data
   useEffect(() => {
@@ -387,6 +391,10 @@ export function VirtualizedList<T>({
   const onFirstVisibleIndexChangeRef = useRef(onFirstVisibleIndexChange);
   onFirstVisibleIndexChangeRef.current = onFirstVisibleIndexChange;
 
+  const ensureRangeRef = useRef(ensureRange);
+  ensureRangeRef.current = ensureRange;
+  const hasEnsureRange = ensureRange !== undefined;
+
   // Measure scroll margin when autoScrollMargin is enabled
   useEffect(() => {
     if (!autoScrollMargin || !containerRef.current) return;
@@ -469,18 +477,18 @@ export function VirtualizedList<T>({
 
   // Sparse pagination: request loading of visible item range (debounced)
   useEffect(() => {
-    if (!ensureRange) return;
+    if (!hasEnsureRange) return;
 
     const debounceTimeout = setTimeout(() => {
       const firstVirtualItem = virtualItems[0];
       const lastVirtualItem = virtualItems[virtualItems.length - 1];
       if (!firstVirtualItem || !lastVirtualItem) return;
 
-      ensureRange(firstVirtualItem.index, lastVirtualItem.index);
+      ensureRangeRef.current?.(firstVirtualItem.index, lastVirtualItem.index);
     }, ENSURE_RANGE_DEBOUNCE_MS);
 
     return () => clearTimeout(debounceTimeout);
-  }, [ensureRange, virtualItems]);
+  }, [hasEnsureRange, virtualItems]);
 
   // Sequential pagination: fetch more when approaching the end of loaded data
   useEffect(() => {

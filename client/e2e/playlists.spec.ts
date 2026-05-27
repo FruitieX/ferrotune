@@ -2,7 +2,106 @@
  * Playlist tests - Create and manage playlists
  */
 
-import { test, expect } from "./fixtures";
+import type { Page } from "@playwright/test";
+import { test, expect, type ServerInfo } from "./fixtures";
+
+function basicAuthHeader(server: ServerInfo): string {
+  return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getFirstSongId(responseBody: unknown): string {
+  if (!isRecord(responseBody)) {
+    throw new Error("Search response was not an object");
+  }
+
+  const searchResult = responseBody.searchResult;
+  if (!isRecord(searchResult) || !Array.isArray(searchResult.song)) {
+    throw new Error("Search response did not include songs");
+  }
+
+  const [firstSong] = searchResult.song;
+  if (!isRecord(firstSong)) {
+    throw new Error("Search response did not include a first song");
+  }
+
+  const songId = firstSong.id;
+  if (typeof songId !== "string") {
+    throw new Error("Search response first song did not include an ID");
+  }
+
+  return songId;
+}
+
+function getImportedPlaylistId(responseBody: unknown): string {
+  if (!isRecord(responseBody)) {
+    throw new Error("Import playlist response was not an object");
+  }
+
+  const playlistId = responseBody.playlistId;
+  if (typeof playlistId !== "string") {
+    throw new Error("Import playlist response did not include a playlist ID");
+  }
+
+  return playlistId;
+}
+
+async function fetchFirstSongId(
+  page: Page,
+  server: ServerInfo,
+): Promise<string> {
+  const params = new URLSearchParams({
+    query: "*",
+    artistCount: "0",
+    albumCount: "0",
+    songCount: "1",
+  });
+  const response = await page.request.get(
+    `${server.url}/api/search?${params}`,
+    {
+      headers: { Authorization: basicAuthHeader(server) },
+    },
+  );
+
+  expect(response.ok()).toBe(true);
+  return getFirstSongId(await response.json());
+}
+
+async function createRepeatedSongPlaylist({
+  page,
+  server,
+  name,
+  songId,
+  entryCount,
+}: {
+  page: Page;
+  server: ServerInfo;
+  name: string;
+  songId: string;
+  entryCount: number;
+}): Promise<string> {
+  const response = await page.request.post(
+    `${server.url}/api/playlists/import`,
+    {
+      headers: { Authorization: basicAuthHeader(server) },
+      data: {
+        name,
+        comment: null,
+        folderId: null,
+        entries: Array.from({ length: entryCount }, () => ({
+          songId,
+          missing: null,
+        })),
+      },
+    },
+  );
+
+  expect(response.ok()).toBe(true);
+  return getImportedPlaylistId(await response.json());
+}
 
 test.describe("Playlists", () => {
   test("can create a new playlist", async ({ authenticatedPage: page }) => {
@@ -160,5 +259,53 @@ test.describe("Playlists", () => {
     await expect(
       page.getByRole("heading", { name: updatedPlaylistName, exact: true }),
     ).toBeVisible({ timeout: 10000 });
+  });
+
+  test("playlist detail does not repeatedly refetch the second sparse page", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const playlistName = `Sparse Request Test ${Date.now()}`;
+    const songId = await fetchFirstSongId(page, server);
+    const playlistId = await createRepeatedSongPlaylist({
+      page,
+      server,
+      name: playlistName,
+      songId,
+      entryCount: 75,
+    });
+
+    let secondPageRequestCount = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname === `/api/playlists/${playlistId}/songs` &&
+        url.searchParams.get("offset") === "50"
+      ) {
+        secondPageRequestCount += 1;
+      }
+    });
+
+    const secondPageResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === `/api/playlists/${playlistId}/songs` &&
+        url.searchParams.get("offset") === "50" &&
+        response.ok()
+      );
+    });
+
+    await page.goto(`/playlists/details?id=${playlistId}`);
+    await expect(
+      page.getByRole("heading", { name: playlistName, exact: true }),
+    ).toBeVisible({ timeout: 10000 });
+    await secondPageResponse;
+
+    await expect
+      .poll(() => secondPageRequestCount, {
+        intervals: [200, 200, 200, 200, 200, 200],
+        timeout: 1200,
+      })
+      .toBeLessThanOrEqual(2);
   });
 });

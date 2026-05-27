@@ -122,6 +122,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
 
   // Track which pages are currently being fetched
   const fetchingPages = useRef<Set<number>>(new Set());
+  const cacheLookupPages = useRef<Set<number>>(new Set());
 
   // Track the next page request so cached pages can be shown first and then refreshed.
   const requestIdRef = useRef(0);
@@ -142,6 +143,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     // Don't reset totalCount or metadata - keep previous values to prevent header flicker
     // They will be updated when new data arrives
     fetchingPages.current.clear();
+    cacheLookupPages.current.clear();
     setPendingRequest(null);
 
     setTotalCount(initialTotalCount ?? 0);
@@ -193,7 +195,11 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     const required: number[] = [];
 
     for (let page = startPage; page <= endPage; page++) {
-      if (!pagesRef.current.has(page) && !fetchingPages.current.has(page)) {
+      if (
+        !pagesRef.current.has(page) &&
+        !fetchingPages.current.has(page) &&
+        !cacheLookupPages.current.has(page)
+      ) {
         required.push(page);
       }
     }
@@ -342,6 +348,10 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     const requiredPages = getRequiredPages(paddedStart, paddedEnd);
     if (requiredPages.length === 0) return;
 
+    requiredPages.forEach((pageIndex) =>
+      cacheLookupPages.current.add(pageIndex),
+    );
+
     // Try restoring from content cache first, then fetch remaining from network
     const restoreAccountKey = currentAccountKey;
     const restoreSerializedKey = serializedQueryKey;
@@ -351,59 +361,71 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
         restoreAccountKey,
         queryKey,
         pageIndex,
-      );
+      ).catch(() => undefined);
       return { pageIndex, cached };
     });
 
-    void Promise.all(cachePromises).then((results) => {
-      if (
-        currentAccountKeyRef.current !== restoreAccountKey ||
-        prevSerializedKeyRef.current !== restoreSerializedKey
-      ) {
-        return;
-      }
-
-      const restored = new Map<number, T[]>();
-      const stillNeeded: number[] = [];
-      let restoredTotal: number | null = null;
-      let restoredMeta: TMeta | null = null;
-
-      for (const { pageIndex, cached } of results) {
-        if (cached) {
-          restored.set(pageIndex, cached.items);
-          restoredTotal = cached.total;
-          if (cached.metadata) {
-            restoredMeta = cached.metadata as TMeta;
-          }
-        } else {
-          stillNeeded.push(pageIndex);
+    void Promise.all(cachePromises)
+      .then((results) => {
+        if (
+          currentAccountKeyRef.current !== restoreAccountKey ||
+          prevSerializedKeyRef.current !== restoreSerializedKey
+        ) {
+          return;
         }
-      }
 
-      if (restored.size > 0) {
-        setPages((prev) => {
-          const next = new Map(prev);
-          for (const [idx, items] of restored) {
-            if (!next.has(idx)) {
-              next.set(idx, items);
+        const restored = new Map<number, T[]>();
+        const pagesToFetch: number[] = [];
+        let restoredTotal: number | null = null;
+        let restoredMeta: TMeta | null = null;
+
+        for (const { pageIndex, cached } of results) {
+          if (pagesRef.current.has(pageIndex)) {
+            continue;
+          }
+
+          pagesToFetch.push(pageIndex);
+
+          if (cached) {
+            restored.set(pageIndex, cached.items);
+            restoredTotal = cached.total;
+            if (cached.metadata) {
+              restoredMeta = cached.metadata as TMeta;
             }
           }
-          return next;
-        });
-        if (restoredTotal !== null) {
-          setTotalCount(restoredTotal);
         }
-        if (restoredMeta !== null) {
-          setMetadata(restoredMeta);
-        }
-        if (!hasLoadedOnce) {
-          setHasLoadedOnce(true);
-        }
-      }
 
-      // Always trigger network fetch so data stays fresh
-      queuePageRequest(requiredPages, true);
-    });
+        if (restored.size > 0) {
+          setPages((prev) => {
+            const next = new Map(prev);
+            for (const [idx, items] of restored) {
+              if (!next.has(idx)) {
+                next.set(idx, items);
+              }
+            }
+            return next;
+          });
+          if (restoredTotal !== null) {
+            setTotalCount(restoredTotal);
+          }
+          if (restoredMeta !== null) {
+            setMetadata(restoredMeta);
+          }
+          if (!hasLoadedOnce) {
+            setHasLoadedOnce(true);
+          }
+        }
+
+        // Always trigger network fetch for pages this lookup restored or still needs.
+        // Rechecking pagesRef above prevents stale async cache lookups from repeatedly
+        // force-refreshing pages that another lookup or request already loaded.
+        queuePageRequest(pagesToFetch, true);
+      })
+      .finally(() => {
+        requiredPages.forEach((pageIndex) =>
+          cacheLookupPages.current.delete(pageIndex),
+        );
+      });
   };
 
   const refresh = () => {
@@ -423,6 +445,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     setTotalCount(0);
     setHasLoadedOnce(false);
     fetchingPages.current.clear();
+    cacheLookupPages.current.clear();
     setPendingRequest(null);
     // Clear content cache for this query key
     void clearCachedPagesForAccount(currentAccountKey, queryKey);
