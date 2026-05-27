@@ -683,6 +683,8 @@ fn test_postgres_scrobble_helper_and_handlers_work() {
             session_manager: Arc::new(SessionManager::new()),
         });
 
+        let second_submission_time = base_play + chrono::Duration::seconds(62);
+
         ferrotune_scrobble(
             FerrotuneAuthenticatedUser {
                 user_id: user.id,
@@ -692,7 +694,7 @@ fn test_postgres_scrobble_helper_and_handlers_work() {
             State(state.clone()),
             Json(FerrotuneScrobbleParams {
                 id: song_2.clone(),
-                time: Some((base_play + chrono::Duration::seconds(62)).timestamp_millis()),
+                time: Some(second_submission_time.timestamp_millis()),
                 submission: true,
                 queue_source_type: Some("album".to_string()),
                 queue_source_id: Some("album-1".to_string()),
@@ -721,9 +723,9 @@ fn test_postgres_scrobble_helper_and_handlers_work() {
             Json(FerrotuneScrobbleParams {
                 id: song_2.clone(),
                 time: Some(
-                    (base_play
+                    (second_submission_time
                         + chrono::Duration::seconds(
-                            60 + scrobbling::RECENT_SCROBBLE_DEDUP_WINDOW_SECS + 1,
+                            scrobbling::RECENT_SCROBBLE_DEDUP_WINDOW_SECS + 1,
                         ))
                     .timestamp_millis(),
                 ),

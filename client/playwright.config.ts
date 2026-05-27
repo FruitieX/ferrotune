@@ -48,8 +48,11 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
 
-  /* Run tests in parallel - each worker spawns its own server instance */
-  fullyParallel: true,
+  /*
+   * Each worker spawns its own Ferrotune server instance. Keep local runs fast,
+   * but avoid CI resource contention by running test files serially there.
+   */
+  fullyParallel: !process.env.CI,
 
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
@@ -57,10 +60,8 @@ export default defineConfig({
   /* Retry on failure - helps with flaky tests due to timing/virtualization */
   retries: process.env.CI ? 3 : 1,
 
-  /* Use 50% of available CPUs for parallel execution (max 4 locally to prevent resource exhaustion) */
-  workers: process.env.CI
-    ? "100%"
-    : Math.min(Math.ceil(os.cpus().length / 2), 4),
+  /* Cap CI workers because each worker also boots a backend test server. */
+  workers: process.env.CI ? 2 : Math.min(Math.ceil(os.cpus().length / 2), 4),
 
   /* Global timeout per test */
   timeout: 60_000,
