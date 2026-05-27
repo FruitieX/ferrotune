@@ -6,6 +6,7 @@
 /tests/fixtures/music/
 /tests/fixtures/cover.png
 /test-results
+/app-release/
 
 # Moon cache
 /.moon/cache/
@@ -14,6 +15,8 @@
 /client/e2e/.auth/
 /client/e2e/.env.test
 /client/.org.chromium.*
+/client/tauri.ci.conf.json
+/client/tauri.android-ci.conf.json
 
 /*TODO*.md
 *.py

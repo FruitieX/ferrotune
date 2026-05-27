@@ -86,7 +86,11 @@ moon run pre-ci
 moon run build-release-ui
 ```
 
-## Deploying Android .apk
+## Android App Distribution
+
+Main-branch CI publishes signed Android APKs to GitHub prereleases for use with Obtainium. See [docs/APP_DISTRIBUTION.md](docs/APP_DISTRIBUTION.md) for release signing, Obtainium setup, and desktop artifact notes.
+
+## Local Android USB Deployment
 
 Make sure you've connected an Android device with USB debugging enabled, run `adb usb` and make sure `adb devices` lists your device.
 

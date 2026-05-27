@@ -438,6 +438,21 @@ tasks:
     options:
       runInCI: false
 
+  tauri-build-release-ci:
+    command: "pnpm exec tauri build --config tauri.ci.conf.json"
+    inputs:
+      - "@group(sources)"
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/**/*"
+    deps:
+      - "install"
+      - "build-export"
+      - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
+    options:
+      runInCI: true
+      cache: false
+
   # ============================================================================
   # TAURI (Android App)
   # ============================================================================
@@ -451,7 +466,7 @@ tasks:
       - "install"
     options:
       cache: false
-      runInCI: false
+      runInCI: true
 
   tauri-android-init:
     script: "pnpm exec tauri android init && bash scripts/sync-android-icons.sh"
@@ -486,6 +501,27 @@ tasks:
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
+
+  tauri-android-build-ci:
+    command: "pnpm exec tauri android build --config tauri.android-ci.conf.json"
+    inputs:
+      - "@group(sources)"
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/**/*"
+    deps:
+      - "install"
+      - "tauri-android-sync-icons"
+      - "build-export"
+      - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
+    env:
+      JAVA_HOME: "${JAVA_HOME}"
+      ANDROID_HOME: "${ANDROID_HOME}"
+      ANDROID_SDK_ROOT: "${ANDROID_SDK_ROOT}"
+      NDK_HOME: "${NDK_HOME}"
+    options:
+      runInCI: true
+      cache: false
 
   tauri-android-build-debug:
     command: "pnpm exec tauri android build --debug"
