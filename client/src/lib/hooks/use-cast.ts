@@ -177,6 +177,19 @@ function isFinishedNativeCastMedia(status: CastMediaStatus): boolean {
   return status.playerState === "idle" && status.idleReason === "finished";
 }
 
+function hasActiveNativeCastMedia(
+  status: CastMediaStatus | null | undefined,
+): boolean {
+  if (!status) return false;
+  return (
+    Boolean(status.songId) ||
+    status.playerState === "playing" ||
+    status.playerState === "buffering" ||
+    status.playerState === "paused" ||
+    status.durationMs > 0
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -579,7 +592,10 @@ export function useCastInit() {
     async () => {},
   );
   const claimCastOwnershipRef = useRef<
-    (positionMsOverride?: number) => Promise<void>
+    (
+      positionMsOverride?: number,
+      currentIndexOverride?: number,
+    ) => Promise<void>
   >(async () => {});
   const claimCastAndLoadRef = useRef<() => Promise<void>>(async () => {});
   const claimCastAndAdoptRef = useRef<
@@ -693,7 +709,10 @@ export function useCastInit() {
       });
     };
 
-    claimCastOwnershipRef.current = async (positionMsOverride?: number) => {
+    claimCastOwnershipRef.current = async (
+      positionMsOverride?: number,
+      currentIndexOverride?: number,
+    ) => {
       const sid = sessionIdRef.current;
       const virtualClientId = castClientIdRef.current;
       if (!sid || !virtualClientId) return;
@@ -715,6 +734,7 @@ export function useCastInit() {
         CAST_CLIENT_NAME,
         virtualClientId,
         true,
+        currentIndexOverride,
       );
 
       const activeAudio = getActiveAudio();
@@ -744,15 +764,27 @@ export function useCastInit() {
       if (!sid || !virtualClientId) return;
 
       if (status?.songId) {
+        const statusQueuePosition =
+          status.queuePosition ??
+          getQueueEntryForCastStatus(queueWindowRef.current, status)?.position;
+        const adoptedSnapshot: NativeCastStatusSnapshot = {
+          ...status,
+          receivedAtMs: Date.now(),
+        };
         ignoreNextSelfTakeOverLoadRef.current = true;
-        await claimCastOwnershipRef.current(status.positionMs);
+        await claimCastOwnershipRef.current(
+          status.positionMs,
+          statusQueuePosition,
+        );
         claimedCastClientIdRef.current = virtualClientId;
         loadedSongIdRef.current = status.songId;
+        nativeCastStatusRef.current = adoptedSnapshot;
         setPlaybackState(status.isPlaying ? "playing" : "paused");
         if (status.durationMs > 0) {
           setDuration(status.durationMs / 1000);
         }
         setCurrentTime(status.positionMs / 1000);
+        await syncNativeReceiverQueueRef.current(adoptedSnapshot);
         await sendCastHeartbeatRef.current(status.isPlaying);
         return;
       }
@@ -911,8 +943,7 @@ export function useCastInit() {
 
       const sid = sessionIdRef.current;
       const virtualClientId = castClientIdRef.current;
-      const state = queueStateRef.current;
-      if (!sid || !virtualClientId || !state) {
+      if (!sid || !virtualClientId) {
         syncingNativeReceiverKeyRef.current = null;
         return;
       }
@@ -929,6 +960,21 @@ export function useCastInit() {
       if (!entry) {
         response = await client.getQueueCurrentWindow(20, "small", sid);
         entry = getQueueEntryForCastStatus(response.window, status);
+      }
+
+      if (!entry && status.queuePosition !== undefined) {
+        await client.updateServerQueuePosition(
+          status.queuePosition,
+          status.positionMs,
+          false,
+          sid,
+          virtualClientId,
+          true,
+        );
+        response = await client.getQueueCurrentWindow(20, "small", sid);
+        entry =
+          getQueueEntryForCastStatus(response.window, status) ??
+          getQueueEntryAtPosition(response.window, status.queuePosition);
       }
 
       if (!entry) {
@@ -1176,9 +1222,19 @@ export function useCastInit() {
           loadedSongIdRef.current = null;
           claimedCastClientIdRef.current = null;
         } else if (snapshot.state === "connected") {
-          const prepareCastSession = snapshot.mediaStatus?.songId
-            ? claimCastAndAdoptRef.current(snapshot.mediaStatus)
-            : claimCastAndLoadRef.current();
+          if (snapshot.mediaStatus?.songId) {
+            claimCastAndAdoptRef
+              .current(snapshot.mediaStatus)
+              .catch((error) => {
+                console.error("[Cast] Failed to transfer playback:", error);
+              });
+            return;
+          }
+
+          if (hasActiveNativeCastMedia(snapshot.mediaStatus)) return;
+          if (claimedCastClientIdRef.current || loadedSongIdRef.current) return;
+
+          const prepareCastSession = claimCastAndLoadRef.current();
           prepareCastSession.catch((error) => {
             console.error("[Cast] Failed to transfer playback:", error);
           });
@@ -1365,11 +1421,9 @@ export function useCastInit() {
 
   useEffect(() => {
     if (castState !== "connected" || !sessionId || !castClientId) return;
+    if (useNativeCast) return;
 
-    const prepareCastSession =
-      useNativeCast && nativeCastStatusRef.current?.songId
-        ? claimCastAndAdoptRef.current(nativeCastStatusRef.current)
-        : claimCastAndLoadRef.current();
+    const prepareCastSession = claimCastAndLoadRef.current();
 
     prepareCastSession.catch((error) => {
       console.error("[Cast] Failed to prepare cast session:", error);
@@ -1432,7 +1486,12 @@ export function useCastInit() {
     if (castState !== "connected" || !currentSong) return;
     if (loadedSongIdRef.current === currentSong.id) return;
     if (isAudioOwnerRef.current) return;
-    if (useNativeCast && nativeCastStatusRef.current?.songId) return;
+    if (
+      useNativeCast &&
+      hasActiveNativeCastMedia(nativeCastStatusRef.current)
+    ) {
+      return;
+    }
 
     const startPositionMs = loadedSongIdRef.current ? 0 : undefined;
     loadCurrentCastSongRef.current(startPositionMs).catch(console.error);

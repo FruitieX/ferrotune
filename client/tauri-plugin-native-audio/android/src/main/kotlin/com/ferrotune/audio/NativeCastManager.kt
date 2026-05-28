@@ -214,6 +214,7 @@ internal class NativeCastManager(
                 val castQueueItems = queueItems.map { item ->
                     MediaQueueItem.Builder(buildMediaInfo(item))
                         .setAutoplay(true)
+                        .setCustomData(buildCustomData(item))
                         .build()
                 }.toTypedArray()
                 val startIndex = queueItems
@@ -387,12 +388,16 @@ internal class NativeCastManager(
             .setContentType(item.contentType.ifBlank { "audio/mpeg" })
             .setStreamDuration(item.durationMs)
             .setMetadata(buildMetadata(item))
-            .setCustomData(JSONObject().apply {
-                put("songId", item.songId)
-                put("applicationName", "Ferrotune")
-                item.position?.let { put("position", it) }
-            })
+            .setCustomData(buildCustomData(item))
             .build()
+    }
+
+    private fun buildCustomData(item: CastMediaItemData): JSONObject {
+        return JSONObject().apply {
+            put("songId", item.songId)
+            put("applicationName", "Ferrotune")
+            item.position?.let { put("position", it) }
+        }
     }
 
     private fun castRepeatMode(repeatMode: String): Int {
@@ -437,9 +442,10 @@ internal class NativeCastManager(
         val session = castContext?.sessionManager?.currentCastSession
         val client = session?.remoteMediaClient
         val status = client?.mediaStatus
-        val mediaInfo = status?.mediaInfo
+        val currentQueueItem = status?.getQueueItemById(status.currentItemId)
+        val mediaInfo = currentQueueItem?.media ?: status?.mediaInfo
         val metadata = mediaInfo?.metadata
-        val customData = mediaInfo?.customData
+        val customData = currentQueueItem?.customData ?: mediaInfo?.customData
         val songId = customData?.optString("songId")?.takeIf { it.isNotBlank() }
         val queuePosition = if (customData?.has("position") == true && !customData.isNull("position")) {
             customData.optInt("position")
