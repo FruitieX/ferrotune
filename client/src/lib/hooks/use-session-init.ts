@@ -25,8 +25,18 @@ import {
   serverQueueStateAtom,
 } from "@/lib/store/server-queue";
 import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
+import { currentLoadedTrackId } from "@/lib/audio/engine-state";
+import { hasNativeAudio } from "@/lib/tauri";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
+
+function shouldReportQueuePosition(songId: string | undefined): boolean {
+  return (
+    hasNativeAudio() ||
+    currentLoadedTrackId === null ||
+    songId === currentLoadedTrackId
+  );
+}
 
 /**
  * Initializes the single playback session on mount, sends periodic heartbeats,
@@ -129,11 +139,24 @@ export function useSessionInit() {
     const state = queueStateRef.current;
     const pbState = playbackStateRef.current;
     const currentTimeSec = currentTimeRef.current;
+    const isPlaying = pbState === "playing";
+
+    if (!shouldReportQueuePosition(song?.id)) {
+      try {
+        await client.sessionHeartbeat(sid, {
+          clientId: clientIdRef.current || undefined,
+          isPlaying,
+        });
+      } catch {
+        // Silently ignore heartbeat failures
+      }
+      return;
+    }
 
     try {
       await client.sessionHeartbeat(sid, {
         clientId: clientIdRef.current || undefined,
-        isPlaying: pbState === "playing",
+        isPlaying,
         currentIndex: state?.currentIndex,
         positionMs: Math.round(currentTimeSec * 1000),
         currentSongId: song?.id,

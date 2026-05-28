@@ -87,6 +87,10 @@ fn docker_available() -> bool {
         .unwrap_or(false)
 }
 
+fn simple_audio_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/music/simple.mp3")
+}
+
 async fn seed_postgres_library_sample(
     database: &db::Database,
 ) -> (db::models::User, String, String, String, String) {
@@ -2056,11 +2060,8 @@ fn test_postgres_scan_specific_files_works() {
                 .expect("scanned song path should have a parent directory"),
         )
         .expect("scan-specific test directories should be created");
-        std::fs::copy(
-            "/home/rasse/ferrotune/tests/fixtures/music/simple.mp3",
-            &song_path,
-        )
-        .expect("scan-specific fixture should be copied into the temp library");
+        std::fs::copy(simple_audio_fixture_path(), &song_path)
+            .expect("scan-specific fixture should be copied into the temp library");
 
         let folder_id = db::repo::users::create_music_folder(
             &database,
@@ -2144,11 +2145,8 @@ fn test_postgres_scan_library_with_progress_works() {
                 .expect("scanned song path should have a parent directory"),
         )
         .expect("scan-library test directories should be created");
-        std::fs::copy(
-            "/home/rasse/ferrotune/tests/fixtures/music/simple.mp3",
-            &song_path,
-        )
-        .expect("scan-library fixture should be copied into the temp library");
+        std::fs::copy(simple_audio_fixture_path(), &song_path)
+            .expect("scan-library fixture should be copied into the temp library");
 
         let folder_id = db::repo::users::create_music_folder(
             &database,
@@ -2920,10 +2918,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
                 .expect("postgres tagger save song path should have a parent directory"),
         )
         .expect("postgres tagger save library directory should be created");
-        std::fs::copy(
-            "/home/rasse/ferrotune/tests/fixtures/music/simple.mp3",
-            &save_song_path,
-        )
+        std::fs::copy(simple_audio_fixture_path(), &save_song_path)
         .expect("postgres tagger save fixture should be copied into the temp library");
 
         let seeded_music_folder_id: i64 =

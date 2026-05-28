@@ -3,12 +3,14 @@ import os from "os";
 
 type PlaywrightConfig = Parameters<typeof defineConfig>[0];
 type PlaywrightProject = NonNullable<PlaywrightConfig["projects"]>[number];
+const ciChromeChannel = process.env.CI ? { channel: "chrome" } : {};
 
 const projects: PlaywrightProject[] = [
   {
     name: "chromium",
     use: {
       ...devices["Desktop Chrome"],
+      ...ciChromeChannel,
       viewport: { width: 1440, height: 900 },
     },
     testIgnore: [/mobile\.spec\.ts/, /android-emulator\.spec\.ts/],
@@ -17,6 +19,7 @@ const projects: PlaywrightProject[] = [
     name: "mobile-chrome",
     use: {
       ...devices["Pixel 5"],
+      ...ciChromeChannel,
     },
     testMatch: /mobile\.spec\.ts/,
   },

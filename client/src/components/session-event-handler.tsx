@@ -32,8 +32,17 @@ import {
 } from "@/lib/store/player";
 import { getClient } from "@/lib/api/client";
 import { useSessionOwnerState } from "@/lib/hooks/use-session-owner-state";
+import { currentLoadedTrackId } from "@/lib/audio/engine-state";
 
 const CLIENT_LIST_CHANGE_DEBOUNCE_MS = 150;
+
+function shouldReportQueuePosition(songId: string | undefined): boolean {
+  return (
+    hasNativeAudio() ||
+    currentLoadedTrackId === null ||
+    songId === currentLoadedTrackId
+  );
+}
 
 /**
  * Receives SSE events for the current session and dispatches
@@ -144,10 +153,22 @@ export function SessionEventHandler() {
         return;
       }
 
+      const isPlaying = snapshot.playbackState === "playing";
+
+      if (!shouldReportQueuePosition(snapshot.currentSong.id)) {
+        client
+          .sessionHeartbeat(snapshot.sessionId, {
+            clientId: snapshot.clientId || undefined,
+            isPlaying,
+          })
+          .catch(() => {});
+        return;
+      }
+
       client
         .sessionHeartbeat(snapshot.sessionId, {
           clientId: snapshot.clientId || undefined,
-          isPlaying: snapshot.playbackState === "playing",
+          isPlaying,
           currentIndex: snapshot.queueState.currentIndex,
           positionMs: Math.round(snapshot.currentTime * 1000),
           currentSongId: snapshot.currentSong.id,
@@ -299,7 +320,9 @@ export function SessionEventHandler() {
           currentSongArtist: event.currentSongArtist,
         });
 
-        syncQueueForPosition(event);
+        if (isRemoteControlling || !isAudioOwner) {
+          syncQueueForPosition(event);
+        }
 
         // When remote controlling (or not the audio owner), drive the
         // player bar atoms from SSE so follower UI stays in sync

@@ -66,7 +66,7 @@ export function ActionBar({
         className,
       )}
     >
-      <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
+      <div className="flex items-center gap-4 px-4 pb-4 pt-safe-4 lg:px-6">
         {/* Play button - icon only on mobile, with text on desktop */}
         {onPlayAll && (
           <Button

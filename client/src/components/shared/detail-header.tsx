@@ -143,7 +143,7 @@ export function DetailHeader({
 
       {/* Back button */}
       {showBackButton && (
-        <div className="relative z-10 p-4 lg:p-6">
+        <div className="relative z-10 px-4 pb-4 pt-safe-4 lg:px-6 lg:pb-6 lg:pt-safe-6">
           <Button
             variant="ghost"
             size="icon"
@@ -160,7 +160,7 @@ export function DetailHeader({
       <div
         className={cn(
           "relative z-10 flex flex-col md:flex-row gap-6 px-4 lg:px-6 pb-6",
-          !showBackButton && "pt-8",
+          !showBackButton && "pt-safe-8",
         )}
       >
         {/* Cover image or icon */}

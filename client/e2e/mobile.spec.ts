@@ -667,6 +667,39 @@ test.describe("Mobile Tests", () => {
     await expect(queueSheet).not.toBeVisible();
   });
 
+  test("home header extends behind the safe area inset", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--safe-area-top", "24px");
+    });
+
+    const header = page.locator("header").first();
+    await expect(header).toBeVisible();
+
+    const metrics = await header.evaluate((element) => {
+      const content = element.firstElementChild;
+      if (!(content instanceof HTMLElement)) {
+        throw new Error("Missing home header content");
+      }
+
+      const headerBox = element.getBoundingClientRect();
+      const contentBox = content.getBoundingClientRect();
+      const contentStyle = window.getComputedStyle(content);
+
+      return {
+        headerTop: Math.round(headerBox.top),
+        contentHeight: Math.round(contentBox.height),
+        contentPaddingTop: contentStyle.paddingTop,
+      };
+    });
+
+    expect(metrics.headerTop).toBe(0);
+    expect(metrics.contentHeight).toBeGreaterThanOrEqual(88);
+    expect(metrics.contentPaddingTop).toBe("24px");
+  });
+
   test("closing queue keeps fullscreen player open on mobile", async ({
     authenticatedPage: page,
   }) => {
@@ -1076,6 +1109,36 @@ test.describe("Mobile Tests", () => {
     await page.goto("/search");
 
     await expect(page.getByPlaceholder(/search/i)).toBeVisible();
+  });
+
+  test("settings header protects the safe area", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/settings");
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--safe-area-top", "24px");
+    });
+
+    const header = page.locator("header", { hasText: "Settings" }).first();
+    await expect(header).toBeVisible();
+
+    const metrics = await header.evaluate((element) => {
+      const content = element.firstElementChild;
+      if (!(content instanceof HTMLElement)) {
+        throw new Error("Missing settings header content");
+      }
+
+      const headerBox = element.getBoundingClientRect();
+      const contentStyle = window.getComputedStyle(content);
+
+      return {
+        headerTop: Math.round(headerBox.top),
+        contentPaddingTop: contentStyle.paddingTop,
+      };
+    });
+
+    expect(metrics.headerTop).toBe(0);
+    expect(metrics.contentPaddingTop).toBe("40px");
   });
 
   test("can navigate to album detail", async ({ authenticatedPage: page }) => {

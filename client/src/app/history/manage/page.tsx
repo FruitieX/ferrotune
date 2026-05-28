@@ -689,7 +689,7 @@ export default function ManageHistoryPage() {
         </div>
       </div>
 
-      <div className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 lg:px-6 py-3 backdrop-blur">
+      <div className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 pb-3 pt-safe-3 lg:px-6 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <CheckSquare className="h-4 w-4" />

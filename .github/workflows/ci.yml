@@ -20,6 +20,7 @@ jobs:
   backend:
     name: Backend (${{ matrix.database }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -37,8 +38,8 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
+          node-version: "lts/*"
+          cache: "pnpm"
           cache-dependency-path: client/pnpm-lock.yaml
       - name: Install Hurl
         run: |
@@ -54,6 +55,7 @@ jobs:
   client:
     name: Client
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,15 +69,13 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
+          node-version: "lts/*"
+          cache: "pnpm"
           cache-dependency-path: client/pnpm-lock.yaml
       - name: Install ffmpeg for test fixtures
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev libopus-dev ninja-build pkg-config
-      - name: Install Playwright browsers
-        run: moon run client:playwright-install -- --with-deps
+        run: sudo apt-get update && sudo apt-get install -y cmake google-chrome-stable libclang-dev libopus-dev ninja-build pkg-config
       - name: Run client CI
         run: env -u FERROTUNE_DATABASE_URL moon run client:ci
       - name: Upload Playwright failure artifacts
@@ -92,6 +92,7 @@ jobs:
   build-image:
     name: Build & (optionally) push image
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       packages: write
       contents: read
@@ -120,8 +121,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
+          node-version: "lts/*"
+          cache: "pnpm"
           cache-dependency-path: client/pnpm-lock.yaml
 
       - name: Build Vite client
@@ -183,6 +184,7 @@ jobs:
     name: Prepare app release
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs:
       - backend
       - client
@@ -206,6 +208,7 @@ jobs:
     name: Android APK
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs:
       - prepare-app-release
     env:
@@ -246,6 +249,7 @@ jobs:
     name: Desktop app (${{ matrix.platform }})
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     needs:
       - prepare-app-release
     strategy:
@@ -279,8 +283,8 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
+          node-version: "lts/*"
+          cache: "pnpm"
           cache-dependency-path: client/pnpm-lock.yaml
       - name: Install Linux desktop dependencies
         if: matrix.platform == 'linux'
@@ -342,6 +346,7 @@ jobs:
     name: Publish app prerelease
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs:
       - prepare-app-release
       - android-app

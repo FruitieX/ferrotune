@@ -216,6 +216,41 @@
   padding-top: var(--safe-area-top, env(safe-area-inset-top, 0px));
 }
 
+@utility pt-safe-3 {
+  padding-top: calc(
+    var(--safe-area-top, env(safe-area-inset-top, 0px)) +
+      calc(var(--spacing) * 3)
+  );
+}
+
+@utility pt-safe-4 {
+  padding-top: calc(
+    var(--safe-area-top, env(safe-area-inset-top, 0px)) +
+      calc(var(--spacing) * 4)
+  );
+}
+
+@utility pt-safe-6 {
+  padding-top: calc(
+    var(--safe-area-top, env(safe-area-inset-top, 0px)) +
+      calc(var(--spacing) * 6)
+  );
+}
+
+@utility pt-safe-8 {
+  padding-top: calc(
+    var(--safe-area-top, env(safe-area-inset-top, 0px)) +
+      calc(var(--spacing) * 8)
+  );
+}
+
+@utility h-safe-16 {
+  height: calc(
+    var(--safe-area-top, env(safe-area-inset-top, 0px)) +
+      calc(var(--spacing) * 16)
+  );
+}
+
 @utility pb-safe {
   padding-bottom: var(--safe-area-bottom, env(safe-area-inset-bottom, 0px));
 }

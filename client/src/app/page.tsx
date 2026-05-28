@@ -1530,7 +1530,7 @@ export default function HomePage() {
       <div className="min-h-dvh">
         {/* Header */}
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-          <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
+          <div className="flex items-center gap-4 h-safe-16 pt-safe px-4 lg:px-6">
             <Skeleton className="w-9 h-9 rounded-md shrink-0 lg:hidden" />
             <h1 className="text-2xl font-bold">Home</h1>
             <div className="flex-1 flex justify-center">
@@ -1904,7 +1904,7 @@ export default function HomePage() {
     <div className="min-h-dvh">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
+        <div className="flex items-center gap-4 h-safe-16 pt-safe px-4 lg:px-6">
           <MobileProfileMenu />
           <h1 className="text-2xl font-bold">Home</h1>
           <div className="flex-1 flex justify-center">

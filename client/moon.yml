@@ -340,7 +340,7 @@ tasks:
   # ============================================================================
 
   playwright-install:
-    command: "pnpm exec playwright install chromium"
+    command: "bash scripts/install-playwright-browser.sh"
     deps:
       - "install"
     options:

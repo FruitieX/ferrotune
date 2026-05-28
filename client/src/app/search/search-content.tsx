@@ -257,7 +257,7 @@ export function SearchPageContent() {
     <div className="min-h-dvh">
       {/* Header with search input */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="px-4 lg:px-6 py-4">
+        <div className="px-4 pb-4 pt-safe-4 lg:px-6">
           <div className="flex items-center justify-center gap-2 max-w-xl mx-auto">
             <div className="relative flex-1">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />

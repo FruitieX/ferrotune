@@ -360,7 +360,7 @@ export default function LibraryLayout({
         className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg"
       >
         <header className="border-b border-border">
-          <div className="flex items-center justify-between py-3 px-4 lg:px-6 gap-4">
+          <div className="flex items-center justify-between gap-4 px-4 pb-3 pt-safe-3 lg:px-6">
             <h1 className="text-2xl font-bold shrink-0">Library</h1>
 
             {/* Search filter */}

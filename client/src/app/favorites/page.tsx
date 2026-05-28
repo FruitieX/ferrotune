@@ -624,7 +624,7 @@ export default function FavoritesPage() {
 
       {/* Action buttons */}
       <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
+        <div className="flex items-center gap-4 px-4 pb-4 pt-safe-4 lg:px-6">
           <Button
             size="lg"
             className="rounded-full gap-2 px-8"

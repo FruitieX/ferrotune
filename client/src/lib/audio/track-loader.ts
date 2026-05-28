@@ -500,6 +500,24 @@ export function loadTrackWeb(
   }
 
   if (
+    currentLoadedTrackId !== null &&
+    currentSong.id !== currentLoadedTrackId &&
+    !signalChanged &&
+    !isRestoringQueue
+  ) {
+    console.warn(
+      "[Audio] Skipping passive currentSong drift without playback intent",
+      {
+        currentSongId: currentSong.id,
+        currentLoadedTrackId,
+        trackChangeSignal,
+      },
+    );
+    refs.lastProcessedSignalRef.current = trackChangeSignal;
+    return;
+  }
+
+  if (
     currentSong.id === currentLoadedTrackId &&
     !signalChanged &&
     (!urlChanged || isRestoringQueue)

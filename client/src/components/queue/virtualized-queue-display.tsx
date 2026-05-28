@@ -271,8 +271,8 @@ export interface VirtualizedQueueDisplayHandle {
  *
  * Performance optimizations:
  * - songsByPosition Map is memoized to prevent recreation on every render
- * - VirtualQueueItem is wrapped in React.memo
- * - Callbacks are stabilized with useCallback
+ * - VirtualQueueItem stays small and receives only the row-specific props
+ * - Server-side range fetching keeps large queues sparse in the client
  */
 export const VirtualizedQueueDisplay = forwardRef<
   VirtualizedQueueDisplayHandle,
@@ -312,6 +312,10 @@ export const VirtualizedQueueDisplay = forwardRef<
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
+  const initialScrollOffsetRef = useRef<number | null>(null);
+  if (initialScrollOffsetRef.current === null) {
+    initialScrollOffsetRef.current = currentIndex * ITEM_HEIGHT;
+  }
 
   // Memoize the songs array reference for stable dependencies
   const songs = queueWindow?.songs;
@@ -347,6 +351,7 @@ export const VirtualizedQueueDisplay = forwardRef<
     count: totalCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ITEM_HEIGHT,
+    initialOffset: initialScrollOffsetRef.current,
     overscan: OVERSCAN,
   });
 

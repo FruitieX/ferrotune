@@ -257,7 +257,7 @@ export function Sidebar() {
       )}
     >
       {/* Logo */}
-      <div className="flex items-center justify-between h-16 px-4 overflow-hidden shrink-0">
+      <div className="flex items-center justify-between h-safe-16 pt-safe px-4 overflow-hidden shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
             <Music className="w-6 h-6 text-primary-foreground" />

@@ -516,10 +516,16 @@ export default function SettingsPage() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="p-4 lg:p-6 space-y-6">
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-50 w-full" />
-        <Skeleton className="h-50 w-full" />
+      <div className="min-h-dvh">
+        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
+          <div className="px-4 pb-4 pt-safe-4 lg:px-6">
+            <Skeleton className="h-12 w-48" />
+          </div>
+        </header>
+        <div className="px-4 lg:px-6 py-6 space-y-6">
+          <Skeleton className="h-50 w-full" />
+          <Skeleton className="h-50 w-full" />
+        </div>
       </div>
     );
   }
@@ -527,25 +533,27 @@ export default function SettingsPage() {
   return (
     <div className="min-h-dvh">
       {/* Header */}
-      <div className="px-4 lg:px-6 pt-8 pb-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-3"
-        >
-          <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
-            <SettingsIcon className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Settings</h1>
-            <p className="text-sm text-muted-foreground">
-              Manage your preferences
-            </p>
-          </div>
-        </motion.div>
-      </div>
+      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
+        <div className="px-4 pb-4 pt-safe-4 lg:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-3"
+          >
+            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
+              <SettingsIcon className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Settings</h1>
+              <p className="text-sm text-muted-foreground">
+                Manage your preferences
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      </header>
 
-      <div className="px-4 lg:px-6 pb-24 space-y-6">
+      <div className="px-4 lg:px-6 py-6 pb-24 space-y-6">
         {/* Server Connection */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
