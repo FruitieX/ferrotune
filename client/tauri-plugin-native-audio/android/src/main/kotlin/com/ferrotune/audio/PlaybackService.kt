@@ -134,6 +134,7 @@ class PlaybackService : MediaSessionService() {
         private const val MEDIA_NOTIFICATION_ID = 1001
         private const val MEDIA_NOTIFICATION_CHANNEL_ID = "default_channel_id"
         private const val MEDIA_NOTIFICATION_GROUP_KEY = "media3_group_key"
+        private const val CAST_CLIENT_NAME = "ferrotune-cast"
         private const val NOTIFICATION_ARTWORK_MAX_DIMENSION_PX = 1024
         private const val NOTIFICATION_ARTWORK_JPEG_QUALITY = 92
         private const val NOTIFICATION_ARTWORK_CACHE_MAX_FILES = 8
@@ -266,6 +267,8 @@ class PlaybackService : MediaSessionService() {
     // ownership before the first OwnerChanged snapshot arrives.
     private var nativeOwnsSession = true
     private var lastLocalOwnershipClaimElapsedRealtimeMs: Long? = null
+    private var sessionOwnerClientId: String? = null
+    private var sessionOwnerClientName: String? = null
     // Invalidates asynchronous queue fetches when a newer account/session or
     // playback command supersedes them.
     private var queueLoadGeneration = 0
@@ -822,6 +825,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (isCastSessionOwner()) {
+            hideLocalMediaNotificationForCastOwner("onUpdateNotification")
+            return
+        }
+
         // Keep the service foreground while playback is intended, including
         // buffering and ended-but-advancing states where isPlaying is false.
         val keepForeground = startInForegroundRequired ||
@@ -953,6 +961,8 @@ class PlaybackService : MediaSessionService() {
         nextQueueLoadGeneration(reason)
         clearPendingNetworkRetry(reason)
         nativeOwnsSession = false
+        sessionOwnerClientId = null
+        sessionOwnerClientName = null
         sseConnected = false
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
         sseReconnectRunnable = null
@@ -1121,12 +1131,19 @@ class PlaybackService : MediaSessionService() {
                     Log.d(TAG, "Remote takeOver received; pausing native playback")
                     markPlaybackPauseIntent("remote takeover")
                     nativeOwnsSession = false
+                    sessionOwnerClientId = event.clientId
+                    sessionOwnerClientName = if (event.clientId?.startsWith("$CAST_CLIENT_NAME:") == true) {
+                        CAST_CLIENT_NAME
+                    } else {
+                        null
+                    }
                     clearPendingNetworkRetry("remote takeover")
                     handler.removeCallbacks(positionSyncRunnable)
                     handler.removeCallbacks(preApplyGainRunnable)
                     if (player.playWhenReady || player.isPlaying) {
                         player.pause()
                     }
+                    hideLocalMediaNotificationForCastOwner("remote takeover")
                     emitStateChange()
                     return
                 }
@@ -1322,6 +1339,8 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
+        sessionOwnerClientId = event.ownerClientId
+        sessionOwnerClientName = event.ownerClientName
         nativeOwnsSession = isCurrentClientOwner
 
         if (isCurrentClientOwner) {
@@ -1342,11 +1361,15 @@ class PlaybackService : MediaSessionService() {
             handler.removeCallbacks(positionSyncRunnable)
             handler.removeCallbacks(preApplyGainRunnable)
             player.pause()
+            hideLocalMediaNotificationForCastOwner("ownership lost")
             emitStateChange()
         } else if (wasOwner) {
             Log.d(TAG, "Session owner cleared while native playback is inactive")
             markPlaybackPauseIntent("ownership cleared while inactive")
+            hideLocalMediaNotificationForCastOwner("ownership cleared while inactive")
             emitStateChange()
+        } else {
+            hideLocalMediaNotificationForCastOwner("owner changed")
         }
     }
 
@@ -1363,6 +1386,8 @@ class PlaybackService : MediaSessionService() {
             Log.d(TAG, "Claiming session ownership for $reason")
         }
         nativeOwnsSession = true
+        sessionOwnerClientId = apiClient.getClientId()
+        sessionOwnerClientName = "ferrotune-mobile"
         lastLocalOwnershipClaimElapsedRealtimeMs = SystemClock.elapsedRealtime()
         handler.removeCallbacks(inactivityTimeoutRunnable)
         logPlaybackDiagnostic(
@@ -1383,6 +1408,19 @@ class PlaybackService : MediaSessionService() {
                 Log.w(TAG, "Failed to claim session ownership for $reason", e)
             }
         }
+    }
+
+    private fun isCastSessionOwner(): Boolean {
+        return sessionOwnerClientName == CAST_CLIENT_NAME ||
+            sessionOwnerClientId?.startsWith("$CAST_CLIENT_NAME:") == true
+    }
+
+    private fun hideLocalMediaNotificationForCastOwner(reason: String) {
+        if (!isCastSessionOwner()) return
+        Log.d(TAG, "Hiding local media notification while Cast owns the session: $reason")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(MEDIA_NOTIFICATION_ID)
     }
 
     private fun loadCurrentQueueFromServer(
@@ -4143,6 +4181,23 @@ class PlaybackService : MediaSessionService() {
                 ),
             )
             if (playWhenReady && !nativeOwnsSession) {
+                if (isCastSessionOwner()) {
+                    Log.d(TAG, "Suppressing media-session play while Cast owns the session")
+                    logPlaybackDiagnostic(
+                        DiagnosticLevel.INFO,
+                        "play_suppressed_cast_owner",
+                        "Suppressing native media-session play because Cast owns the session",
+                        mapOf(
+                            "reason" to reasonName,
+                            "reasonCode" to reason,
+                            "sessionOwnerClientId" to sessionOwnerClientId,
+                            "sessionOwnerClientName" to sessionOwnerClientName,
+                        ),
+                    )
+                    player.playWhenReady = false
+                    emitStateChange()
+                    return
+                }
                 if (apiClient.hasSessionConfig()) {
                     Log.d(TAG, "Claiming ownership for media-session play while not owner")
                     logPlaybackDiagnostic(

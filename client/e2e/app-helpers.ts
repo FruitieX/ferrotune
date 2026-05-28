@@ -96,6 +96,50 @@ export async function setServerPreference(
   );
 }
 
+export async function waitForServerPreference(
+  page: Page,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        ({ preferenceKey, expectedValue }) => {
+          type ServerStorageStateForTest = {
+            __ferrotuneServerStorageState?: {
+              loadedAccounts: Set<string>;
+              valueCacheByAccount: Map<string, Map<string, unknown>>;
+            };
+          };
+
+          const connection = JSON.parse(
+            localStorage.getItem("ferrotune-connection") || "null",
+          );
+          const account = connection?.userId
+            ? `${connection.userId}@${connection.serverUrl || "local"}`
+            : connection?.username
+              ? `${connection.username}@${connection.serverUrl || "local"}`
+              : (connection?.serverUrl ?? "__no_account__");
+
+          const storageState = (window as Window & ServerStorageStateForTest)
+            .__ferrotuneServerStorageState;
+          if (!storageState?.loadedAccounts.has(account)) {
+            return false;
+          }
+
+          const valueCache = storageState.valueCacheByAccount.get(account);
+
+          return (
+            !!valueCache &&
+            Object.is(valueCache.get(preferenceKey), expectedValue)
+          );
+        },
+        { preferenceKey: key, expectedValue: value },
+      ),
+    )
+    .toBe(true);
+}
+
 export function toAndroidEmulatorUrl(serverUrl: string): string {
   const url = new URL(serverUrl);
 

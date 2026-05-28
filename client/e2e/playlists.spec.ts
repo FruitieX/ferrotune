@@ -232,13 +232,6 @@ test.describe("Playlists", () => {
     await createDialog.getByRole("button", { name: /create|save/i }).click();
     await expect(createDialog).not.toBeVisible({ timeout: 5000 });
 
-    const playlistLink = page
-      .locator("a")
-      .filter({ hasText: playlistName })
-      .first();
-    await expect(playlistLink).toBeVisible({ timeout: 10000 });
-    await playlistLink.click();
-
     await expect(page).toHaveURL(/\/playlists\/details\?id=/);
     await expect(
       page.getByRole("heading", { name: playlistName, exact: true }),

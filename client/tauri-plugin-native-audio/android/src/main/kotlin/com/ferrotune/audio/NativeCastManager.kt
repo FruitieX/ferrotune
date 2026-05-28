@@ -1,6 +1,7 @@
 package com.ferrotune.audio
 
 import android.app.Activity
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +13,7 @@ import app.tauri.plugin.JSObject
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
+import com.google.android.gms.cast.MediaQueueItem
 import com.google.android.gms.cast.MediaSeekOptions
 import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastButtonFactory
@@ -35,12 +37,34 @@ internal class NativeCastManager(
 ) {
     companion object {
         private const val TAG = "NativeCastManager"
+        private const val STATUS_UPDATE_INTERVAL_MS = 1_000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var castContext: CastContext? = null
     private var routeButton: MediaRouteButton? = null
     private var remoteMediaClient: RemoteMediaClient? = null
+    private var statusUpdatesRunning = false
+
+    private data class CastMediaItemData(
+        val url: String,
+        val contentType: String,
+        val songId: String,
+        val title: String,
+        val artist: String,
+        val album: String?,
+        val coverArtUrl: String?,
+        val durationMs: Long,
+        val position: Int?,
+    )
+
+    private val statusUpdateRunnable = object : Runnable {
+        override fun run() {
+            if (!statusUpdatesRunning) return
+            emitMediaStatus()
+            handler.postDelayed(this, STATUS_UPDATE_INTERVAL_MS)
+        }
+    }
 
     private val castStateListener = CastStateListener { emitStateChanged() }
 
@@ -64,6 +88,7 @@ internal class NativeCastManager(
         }
 
         override fun onSessionStarted(session: CastSession, sessionId: String) {
+            activity.volumeControlStream = AudioManager.STREAM_MUSIC
             attachRemoteMediaClient(session.remoteMediaClient)
             emitStateChanged()
             emitMediaStatus()
@@ -88,6 +113,7 @@ internal class NativeCastManager(
         }
 
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
+            activity.volumeControlStream = AudioManager.STREAM_MUSIC
             attachRemoteMediaClient(session.remoteMediaClient)
             emitStateChanged()
             emitMediaStatus()
@@ -109,6 +135,7 @@ internal class NativeCastManager(
         handler.post {
             try {
                 val context = CastContext.getSharedInstance(activity.applicationContext)
+                activity.volumeControlStream = AudioManager.STREAM_MUSIC
                 castContext = context
                 context.addCastStateListener(castStateListener)
                 context.sessionManager.addSessionManagerListener(sessionListener, CastSession::class.java)
@@ -127,6 +154,7 @@ internal class NativeCastManager(
         handler.post {
             castContext?.removeCastStateListener(castStateListener)
             castContext?.sessionManager?.removeSessionManagerListener(sessionListener, CastSession::class.java)
+            stopStatusUpdates()
             detachRemoteMediaClient()
             routeButton?.let { button ->
                 (button.parent as? ViewGroup)?.removeView(button)
@@ -138,6 +166,13 @@ internal class NativeCastManager(
 
     fun getState(): JSObject {
         return stateObject()
+    }
+
+    fun refreshState() {
+        handler.post {
+            emitStateChanged()
+            emitMediaStatus()
+        }
     }
 
     fun requestSession() {
@@ -171,16 +206,40 @@ internal class NativeCastManager(
                 return@post
             }
 
-            val mediaInfo = MediaInfo.Builder(args.url)
-                .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
-                .setContentType(args.contentType.ifBlank { "audio/mpeg" })
-                .setStreamDuration(args.durationMs)
-                .setMetadata(buildMetadata(args))
-                .setCustomData(JSONObject().apply {
-                    put("songId", args.songId)
-                    put("applicationName", "Ferrotune")
-                })
-                .build()
+            val queueItems = args.queueItems
+                ?.map { it.toCastMediaItemData() }
+                ?.takeIf { it.isNotEmpty() }
+
+            if (queueItems != null) {
+                val castQueueItems = queueItems.map { item ->
+                    MediaQueueItem.Builder(buildMediaInfo(item))
+                        .setAutoplay(true)
+                        .build()
+                }.toTypedArray()
+                val startIndex = queueItems
+                    .indexOfFirst { it.position == args.currentIndex }
+                    .takeIf { it >= 0 }
+                    ?: queueItems.indexOfFirst { it.songId == args.songId }.takeIf { it >= 0 }
+                    ?: 0
+
+                client.queueLoad(
+                    castQueueItems,
+                    startIndex,
+                    castRepeatMode(args.repeatMode),
+                    args.startTimeMs,
+                    null,
+                ).setResultCallback { result ->
+                    if (result.status.isSuccess) {
+                        emitMediaStatus()
+                        onSuccess()
+                    } else {
+                        onError(result.status.statusMessage ?: "Failed to load Cast queue")
+                    }
+                }
+                return@post
+            }
+
+            val mediaInfo = buildMediaInfo(args.toCastMediaItemData())
 
             val request = MediaLoadRequestData.Builder()
                 .setMediaInfo(mediaInfo)
@@ -200,15 +259,24 @@ internal class NativeCastManager(
     }
 
     fun play() {
-        handler.post { currentRemoteMediaClient()?.play() }
+        handler.post {
+            currentRemoteMediaClient()?.play()
+            emitMediaStatus()
+        }
     }
 
     fun pause() {
-        handler.post { currentRemoteMediaClient()?.pause() }
+        handler.post {
+            currentRemoteMediaClient()?.pause()
+            emitMediaStatus()
+        }
     }
 
     fun stopMedia() {
-        handler.post { currentRemoteMediaClient()?.stop() }
+        handler.post {
+            currentRemoteMediaClient()?.stop()
+            emitMediaStatus()
+        }
     }
 
     fun seek(positionMs: Long) {
@@ -219,6 +287,7 @@ internal class NativeCastManager(
                     .setResumeState(MediaSeekOptions.RESUME_STATE_PLAY)
                     .build(),
             )
+            emitMediaStatus()
         }
     }
 
@@ -228,6 +297,7 @@ internal class NativeCastManager(
             try {
                 session.volume = volume.coerceIn(0f, 1f).toDouble()
                 session.isMute = muted
+                emitMediaStatus()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to set Cast volume", e)
                 NativeAudioLogger.warn(TAG, "cast_volume_failed", "Failed to set Cast volume", throwable = e)
@@ -260,21 +330,87 @@ internal class NativeCastManager(
         detachRemoteMediaClient()
         remoteMediaClient = client
         client?.registerCallback(remoteMediaClientCallback)
+        if (client != null) {
+            startStatusUpdates()
+        }
     }
 
     private fun detachRemoteMediaClient() {
         remoteMediaClient?.unregisterCallback(remoteMediaClientCallback)
         remoteMediaClient = null
+        stopStatusUpdates()
     }
 
-    private fun buildMetadata(args: LoadCastMediaArgs): MediaMetadata {
+    private fun startStatusUpdates() {
+        if (statusUpdatesRunning) return
+        statusUpdatesRunning = true
+        handler.removeCallbacks(statusUpdateRunnable)
+        handler.post(statusUpdateRunnable)
+    }
+
+    private fun stopStatusUpdates() {
+        statusUpdatesRunning = false
+        handler.removeCallbacks(statusUpdateRunnable)
+    }
+
+    private fun LoadCastMediaArgs.toCastMediaItemData(): CastMediaItemData {
+        return CastMediaItemData(
+            url = url,
+            contentType = contentType,
+            songId = songId,
+            title = title,
+            artist = artist,
+            album = album,
+            coverArtUrl = coverArtUrl,
+            durationMs = durationMs,
+            position = currentIndex,
+        )
+    }
+
+    private fun LoadCastMediaQueueItemArgs.toCastMediaItemData(): CastMediaItemData {
+        return CastMediaItemData(
+            url = url,
+            contentType = contentType,
+            songId = songId,
+            title = title,
+            artist = artist,
+            album = album,
+            coverArtUrl = coverArtUrl,
+            durationMs = durationMs,
+            position = position,
+        )
+    }
+
+    private fun buildMediaInfo(item: CastMediaItemData): MediaInfo {
+        return MediaInfo.Builder(item.url)
+            .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+            .setContentType(item.contentType.ifBlank { "audio/mpeg" })
+            .setStreamDuration(item.durationMs)
+            .setMetadata(buildMetadata(item))
+            .setCustomData(JSONObject().apply {
+                put("songId", item.songId)
+                put("applicationName", "Ferrotune")
+                item.position?.let { put("position", it) }
+            })
+            .build()
+    }
+
+    private fun castRepeatMode(repeatMode: String): Int {
+        return when (repeatMode) {
+            "all" -> MediaStatus.REPEAT_MODE_REPEAT_ALL
+            "one" -> MediaStatus.REPEAT_MODE_REPEAT_SINGLE
+            else -> MediaStatus.REPEAT_MODE_REPEAT_OFF
+        }
+    }
+
+    private fun buildMetadata(item: CastMediaItemData): MediaMetadata {
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MUSIC_TRACK)
-        metadata.putString(MediaMetadata.KEY_TITLE, args.title)
-        metadata.putString(MediaMetadata.KEY_ARTIST, args.artist)
-        args.album?.takeIf { it.isNotBlank() }?.let {
+        metadata.putString(MediaMetadata.KEY_TITLE, item.title)
+        metadata.putString(MediaMetadata.KEY_ARTIST, item.artist)
+        item.album?.takeIf { it.isNotBlank() }?.let {
             metadata.putString(MediaMetadata.KEY_ALBUM_TITLE, it)
         }
-        args.coverArtUrl?.takeIf { it.isNotBlank() }?.let {
+        item.coverArtUrl?.takeIf { it.isNotBlank() }?.let {
             metadata.addImage(WebImage(Uri.parse(it)))
         }
         return metadata
@@ -298,14 +434,30 @@ internal class NativeCastManager(
     }
 
     private fun mediaStatusObject(): JSObject {
-        val client = castContext?.sessionManager?.currentCastSession?.remoteMediaClient
+        val session = castContext?.sessionManager?.currentCastSession
+        val client = session?.remoteMediaClient
         val status = client?.mediaStatus
+        val mediaInfo = status?.mediaInfo
+        val metadata = mediaInfo?.metadata
+        val customData = mediaInfo?.customData
+        val songId = customData?.optString("songId")?.takeIf { it.isNotBlank() }
+        val queuePosition = if (customData?.has("position") == true && !customData.isNull("position")) {
+            customData.optInt("position")
+        } else {
+            null
+        }
         return JSObject().apply {
             put("positionMs", client?.approximateStreamPosition ?: 0L)
             put("durationMs", client?.streamDuration ?: 0L)
             put("isPlaying", isPlaying(status))
             put("playerState", playerStateName(status?.playerState))
             put("idleReason", idleReasonName(status?.idleReason))
+            put("songId", songId)
+            put("queuePosition", queuePosition)
+            put("title", metadata?.getString(MediaMetadata.KEY_TITLE))
+            put("artist", metadata?.getString(MediaMetadata.KEY_ARTIST))
+            put("volume", session?.volume ?: 1.0)
+            put("isMuted", session?.isMute ?: false)
         }
     }
 

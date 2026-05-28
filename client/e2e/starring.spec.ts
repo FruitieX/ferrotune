@@ -46,35 +46,60 @@ async function showFavoritedColumn(page: Page) {
   await expect(columnMenu).not.toBeVisible();
 }
 
+async function openSongContextMenu(page: Page, songTitle = "First Song") {
+  const songRow = page
+    .locator('[data-testid="song-row"]')
+    .filter({ hasText: songTitle })
+    .first();
+  await expect(songRow).toBeVisible({ timeout: 10000 });
+
+  await songRow.click({ button: "right", position: { x: 180, y: 20 } });
+
+  const contextMenu = page.locator(
+    '[data-slot="context-menu-content"][data-state="open"]',
+  );
+  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+
+  return contextMenu;
+}
+
+async function activateMenuItem(
+  contextMenu: ReturnType<Page["locator"]>,
+  name: RegExp,
+) {
+  const menuItem = contextMenu.getByRole("menuitem", { name });
+  await expect(menuItem).toBeVisible({ timeout: 5000 });
+  await menuItem.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("Context menu item was not an HTMLElement");
+    }
+    element.click();
+  });
+}
+
 test.describe("Starring and Ratings", () => {
   test("can star and unstar a song", async ({ authenticatedPage: page }) => {
     await openTestAlbumDetails(page);
 
-    const firstSongRow = page.locator('[data-testid="song-row"]').first();
-
     // Star via context menu
-    await firstSongRow.click({ button: "right" });
-    const contextMenu = page.locator('[data-slot="context-menu-content"]');
-    await expect(contextMenu).toBeVisible({ timeout: 5000 });
-
-    const addToFavorites = contextMenu.getByRole("menuitem", {
-      name: /add to favorites/i,
-    });
-    await expect(addToFavorites).toBeVisible();
-    // Use force to bypass animation stability check
-    await addToFavorites.click({ force: true });
+    let contextMenu = await openSongContextMenu(page);
+    await activateMenuItem(contextMenu, /add to favorites/i);
     await expect(contextMenu).not.toBeVisible({ timeout: 5000 });
+    await expect(
+      page
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: /added to favorites/i }),
+    ).toBeVisible({ timeout: 5000 });
 
     // Unstar via context menu
-    await firstSongRow.click({ button: "right" });
-    await expect(contextMenu).toBeVisible({ timeout: 5000 });
-
-    const removeFromFavorites = contextMenu.getByRole("menuitem", {
-      name: /remove from favorites/i,
-    });
-    await expect(removeFromFavorites).toBeVisible();
-    await removeFromFavorites.click({ force: true });
+    contextMenu = await openSongContextMenu(page);
+    await activateMenuItem(contextMenu, /remove from favorites/i);
     await expect(contextMenu).not.toBeVisible({ timeout: 5000 });
+    await expect(
+      page
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: /removed from favorites/i }),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("favorited column heart button toggles a song", async ({
@@ -117,35 +142,30 @@ test.describe("Starring and Ratings", () => {
   test("can rate song from menu", async ({ authenticatedPage: page }) => {
     await openTestAlbumDetails(page);
 
-    const firstSongRow = page.locator('[data-testid="song-row"]').first();
-    await firstSongRow.click({ button: "right" });
+    const contextMenu = await openSongContextMenu(page);
 
-    const contextMenu = page.locator('[data-slot="context-menu-content"]');
-    await expect(contextMenu).toBeVisible({ timeout: 5000 });
-
-    // Open Rate submenu - click the trigger to open it
     const rateTrigger = contextMenu
       .locator('[data-slot="context-menu-sub-trigger"]')
       .filter({ hasText: /rate/i });
-    await expect(rateTrigger).toBeVisible({ timeout: 2000 });
-    // Click to focus and open the submenu
-    await rateTrigger.click({ force: true });
+    await expect(rateTrigger).toBeVisible({ timeout: 5000 });
+    await rateTrigger.hover();
 
-    // Wait for the rating submenu to appear
     const ratingSubmenu = page.locator(
-      '[data-slot="context-menu-sub-content"]',
+      '[data-slot="context-menu-sub-content"][data-state="open"]',
     );
-    await expect(ratingSubmenu).toBeVisible({ timeout: 3000 });
+    await expect(ratingSubmenu).toBeVisible({ timeout: 5000 });
 
-    // Click the first rating item (5 stars - highest rating option)
-    const ratingItem = ratingSubmenu
-      .locator('[data-slot="context-menu-item"]')
-      .first();
-    await expect(ratingItem).toBeVisible({ timeout: 2000 });
-    await ratingItem.click({ force: true });
+    const ratingItem = ratingSubmenu.getByRole("menuitem").first();
+    await expect(ratingItem).toBeVisible({ timeout: 5000 });
+    await ratingItem.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new Error("Rating menu item was not an HTMLElement");
+      }
+      element.click();
+    });
 
     await expect(
       page.locator("[data-sonner-toast]").filter({ hasText: /rated/i }),
-    ).toBeVisible({ timeout: 3000 });
+    ).toBeVisible({ timeout: 5000 });
   });
 });

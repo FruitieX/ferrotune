@@ -11,6 +11,7 @@ if [[ "${CI:-}" == "true" ]]; then
         exit 1
     fi
 
+    pnpm exec playwright install ffmpeg
     echo "Skipping Playwright browser download in CI."
     exit 0
 fi

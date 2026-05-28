@@ -9,7 +9,7 @@ import {
   waitForPlayerReady,
   resetState,
 } from "./fixtures";
-import { setServerPreference } from "./app-helpers";
+import { setServerPreference, waitForServerPreference } from "./app-helpers";
 import { openQueuePanel } from "./queue-helpers";
 import type { Page } from "@playwright/test";
 
@@ -22,7 +22,25 @@ async function playFilteredFlacTrack(page: Page, trackName = "FLAC Track One") {
 
   const filterInput = page.getByLabel("Filter library items");
   await expect(filterInput).toBeVisible({ timeout: 10000 });
+
+  const filteredSearchResponse = page.waitForResponse((response) => {
+    if (response.status() !== 200 || response.request().method() !== "GET") {
+      return false;
+    }
+
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/search" &&
+      url.searchParams.get("query") === "FLAC" &&
+      url.searchParams.get("songOffset") === "0"
+    );
+  });
   await filterInput.fill("FLAC");
+  await filteredSearchResponse;
+  await expect(page.locator('[data-testid="song-row"]').first()).toContainText(
+    "FLAC Track One",
+    { timeout: 10000 },
+  );
   await expect(
     page.locator('[data-testid="song-row"]').filter({ hasText: "First Song" }),
   ).toHaveCount(0, { timeout: 10000 });
@@ -160,6 +178,7 @@ test.describe.serial("Queue Management", () => {
   }) => {
     await setServerPreference(page, "apply-search-terms-to-queue", true);
     await page.reload();
+    await waitForServerPreference(page, "apply-search-terms-to-queue", true);
 
     await playFilteredFlacTrack(page);
 
@@ -175,6 +194,7 @@ test.describe.serial("Queue Management", () => {
 
     await setServerPreference(page, "apply-search-terms-to-queue", false);
     await page.reload();
+    await waitForServerPreference(page, "apply-search-terms-to-queue", false);
 
     await playFilteredFlacTrack(page, "FLAC Track Two");
 

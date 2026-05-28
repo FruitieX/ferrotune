@@ -117,6 +117,12 @@ export interface CastMediaStatus {
   isPlaying: boolean;
   playerState: CastPlayerState;
   idleReason?: CastIdleReason;
+  songId?: string | null;
+  queuePosition?: number;
+  title?: string | null;
+  artist?: string | null;
+  volume?: number;
+  isMuted?: boolean;
 }
 
 export interface CastStateSnapshot {
@@ -135,4 +141,19 @@ export interface LoadCastMediaParams {
   coverArtUrl?: string | null;
   durationMs: number;
   startTimeMs: number;
+  currentIndex?: number;
+  repeatMode?: "off" | "all" | "one";
+  queueItems?: LoadCastMediaQueueItemParams[];
+}
+
+export interface LoadCastMediaQueueItemParams {
+  url: string;
+  contentType: string;
+  songId: string;
+  title: string;
+  artist: string;
+  album?: string | null;
+  coverArtUrl?: string | null;
+  durationMs: number;
+  position: number;
 }

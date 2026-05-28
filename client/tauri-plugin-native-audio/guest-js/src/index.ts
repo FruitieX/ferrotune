@@ -232,6 +232,9 @@ export async function loadCastMedia(params: LoadCastMediaParams): Promise<void> 
     coverArtUrl: params.coverArtUrl,
     durationMs: params.durationMs,
     startTimeMs: params.startTimeMs,
+    currentIndex: params.currentIndex,
+    repeatMode: params.repeatMode,
+    queueItems: params.queueItems,
   });
 }
 

@@ -111,6 +111,19 @@ internal class DebugLogArgs {
 }
 
 @InvokeArg
+internal class LoadCastMediaQueueItemArgs {
+    lateinit var url: String
+    var contentType: String = "audio/mpeg"
+    lateinit var songId: String
+    lateinit var title: String
+    lateinit var artist: String
+    var album: String? = null
+    var coverArtUrl: String? = null
+    var durationMs: Long = 0
+    var position: Int = 0
+}
+
+@InvokeArg
 internal class LoadCastMediaArgs {
     lateinit var url: String
     var contentType: String = "audio/mpeg"
@@ -121,6 +134,9 @@ internal class LoadCastMediaArgs {
     var coverArtUrl: String? = null
     var durationMs: Long = 0
     var startTimeMs: Long = 0
+    var currentIndex: Int = 0
+    var repeatMode: String = "off"
+    var queueItems: Array<LoadCastMediaQueueItemArgs>? = null
 }
 
 @InvokeArg
@@ -285,6 +301,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         super.onResume()
         Log.d(TAG, "NativeAudioPlugin onResume")
         webViewInForeground = true
+        nativeCastManager?.refreshState()
         refreshWebView(dispatchResumeEvent = true)
     }
 

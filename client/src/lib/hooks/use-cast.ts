@@ -19,6 +19,8 @@ import {
   currentTimeAtom,
   durationAtom,
   bufferedAtom,
+  volumeAtom,
+  isMutedAtom,
 } from "@/lib/store/player";
 import {
   clientIdAtom,
@@ -29,23 +31,35 @@ import {
   remotePlaybackStateAtom,
 } from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
-import type { GetQueueResponse, Song } from "@/lib/api/types";
+import type {
+  GetQueueResponse,
+  QueueSongEntry,
+  QueueWindow,
+  Song,
+} from "@/lib/api/types";
 import { getActiveAudio } from "@/lib/audio/web-audio";
 import { CAST_CLIENT_NAME } from "@/lib/cast/constants";
 import type { SessionEvent } from "@/lib/hooks/use-session-events";
 import { isTauriMobile } from "@/lib/tauri";
+import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
 import type {
   CastConnectionState,
   CastMediaStatus,
   CastStateSnapshot,
+  LoadCastMediaQueueItemParams,
 } from "tauri-plugin-native-audio-api";
 
 const CAST_HEARTBEAT_INTERVAL_MS = 5_000;
+const NATIVE_CAST_STATUS_INTERVAL_MS = 1_000;
 const NATIVE_AUDIO_EVENT = "ferrotune:native-audio-event";
 const NATIVE_CAST_STATE_EVENT = "cast-state-changed";
 const NATIVE_CAST_MEDIA_STATUS_EVENT = "cast-media-status";
 
 let nativeCastApi: typeof import("tauri-plugin-native-audio-api") | null = null;
+
+interface NativeCastStatusSnapshot extends CastMediaStatus {
+  receivedAtMs: number;
+}
 
 async function getNativeCastApi() {
   if (!nativeCastApi) {
@@ -78,10 +92,31 @@ function getCurrentSongFromQueueResponse(
   response: GetQueueResponse,
 ): Song | null {
   return (
-    response.window.songs.find(
-      (entry) => entry.position === response.currentIndex,
-    )?.song ?? null
+    getQueueEntryAtPosition(response.window, response.currentIndex)?.song ??
+    null
   );
+}
+
+function getQueueEntryAtPosition(
+  window: QueueWindow,
+  position: number,
+): QueueSongEntry | null {
+  return window.songs.find((entry) => entry.position === position) ?? null;
+}
+
+function getQueueEntryForCastStatus(
+  window: QueueWindow | null,
+  status: CastMediaStatus,
+): QueueSongEntry | null {
+  if (!window) return null;
+
+  if (status.queuePosition !== undefined) {
+    const entry = getQueueEntryAtPosition(window, status.queuePosition);
+    if (entry) return entry;
+  }
+
+  if (!status.songId) return null;
+  return window.songs.find((entry) => entry.song.id === status.songId) ?? null;
 }
 
 function getCurrentCastSession(): cast.framework.CastSession | null {
@@ -100,15 +135,25 @@ function getWebCastPositionMs(): number {
 
 function getActiveCastPositionMs(
   useNativeCast: boolean,
-  nativeStatus: CastMediaStatus | null,
+  nativeStatus: NativeCastStatusSnapshot | null,
 ): number {
-  if (useNativeCast) return nativeStatus?.positionMs ?? 0;
+  if (useNativeCast) {
+    if (!nativeStatus) return 0;
+    if (!nativeStatus.isPlaying) return nativeStatus.positionMs;
+    const elapsedMs = Date.now() - nativeStatus.receivedAtMs;
+    const durationMs =
+      nativeStatus.durationMs > 0 ? nativeStatus.durationMs : Infinity;
+    return Math.max(
+      0,
+      Math.min(durationMs, nativeStatus.positionMs + elapsedMs),
+    );
+  }
   return getWebCastPositionMs();
 }
 
 function isActiveCastMediaPlaying(
   useNativeCast: boolean,
-  nativeStatus: CastMediaStatus | null,
+  nativeStatus: NativeCastStatusSnapshot | null,
 ): boolean {
   if (useNativeCast) return nativeStatus?.isPlaying ?? false;
   return isCastMediaPlaying(getCurrentCastMedia());
@@ -149,6 +194,16 @@ function numberField(record: Record<string, unknown>, key: string): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function optionalNumberField(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
 function booleanField(record: Record<string, unknown>, key: string): boolean {
   return record[key] === true;
 }
@@ -187,6 +242,12 @@ function toCastMediaStatus(value: unknown): CastMediaStatus | null {
       idleReason === "error"
         ? idleReason
         : undefined,
+    songId: stringField(value, "songId") ?? null,
+    queuePosition: optionalNumberField(value, "queuePosition"),
+    title: stringField(value, "title") ?? null,
+    artist: stringField(value, "artist") ?? null,
+    volume: optionalNumberField(value, "volume"),
+    isMuted: typeof value.isMuted === "boolean" ? value.isMuted : undefined,
   };
 }
 
@@ -241,6 +302,50 @@ function buildCastCoverArtUrl(coverArtId: string | undefined): string | null {
   return client.getCoverArtUrl(coverArtId, "large");
 }
 
+function buildNativeCastQueueItem(
+  entry: QueueSongEntry,
+): LoadCastMediaQueueItemParams | null {
+  const song = entry.song;
+  const streamUrl = buildCastStreamUrl(song.id);
+  if (!streamUrl) return null;
+
+  return {
+    url: streamUrl,
+    contentType: song.contentType || "audio/mpeg",
+    songId: song.id,
+    title: song.title,
+    artist: song.artist,
+    album: song.album,
+    coverArtUrl: buildCastCoverArtUrl(
+      song.coverArt ?? song.albumId ?? undefined,
+    ),
+    durationMs: Math.max(0, Math.round((song.duration ?? 0) * 1000)),
+    position: entry.position,
+  };
+}
+
+function isNativeCastQueueItem(
+  item: LoadCastMediaQueueItemParams | null,
+): item is LoadCastMediaQueueItemParams {
+  return item !== null;
+}
+
+function buildNativeCastQueueItems(
+  queueWindow: QueueWindow | null,
+): LoadCastMediaQueueItemParams[] | undefined {
+  if (!queueWindow) return undefined;
+  const items = [...queueWindow.songs]
+    .sort((left, right) => left.position - right.position)
+    .map(buildNativeCastQueueItem)
+    .filter(isNativeCastQueueItem);
+
+  return items.length > 0 ? items : undefined;
+}
+
+function nativeFinishedKey(status: CastMediaStatus, song: Song | null): string {
+  return `${status.queuePosition ?? "unknown"}:${status.songId ?? song?.id ?? "unknown"}`;
+}
+
 /**
  * Load a song onto the Chromecast.
  */
@@ -248,6 +353,8 @@ async function loadMediaOnCast(
   song: Song,
   startTime = 0,
   useNativeCast = false,
+  queueWindow: QueueWindow | null = null,
+  queueState: ServerQueueState | null = null,
 ): Promise<boolean> {
   if (useNativeCast) {
     const streamUrl = buildCastStreamUrl(song.id);
@@ -269,6 +376,9 @@ async function loadMediaOnCast(
         coverArtUrl,
         durationMs: Math.max(0, Math.round((song.duration ?? 0) * 1000)),
         startTimeMs: Math.max(0, Math.round(startTime * 1000)),
+        currentIndex: queueState?.currentIndex,
+        repeatMode: queueState?.repeatMode,
+        queueItems: buildNativeCastQueueItems(queueWindow),
       });
       console.log("[Cast] Native media loaded successfully");
       return true;
@@ -426,6 +536,7 @@ export function useCastInit() {
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
+  const queueWindow = useAtomValue(queueWindowAtom);
   const sessionId = useAtomValue(effectiveSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
   const castClientId = getCastClientId(clientId);
@@ -438,6 +549,8 @@ export function useCastInit() {
   const setCurrentTime = useSetAtom(currentTimeAtom);
   const setDuration = useSetAtom(durationAtom);
   const setBuffered = useSetAtom(bufferedAtom);
+  const [volume, setVolume] = useAtom(volumeAtom);
+  const [isMuted, setIsMuted] = useAtom(isMutedAtom);
   const setServerQueueState = useSetAtom(serverQueueStateAtom);
   const setQueueWindow = useSetAtom(queueWindowAtom);
 
@@ -446,24 +559,35 @@ export function useCastInit() {
   const currentTimeRef = useRef(currentTime);
   const durationRef = useRef(duration);
   const queueStateRef = useRef(queueState);
+  const queueWindowRef = useRef(queueWindow);
   const sessionIdRef = useRef(sessionId);
   const castClientIdRef = useRef(castClientId);
   const isAudioOwnerRef = useRef(isAudioOwner);
   const eventSourceRef = useRef<EventSource | null>(null);
   const mediaRef = useRef<chrome.cast.media.Media | null>(null);
-  const nativeCastStatusRef = useRef<CastMediaStatus | null>(null);
+  const nativeCastStatusRef = useRef<NativeCastStatusSnapshot | null>(null);
   const mediaUpdateListenerRef = useRef<((isAlive: boolean) => void) | null>(
     null,
   );
   const loadedSongIdRef = useRef<string | null>(null);
   const lastFinishedMediaSessionIdRef = useRef<number | null>(null);
-  const lastFinishedNativeSongIdRef = useRef<string | null>(null);
+  const lastFinishedNativeKeyRef = useRef<string | null>(null);
+  const syncingNativeReceiverKeyRef = useRef<string | null>(null);
   const claimedCastClientIdRef = useRef<string | null>(null);
+  const ignoreNextSelfTakeOverLoadRef = useRef(false);
   const sendCastHeartbeatRef = useRef<(isPlaying?: boolean) => Promise<void>>(
     async () => {},
   );
-  const claimCastOwnershipRef = useRef<() => Promise<void>>(async () => {});
+  const claimCastOwnershipRef = useRef<
+    (positionMsOverride?: number) => Promise<void>
+  >(async () => {});
   const claimCastAndLoadRef = useRef<() => Promise<void>>(async () => {});
+  const claimCastAndAdoptRef = useRef<
+    (status?: CastMediaStatus | null) => Promise<void>
+  >(async () => {});
+  const refreshNativeCastSnapshotRef = useRef<() => Promise<void>>(
+    async () => {},
+  );
   const loadCurrentCastSongRef = useRef<
     (positionMs?: number) => Promise<boolean>
   >(async () => false);
@@ -472,6 +596,9 @@ export function useCastInit() {
   >(async () => {});
   const advanceCastQueueRef = useRef<
     (direction: "next" | "previous" | number) => Promise<void>
+  >(async () => {});
+  const syncNativeReceiverQueueRef = useRef<
+    (status: NativeCastStatusSnapshot) => Promise<void>
   >(async () => {});
   const handleCastSessionEventRef = useRef<
     (event: SessionEvent) => Promise<void>
@@ -492,6 +619,7 @@ export function useCastInit() {
     currentTimeRef.current = currentTime;
     durationRef.current = duration;
     queueStateRef.current = queueState;
+    queueWindowRef.current = queueWindow;
     sessionIdRef.current = sessionId;
     castClientIdRef.current = castClientId;
     isAudioOwnerRef.current = isAudioOwner;
@@ -565,7 +693,7 @@ export function useCastInit() {
       });
     };
 
-    claimCastOwnershipRef.current = async () => {
+    claimCastOwnershipRef.current = async (positionMsOverride?: number) => {
       const sid = sessionIdRef.current;
       const virtualClientId = castClientIdRef.current;
       if (!sid || !virtualClientId) return;
@@ -573,7 +701,10 @@ export function useCastInit() {
       const client = getClient();
       if (!client) return;
 
-      const positionMs = Math.max(0, Math.round(currentTimeRef.current * 1000));
+      const positionMs = Math.max(
+        0,
+        Math.round(positionMsOverride ?? currentTimeRef.current * 1000),
+      );
 
       await client.sendSessionCommand(
         sid,
@@ -607,6 +738,30 @@ export function useCastInit() {
       await loadCurrentCastSongRef.current();
     };
 
+    claimCastAndAdoptRef.current = async (status) => {
+      const sid = sessionIdRef.current;
+      const virtualClientId = castClientIdRef.current;
+      if (!sid || !virtualClientId) return;
+
+      if (status?.songId) {
+        ignoreNextSelfTakeOverLoadRef.current = true;
+        await claimCastOwnershipRef.current(status.positionMs);
+        claimedCastClientIdRef.current = virtualClientId;
+        loadedSongIdRef.current = status.songId;
+        setPlaybackState(status.isPlaying ? "playing" : "paused");
+        if (status.durationMs > 0) {
+          setDuration(status.durationMs / 1000);
+        }
+        setCurrentTime(status.positionMs / 1000);
+        await sendCastHeartbeatRef.current(status.isPlaying);
+        return;
+      }
+
+      await claimCastOwnershipRef.current();
+      claimedCastClientIdRef.current = virtualClientId;
+      await loadCurrentCastSongRef.current();
+    };
+
     loadCurrentCastSongRef.current = async (positionMs?: number) => {
       const song = currentSongRef.current;
       if (!song) return false;
@@ -621,11 +776,17 @@ export function useCastInit() {
       currentTimeRef.current = startTime;
       setCurrentTime(startTime);
 
-      const loaded = await loadMediaOnCast(song, startTime, useNativeCast);
+      const loaded = await loadMediaOnCast(
+        song,
+        startTime,
+        useNativeCast,
+        queueWindowRef.current,
+        queueStateRef.current,
+      );
       if (!loaded) return false;
 
       loadedSongIdRef.current = song.id;
-      lastFinishedNativeSongIdRef.current = null;
+      lastFinishedNativeKeyRef.current = null;
       if (!useNativeCast) {
         attachCastMediaListenerRef.current(getCurrentCastMedia());
       }
@@ -646,6 +807,7 @@ export function useCastInit() {
       const nextQueueState = queueStateFromResponse(response);
 
       queueStateRef.current = nextQueueState;
+      queueWindowRef.current = response.window;
       setServerQueueState(nextQueueState);
       setQueueWindow(response.window);
 
@@ -719,7 +881,9 @@ export function useCastInit() {
       );
       const resolvedIndex = positionResponse.newIndex ?? nextIndex;
       const response = await client.getQueueCurrentWindow(20, "small", sid);
-      const nextSong = getCurrentSongFromQueueResponse(response);
+      const nextSong =
+        getQueueEntryAtPosition(response.window, resolvedIndex)?.song ??
+        getCurrentSongFromQueueResponse(response);
       const nextQueueState = {
         ...queueStateFromResponse(response),
         currentIndex: resolvedIndex,
@@ -727,6 +891,7 @@ export function useCastInit() {
       };
 
       queueStateRef.current = nextQueueState;
+      queueWindowRef.current = response.window;
       setServerQueueState(nextQueueState);
       setQueueWindow(response.window);
 
@@ -734,9 +899,79 @@ export function useCastInit() {
         currentSongRef.current = nextSong;
         currentTimeRef.current = 0;
         lastFinishedMediaSessionIdRef.current = null;
-        lastFinishedNativeSongIdRef.current = null;
+        lastFinishedNativeKeyRef.current = null;
         await loadCurrentCastSongRef.current(0);
       }
+    };
+
+    syncNativeReceiverQueueRef.current = async (status) => {
+      const syncKey = nativeFinishedKey(status, currentSongRef.current);
+      if (syncingNativeReceiverKeyRef.current === syncKey) return;
+      syncingNativeReceiverKeyRef.current = syncKey;
+
+      const sid = sessionIdRef.current;
+      const virtualClientId = castClientIdRef.current;
+      const state = queueStateRef.current;
+      if (!sid || !virtualClientId || !state) {
+        syncingNativeReceiverKeyRef.current = null;
+        return;
+      }
+
+      const client = getClient();
+      if (!client) {
+        syncingNativeReceiverKeyRef.current = null;
+        return;
+      }
+
+      let response: GetQueueResponse | null = null;
+      let entry = getQueueEntryForCastStatus(queueWindowRef.current, status);
+
+      if (!entry) {
+        response = await client.getQueueCurrentWindow(20, "small", sid);
+        entry = getQueueEntryForCastStatus(response.window, status);
+      }
+
+      if (!entry) {
+        syncingNativeReceiverKeyRef.current = null;
+        return;
+      }
+
+      await client.updateServerQueuePosition(
+        entry.position,
+        status.positionMs,
+        false,
+        sid,
+        virtualClientId,
+        true,
+      );
+
+      response = await client.getQueueCurrentWindow(20, "small", sid);
+      const syncedEntry =
+        getQueueEntryAtPosition(response.window, entry.position) ?? entry;
+      const nextQueueState = {
+        ...queueStateFromResponse(response),
+        currentIndex: entry.position,
+        positionMs: status.positionMs,
+      };
+
+      queueStateRef.current = nextQueueState;
+      queueWindowRef.current = response.window;
+      currentSongRef.current = syncedEntry.song;
+      currentTimeRef.current = Math.max(0, status.positionMs / 1000);
+      loadedSongIdRef.current = syncedEntry.song.id;
+      lastFinishedNativeKeyRef.current = null;
+
+      setServerQueueState(nextQueueState);
+      setQueueWindow(response.window);
+      setCurrentTime(status.positionMs / 1000);
+      if (status.durationMs > 0) {
+        setDuration(status.durationMs / 1000);
+      } else if (syncedEntry.song.duration) {
+        setDuration(syncedEntry.song.duration);
+      }
+      setPlaybackState(status.isPlaying ? "playing" : "paused");
+      await sendCastHeartbeatRef.current(status.isPlaying);
+      syncingNativeReceiverKeyRef.current = null;
     };
 
     handleCastSessionEventRef.current = async (event) => {
@@ -746,7 +981,15 @@ export function useCastInit() {
             setOwnerClientId(event.clientId ?? null);
             setOwnerClientName(CAST_CLIENT_NAME);
             setIsAudioOwner(false);
-            await fetchQueueAndLoadCurrentRef.current(event.positionMs);
+            if (ignoreNextSelfTakeOverLoadRef.current) {
+              ignoreNextSelfTakeOverLoadRef.current = false;
+              if (event.positionMs !== undefined) {
+                setCurrentTime(event.positionMs / 1000);
+              }
+              await sendCastHeartbeatRef.current();
+            } else {
+              await fetchQueueAndLoadCurrentRef.current(event.positionMs);
+            }
           } else {
             await stopCastMedia().catch(console.error);
             if (useNativeCast) {
@@ -805,6 +1048,7 @@ export function useCastInit() {
         const response = await client.getQueueCurrentWindow(20, "small", sid);
         const nextQueueState = queueStateFromResponse(response);
         queueStateRef.current = nextQueueState;
+        queueWindowRef.current = response.window;
         setServerQueueState(nextQueueState);
         setQueueWindow(response.window);
       }
@@ -843,11 +1087,19 @@ export function useCastInit() {
     };
 
     handleNativeCastMediaStatusRef.current = (status) => {
-      nativeCastStatusRef.current = status;
-      const positionMs = Math.max(0, Math.round(status.positionMs));
+      const snapshot: NativeCastStatusSnapshot = {
+        ...status,
+        receivedAtMs: Date.now(),
+      };
+      nativeCastStatusRef.current = snapshot;
+      const positionMs = Math.max(0, Math.round(snapshot.positionMs));
       const isPlaying = status.isPlaying;
       const state = queueStateRef.current;
       const song = currentSongRef.current;
+
+      if (snapshot.songId) {
+        loadedSongIdRef.current = snapshot.songId;
+      }
 
       setRemotePlaybackState({
         isPlaying,
@@ -865,12 +1117,39 @@ export function useCastInit() {
         setDuration(status.durationMs / 1000);
       }
 
+      if (snapshot.volume !== undefined) {
+        const nextVolume = Math.max(0, Math.min(1, snapshot.volume));
+        if (Math.abs(nextVolume - volume) > 0.001) {
+          setVolume(nextVolume);
+        }
+      }
+
+      if (snapshot.isMuted !== undefined && snapshot.isMuted !== isMuted) {
+        setIsMuted(snapshot.isMuted);
+      }
+
+      const receiverQueuePositionChanged =
+        snapshot.queuePosition !== undefined &&
+        snapshot.queuePosition !== state?.currentIndex;
+      const receiverSongChanged = Boolean(
+        snapshot.songId && snapshot.songId !== song?.id,
+      );
       if (
-        isFinishedNativeCastMedia(status) &&
-        song?.id &&
-        lastFinishedNativeSongIdRef.current !== song.id
+        !isFinishedNativeCastMedia(snapshot) &&
+        (receiverQueuePositionChanged || receiverSongChanged)
       ) {
-        lastFinishedNativeSongIdRef.current = song.id;
+        syncNativeReceiverQueueRef.current(snapshot).catch((error) => {
+          syncingNativeReceiverKeyRef.current = null;
+          console.error(error);
+        });
+      }
+
+      const finishedKey = nativeFinishedKey(snapshot, song);
+      if (
+        isFinishedNativeCastMedia(snapshot) &&
+        lastFinishedNativeKeyRef.current !== finishedKey
+      ) {
+        lastFinishedNativeKeyRef.current = finishedKey;
         advanceCastQueueRef.current("next").catch(console.error);
       }
     };
@@ -897,7 +1176,10 @@ export function useCastInit() {
           loadedSongIdRef.current = null;
           claimedCastClientIdRef.current = null;
         } else if (snapshot.state === "connected") {
-          claimCastAndLoadRef.current().catch((error) => {
+          const prepareCastSession = snapshot.mediaStatus?.songId
+            ? claimCastAndAdoptRef.current(snapshot.mediaStatus)
+            : claimCastAndLoadRef.current();
+          prepareCastSession.catch((error) => {
             console.error("[Cast] Failed to transfer playback:", error);
           });
         }
@@ -919,7 +1201,20 @@ export function useCastInit() {
         }
       };
 
+      refreshNativeCastSnapshotRef.current = async () => {
+        const api = await getNativeCastApi();
+        const snapshot = await api.getCastState();
+        applyNativeSnapshot(snapshot);
+      };
+
+      const handleNativeResume = () => {
+        refreshNativeCastSnapshotRef.current().catch((error) => {
+          console.warn("[Cast] Failed to refresh native Cast state:", error);
+        });
+      };
+
       window.addEventListener(NATIVE_AUDIO_EVENT, handleNativeAudioEvent);
+      window.addEventListener(appResumeRepaintEvent, handleNativeResume);
       getNativeCastApi()
         .then((api) => api.getCastState())
         .then(applyNativeSnapshot)
@@ -931,6 +1226,8 @@ export function useCastInit() {
       return () => {
         disposed = true;
         window.removeEventListener(NATIVE_AUDIO_EVENT, handleNativeAudioEvent);
+        window.removeEventListener(appResumeRepaintEvent, handleNativeResume);
+        refreshNativeCastSnapshotRef.current = async () => {};
       };
     }
 
@@ -1051,12 +1348,33 @@ export function useCastInit() {
   }, [setCastState, setCastDeviceName, setCastSdkLoaded, useNativeCast]);
 
   useEffect(() => {
+    if (!useNativeCast || castState !== "connected") return;
+
+    const refreshStatus = () => {
+      getNativeCastApi()
+        .then((api) => api.getCastMediaStatus())
+        .then((status) => handleNativeCastMediaStatusRef.current(status))
+        .catch(() => {});
+    };
+
+    refreshStatus();
+    const interval = setInterval(refreshStatus, NATIVE_CAST_STATUS_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [castState, useNativeCast]);
+
+  useEffect(() => {
     if (castState !== "connected" || !sessionId || !castClientId) return;
 
-    claimCastAndLoadRef.current().catch((error) => {
+    const prepareCastSession =
+      useNativeCast && nativeCastStatusRef.current?.songId
+        ? claimCastAndAdoptRef.current(nativeCastStatusRef.current)
+        : claimCastAndLoadRef.current();
+
+    prepareCastSession.catch((error) => {
       console.error("[Cast] Failed to prepare cast session:", error);
     });
-  }, [castState, sessionId, castClientId]);
+  }, [castState, sessionId, castClientId, useNativeCast]);
 
   useEffect(() => {
     if (castState !== "connected" || !sessionId || !castClientId) return;
@@ -1104,13 +1422,21 @@ export function useCastInit() {
   }, [castState, sessionId, castClientId]);
 
   useEffect(() => {
+    if (castState !== "connected") return;
+    setCastMediaVolume(volume, isMuted).catch((error) => {
+      console.error("[Cast] Failed to sync Cast volume:", error);
+    });
+  }, [castState, volume, isMuted]);
+
+  useEffect(() => {
     if (castState !== "connected" || !currentSong) return;
     if (loadedSongIdRef.current === currentSong.id) return;
     if (isAudioOwnerRef.current) return;
+    if (useNativeCast && nativeCastStatusRef.current?.songId) return;
 
     const startPositionMs = loadedSongIdRef.current ? 0 : undefined;
     loadCurrentCastSongRef.current(startPositionMs).catch(console.error);
-  }, [castState, currentSong]);
+  }, [castState, currentSong, useNativeCast]);
 }
 
 /**
