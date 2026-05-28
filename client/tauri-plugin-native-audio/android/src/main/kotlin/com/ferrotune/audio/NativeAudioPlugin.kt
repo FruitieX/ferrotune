@@ -110,6 +110,30 @@ internal class DebugLogArgs {
     var message: String = ""
 }
 
+@InvokeArg
+internal class LoadCastMediaArgs {
+    lateinit var url: String
+    var contentType: String = "audio/mpeg"
+    lateinit var songId: String
+    lateinit var title: String
+    lateinit var artist: String
+    var album: String? = null
+    var coverArtUrl: String? = null
+    var durationMs: Long = 0
+    var startTimeMs: Long = 0
+}
+
+@InvokeArg
+internal class CastSeekArgs {
+    var positionMs: Long = 0
+}
+
+@InvokeArg
+internal class CastVolumeArgs {
+    var volume: Float = 1.0f
+    var muted: Boolean = false
+}
+
 /**
  * Tauri plugin for native audio playback on Android.
  * Uses Media3 (ExoPlayer) with MediaSessionService for background playback.
@@ -130,6 +154,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private var webViewRef: WebView? = null
     private var lastSessionConfig: SessionConfig? = null
     private var lastPlaybackSettings: PlaybackSettings? = null
+    private var nativeCastManager: NativeCastManager? = null
     private var safeAreaTop: Float = 0f
     private var safeAreaBottom: Float = 0f
     @Volatile private var webViewInForeground: Boolean = true
@@ -173,6 +198,10 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         // Disable overscroll glow/bounce effect on the WebView
         webView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
         injectSafeAreaInsets(webView)
+        nativeCastManager = NativeCastManager(activity) { event, data ->
+            triggerEvent(event, data)
+        }
+        nativeCastManager?.initialize()
         bindPlaybackService()
         connectToMediaSession()
 
@@ -276,6 +305,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         Log.d(TAG, "NativeAudioPlugin cleanup")
         NativeAudioLogger.debug(TAG, "plugin_cleanup", "NativeAudioPlugin cleanup")
         scope.cancel()
+        nativeCastManager?.release()
+        nativeCastManager = null
         releaseMediaController()
         unbindPlaybackService()
     }
@@ -334,9 +365,16 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             return
         }
         val jsonData = data.toString()
+        val legacyCallback = if (event == CastEvents.STATE_CHANGED || event == CastEvents.MEDIA_STATUS) {
+            ""
+        } else {
+            "window.__ferrotuneNativeAudio && window.__ferrotuneNativeAudio('$event', $jsonData)"
+        }
         webViewRef?.post {
             webViewRef?.evaluateJavascript(
-                "window.__ferrotuneNativeAudio && window.__ferrotuneNativeAudio('$event', $jsonData)",
+                "window.dispatchEvent(new CustomEvent('ferrotune:native-audio-event', " +
+                    "{ detail: { event: '$event', data: $jsonData } }));" +
+                    legacyCallback,
                 null
             )
         }
@@ -803,6 +841,123 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         } catch (e: Exception) {
             Log.e(TAG, "Error in debugLog()", e)
             NativeAudioLogger.error(TAG, "js_debug_log_failed", "Error in debugLog()", throwable = e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun getCastState(invoke: Invoke) {
+        try {
+            invoke.resolve(nativeCastManager?.getState() ?: JSObject().apply {
+                put("state", "unavailable")
+                put("deviceName", null)
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in getCastState()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun requestCastSession(invoke: Invoke) {
+        try {
+            nativeCastManager?.requestSession()
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in requestCastSession()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun stopCastSession(invoke: Invoke) {
+        try {
+            nativeCastManager?.stopSession()
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in stopCastSession()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun loadCastMedia(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(LoadCastMediaArgs::class.java)
+            nativeCastManager?.loadMedia(
+                args,
+                onSuccess = { invoke.resolve() },
+                onError = { message -> invoke.reject(message) },
+            ) ?: invoke.reject("Native Cast manager is not available")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in loadCastMedia()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun playCastMedia(invoke: Invoke) {
+        try {
+            nativeCastManager?.play()
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in playCastMedia()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun pauseCastMedia(invoke: Invoke) {
+        try {
+            nativeCastManager?.pause()
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in pauseCastMedia()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun stopCastMedia(invoke: Invoke) {
+        try {
+            nativeCastManager?.stopMedia()
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in stopCastMedia()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun seekCastMedia(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(CastSeekArgs::class.java)
+            nativeCastManager?.seek(args.positionMs)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in seekCastMedia()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun setCastVolume(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(CastVolumeArgs::class.java)
+            nativeCastManager?.setVolume(args.volume, args.muted)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in setCastVolume()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun getCastMediaStatus(invoke: Invoke) {
+        try {
+            invoke.resolve(nativeCastManager?.getMediaStatus() ?: JSObject())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in getCastMediaStatus()", e)
             invoke.reject(e.message)
         }
     }

@@ -36,6 +36,58 @@ Denies the debug_log command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-get-cast-media-status`
+
+</td>
+<td>
+
+Enables the get_cast_media_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-get-cast-media-status`
+
+</td>
+<td>
+
+Denies the get_cast_media_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-get-cast-state`
+
+</td>
+<td>
+
+Enables the get_cast_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-get-cast-state`
+
+</td>
+<td>
+
+Denies the get_cast_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-get-safe-area-insets`
 
 </td>
@@ -140,6 +192,32 @@ Denies the invalidate_queue command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-load-cast-media`
+
+</td>
+<td>
+
+Enables the load_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-load-cast-media`
+
+</td>
+<td>
+
+Denies the load_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-next-track`
 
 </td>
@@ -185,6 +263,32 @@ Enables the pause command without any pre-configured scope.
 <td>
 
 Denies the pause command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-pause-cast-media`
+
+</td>
+<td>
+
+Enables the pause_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-pause-cast-media`
+
+</td>
+<td>
+
+Denies the pause_cast_media command without any pre-configured scope.
 
 </td>
 </tr>
@@ -244,6 +348,32 @@ Denies the play_at_index command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-play-cast-media`
+
+</td>
+<td>
+
+Enables the play_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-play-cast-media`
+
+</td>
+<td>
+
+Denies the play_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-previous-track`
 
 </td>
@@ -270,6 +400,32 @@ Denies the previous_track command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-request-cast-session`
+
+</td>
+<td>
+
+Enables the request_cast_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-request-cast-session`
+
+</td>
+<td>
+
+Denies the request_cast_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-seek`
 
 </td>
@@ -289,6 +445,58 @@ Enables the seek command without any pre-configured scope.
 <td>
 
 Denies the seek command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-seek-cast-media`
+
+</td>
+<td>
+
+Enables the seek_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-seek-cast-media`
+
+</td>
+<td>
+
+Denies the seek_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-cast-volume`
+
+</td>
+<td>
+
+Enables the set_cast_volume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-set-cast-volume`
+
+</td>
+<td>
+
+Denies the set_cast_volume command without any pre-configured scope.
 
 </td>
 </tr>
@@ -445,6 +653,58 @@ Enables the stop command without any pre-configured scope.
 <td>
 
 Denies the stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-stop-cast-media`
+
+</td>
+<td>
+
+Enables the stop_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-stop-cast-media`
+
+</td>
+<td>
+
+Denies the stop_cast_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-stop-cast-session`
+
+</td>
+<td>
+
+Enables the stop_cast_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-stop-cast-session`
+
+</td>
+<td>
+
+Denies the stop_cast_session command without any pre-configured scope.
 
 </td>
 </tr>
@@ -796,6 +1056,136 @@ Allows toggling shuffle mode
 <td>
 
 Allows sending debug log messages to native logcat
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-get-cast-state`
+
+</td>
+<td>
+
+Allows reading native Cast connection state
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-request-cast-session`
+
+</td>
+<td>
+
+Allows opening the native Cast route chooser
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-stop-cast-session`
+
+</td>
+<td>
+
+Allows ending the native Cast session
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-load-cast-media`
+
+</td>
+<td>
+
+Allows loading media onto the native Cast session
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-play-cast-media`
+
+</td>
+<td>
+
+Allows playing native Cast media
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-pause-cast-media`
+
+</td>
+<td>
+
+Allows pausing native Cast media
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-stop-cast-media`
+
+</td>
+<td>
+
+Allows stopping native Cast media
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-seek-cast-media`
+
+</td>
+<td>
+
+Allows seeking native Cast media
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-cast-volume`
+
+</td>
+<td>
+
+Allows setting native Cast volume
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-get-cast-media-status`
+
+</td>
+<td>
+
+Allows reading native Cast media status
 
 </td>
 </tr>

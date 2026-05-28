@@ -1,4 +1,5 @@
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tauri::{
     plugin::{PluginApi, PluginHandle},
     AppHandle, Runtime,
@@ -189,6 +190,76 @@ impl<R: Runtime> NativeAudio<R> {
     pub fn debug_log(&self, message: &str) -> Result<()> {
         self.0
             .run_mobile_plugin("debugLog", serde_json::json!({ "message": message }))
+            .map_err(Into::into)
+    }
+
+    /// Get native Cast connection state.
+    pub fn get_cast_state(&self) -> Result<Value> {
+        self.0
+            .run_mobile_plugin("getCastState", ())
+            .map_err(Into::into)
+    }
+
+    /// Open the Android Cast route chooser.
+    pub fn request_cast_session(&self) -> Result<()> {
+        self.0
+            .run_mobile_plugin("requestCastSession", ())
+            .map_err(Into::into)
+    }
+
+    /// End the current Android Cast session.
+    pub fn stop_cast_session(&self) -> Result<()> {
+        self.0
+            .run_mobile_plugin("stopCastSession", ())
+            .map_err(Into::into)
+    }
+
+    /// Load media into the current Android Cast session.
+    pub fn load_cast_media(&self, media: Value) -> Result<()> {
+        self.0
+            .run_mobile_plugin("loadCastMedia", media)
+            .map_err(Into::into)
+    }
+
+    pub fn play_cast_media(&self) -> Result<()> {
+        self.0
+            .run_mobile_plugin("playCastMedia", ())
+            .map_err(Into::into)
+    }
+
+    pub fn pause_cast_media(&self) -> Result<()> {
+        self.0
+            .run_mobile_plugin("pauseCastMedia", ())
+            .map_err(Into::into)
+    }
+
+    pub fn stop_cast_media(&self) -> Result<()> {
+        self.0
+            .run_mobile_plugin("stopCastMedia", ())
+            .map_err(Into::into)
+    }
+
+    pub fn seek_cast_media(&self, position_ms: u64) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "seekCastMedia",
+                serde_json::json!({ "positionMs": position_ms }),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn set_cast_volume(&self, volume: f32, muted: bool) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "setCastVolume",
+                serde_json::json!({ "volume": volume, "muted": muted }),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn get_cast_media_status(&self) -> Result<Value> {
+        self.0
+            .run_mobile_plugin("getCastMediaStatus", ())
             .map_err(Into::into)
     }
 }

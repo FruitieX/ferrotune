@@ -100,6 +100,56 @@ identifier = "allow-debug-log"
 description = "Allows sending debug log messages to native logcat"
 commands.allow = ["debug_log"]
 
+[[permission]]
+identifier = "allow-get-cast-state"
+description = "Allows reading native Cast connection state"
+commands.allow = ["get_cast_state"]
+
+[[permission]]
+identifier = "allow-request-cast-session"
+description = "Allows opening the native Cast route chooser"
+commands.allow = ["request_cast_session"]
+
+[[permission]]
+identifier = "allow-stop-cast-session"
+description = "Allows ending the native Cast session"
+commands.allow = ["stop_cast_session"]
+
+[[permission]]
+identifier = "allow-load-cast-media"
+description = "Allows loading media onto the native Cast session"
+commands.allow = ["load_cast_media"]
+
+[[permission]]
+identifier = "allow-play-cast-media"
+description = "Allows playing native Cast media"
+commands.allow = ["play_cast_media"]
+
+[[permission]]
+identifier = "allow-pause-cast-media"
+description = "Allows pausing native Cast media"
+commands.allow = ["pause_cast_media"]
+
+[[permission]]
+identifier = "allow-stop-cast-media"
+description = "Allows stopping native Cast media"
+commands.allow = ["stop_cast_media"]
+
+[[permission]]
+identifier = "allow-seek-cast-media"
+description = "Allows seeking native Cast media"
+commands.allow = ["seek_cast_media"]
+
+[[permission]]
+identifier = "allow-set-cast-volume"
+description = "Allows setting native Cast volume"
+commands.allow = ["set_cast_volume"]
+
+[[permission]]
+identifier = "allow-get-cast-media-status"
+description = "Allows reading native Cast media status"
+commands.allow = ["get_cast_media_status"]
+
 [[set]]
 identifier = "default"
 description = "Default permissions for native audio playback"
@@ -123,5 +173,15 @@ permissions = [
   "allow-invalidate-queue",
   "allow-soft-invalidate-queue",
   "allow-toggle-shuffle",
-  "allow-debug-log"
+  "allow-debug-log",
+  "allow-get-cast-state",
+  "allow-request-cast-session",
+  "allow-stop-cast-session",
+  "allow-load-cast-media",
+  "allow-play-cast-media",
+  "allow-pause-cast-media",
+  "allow-stop-cast-media",
+  "allow-seek-cast-media",
+  "allow-set-cast-volume",
+  "allow-get-cast-media-status"
 ]

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PlaybackState } from "./types";
+import type { CastMediaStatus, CastStateSnapshot, LoadCastMediaParams, PlaybackState } from "./types";
 
 // Re-export types
 export * from "./types";
@@ -207,4 +207,54 @@ export async function toggleShuffle(enabled: boolean): Promise<void> {
  */
 export async function debugLog(message: string): Promise<void> {
   await invoke("plugin:native-audio|debug_log", { message });
+}
+
+export async function getCastState(): Promise<CastStateSnapshot> {
+  return await invoke<CastStateSnapshot>("plugin:native-audio|get_cast_state");
+}
+
+export async function requestCastSession(): Promise<void> {
+  await invoke("plugin:native-audio|request_cast_session");
+}
+
+export async function stopCastSession(): Promise<void> {
+  await invoke("plugin:native-audio|stop_cast_session");
+}
+
+export async function loadCastMedia(params: LoadCastMediaParams): Promise<void> {
+  await invoke("plugin:native-audio|load_cast_media", {
+    url: params.url,
+    contentType: params.contentType,
+    songId: params.songId,
+    title: params.title,
+    artist: params.artist,
+    album: params.album,
+    coverArtUrl: params.coverArtUrl,
+    durationMs: params.durationMs,
+    startTimeMs: params.startTimeMs,
+  });
+}
+
+export async function playCastMedia(): Promise<void> {
+  await invoke("plugin:native-audio|play_cast_media");
+}
+
+export async function pauseCastMedia(): Promise<void> {
+  await invoke("plugin:native-audio|pause_cast_media");
+}
+
+export async function stopCastMedia(): Promise<void> {
+  await invoke("plugin:native-audio|stop_cast_media");
+}
+
+export async function seekCastMedia(positionMs: number): Promise<void> {
+  await invoke("plugin:native-audio|seek_cast_media", { positionMs });
+}
+
+export async function setCastVolume(volume: number, muted: boolean): Promise<void> {
+  await invoke("plugin:native-audio|set_cast_volume", { volume, muted });
+}
+
+export async function getCastMediaStatus(): Promise<CastMediaStatus> {
+  return await invoke<CastMediaStatus>("plugin:native-audio|get_cast_media_status");
 }

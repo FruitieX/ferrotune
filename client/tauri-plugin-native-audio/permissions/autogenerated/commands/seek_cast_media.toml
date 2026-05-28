@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-seek-cast-media"
+description = "Enables the seek_cast_media command without any pre-configured scope."
+commands.allow = ["seek_cast_media"]
+
+[[permission]]
+identifier = "deny-seek-cast-media"
+description = "Denies the seek_cast_media command without any pre-configured scope."
+commands.deny = ["seek_cast_media"]

@@ -33,8 +33,26 @@ import type { GetQueueResponse, Song } from "@/lib/api/types";
 import { getActiveAudio } from "@/lib/audio/web-audio";
 import { CAST_CLIENT_NAME } from "@/lib/cast/constants";
 import type { SessionEvent } from "@/lib/hooks/use-session-events";
+import { isTauriMobile } from "@/lib/tauri";
+import type {
+  CastConnectionState,
+  CastMediaStatus,
+  CastStateSnapshot,
+} from "tauri-plugin-native-audio-api";
 
 const CAST_HEARTBEAT_INTERVAL_MS = 5_000;
+const NATIVE_AUDIO_EVENT = "ferrotune:native-audio-event";
+const NATIVE_CAST_STATE_EVENT = "cast-state-changed";
+const NATIVE_CAST_MEDIA_STATUS_EVENT = "cast-media-status";
+
+let nativeCastApi: typeof import("tauri-plugin-native-audio-api") | null = null;
+
+async function getNativeCastApi() {
+  if (!nativeCastApi) {
+    nativeCastApi = await import("tauri-plugin-native-audio-api");
+  }
+  return nativeCastApi;
+}
 
 function getCastClientId(clientId: string): string | null {
   return clientId ? `${CAST_CLIENT_NAME}:${clientId}` : null;
@@ -74,10 +92,26 @@ function getCurrentCastMedia(): chrome.cast.media.Media | null {
   return getCurrentCastSession()?.getMediaSession() ?? null;
 }
 
-function getCastPositionMs(): number {
+function getWebCastPositionMs(): number {
   const media = getCurrentCastMedia();
   if (!media) return 0;
   return Math.max(0, Math.round(media.getEstimatedTime() * 1000));
+}
+
+function getActiveCastPositionMs(
+  useNativeCast: boolean,
+  nativeStatus: CastMediaStatus | null,
+): number {
+  if (useNativeCast) return nativeStatus?.positionMs ?? 0;
+  return getWebCastPositionMs();
+}
+
+function isActiveCastMediaPlaying(
+  useNativeCast: boolean,
+  nativeStatus: CastMediaStatus | null,
+): boolean {
+  if (useNativeCast) return nativeStatus?.isPlaying ?? false;
+  return isCastMediaPlaying(getCurrentCastMedia());
 }
 
 function isCastMediaPlaying(media: chrome.cast.media.Media | null): boolean {
@@ -92,6 +126,88 @@ function isFinishedCastMedia(media: chrome.cast.media.Media): boolean {
     media.playerState === chrome.cast.media.PlayerState.IDLE &&
     media.idleReason === chrome.cast.media.IdleReason.FINISHED
   );
+}
+
+function isFinishedNativeCastMedia(status: CastMediaStatus): boolean {
+  return status.playerState === "idle" && status.idleReason === "finished";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberField(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function booleanField(record: Record<string, unknown>, key: string): boolean {
+  return record[key] === true;
+}
+
+function toCastConnectionState(value: string | undefined): CastConnectionState {
+  if (
+    value === "available" ||
+    value === "connecting" ||
+    value === "connected"
+  ) {
+    return value;
+  }
+  return "unavailable";
+}
+
+function toCastMediaStatus(value: unknown): CastMediaStatus | null {
+  if (!isRecord(value)) return null;
+  const playerState = stringField(value, "playerState");
+  const idleReason = stringField(value, "idleReason");
+
+  return {
+    positionMs: numberField(value, "positionMs"),
+    durationMs: numberField(value, "durationMs"),
+    isPlaying: booleanField(value, "isPlaying"),
+    playerState:
+      playerState === "idle" ||
+      playerState === "playing" ||
+      playerState === "paused" ||
+      playerState === "buffering"
+        ? playerState
+        : "unknown",
+    idleReason:
+      idleReason === "finished" ||
+      idleReason === "canceled" ||
+      idleReason === "interrupted" ||
+      idleReason === "error"
+        ? idleReason
+        : undefined,
+  };
+}
+
+function toCastStateSnapshot(value: unknown): CastStateSnapshot | null {
+  if (!isRecord(value)) return null;
+  return {
+    state: toCastConnectionState(stringField(value, "state")),
+    deviceName: stringField(value, "deviceName") ?? null,
+    mediaStatus: toCastMediaStatus(value["mediaStatus"]) ?? undefined,
+  };
+}
+
+function nativeAudioEventDetail(event: Event): {
+  event: string;
+  data: unknown;
+} | null {
+  if (!(event instanceof CustomEvent)) return null;
+  if (!isRecord(event.detail)) return null;
+  const eventName = stringField(event.detail, "event");
+  if (!eventName) return null;
+  return { event: eventName, data: event.detail.data };
 }
 
 function runCastMediaCommand(
@@ -128,7 +244,40 @@ function buildCastCoverArtUrl(coverArtId: string | undefined): string | null {
 /**
  * Load a song onto the Chromecast.
  */
-async function loadMediaOnCast(song: Song, startTime = 0): Promise<boolean> {
+async function loadMediaOnCast(
+  song: Song,
+  startTime = 0,
+  useNativeCast = false,
+): Promise<boolean> {
+  if (useNativeCast) {
+    const streamUrl = buildCastStreamUrl(song.id);
+    if (!streamUrl) return false;
+
+    const coverArtUrl = buildCastCoverArtUrl(
+      song.coverArt ?? song.albumId ?? undefined,
+    );
+
+    try {
+      const api = await getNativeCastApi();
+      await api.loadCastMedia({
+        url: streamUrl,
+        contentType: song.contentType || "audio/mpeg",
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        coverArtUrl,
+        durationMs: Math.max(0, Math.round((song.duration ?? 0) * 1000)),
+        startTimeMs: Math.max(0, Math.round(startTime * 1000)),
+      });
+      console.log("[Cast] Native media loaded successfully");
+      return true;
+    } catch (error) {
+      console.error("[Cast] Error loading native media:", error);
+      return false;
+    }
+  }
+
   const castSession = getCurrentCastSession();
   if (!castSession) return false;
 
@@ -179,6 +328,12 @@ async function loadMediaOnCast(song: Song, startTime = 0): Promise<boolean> {
 }
 
 async function playCastMedia(): Promise<void> {
+  if (isTauriMobile()) {
+    const api = await getNativeCastApi();
+    await api.playCastMedia();
+    return;
+  }
+
   const media = getCurrentCastMedia();
   if (!media) return;
   await runCastMediaCommand((resolve, reject) => {
@@ -187,6 +342,12 @@ async function playCastMedia(): Promise<void> {
 }
 
 async function pauseCastMedia(): Promise<void> {
+  if (isTauriMobile()) {
+    const api = await getNativeCastApi();
+    await api.pauseCastMedia();
+    return;
+  }
+
   const media = getCurrentCastMedia();
   if (!media) return;
   await runCastMediaCommand((resolve, reject) => {
@@ -195,6 +356,12 @@ async function pauseCastMedia(): Promise<void> {
 }
 
 async function stopCastMedia(): Promise<void> {
+  if (isTauriMobile()) {
+    const api = await getNativeCastApi();
+    await api.stopCastMedia();
+    return;
+  }
+
   const media = getCurrentCastMedia();
   if (!media) return;
   await runCastMediaCommand((resolve, reject) => {
@@ -203,6 +370,12 @@ async function stopCastMedia(): Promise<void> {
 }
 
 async function seekCastMedia(positionMs: number): Promise<void> {
+  if (isTauriMobile()) {
+    const api = await getNativeCastApi();
+    await api.seekCastMedia(positionMs);
+    return;
+  }
+
   const media = getCurrentCastMedia();
   if (!media) return;
   const request = new chrome.cast.media.SeekRequest();
@@ -218,6 +391,12 @@ async function setCastMediaVolume(
   volume: number | undefined,
   isMuted: boolean | undefined,
 ): Promise<void> {
+  if (isTauriMobile()) {
+    const api = await getNativeCastApi();
+    await api.setCastVolume(volume ?? 1, isMuted ?? false);
+    return;
+  }
+
   const castSession = getCurrentCastSession();
   if (!castSession) return;
 
@@ -238,6 +417,7 @@ async function setCastMediaVolume(
  * Should be called once at the app root level.
  */
 export function useCastInit() {
+  const useNativeCast = isTauriMobile();
   const castState = useAtomValue(castStateAtom);
   const setCastState = useSetAtom(castStateAtom);
   const setCastDeviceName = useSetAtom(castDeviceNameAtom);
@@ -271,11 +451,13 @@ export function useCastInit() {
   const isAudioOwnerRef = useRef(isAudioOwner);
   const eventSourceRef = useRef<EventSource | null>(null);
   const mediaRef = useRef<chrome.cast.media.Media | null>(null);
+  const nativeCastStatusRef = useRef<CastMediaStatus | null>(null);
   const mediaUpdateListenerRef = useRef<((isAlive: boolean) => void) | null>(
     null,
   );
   const loadedSongIdRef = useRef<string | null>(null);
   const lastFinishedMediaSessionIdRef = useRef<number | null>(null);
+  const lastFinishedNativeSongIdRef = useRef<string | null>(null);
   const claimedCastClientIdRef = useRef<string | null>(null);
   const sendCastHeartbeatRef = useRef<(isPlaying?: boolean) => Promise<void>>(
     async () => {},
@@ -296,6 +478,9 @@ export function useCastInit() {
   >(async () => {});
   const handleCastMediaUpdateRef = useRef<
     (media: chrome.cast.media.Media) => void
+  >(() => {});
+  const handleNativeCastMediaStatusRef = useRef<
+    (status: CastMediaStatus) => void
   >(() => {});
   const detachCastMediaListenerRef = useRef<() => void>(() => {});
   const attachCastMediaListenerRef = useRef<
@@ -349,9 +534,13 @@ export function useCastInit() {
 
       const song = currentSongRef.current;
       const state = queueStateRef.current;
-      const media = getCurrentCastMedia();
-      const isPlaying = isPlayingOverride ?? isCastMediaPlaying(media);
-      const positionMs = getCastPositionMs();
+      const isPlaying =
+        isPlayingOverride ??
+        isActiveCastMediaPlaying(useNativeCast, nativeCastStatusRef.current);
+      const positionMs = getActiveCastPositionMs(
+        useNativeCast,
+        nativeCastStatusRef.current,
+      );
 
       setRemotePlaybackState({
         isPlaying,
@@ -432,11 +621,14 @@ export function useCastInit() {
       currentTimeRef.current = startTime;
       setCurrentTime(startTime);
 
-      const loaded = await loadMediaOnCast(song, startTime);
+      const loaded = await loadMediaOnCast(song, startTime, useNativeCast);
       if (!loaded) return false;
 
       loadedSongIdRef.current = song.id;
-      attachCastMediaListenerRef.current(getCurrentCastMedia());
+      lastFinishedNativeSongIdRef.current = null;
+      if (!useNativeCast) {
+        attachCastMediaListenerRef.current(getCurrentCastMedia());
+      }
       setPlaybackState("playing");
       await sendCastHeartbeatRef.current(true);
       return true;
@@ -496,7 +688,10 @@ export function useCastInit() {
           shouldReshuffle = state.isShuffled;
         }
       } else {
-        const positionMs = getCastPositionMs();
+        const positionMs = getActiveCastPositionMs(
+          useNativeCast,
+          nativeCastStatusRef.current,
+        );
         if (positionMs > 3_000) {
           await seekCastMedia(0);
           await sendCastHeartbeatRef.current(true);
@@ -539,6 +734,7 @@ export function useCastInit() {
         currentSongRef.current = nextSong;
         currentTimeRef.current = 0;
         lastFinishedMediaSessionIdRef.current = null;
+        lastFinishedNativeSongIdRef.current = null;
         await loadCurrentCastSongRef.current(0);
       }
     };
@@ -553,7 +749,12 @@ export function useCastInit() {
             await fetchQueueAndLoadCurrentRef.current(event.positionMs);
           } else {
             await stopCastMedia().catch(console.error);
-            getCurrentCastSession()?.endSession(true);
+            if (useNativeCast) {
+              const api = await getNativeCastApi();
+              await api.stopCastSession();
+            } else {
+              getCurrentCastSession()?.endSession(true);
+            }
           }
           return;
         }
@@ -640,9 +841,99 @@ export function useCastInit() {
         advanceCastQueueRef.current("next").catch(console.error);
       }
     };
+
+    handleNativeCastMediaStatusRef.current = (status) => {
+      nativeCastStatusRef.current = status;
+      const positionMs = Math.max(0, Math.round(status.positionMs));
+      const isPlaying = status.isPlaying;
+      const state = queueStateRef.current;
+      const song = currentSongRef.current;
+
+      setRemotePlaybackState({
+        isPlaying,
+        currentIndex: state?.currentIndex ?? 0,
+        positionMs,
+        positionTimestamp: Date.now(),
+        currentSongId: song?.id,
+        currentSongTitle: song?.title,
+        currentSongArtist: song?.artist,
+      });
+      setPlaybackState(isPlaying ? "playing" : "paused");
+      setCurrentTime(positionMs / 1000);
+
+      if (status.durationMs > 0) {
+        setDuration(status.durationMs / 1000);
+      }
+
+      if (
+        isFinishedNativeCastMedia(status) &&
+        song?.id &&
+        lastFinishedNativeSongIdRef.current !== song.id
+      ) {
+        lastFinishedNativeSongIdRef.current = song.id;
+        advanceCastQueueRef.current("next").catch(console.error);
+      }
+    };
   });
 
   useEffect(() => {
+    if (useNativeCast) {
+      let disposed = false;
+
+      const applyNativeSnapshot = (snapshot: CastStateSnapshot) => {
+        if (disposed) return;
+        setCastSdkLoaded(true);
+        setCastState(snapshot.state);
+        setCastDeviceName(snapshot.deviceName ?? null);
+
+        if (snapshot.mediaStatus) {
+          handleNativeCastMediaStatusRef.current(snapshot.mediaStatus);
+        }
+
+        if (snapshot.state === "unavailable") {
+          loadedSongIdRef.current = null;
+          claimedCastClientIdRef.current = null;
+        } else if (snapshot.state === "available") {
+          loadedSongIdRef.current = null;
+          claimedCastClientIdRef.current = null;
+        } else if (snapshot.state === "connected") {
+          claimCastAndLoadRef.current().catch((error) => {
+            console.error("[Cast] Failed to transfer playback:", error);
+          });
+        }
+      };
+
+      const handleNativeAudioEvent = (event: Event) => {
+        const detail = nativeAudioEventDetail(event);
+        if (!detail) return;
+
+        if (detail.event === NATIVE_CAST_STATE_EVENT) {
+          const snapshot = toCastStateSnapshot(detail.data);
+          if (snapshot) applyNativeSnapshot(snapshot);
+          return;
+        }
+
+        if (detail.event === NATIVE_CAST_MEDIA_STATUS_EVENT) {
+          const status = toCastMediaStatus(detail.data);
+          if (status) handleNativeCastMediaStatusRef.current(status);
+        }
+      };
+
+      window.addEventListener(NATIVE_AUDIO_EVENT, handleNativeAudioEvent);
+      getNativeCastApi()
+        .then((api) => api.getCastState())
+        .then(applyNativeSnapshot)
+        .catch((error) => {
+          console.warn("[Cast] Native Cast unavailable:", error);
+          applyNativeSnapshot({ state: "unavailable", deviceName: null });
+        });
+
+      return () => {
+        disposed = true;
+        window.removeEventListener(NATIVE_AUDIO_EVENT, handleNativeAudioEvent);
+      };
+    }
+
     // Set up the callback before the SDK script loads
     let context: cast.framework.CastContext | null = null;
     let handleCastStateChange:
@@ -757,7 +1048,7 @@ export function useCastInit() {
       }
       detachCastMediaListenerRef.current();
     };
-  }, [setCastState, setCastDeviceName, setCastSdkLoaded]);
+  }, [setCastState, setCastDeviceName, setCastSdkLoaded, useNativeCast]);
 
   useEffect(() => {
     if (castState !== "connected" || !sessionId || !castClientId) return;
@@ -826,6 +1117,7 @@ export function useCastInit() {
  * Hook for Cast playback controls.
  */
 export function useCast() {
+  const useNativeCast = isTauriMobile();
   const castState = useAtomValue(castStateAtom);
   const castDeviceName = useAtomValue(castDeviceNameAtom);
   const isCasting = castState === "connected";
@@ -835,6 +1127,15 @@ export function useCast() {
     castState === "connected";
 
   const requestCast = () => {
+    if (useNativeCast) {
+      getNativeCastApi()
+        .then((api) => api.requestCastSession())
+        .catch((error) => {
+          console.error("[Cast] Failed to request native session:", error);
+        });
+      return;
+    }
+
     try {
       cast.framework.CastContext.getInstance().requestSession();
     } catch (error) {
@@ -843,6 +1144,15 @@ export function useCast() {
   };
 
   const stopCasting = () => {
+    if (useNativeCast) {
+      getNativeCastApi()
+        .then((api) => api.stopCastSession())
+        .catch((error) => {
+          console.error("[Cast] Failed to stop native session:", error);
+        });
+      return;
+    }
+
     try {
       const session =
         cast.framework.CastContext.getInstance().getCurrentSession();
@@ -853,7 +1163,7 @@ export function useCast() {
   };
 
   const castCurrentTrack = (song: Song, startTime = 0) => {
-    loadMediaOnCast(song, startTime).catch(console.error);
+    loadMediaOnCast(song, startTime, useNativeCast).catch(console.error);
   };
 
   return {

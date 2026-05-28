@@ -1,3 +1,4 @@
+use serde_json::Value;
 use tauri::{command, AppHandle, Runtime};
 
 use crate::{
@@ -403,5 +404,178 @@ pub async fn debug_log<R: Runtime>(app: AppHandle<R>, message: String) -> Result
     {
         let _ = app;
         Ok(())
+    }
+}
+
+/// Get native Cast connection state.
+#[command]
+pub async fn get_cast_state<R: Runtime>(app: AppHandle<R>) -> Result<Value> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().get_cast_state()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Ok(serde_json::json!({ "state": "unavailable", "deviceName": null }))
+    }
+}
+
+/// Open the native Android Cast route chooser.
+#[command]
+pub async fn request_cast_session<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().request_cast_session()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// End the current native Android Cast session.
+#[command]
+pub async fn stop_cast_session<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().stop_cast_session()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Load media into the current native Android Cast session.
+#[command]
+pub async fn load_cast_media<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+    content_type: String,
+    song_id: String,
+    title: String,
+    artist: String,
+    album: Option<String>,
+    cover_art_url: Option<String>,
+    duration_ms: u64,
+    start_time_ms: u64,
+) -> Result<()> {
+    let media = serde_json::json!({
+        "url": url,
+        "contentType": content_type,
+        "songId": song_id,
+        "title": title,
+        "artist": artist,
+        "album": album,
+        "coverArtUrl": cover_art_url,
+        "durationMs": duration_ms,
+        "startTimeMs": start_time_ms,
+    });
+
+    #[cfg(mobile)]
+    {
+        app.native_audio().load_cast_media(media)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, media);
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+#[command]
+pub async fn play_cast_media<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().play_cast_media()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+#[command]
+pub async fn pause_cast_media<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().pause_cast_media()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+#[command]
+pub async fn stop_cast_media<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().stop_cast_media()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+#[command]
+pub async fn seek_cast_media<R: Runtime>(app: AppHandle<R>, position_ms: u64) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().seek_cast_media(position_ms)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, position_ms);
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+#[command]
+pub async fn set_cast_volume<R: Runtime>(
+    app: AppHandle<R>,
+    volume: f32,
+    muted: bool,
+) -> Result<()> {
+    let volume = volume.clamp(0.0, 1.0);
+
+    #[cfg(mobile)]
+    {
+        app.native_audio().set_cast_volume(volume, muted)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, volume, muted);
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+#[command]
+pub async fn get_cast_media_status<R: Runtime>(app: AppHandle<R>) -> Result<Value> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().get_cast_media_status()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Ok(serde_json::json!({}))
     }
 }

@@ -307,6 +307,30 @@
           "markdownDescription": "Denies the debug_log command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_cast_media_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-cast-media-status",
+          "markdownDescription": "Enables the get_cast_media_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_cast_media_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-cast-media-status",
+          "markdownDescription": "Denies the get_cast_media_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_cast_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-cast-state",
+          "markdownDescription": "Enables the get_cast_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_cast_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-cast-state",
+          "markdownDescription": "Denies the get_cast_state command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_safe_area_insets command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-safe-area-insets",
@@ -355,6 +379,18 @@
           "markdownDescription": "Denies the invalidate_queue command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-cast-media",
+          "markdownDescription": "Enables the load_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-cast-media",
+          "markdownDescription": "Denies the load_cast_media command without any pre-configured scope."
+        },
+        {
           "description": "Enables the next_track command without any pre-configured scope.",
           "type": "string",
           "const": "allow-next-track",
@@ -377,6 +413,18 @@
           "type": "string",
           "const": "deny-pause",
           "markdownDescription": "Denies the pause command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pause_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pause-cast-media",
+          "markdownDescription": "Enables the pause_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pause_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pause-cast-media",
+          "markdownDescription": "Denies the pause_cast_media command without any pre-configured scope."
         },
         {
           "description": "Enables the play command without any pre-configured scope.",
@@ -403,6 +451,18 @@
           "markdownDescription": "Denies the play_at_index command without any pre-configured scope."
         },
         {
+          "description": "Enables the play_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-play-cast-media",
+          "markdownDescription": "Enables the play_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the play_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-play-cast-media",
+          "markdownDescription": "Denies the play_cast_media command without any pre-configured scope."
+        },
+        {
           "description": "Enables the previous_track command without any pre-configured scope.",
           "type": "string",
           "const": "allow-previous-track",
@@ -415,6 +475,18 @@
           "markdownDescription": "Denies the previous_track command without any pre-configured scope."
         },
         {
+          "description": "Enables the request_cast_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-cast-session",
+          "markdownDescription": "Enables the request_cast_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_cast_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-cast-session",
+          "markdownDescription": "Denies the request_cast_session command without any pre-configured scope."
+        },
+        {
           "description": "Enables the seek command without any pre-configured scope.",
           "type": "string",
           "const": "allow-seek",
@@ -425,6 +497,30 @@
           "type": "string",
           "const": "deny-seek",
           "markdownDescription": "Denies the seek command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the seek_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-seek-cast-media",
+          "markdownDescription": "Enables the seek_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the seek_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-seek-cast-media",
+          "markdownDescription": "Denies the seek_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_cast_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-cast-volume",
+          "markdownDescription": "Enables the set_cast_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_cast_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-cast-volume",
+          "markdownDescription": "Denies the set_cast_volume command without any pre-configured scope."
         },
         {
           "description": "Enables the set_repeat_mode command without any pre-configured scope.",
@@ -499,6 +595,30 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
+          "description": "Enables the stop_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-cast-media",
+          "markdownDescription": "Enables the stop_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_cast_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-cast-media",
+          "markdownDescription": "Denies the stop_cast_media command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stop_cast_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-cast-session",
+          "markdownDescription": "Enables the stop_cast_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_cast_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-cast-session",
+          "markdownDescription": "Denies the stop_cast_session command without any pre-configured scope."
+        },
+        {
           "description": "Enables the toggle_shuffle command without any pre-configured scope.",
           "type": "string",
           "const": "allow-toggle-shuffle",
@@ -535,10 +655,10 @@
           "markdownDescription": "Denies the update_starred_state command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`",
+          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`"
+          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`"
         },
         {
           "description": "Allows starting or resuming audio playback",
@@ -659,6 +779,66 @@
           "type": "string",
           "const": "allow-debug-log",
           "markdownDescription": "Allows sending debug log messages to native logcat"
+        },
+        {
+          "description": "Allows reading native Cast connection state",
+          "type": "string",
+          "const": "allow-get-cast-state",
+          "markdownDescription": "Allows reading native Cast connection state"
+        },
+        {
+          "description": "Allows opening the native Cast route chooser",
+          "type": "string",
+          "const": "allow-request-cast-session",
+          "markdownDescription": "Allows opening the native Cast route chooser"
+        },
+        {
+          "description": "Allows ending the native Cast session",
+          "type": "string",
+          "const": "allow-stop-cast-session",
+          "markdownDescription": "Allows ending the native Cast session"
+        },
+        {
+          "description": "Allows loading media onto the native Cast session",
+          "type": "string",
+          "const": "allow-load-cast-media",
+          "markdownDescription": "Allows loading media onto the native Cast session"
+        },
+        {
+          "description": "Allows playing native Cast media",
+          "type": "string",
+          "const": "allow-play-cast-media",
+          "markdownDescription": "Allows playing native Cast media"
+        },
+        {
+          "description": "Allows pausing native Cast media",
+          "type": "string",
+          "const": "allow-pause-cast-media",
+          "markdownDescription": "Allows pausing native Cast media"
+        },
+        {
+          "description": "Allows stopping native Cast media",
+          "type": "string",
+          "const": "allow-stop-cast-media",
+          "markdownDescription": "Allows stopping native Cast media"
+        },
+        {
+          "description": "Allows seeking native Cast media",
+          "type": "string",
+          "const": "allow-seek-cast-media",
+          "markdownDescription": "Allows seeking native Cast media"
+        },
+        {
+          "description": "Allows setting native Cast volume",
+          "type": "string",
+          "const": "allow-set-cast-volume",
+          "markdownDescription": "Allows setting native Cast volume"
+        },
+        {
+          "description": "Allows reading native Cast media status",
+          "type": "string",
+          "const": "allow-get-cast-media-status",
+          "markdownDescription": "Allows reading native Cast media status"
         }
       ]
     }

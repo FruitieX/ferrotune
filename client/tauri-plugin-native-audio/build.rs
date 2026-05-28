@@ -19,6 +19,16 @@ const COMMANDS: &[&str] = &[
     "soft_invalidate_queue",
     "toggle_shuffle",
     "debug_log",
+    "get_cast_state",
+    "request_cast_session",
+    "stop_cast_session",
+    "load_cast_media",
+    "play_cast_media",
+    "pause_cast_media",
+    "stop_cast_media",
+    "seek_cast_media",
+    "set_cast_volume",
+    "get_cast_media_status",
 ];
 
 fn main() {

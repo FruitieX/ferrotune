@@ -63,6 +63,16 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::soft_invalidate_queue,
             commands::toggle_shuffle,
             commands::debug_log,
+            commands::get_cast_state,
+            commands::request_cast_session,
+            commands::stop_cast_session,
+            commands::load_cast_media,
+            commands::play_cast_media,
+            commands::pause_cast_media,
+            commands::stop_cast_media,
+            commands::seek_cast_media,
+            commands::set_cast_volume,
+            commands::get_cast_media_status,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

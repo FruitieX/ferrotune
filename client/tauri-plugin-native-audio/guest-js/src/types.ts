@@ -104,3 +104,35 @@ export interface TrackChangeEvent {
   /** Current index in the queue */
   queueIndex: number;
 }
+
+export type CastConnectionState = "unavailable" | "available" | "connecting" | "connected";
+
+export type CastPlayerState = "idle" | "playing" | "paused" | "buffering" | "unknown";
+
+export type CastIdleReason = "finished" | "canceled" | "interrupted" | "error";
+
+export interface CastMediaStatus {
+  positionMs: number;
+  durationMs: number;
+  isPlaying: boolean;
+  playerState: CastPlayerState;
+  idleReason?: CastIdleReason;
+}
+
+export interface CastStateSnapshot {
+  state: CastConnectionState;
+  deviceName?: string | null;
+  mediaStatus?: CastMediaStatus;
+}
+
+export interface LoadCastMediaParams {
+  url: string;
+  contentType: string;
+  songId: string;
+  title: string;
+  artist: string;
+  album?: string | null;
+  coverArtUrl?: string | null;
+  durationMs: number;
+  startTimeMs: number;
+}

@@ -30,6 +30,16 @@
     "native-audio:allow-invalidate-queue",
     "native-audio:allow-soft-invalidate-queue",
     "native-audio:allow-toggle-shuffle",
-    "native-audio:allow-debug-log"
+    "native-audio:allow-debug-log",
+    "native-audio:allow-get-cast-state",
+    "native-audio:allow-request-cast-session",
+    "native-audio:allow-stop-cast-session",
+    "native-audio:allow-load-cast-media",
+    "native-audio:allow-play-cast-media",
+    "native-audio:allow-pause-cast-media",
+    "native-audio:allow-stop-cast-media",
+    "native-audio:allow-seek-cast-media",
+    "native-audio:allow-set-cast-volume",
+    "native-audio:allow-get-cast-media-status"
   ]
 }
