@@ -345,7 +345,6 @@ tasks:
       - "install"
     options:
       runInCI: true
-      timeout: 120
 
   playwright-report:
     command: "pnpm exec playwright show-report"

@@ -88,8 +88,8 @@ export default defineConfig({
     /* Take screenshot on failure */
     screenshot: "only-on-failure",
 
-    /* Video recording */
-    video: "on-first-retry",
+    /* Video recording (disabled in CI - ffmpeg install is unreliable) */
+    video: process.env.CI ? "off" : "on-first-retry",
 
     /* Action timeout */
     actionTimeout: 10_000,
