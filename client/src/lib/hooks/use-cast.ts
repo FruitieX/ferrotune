@@ -954,12 +954,15 @@ export function useCastInit() {
         return;
       }
 
-      let response: GetQueueResponse | null = null;
       let entry = getQueueEntryForCastStatus(queueWindowRef.current, status);
 
       if (!entry) {
-        response = await client.getQueueCurrentWindow(20, "small", sid);
-        entry = getQueueEntryForCastStatus(response.window, status);
+        const fetchedResponse = await client.getQueueCurrentWindow(
+          20,
+          "small",
+          sid,
+        );
+        entry = getQueueEntryForCastStatus(fetchedResponse.window, status);
       }
 
       if (!entry && status.queuePosition !== undefined) {
@@ -971,10 +974,17 @@ export function useCastInit() {
           virtualClientId,
           true,
         );
-        response = await client.getQueueCurrentWindow(20, "small", sid);
+        const positionedResponse = await client.getQueueCurrentWindow(
+          20,
+          "small",
+          sid,
+        );
         entry =
-          getQueueEntryForCastStatus(response.window, status) ??
-          getQueueEntryAtPosition(response.window, status.queuePosition);
+          getQueueEntryForCastStatus(positionedResponse.window, status) ??
+          getQueueEntryAtPosition(
+            positionedResponse.window,
+            status.queuePosition,
+          );
       }
 
       if (!entry) {
@@ -991,24 +1001,28 @@ export function useCastInit() {
         true,
       );
 
-      response = await client.getQueueCurrentWindow(20, "small", sid);
+      const syncedResponse = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sid,
+      );
       const syncedEntry =
-        getQueueEntryAtPosition(response.window, entry.position) ?? entry;
+        getQueueEntryAtPosition(syncedResponse.window, entry.position) ?? entry;
       const nextQueueState = {
-        ...queueStateFromResponse(response),
+        ...queueStateFromResponse(syncedResponse),
         currentIndex: entry.position,
         positionMs: status.positionMs,
       };
 
       queueStateRef.current = nextQueueState;
-      queueWindowRef.current = response.window;
+      queueWindowRef.current = syncedResponse.window;
       currentSongRef.current = syncedEntry.song;
       currentTimeRef.current = Math.max(0, status.positionMs / 1000);
       loadedSongIdRef.current = syncedEntry.song.id;
       lastFinishedNativeKeyRef.current = null;
 
       setServerQueueState(nextQueueState);
-      setQueueWindow(response.window);
+      setQueueWindow(syncedResponse.window);
       setCurrentTime(status.positionMs / 1000);
       if (status.durationMs > 0) {
         setDuration(status.durationMs / 1000);
