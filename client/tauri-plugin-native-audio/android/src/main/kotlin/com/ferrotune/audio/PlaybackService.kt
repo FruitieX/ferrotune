@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AdPlaybackState
@@ -259,10 +260,12 @@ class PlaybackService : MediaSessionService() {
     private var sseConnected = false
     private var sseReconnectRunnable: Runnable? = null
     private val SSE_RECONNECT_DELAY_MS = 3000L
+    private val OWNERSHIP_CLAIM_GRACE_MS = 10_000L
     // Whether native playback is currently allowed to own and mutate the
     // server-backed session. Starts permissive so a fresh local play can claim
     // ownership before the first OwnerChanged snapshot arrives.
     private var nativeOwnsSession = true
+    private var lastLocalOwnershipClaimElapsedRealtimeMs: Long? = null
     // Invalidates asynchronous queue fetches when a newer account/session or
     // playback command supersedes them.
     private var queueLoadGeneration = 0
@@ -1282,12 +1285,42 @@ class PlaybackService : MediaSessionService() {
         val myClientId = apiClient.getClientId()
         val isCurrentClientOwner = myClientId != null && event.ownerClientId == myClientId
         val wasOwner = nativeOwnsSession
+        val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+        val ignoreDuringLocalClaim = !isCurrentClientOwner &&
+            OwnershipClaimGuard.shouldIgnoreNonOwnerSnapshot(
+                nowElapsedRealtimeMs,
+                lastLocalOwnershipClaimElapsedRealtimeMs,
+                event.resumePlayback,
+                OWNERSHIP_CLAIM_GRACE_MS,
+            )
 
         Log.d(
             TAG,
             "SSE OwnerChanged: owner=${event.ownerClientId}, myClientId=$myClientId, " +
                 "resume=${event.resumePlayback}, positionMs=${event.positionMs}"
         )
+        logPlaybackDiagnostic(
+            if (ignoreDuringLocalClaim) DiagnosticLevel.WARN else DiagnosticLevel.INFO,
+            "owner_changed",
+            "SSE ownership snapshot received",
+            mapOf(
+                "ownerClientId" to event.ownerClientId,
+                "ownerClientName" to event.ownerClientName,
+                "myClientId" to myClientId,
+                "resumePlayback" to event.resumePlayback,
+                "positionMs" to event.positionMs,
+                "wasOwner" to wasOwner,
+                "isCurrentClientOwner" to isCurrentClientOwner,
+                "ignoreDuringLocalClaim" to ignoreDuringLocalClaim,
+                "lastLocalOwnershipClaimElapsedRealtimeMs" to lastLocalOwnershipClaimElapsedRealtimeMs,
+                "nowElapsedRealtimeMs" to nowElapsedRealtimeMs,
+            ),
+        )
+
+        if (ignoreDuringLocalClaim) {
+            Log.d(TAG, "Ignoring non-owner snapshot during local ownership claim grace period")
+            return
+        }
 
         nativeOwnsSession = isCurrentClientOwner
 
@@ -1330,7 +1363,19 @@ class PlaybackService : MediaSessionService() {
             Log.d(TAG, "Claiming session ownership for $reason")
         }
         nativeOwnsSession = true
+        lastLocalOwnershipClaimElapsedRealtimeMs = SystemClock.elapsedRealtime()
         handler.removeCallbacks(inactivityTimeoutRunnable)
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "ownership_claim_requested",
+            "Native session ownership claim requested",
+            mapOf(
+                "reason" to reason,
+                "positionMs" to positionMs,
+                "currentIndex" to currentIndex,
+                "lastLocalOwnershipClaimElapsedRealtimeMs" to lastLocalOwnershipClaimElapsedRealtimeMs,
+            ),
+        )
         apiExecutor.execute {
             try {
                 apiClient.takeOver(positionMs, currentIndex)
@@ -4098,16 +4143,31 @@ class PlaybackService : MediaSessionService() {
                 ),
             )
             if (playWhenReady && !nativeOwnsSession) {
-                Log.d(TAG, "Suppressing playWhenReady while not session owner")
-                logPlaybackDiagnostic(
-                    DiagnosticLevel.WARN,
-                    "play_suppressed_not_owner",
-                    "Suppressing playWhenReady because native does not own the session",
-                    mapOf("reason" to reasonName, "reasonCode" to reason),
-                )
-                player.playWhenReady = false
-                emitStateChange()
-                return
+                if (apiClient.hasSessionConfig()) {
+                    Log.d(TAG, "Claiming ownership for media-session play while not owner")
+                    logPlaybackDiagnostic(
+                        DiagnosticLevel.INFO,
+                        "play_claimed_not_owner",
+                        "Claiming session ownership for play while native was not owner",
+                        mapOf("reason" to reasonName, "reasonCode" to reason),
+                    )
+                    claimNativeSessionOwnership(
+                        "media session play",
+                        getAbsolutePlaybackPositionMs(),
+                        serverQueueIndex,
+                    )
+                } else {
+                    Log.d(TAG, "Suppressing playWhenReady while not session owner")
+                    logPlaybackDiagnostic(
+                        DiagnosticLevel.WARN,
+                        "play_suppressed_not_owner",
+                        "Suppressing playWhenReady because native does not own the session",
+                        mapOf("reason" to reasonName, "reasonCode" to reason),
+                    )
+                    player.playWhenReady = false
+                    emitStateChange()
+                    return
+                }
             }
             if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) {
                 pausedForAudioOutputLoss = true
