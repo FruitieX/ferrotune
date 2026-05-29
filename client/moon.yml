@@ -503,14 +503,13 @@ tasks:
       runInCI: false
 
   tauri-android-build-ci:
-    command: "pnpm exec tauri android build --config tauri.android-ci.conf.json"
+    command: "bash -c 'pnpm exec tauri android init --config tauri.android-ci.conf.json && pnpm exec moon run client:tauri-android-sync-icons && pnpm exec tauri android build --config tauri.android-ci.conf.json'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
       - "tauri-plugin-native-audio/**/*"
     deps:
       - "install"
-      - "tauri-android-sync-icons"
       - "build-export"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"

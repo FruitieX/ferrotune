@@ -99,10 +99,12 @@
             pkgs.sqlite
             pkgs.cmake
             pkgs.libopus
+            pkgs.libclang.lib # needed for bindgen (bliss-audio aubio bindings)
             # Android development
             androidSdk
             pkgs.jdk17
           ];
+          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           ANDROID_HOME = "${androidSdk}/share/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";
           NDK_HOME = "${androidSdk}/share/android-sdk/ndk/27.2.12479018";
