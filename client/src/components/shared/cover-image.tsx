@@ -144,16 +144,16 @@ export function CoverImage({
   const placeholderHue = stringToHue(colorSeed || alt || "");
   const placeholderBackground =
     type === "favorites"
-      ? "linear-gradient(135deg, rgb(239 68 68) 0%, rgb(153 27 27) 100%)"
+      ? "linear-gradient(135deg, rgb(239 68 68) 0%, rgb(185 28 28) 100%)"
       : type === "forgottenFavorites"
-        ? "linear-gradient(135deg, rgb(245 158 11) 0%, rgb(15 118 110) 100%)"
+        ? "linear-gradient(135deg, rgb(245 158 11) 0%, rgb(21 94 117) 100%)"
         : type === "mostPlayedRecently"
-          ? "linear-gradient(135deg, rgb(244 63 94) 0%, rgb(217 119 6) 100%)"
+          ? "linear-gradient(135deg, rgb(244 63 94) 0%, rgb(234 179 8) 100%)"
           : type === "discover"
-            ? "linear-gradient(135deg, rgb(139 92 246) 0%, rgb(162 28 175) 100%)"
+            ? "linear-gradient(135deg, rgb(139 92 246) 0%, rgb(192 38 211) 100%)"
             : type === "recentlyAdded"
-              ? "linear-gradient(135deg, rgb(14 165 233) 0%, rgb(29 78 216) 100%)"
-              : `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`;
+              ? "linear-gradient(135deg, rgb(14 165 233) 0%, rgb(37 99 235) 100%)"
+              : `linear-gradient(135deg, oklch(0.45 0.12 ${placeholderHue}) 0%, oklch(0.3 0.1 ${(placeholderHue + 50) % 360}) 100%)`;
 
   // Use IntersectionObserver for true lazy loading
   useEffect(() => {

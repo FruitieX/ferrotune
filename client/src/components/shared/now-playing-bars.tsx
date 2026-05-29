@@ -16,10 +16,14 @@ export function NowPlayingBars({
   isAnimating = true,
 }: NowPlayingBarsProps) {
   return (
-    <div className={cn("flex items-end justify-center gap-0.5 h-3", className)}>
+    <div
+      className={cn("flex items-end justify-center gap-0.5 h-3", className)}
+      role="img"
+      aria-label={isAnimating ? "Now playing" : "Paused"}
+    >
       <span
         className={cn(
-          "w-[3px] bg-primary rounded-sm",
+          "w-0.75 bg-primary rounded-sm",
           isAnimating && "animate-bar-1",
         )}
         style={{
@@ -29,7 +33,7 @@ export function NowPlayingBars({
       />
       <span
         className={cn(
-          "w-[3px] bg-primary rounded-sm",
+          "w-0.75 bg-primary rounded-sm",
           isAnimating && "animate-bar-2",
         )}
         style={{
@@ -39,7 +43,7 @@ export function NowPlayingBars({
       />
       <span
         className={cn(
-          "w-[3px] bg-primary rounded-sm",
+          "w-0.75 bg-primary rounded-sm",
           isAnimating && "animate-bar-3",
         )}
         style={{
@@ -49,7 +53,7 @@ export function NowPlayingBars({
       />
       <span
         className={cn(
-          "w-[3px] bg-primary rounded-sm",
+          "w-0.75 bg-primary rounded-sm",
           isAnimating && "animate-bar-4",
         )}
         style={{

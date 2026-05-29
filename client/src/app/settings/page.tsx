@@ -551,14 +551,41 @@ export default function SettingsPage() {
             </div>
           </motion.div>
         </div>
+        {/* Section navigation tabs */}
+        <nav className="px-4 lg:px-6 pb-2 flex gap-1 overflow-x-auto no-scrollbar">
+          {[
+            { id: "connection", label: "Connection", icon: Server },
+            { id: "library", label: "Library", icon: BarChart3 },
+            { id: "home", label: "Home", icon: Rows3 },
+            { id: "playback", label: "Playback", icon: Music2 },
+            { id: "appearance", label: "Appearance", icon: Palette },
+            { id: "about", label: "About", icon: SettingsIcon },
+          ].map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              onClick={() => {
+                document
+                  .getElementById(`settings-${section.id}`)
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors whitespace-nowrap shrink-0"
+            >
+              <section.icon className="w-3.5 h-3.5" />
+              {section.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <div className="px-4 lg:px-6 py-6 pb-24 space-y-6">
         {/* Server Connection */}
         <motion.div
+          id="settings-connection"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
+          className="scroll-mt-32"
         >
           <Card>
             <CardHeader>
@@ -650,9 +677,11 @@ export default function SettingsPage() {
 
         {/* Library Statistics */}
         <motion.div
+          id="settings-library"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
+          className="scroll-mt-32"
         >
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -780,9 +809,11 @@ export default function SettingsPage() {
 
         {/* Home Tiles */}
         <motion.div
+          id="settings-home"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.16 }}
+          className="scroll-mt-32"
         >
           <Card>
             <CardHeader>
@@ -1298,9 +1329,11 @@ export default function SettingsPage() {
 
         {/* Playback Settings */}
         <motion.div
+          id="settings-playback"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.17 }}
+          className="scroll-mt-32"
         >
           <Card>
             <CardHeader>
@@ -1481,9 +1514,11 @@ export default function SettingsPage() {
 
         {/* Appearance */}
         <motion.div
+          id="settings-appearance"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
+          className="scroll-mt-32"
         >
           <Card>
             <CardHeader>
@@ -1812,9 +1847,11 @@ export default function SettingsPage() {
 
         {/* About */}
         <motion.div
+          id="settings-about"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35 }}
+          className="scroll-mt-32"
         >
           <Card>
             <CardHeader>

@@ -1,5 +1,12 @@
 {
+  "version": "0.1.0",
   "build": {
     "beforeBuildCommand": ""
+  },
+  "bundle": {
+    "android": {
+      "versionCode": 2000,
+      "autoIncrementVersionCode": false
+    }
   }
 }

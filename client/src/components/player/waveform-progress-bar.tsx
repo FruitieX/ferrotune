@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
+import { hapticTap, hapticConfirm } from "@/lib/utils/haptic";
 import {
   currentTimeAtom,
   durationAtom,
@@ -464,6 +465,7 @@ export function WaveformProgressBar({
     if (e.button !== 0) return; // Only left click
     e.preventDefault();
     setIsDragging(true);
+    hapticTap();
     const percent = getPercentFromEvent(e.clientX);
     setHoverPercent(percent);
     seekPercent(percent);
@@ -475,6 +477,7 @@ export function WaveformProgressBar({
     e.preventDefault(); // Prevent synthetic mouse events
     setIsDragging(true);
     setIsHovering(true);
+    hapticTap();
     const percent = getPercentFromEvent(touch.clientX);
     setHoverPercent(percent);
     seekPercent(percent);
@@ -507,12 +510,14 @@ export function WaveformProgressBar({
 
     const handleGlobalMouseUp = () => {
       setIsDragging(false);
+      hapticConfirm();
     };
 
     const handleGlobalTouchEnd = () => {
       setIsDragging(false);
       setIsHovering(false);
       setHoverPercent(null);
+      hapticConfirm();
     };
 
     window.addEventListener("mousemove", handleGlobalMouseMove);

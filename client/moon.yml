@@ -563,12 +563,7 @@ tasks:
     script: >
       pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json &&
       APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) &&
-      $APKSIGNER sign
-        --ks "${FERROTUNE_RELEASE_KEYSTORE:?Set FERROTUNE_RELEASE_KEYSTORE to the keystore file path}"
-        --ks-pass "pass:${FERROTUNE_RELEASE_KEYSTORE_PASSWORD:?Set FERROTUNE_RELEASE_KEYSTORE_PASSWORD}"
-        --ks-key-alias "${FERROTUNE_RELEASE_KEY_ALIAS:?Set FERROTUNE_RELEASE_KEY_ALIAS}"
-        --key-pass "pass:${FERROTUNE_RELEASE_KEY_PASSWORD:?Set FERROTUNE_RELEASE_KEY_PASSWORD}"
-        src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
+      "$APKSIGNER" sign --ks "${FERROTUNE_RELEASE_KEYSTORE:?Set FERROTUNE_RELEASE_KEYSTORE to the keystore file path}" --ks-pass "pass:${FERROTUNE_RELEASE_KEYSTORE_PASSWORD:?Set FERROTUNE_RELEASE_KEYSTORE_PASSWORD}" --ks-key-alias "${FERROTUNE_RELEASE_KEY_ALIAS:?Set FERROTUNE_RELEASE_KEY_ALIAS}" --key-pass "pass:${FERROTUNE_RELEASE_KEY_PASSWORD:?Set FERROTUNE_RELEASE_KEY_PASSWORD}" src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
       adb -H "${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1}" install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
       adb -H "${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1}" shell am start -S -n com.ferrotune.music/.MainActivity
     inputs:

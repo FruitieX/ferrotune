@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "framer-motion";
 import { Home, Search, Library, ListMusic, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hapticTap } from "@/lib/utils/haptic";
 
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
@@ -30,7 +32,7 @@ export function MobileNav() {
         "pb-safe", // Safe area for iOS
       )}
     >
-      <div className="flex items-center justify-around h-16">
+      <div className="flex items-center justify-around h-16 px-1">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -41,16 +43,45 @@ export function MobileNav() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => hapticTap()}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 w-full h-full",
-                "text-muted-foreground transition-colors touch-manipulation active:bg-accent/70 active:text-foreground",
+                "flex flex-col items-center justify-center gap-0.5 w-full h-full relative",
+                "text-muted-foreground transition-colors touch-manipulation",
+                // Pill-shaped active press indicator instead of square highlight
+                "rounded-xl active:scale-95",
                 isActive && "text-primary",
               )}
             >
-              <item.icon
-                className={cn("w-5 h-5", isActive && "text-primary")}
-              />
-              <span className="text-xs font-medium">{item.label}</span>
+              {isActive && (
+                <motion.div
+                  layoutId="mobile-nav-indicator"
+                  className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-0.5 bg-primary rounded-full"
+                  transition={{
+                    type: "spring",
+                    stiffness: 500,
+                    damping: 35,
+                  }}
+                />
+              )}
+              <motion.div
+                animate={isActive ? { scale: 1.1 } : { scale: 1 }}
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              >
+                <item.icon
+                  className={cn(
+                    "w-5 h-5 transition-colors",
+                    isActive && "text-primary",
+                  )}
+                />
+              </motion.div>
+              <span
+                className={cn(
+                  "text-[10px] leading-tight transition-all",
+                  isActive ? "font-semibold" : "font-medium",
+                )}
+              >
+                {item.label}
+              </span>
             </Link>
           );
         })}

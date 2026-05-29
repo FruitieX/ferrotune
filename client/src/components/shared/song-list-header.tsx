@@ -50,9 +50,16 @@ function SortableHeader({
 }) {
   const isActive = sortConfig?.field === field;
   const SortIcon = sortConfig?.direction === "asc" ? ArrowUp : ArrowDown;
+  const ariaSort = isActive
+    ? sortConfig?.direction === "asc"
+      ? "ascending"
+      : "descending"
+    : "none";
   return (
     <button
       type="button"
+      role="columnheader"
+      aria-sort={ariaSort as "ascending" | "descending" | "none"}
       className={cn(
         width,
         align === "right" && "text-right",

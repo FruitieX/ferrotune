@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
+import { hapticTap, hapticConfirm } from "@/lib/utils/haptic";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -182,7 +183,10 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
           variant="ghost"
           size="icon"
           className="hidden lg:flex shrink-0 h-8 w-8"
-          onClick={toggleStar}
+          onClick={() => {
+            hapticTap();
+            toggleStar();
+          }}
         >
           <Heart
             className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
@@ -554,6 +558,7 @@ function SwipeableNowPlaying({
       pendingTrackChangeFromId.current = track.id;
       // Skip the enter animation for the new track (preview is already in position)
       skipNextAnimation = true;
+      hapticConfirm();
       onNext();
     } else if (shouldGoPrev && prevTrack) {
       // Animate current track off to the right, then change track
@@ -567,6 +572,7 @@ function SwipeableNowPlaying({
       pendingTrackChangeFromId.current = track.id;
       // Skip the enter animation for the new track (preview is already in position)
       skipNextAnimation = true;
+      hapticConfirm();
       onPrevious();
     } else {
       // Snap back to center with animation
@@ -740,6 +746,27 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
   const playPauseLabel = isLoading ? "Loading" : isPlaying ? "Pause" : "Play";
   const playPauseDisabled = playbackState === "idle" || isLoading;
 
+  const handlePlayPause = () => {
+    hapticTap();
+    togglePlayPause();
+  };
+  const handleNext = () => {
+    hapticTap();
+    next();
+  };
+  const handlePrevious = () => {
+    hapticTap();
+    previous();
+  };
+  const handleShuffle = () => {
+    hapticTap();
+    toggleShuffle();
+  };
+  const handleRepeat = () => {
+    hapticTap();
+    cycleRepeatMode();
+  };
+
   return (
     <div className="flex items-center gap-1 md:gap-2">
       {/* Shuffle - hidden on mobile, shown in more menu */}
@@ -750,7 +777,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
           "hidden md:flex h-8 w-8",
           isShuffled && "text-primary hover:text-primary",
         )}
-        onClick={toggleShuffle}
+        onClick={handleShuffle}
         aria-label="Shuffle"
       >
         <Shuffle className="w-4 h-4" />
@@ -761,7 +788,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         variant="ghost"
         size="icon"
         className="hidden md:flex h-8 w-8 md:h-9 md:w-9"
-        onClick={previous}
+        onClick={handlePrevious}
         disabled={!hasTrack}
         aria-label="Previous"
       >
@@ -773,7 +800,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         variant="ghost"
         size="icon"
         className="flex md:hidden h-9 w-9 rounded-full"
-        onClick={togglePlayPause}
+        onClick={handlePlayPause}
         disabled={playPauseDisabled}
         aria-label={playPauseLabel}
       >
@@ -793,7 +820,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         variant="default"
         size="icon"
         className="hidden md:flex h-10 w-10 rounded-full"
-        onClick={togglePlayPause}
+        onClick={handlePlayPause}
         disabled={playPauseDisabled}
         aria-label={playPauseLabel}
       >
@@ -815,7 +842,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         variant="ghost"
         size="icon"
         className="hidden md:flex h-8 w-8 md:h-9 md:w-9"
-        onClick={next}
+        onClick={handleNext}
         disabled={!hasTrack}
         aria-label="Next"
       >
@@ -830,7 +857,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
           "hidden md:flex h-8 w-8",
           repeatMode !== "off" && "text-primary hover:text-primary",
         )}
-        onClick={cycleRepeatMode}
+        onClick={handleRepeat}
         aria-label="Repeat"
       >
         <RepeatIcon className="w-4 h-4" />

@@ -12,6 +12,7 @@ import { QueueSidebar } from "@/components/queue/queue";
 import { MobileQueueSheet } from "@/components/queue/mobile-queue-sheet";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { MainContent } from "@/components/layout/main-content";
+import { ErrorBoundary } from "@/components/shared/error-boundary";
 
 export default function RootLayout({
   children,
@@ -35,7 +36,9 @@ export default function RootLayout({
 
               {/* Main content area - uses MainContent wrapper for responsive margins */}
               <MainContent>
-                <Suspense>{children}</Suspense>
+                <ErrorBoundary>
+                  <Suspense>{children}</Suspense>
+                </ErrorBoundary>
               </MainContent>
 
               {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}

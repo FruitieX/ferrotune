@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Debounce delay for ensureRange calls (ms) - prevents request spam during rapid scrolling
@@ -59,7 +60,7 @@ export function VirtualizedGrid<T>({
   gap = 16,
   className,
   columns = { default: 3, sm: 3, md: 4, lg: 5, xl: 6 },
-  overscan = 3,
+  overscan = 5,
   hasNextPage = false,
   isFetchingNextPage = false,
   fetchNextPage,
@@ -556,6 +557,13 @@ export function VirtualizedList<T>({
           );
         })}
       </div>
+      {/* Loading more indicator for infinite scroll */}
+      {isFetchingNextPage && (
+        <div className="flex items-center justify-center py-4 gap-2 text-muted-foreground animate-in fade-in-0 duration-300">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span className="text-sm">Loading more…</span>
+        </div>
+      )}
     </div>
   );
 }

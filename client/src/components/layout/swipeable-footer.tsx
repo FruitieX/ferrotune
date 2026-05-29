@@ -113,6 +113,8 @@ export function SwipeableFooter({ children }: SwipeableFooterProps) {
         (upwardOffset > 0 && velocity.y < -VELOCITY_THRESHOLD));
 
     if (shouldOpenFullscreen && currentTrack) {
+      // Haptic feedback on gesture trigger
+      try { navigator.vibrate?.(10); } catch { /* ignore */ }
       // Animate to fully open position then set state
       openAnimationControls = animate(
         fullscreenOpenDragY,

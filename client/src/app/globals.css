@@ -287,6 +287,9 @@
       var(--font-inter), ui-sans-serif, system-ui, sans-serif,
       "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
       "Noto Color Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   html[data-app-resume-repaint] body {
     opacity: 0.9999;
@@ -296,8 +299,8 @@
 /* Custom scrollbar */
 @layer base {
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -305,12 +308,30 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: oklch(0.3 0 0);
-    border-radius: 4px;
+    background: color-mix(in oklch, var(--muted-foreground) 15%, transparent);
+    border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.4 0 0);
+    background: color-mix(in oklch, var(--muted-foreground) 30%, transparent);
+  }
+
+  /* Thin scrollbar for Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 15%, transparent) transparent;
+  }
+
+  /* Global focus-visible ring for keyboard navigation */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Remove default focus outline, keep only focus-visible */
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 }
 
@@ -324,14 +345,29 @@
   scrollbar-width: none;
 }
 
+/* No-scrollbar utility (always hidden) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Player gradient background */
 .player-gradient {
   background: linear-gradient(180deg, oklch(0.12 0 0) 0%, oklch(0.07 0 0) 100%);
 }
 
-/* Album art glow effect */
+/* Album art glow effect - subtle ambient shadow */
 .album-glow {
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.album-glow:hover {
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
 }
 
 /* Smooth transitions */

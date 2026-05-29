@@ -21,6 +21,7 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hapticHeavy } from "@/lib/utils/haptic";
 import { getQueueSourceHref } from "@/lib/utils/source-links";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
@@ -164,6 +165,7 @@ export function QueueSidebar() {
 
   const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
+    hapticHeavy();
     clearQueue();
     toast.success(`Cleared ${trackCount} tracks from queue`);
   };

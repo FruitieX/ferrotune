@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
+import { hapticTap } from "@/lib/utils/haptic";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -140,7 +141,10 @@ function FullscreenVolumeControls({
       variant="ghost"
       size="icon"
       className="shrink-0 rounded-full h-8 w-8"
-      onClick={() => setIsMuted(!isMuted)}
+      onClick={() => {
+        hapticTap();
+        setIsMuted(!isMuted);
+      }}
     >
       {isClipping ? (
         <AlertTriangle className="w-4 h-4 text-red-500" />
@@ -1048,7 +1052,10 @@ export function FullscreenPlayer() {
                 variant="ghost"
                 size="icon"
                 aria-label="Close fullscreen player"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  hapticTap();
+                  setIsOpen(false);
+                }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
                 className="rounded-full"
@@ -1254,7 +1261,10 @@ export function FullscreenPlayer() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full shrink-0"
-                onClick={toggleStar}
+                onClick={() => {
+                  hapticTap();
+                  toggleStar();
+                }}
               >
                 <Heart
                   className={cn(
@@ -1319,7 +1329,10 @@ export function FullscreenPlayer() {
                   "rounded-full",
                   queueState?.isShuffled && "text-primary hover:text-primary",
                 )}
-                onClick={() => toggleShuffle()}
+                onClick={() => {
+                  hapticTap();
+                  toggleShuffle();
+                }}
               >
                 <Shuffle className="w-5 h-5" />
               </Button>
@@ -1328,7 +1341,10 @@ export function FullscreenPlayer() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full w-12 h-12"
-                onClick={previous}
+                onClick={() => {
+                  hapticTap();
+                  previous();
+                }}
               >
                 <SkipBack className="w-7 h-7" />
               </Button>
@@ -1336,7 +1352,10 @@ export function FullscreenPlayer() {
               <Button
                 size="icon"
                 className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
-                onClick={togglePlayPause}
+                onClick={() => {
+                  hapticTap();
+                  togglePlayPause();
+                }}
               >
                 {playbackState === "playing" ? (
                   <Pause className="w-8 h-8" />
@@ -1349,7 +1368,10 @@ export function FullscreenPlayer() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full w-12 h-12"
-                onClick={next}
+                onClick={() => {
+                  hapticTap();
+                  next();
+                }}
               >
                 <SkipForward className="w-7 h-7" />
               </Button>
@@ -1361,7 +1383,10 @@ export function FullscreenPlayer() {
                   "rounded-full",
                   repeatMode !== "off" && "text-primary hover:text-primary",
                 )}
-                onClick={cycleRepeat}
+                onClick={() => {
+                  hapticTap();
+                  cycleRepeat();
+                }}
               >
                 {repeatMode === "one" ? (
                   <Repeat1 className="w-5 h-5" />

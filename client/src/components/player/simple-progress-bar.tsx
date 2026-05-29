@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
+import { hapticConfirm } from "@/lib/utils/haptic";
 import {
   currentTimeAtom,
   durationAtom,
@@ -115,6 +116,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
+    hapticConfirm();
     seekPercent(percent);
   };
 

@@ -95,6 +95,15 @@ const SIDEBAR_COVER_SIZES: Record<SidebarItemSize, string> = {
   large: "w-10 h-10",
 };
 
+// Shared sidebar nav item styles
+const sidebarNavItemBase = cn(
+  "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
+  "hover:bg-sidebar-accent transition-all",
+);
+
+const sidebarNavItemActive = "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary";
+const sidebarNavItemInactive = "border-l-2 border-transparent";
+
 const discoverItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/search", icon: Search, label: "Search" },
@@ -312,10 +321,8 @@ export function Sidebar() {
                   <Button
                     variant="ghost"
                     className={cn(
-                      "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
-                      "hover:bg-sidebar-accent",
-                      isActive &&
-                        "bg-sidebar-accent text-sidebar-primary font-semibold",
+                      sidebarNavItemBase,
+                      isActive ? sidebarNavItemActive : sidebarNavItemInactive,
                       isCollapsed && "justify-center px-0",
                     )}
                   >
@@ -364,9 +371,10 @@ export function Sidebar() {
                           variant="ghost"
                           className={cn(
                             "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
-                            "hover:bg-sidebar-accent",
-                            pathname.startsWith("/library") &&
-                              "bg-sidebar-accent text-sidebar-primary font-semibold",
+                            "hover:bg-sidebar-accent transition-all",
+                            pathname.startsWith("/library")
+                              ? "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary"
+                              : "border-l-2 border-transparent",
                           )}
                         >
                           <Library
@@ -506,10 +514,10 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 className={cn(
-                  "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
-                  "hover:bg-sidebar-accent",
-                  pathname.startsWith("/favorites") &&
-                    "bg-sidebar-accent text-sidebar-primary",
+                  sidebarNavItemBase,
+                  pathname.startsWith("/favorites")
+                    ? sidebarNavItemActive
+                    : sidebarNavItemInactive,
                   isCollapsed && "justify-center px-0",
                 )}
                 disabled={hydrated && !isConnected}
@@ -531,10 +539,10 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 className={cn(
-                  "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
-                  "hover:bg-sidebar-accent",
-                  pathname.startsWith("/history") &&
-                    "bg-sidebar-accent text-sidebar-primary",
+                  sidebarNavItemBase,
+                  pathname.startsWith("/history")
+                    ? sidebarNavItemActive
+                    : sidebarNavItemInactive,
                   isCollapsed && "justify-center px-0",
                 )}
                 disabled={hydrated && !isConnected}
@@ -567,9 +575,10 @@ export function Sidebar() {
                           variant="ghost"
                           className={cn(
                             "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
-                            "hover:bg-sidebar-accent",
-                            pathname === "/playlists" &&
-                              "bg-sidebar-accent text-sidebar-primary",
+                            "hover:bg-sidebar-accent transition-all",
+                            pathname === "/playlists"
+                              ? "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary"
+                              : "border-l-2 border-transparent",
                           )}
                         >
                           <ListMusic

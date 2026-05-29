@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ListMusic, Play, Pause, MoreHorizontal, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hapticTap } from "@/lib/utils/haptic";
 import {
   serverQueueStateAtom,
   queueWindowAtom,
@@ -69,11 +70,11 @@ function QueueItemPlaceholder() {
 // Empty state when queue is empty
 function QueueEmptyState() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-        <ListMusic className="w-8 h-8 text-muted-foreground" />
+    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in-0 zoom-in-95 duration-500">
+      <div className="w-16 h-16 rounded-full bg-muted/50 border border-border/50 flex items-center justify-center mb-4 shadow-inner">
+        <ListMusic className="w-8 h-8 text-muted-foreground/60" />
       </div>
-      <h3 className="font-semibold mb-1">Your queue is empty</h3>
+      <h3 className="font-semibold mb-1 text-foreground/80">Your queue is empty</h3>
       <p className="text-sm text-muted-foreground">
         Add songs to start listening
       </p>
@@ -145,7 +146,14 @@ function VirtualQueueItem({
         {/* Cover art with play button */}
         <div
           className="group/cover relative shrink-0 cursor-pointer touch-feedback active:brightness-75"
-          onClick={isCurrent ? onTogglePlayPause : onPlay}
+          onClick={() => {
+            hapticTap();
+            if (isCurrent) {
+              onTogglePlayPause();
+            } else {
+              onPlay();
+            }
+          }}
         >
           <CoverImage
             inlineData={song.coverArtData}
@@ -663,7 +671,10 @@ export const VirtualizedQueueDisplay = forwardRef<
                     isPlaying={isCurrent && playbackState === "playing"}
                     totalCount={totalCount}
                     onPlay={() => playAtIndex(virtualItem.index)}
-                    onRemove={() => removeFromQueue(virtualItem.index)}
+                    onRemove={() => {
+                      hapticTap();
+                      removeFromQueue(virtualItem.index);
+                    }}
                     onTogglePlayPause={togglePlayPause}
                     onMoveToPosition={handleMoveToPosition}
                     onNavigate={onNavigate}
