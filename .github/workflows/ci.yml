@@ -315,6 +315,7 @@ jobs:
         run: |
           choco install cmake llvm ffmpeg ninja -y
           echo 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
+          echo 'CMAKE_POLICY_VERSION_MINIMUM=3.5' >> "$GITHUB_ENV"
       - name: Install macOS desktop dependencies
         if: matrix.platform == 'macos'
         run: |
