@@ -185,10 +185,6 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs:
-      - backend
-      - client
-      - build-image
     outputs:
       version_name: ${{ steps.metadata.outputs.version_name }}
       version_code: ${{ steps.metadata.outputs.version_code }}
