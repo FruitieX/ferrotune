@@ -221,7 +221,9 @@ jobs:
       - name: Prepare Tauri Android CI config
         run: bash .github/scripts/write-tauri-ci-config.sh client/tauri.android-ci.conf.json
       - name: Initialize Tauri Android project
-        run: nix develop .#android -c npx tauri android init
+        run: nix develop .#android -c bash -c "cd client && pnpm install && npx tauri android init"
+      - name: Sync Android icons
+        run: nix develop .#android -c moon run client:tauri-android-sync-icons
       - name: Build Android APK
         run: nix develop .#android -c moon run client:tauri-android-build-ci
       - name: Sign Android APK

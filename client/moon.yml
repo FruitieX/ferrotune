@@ -510,7 +510,6 @@ tasks:
       - "tauri-plugin-native-audio/**/*"
     deps:
       - "install"
-      - "tauri-android-sync-icons"
       - "build-export"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"
