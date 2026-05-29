@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Optional: Wake lock to prevent CPU from sleeping during playback -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

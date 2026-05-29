@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
-import { hapticTap } from "@/lib/utils/haptic";
+import { hapticTap, hapticConfirm } from "@/lib/utils/haptic";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -391,6 +391,7 @@ export function FullscreenPlayer() {
     clearGestureCloseFallback();
     resetAlbumArtGesture();
     isOpeningWithGestureRef.current = false;
+    hapticTap();
     setIsOpen(false);
     setIsOpeningWithGesture(false);
     setIsClosedAnimationSettled(true);
@@ -890,6 +891,7 @@ export function FullscreenPlayer() {
       offset.y > CLOSE_SWIPE_THRESHOLD || velocity.y > CLOSE_VELOCITY_THRESHOLD;
 
     if (shouldClose) {
+      hapticConfirm();
       closeWithGestureAnimation();
     } else {
       // Snap back to origin

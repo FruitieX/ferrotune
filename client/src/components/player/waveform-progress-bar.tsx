@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
-import { hapticTap, hapticConfirm } from "@/lib/utils/haptic";
+import { hapticTap, hapticConfirm, hapticTick } from "@/lib/utils/haptic";
 import {
   currentTimeAtom,
   durationAtom,
@@ -103,6 +103,9 @@ export function WaveformProgressBar({
   const [isFocused, setIsFocused] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  // Track last scrub position for continuous haptic feedback during scrubbing
+  const lastScrubPercentRef = useRef(0);
 
   // Animation state - simplified: just tracks wave positions and previous track's source data
   const anim = useRef({
@@ -467,6 +470,7 @@ export function WaveformProgressBar({
     setIsDragging(true);
     hapticTap();
     const percent = getPercentFromEvent(e.clientX);
+    lastScrubPercentRef.current = percent;
     setHoverPercent(percent);
     seekPercent(percent);
   };
@@ -479,6 +483,7 @@ export function WaveformProgressBar({
     setIsHovering(true);
     hapticTap();
     const percent = getPercentFromEvent(touch.clientX);
+    lastScrubPercentRef.current = percent;
     setHoverPercent(percent);
     seekPercent(percent);
   };
@@ -495,6 +500,12 @@ export function WaveformProgressBar({
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
       const percent = getPercentFromEvent(e.clientX);
+      // Fire continuous haptic feedback while scrubbing (every ~1%)
+      const prev = lastScrubPercentRef.current;
+      if (Math.abs(percent - prev) >= 1) {
+        hapticTick();
+        lastScrubPercentRef.current = percent;
+      }
       setHoverPercent(percent);
       seekPercent(percent);
     };
@@ -504,6 +515,12 @@ export function WaveformProgressBar({
       if (!touch) return;
       e.preventDefault(); // Prevent scrolling during drag
       const percent = getPercentFromEvent(touch.clientX);
+      // Fire continuous haptic feedback while scrubbing (every ~1%)
+      const prev = lastScrubPercentRef.current;
+      if (Math.abs(percent - prev) >= 1) {
+        hapticTick();
+        lastScrubPercentRef.current = percent;
+      }
       setHoverPercent(percent);
       seekPercent(percent);
     };
