@@ -220,6 +220,8 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare Tauri Android CI config
         run: bash .github/scripts/write-tauri-ci-config.sh client/tauri.android-ci.conf.json
+      - name: Initialize Tauri Android project
+        run: nix develop .#android -c npx tauri android init
       - name: Build Android APK
         run: nix develop .#android -c moon run client:tauri-android-build-ci
       - name: Sign Android APK
