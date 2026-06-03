@@ -309,9 +309,7 @@ export function MobileQueueSheet() {
         duration: 0.5,
         ease: [0.32, 0.72, 0, 1],
       }).then(() => {
-        requestAnimationFrame(() => {
-          setKeepGestureCloseRendered(false);
-        });
+        setKeepGestureCloseRendered(false);
       });
     } else {
       // Snap back to origin
@@ -328,7 +326,7 @@ export function MobileQueueSheet() {
     setIsClosingViaGesture(false);
     setIsDraggingSheet(false);
     setKeepGestureCloseRendered(false);
-    dragX.set(0);
+    // dragX is reset by the useEffect watching isClosingViaGesture
   };
 
   const handleSheetAnimationComplete = () => {

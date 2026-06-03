@@ -101,7 +101,8 @@ const sidebarNavItemBase = cn(
   "hover:bg-sidebar-accent transition-all",
 );
 
-const sidebarNavItemActive = "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary";
+const sidebarNavItemActive =
+  "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary";
 const sidebarNavItemInactive = "border-l-2 border-transparent";
 
 const discoverItems = [

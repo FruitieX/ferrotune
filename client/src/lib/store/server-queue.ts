@@ -526,6 +526,11 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
   const client = getClient();
   if (!client) return;
 
+  // Bail out if the user is actively starting playback — startQueueAtom
+  // will handle the queue update and playback. Running concurrently would
+  // overwrite isRestoringQueueAtom to true and suppress auto-play.
+  if (selfTakeoverPending.value) return;
+
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
   if (!sessionId) return;
 

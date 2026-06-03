@@ -329,20 +329,25 @@ export function SongListToolbar({
         {showAdvancedFilters && <AdvancedFilterDialog />}
 
         {/* Active sort chip - shows current sort when non-default */}
-        {showSort && sortConfig.field !== "recommended" && sortConfig.field !== "name" && (
-          <div className="flex items-center animate-in fade-in-0 zoom-in-95 duration-200">
-            <button
-              type="button"
-              onClick={() => onSortChange({ field: "name", direction: "asc" })}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
-              aria-label={`Sorted by ${sortOptions.find((o) => o.value === sortConfig.field)?.label ?? sortConfig.field}. Click to reset.`}
-            >
-              <SortIcon className="w-3 h-3" />
-              {sortOptions.find((o) => o.value === sortConfig.field)?.label ?? sortConfig.field}
-              <X className="w-3 h-3 ml-0.5 opacity-60" />
-            </button>
-          </div>
-        )}
+        {showSort &&
+          sortConfig.field !== "recommended" &&
+          sortConfig.field !== "name" && (
+            <div className="flex items-center animate-in fade-in-0 zoom-in-95 duration-200">
+              <button
+                type="button"
+                onClick={() =>
+                  onSortChange({ field: "name", direction: "asc" })
+                }
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+                aria-label={`Sorted by ${sortOptions.find((o) => o.value === sortConfig.field)?.label ?? sortConfig.field}. Click to reset.`}
+              >
+                <SortIcon className="w-3 h-3" />
+                {sortOptions.find((o) => o.value === sortConfig.field)?.label ??
+                  sortConfig.field}
+                <X className="w-3 h-3 ml-0.5 opacity-60" />
+              </button>
+            </div>
+          )}
       </div>
 
       {/* Active filter badges */}

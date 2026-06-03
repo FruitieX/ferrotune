@@ -74,7 +74,9 @@ function QueueEmptyState() {
       <div className="w-16 h-16 rounded-full bg-muted/50 border border-border/50 flex items-center justify-center mb-4 shadow-inner">
         <ListMusic className="w-8 h-8 text-muted-foreground/60" />
       </div>
-      <h3 className="font-semibold mb-1 text-foreground/80">Your queue is empty</h3>
+      <h3 className="font-semibold mb-1 text-foreground/80">
+        Your queue is empty
+      </h3>
       <p className="text-sm text-muted-foreground">
         Add songs to start listening
       </p>

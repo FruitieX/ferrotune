@@ -904,7 +904,7 @@ fn continue_listening_subquery(user_id: i64) -> sea_orm::sea_query::SelectStatem
                 ))
                 .if_null(""),
             )
-            .is_not_in(["continueListening"]),
+            .is_not_in(["continueListening", "search", "other"]),
         );
 
     let mut outer = SqQuery::select();

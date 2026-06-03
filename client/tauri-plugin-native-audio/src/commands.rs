@@ -2,7 +2,7 @@ use serde_json::Value;
 use tauri::{command, AppHandle, Runtime};
 
 use crate::{
-    error::{Error, Result},
+    error::Result,
     models::{
         PlaybackSettingsConfig, PlaybackState, SafeAreaInsets, SessionConfig, StartPlaybackParams,
     },
