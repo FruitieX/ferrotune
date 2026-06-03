@@ -22,8 +22,9 @@ cat > "$RES_DIR/values/ic_launcher_background.xml" <<'EOF'
 </resources>
 EOF
 
-# Remove the incorrect default Android Studio background drawable if present
+# Remove default Tauri/Android Studio drawables that would show the wrong icon
 rm -f "$RES_DIR/drawable/ic_launcher_background.xml"
+rm -f "$RES_DIR/drawable-v24/ic_launcher_foreground.xml"
 
 # Adaptive icon foreground: wrap the Tauri-generated foreground PNG in an inset
 # to add padding for Android's adaptive icon safe zone. Without this, the icon
@@ -100,4 +101,18 @@ cat > "$RES_DIR/mipmap-anydpi-v33/ic_launcher.xml" <<'EOF'
 </adaptive-icon>
 EOF
 
-echo "Synced Android launcher icon resources with adaptive insets and monochrome layer."
+# Replace Tauri-generated PNGs with pre-built variants from icon.png.
+# `tauri android init` generates ic_launcher*.png from a hardcoded Tauri default
+# template rather than from icon.png, so we must overwrite them here.
+PREBUILT_DIR="src-tauri/android-icons"
+for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+  SRC_DIR="$PREBUILT_DIR/$density"
+  DST_DIR="$RES_DIR/mipmap-${density}"
+  if [[ -f "$SRC_DIR/ic_launcher.png" ]]; then
+    cp "$SRC_DIR/ic_launcher.png" "$DST_DIR/ic_launcher.png"
+    cp "$SRC_DIR/ic_launcher_round.png" "$DST_DIR/ic_launcher_round.png"
+    cp "$SRC_DIR/ic_launcher_foreground.png" "$DST_DIR/ic_launcher_foreground.png"
+  fi
+done
+
+echo "Synced Android launcher icon resources with pre-built PNGs, adaptive insets, and monochrome layer."

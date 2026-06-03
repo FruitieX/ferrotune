@@ -71,10 +71,44 @@
             pkgs.webkitgtk_4_1
             pkgs.librsvg
             pkgs.libsoup_3
+            # Playwright browser dependencies (Chromium headless shell)
+            pkgs.nss
+            pkgs.nspr
+            pkgs.cups
+            pkgs.libdrm
+            pkgs.mesa
+            pkgs.libgbm
+            pkgs.libxkbcommon
+            pkgs.expat
+            pkgs.dbus
+            pkgs.freetype
+            pkgs.fontconfig
+            pkgs.alsa-lib
+            pkgs.libpulseaudio
+            pkgs.xorg.libX11
+            pkgs.xorg.libXcomposite
+            pkgs.xorg.libXdamage
+            pkgs.xorg.libXrandr
+            pkgs.xorg.libXfixes
+            pkgs.xorg.libXtst
+            pkgs.xorg.libXi
+            pkgs.xorg.libXext
+            pkgs.xorg.libXrender
           ];
           shellHook = ''
             export PATH="${postgresqlPackage}/bin:$PATH"
             export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
+            # Playwright Chromium needs these at runtime
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+              pkgs.glib pkgs.cairo pkgs.pango pkgs.gdk-pixbuf pkgs.gtk3
+              pkgs.nss pkgs.nspr pkgs.cups pkgs.libdrm pkgs.mesa pkgs.libgbm
+              pkgs.libxkbcommon pkgs.expat pkgs.dbus pkgs.freetype pkgs.fontconfig
+              pkgs.alsa-lib pkgs.libpulseaudio pkgs.udev pkgs.atk
+              pkgs.at-spi2-atk pkgs.at-spi2-core pkgs.xorg.libxcb
+              pkgs.xorg.libX11 pkgs.xorg.libXcomposite pkgs.xorg.libXdamage
+              pkgs.xorg.libXrandr pkgs.xorg.libXfixes pkgs.xorg.libXtst
+              pkgs.xorg.libXi pkgs.xorg.libXext pkgs.xorg.libXrender
+            ]}"
             echo "Loaded ferrotune dev shell (server + ui)"
             echo "Test tools: hurl, ffmpeg, moon available"
           '';
@@ -117,19 +151,21 @@
             echo "JAVA_HOME=$JAVA_HOME"
             echo ""
 
-            # Auto-configure ADB bridge when running under WSL2
-            # Points the Android SDK's ADB client at the Windows-side ADB server
-            # where the Android emulator is running.
-            # WSL2 mirrored networking mode shares localhost with Windows, so
-            # 127.0.0.1 reaches the Windows ADB server directly.
-            if grep -qi microsoft /proc/version 2>/dev/null; then
-              # Allow override via env var; default to localhost (mirrored networking)
+            # Auto-configure ADB bridge when running in a VM
+            # Points the Android SDK's ADB client at the host-side ADB server
+            # where the Android device/emulator is connected.
+            if [ -n "''${ANDROID_ADB_SERVER_ADDRESS:-}" ]; then
+              echo "Using pre-configured ADB server: $ANDROID_ADB_SERVER_ADDRESS"
+            elif grep -qi microsoft /proc/version 2>/dev/null; then
+              # WSL2 mirrored networking mode shares localhost with Windows
               WINDOWS_HOST="''${ADB_WINDOWS_HOST:-127.0.0.1}"
               export ANDROID_ADB_SERVER_ADDRESS="$WINDOWS_HOST"
               echo "WSL2 detected: ADB bridged to Windows host at $WINDOWS_HOST"
-              echo "  (ANDROID_ADB_SERVER_ADDRESS=$WINDOWS_HOST)"
-              echo "  Make sure the Windows ADB server is running:"
-              echo "  > PowerShell (Admin): scripts\\setup-windows-adb-for-wsl.ps1"
+            fi
+            if [ -n "''${ANDROID_ADB_SERVER_ADDRESS:-}" ]; then
+              echo "  (ANDROID_ADB_SERVER_ADDRESS=$ANDROID_ADB_SERVER_ADDRESS)"
+              echo "  Make sure the Windows ADB server is running with:"
+              echo "  > adb -a nodaemon server"
             fi
 
             echo ""
