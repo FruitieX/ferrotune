@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Clock,
   Heart,
   History,
@@ -27,6 +28,7 @@ export type HomeTileKind =
   | "continueListening"
   | "recentlyAdded"
   | "discover"
+  | "similarTracks"
   | "playlist"
   | "accountSwitch";
 
@@ -127,6 +129,12 @@ export const HOME_TILE_OPTIONS: HomeTileOption[] = [
     label: "Discover",
     description: "Random album discovery",
     icon: Sparkles,
+  },
+  {
+    kind: "similarTracks",
+    label: "Similar To What You've Heard",
+    description: "Tracks similar to your recent listening",
+    icon: AudioLines,
   },
   {
     kind: "playlist",
@@ -313,6 +321,17 @@ const baseTileDefinitions: Record<
       sourceType: "albumList",
       sourceId: "random",
       sourceName: "Discover",
+    },
+  },
+  similarTracks: {
+    label: "Similar To What You've Heard",
+    actionTargetType: "songs",
+    icon: AudioLines,
+    iconClassName: "text-emerald-500",
+    href: homeSectionHrefs.similarTracks,
+    queue: {
+      sourceType: "similarTracks",
+      sourceName: "Similar To What You've Heard",
     },
   },
 };

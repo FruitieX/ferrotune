@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Clock,
   History,
   ListMusic,
@@ -108,7 +109,7 @@ export const HOME_SECTION_OPTIONS: HomeSectionOption[] = [
     kind: "similarTracks",
     label: "Similar To What You've Heard",
     description: "Tracks similar to your recent listening",
-    icon: Sparkles,
+    icon: AudioLines,
     href: homeSectionHrefs.similarTracks,
   },
   {

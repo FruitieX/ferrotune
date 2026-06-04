@@ -11,6 +11,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 import {
+  AudioLines,
   Play,
   Clock,
   Radio,
@@ -138,7 +139,7 @@ function getContinueListeningSourceIcon(
     case "mostPlayedRecently":
       return TrendingUp;
     case "similarTracks":
-      return Sparkles;
+      return AudioLines;
     default:
       return null;
   }
@@ -1909,6 +1910,7 @@ export default function HomePage() {
                   shuffle: true,
                 })
               }
+              viewAllHref={getHomeSectionHref(section)}
             />
             <VirtualizedHorizontalScroll<Song>
               items={similarTracksSongs}

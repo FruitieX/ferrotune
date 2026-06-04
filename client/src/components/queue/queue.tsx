@@ -6,6 +6,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
+  AudioLines,
   ListMusic,
   Trash2,
   PanelRightClose,
@@ -70,6 +71,8 @@ function QueueSourceIcon({
       return <Heart className={className} />;
     case "history":
       return <History className={className} />;
+    case "similarTracks":
+      return <AudioLines className={className} />;
     default:
       return <ListMusic className={className} />;
   }

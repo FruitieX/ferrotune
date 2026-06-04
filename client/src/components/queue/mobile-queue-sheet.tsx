@@ -13,6 +13,7 @@ import {
 } from "framer-motion";
 import { toast } from "sonner";
 import {
+  AudioLines,
   ListMusic,
   Trash2,
   X,
@@ -76,6 +77,8 @@ function QueueSourceIcon({
       return <Heart className={className} />;
     case "history":
       return <History className={className} />;
+    case "similarTracks":
+      return <AudioLines className={className} />;
     default:
       return <ListMusic className={className} />;
   }

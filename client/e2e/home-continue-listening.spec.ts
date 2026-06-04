@@ -90,6 +90,7 @@ test.describe("Home continue listening", () => {
           recentlyAdded: { album: [], total: 0 },
           forgottenFavorites: { song: [], total: 0, seed: 1 },
           discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
         },
       });
     });
@@ -135,6 +136,7 @@ test.describe("Home continue listening", () => {
           recentlyAdded: { album: [], total: 0 },
           forgottenFavorites: { song: [], total: 0, seed: 1 },
           discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
         },
       });
     });
@@ -230,6 +232,7 @@ test.describe("Home continue listening", () => {
           recentlyAdded: { album: [], total: 0 },
           forgottenFavorites: { song: [], total: 0, seed: 1 },
           discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
         },
       });
     });
@@ -371,6 +374,7 @@ test.describe("Home continue listening", () => {
           recentlyAdded: { album: [], total: 0 },
           forgottenFavorites: { song: [], total: 0, seed: 1 },
           discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
         },
       });
     });
@@ -404,6 +408,7 @@ test.describe("Home continue listening", () => {
           recentlyAdded: { album: [], total: 0 },
           forgottenFavorites: { song: [], total: 0, seed: 1 },
           discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
         },
       });
     });
@@ -445,6 +450,30 @@ test.describe("Home continue listening", () => {
     await expect(
       page.getByTestId("song-row").filter({ hasText: song.title }),
     ).toBeVisible();
+  });
+
+  test("similar tracks section heading links to dedicated view", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route("**/api/home*", async (route) => {
+      await route.fulfill({
+        json: {
+          continueListening: { entries: [], total: 0 },
+          mostPlayedRecently: { song: [], total: 0 },
+          recentlyAdded: { album: [], total: 0 },
+          forgottenFavorites: { song: [], total: 0, seed: 1 },
+          discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
+        },
+      });
+    });
+    await routeHomeSongSections(page);
+
+    await page.goto("/");
+
+    await expect(
+      page.getByRole("link", { name: "Similar To What You've Heard" }).first(),
+    ).toHaveAttribute("href", "/home/similar-tracks");
   });
 
   test("section list views expose filter sort and column controls", async ({
@@ -669,6 +698,7 @@ test.describe("Home continue listening", () => {
           recentlyAdded: { album: [], total: 0 },
           forgottenFavorites: { song: [], total: 0, seed: 1 },
           discover: { album: [], total: 0, seed: 1 },
+          similarTracks: { song: [], total: 0 },
         },
       });
     });

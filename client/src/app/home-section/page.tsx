@@ -6,6 +6,7 @@ import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
+  AudioLines,
   Clock,
   Disc,
   Heart,
@@ -97,7 +98,7 @@ function getContinueListeningSourceIcon(
     case "mostPlayedRecently":
       return TrendingUp;
     case "similarTracks":
-      return Sparkles;
+      return AudioLines;
     default:
       return null;
   }
@@ -225,7 +226,7 @@ function getHomeSectionConfig(
         title: "Similar To What You've Heard",
         label: "Home",
         emptyTitle: "No similar tracks found",
-        icon: Sparkles,
+        icon: AudioLines,
         iconClassName: "bg-linear-to-br from-emerald-500 to-cyan-700",
         gradientColor: "rgba(16,185,129,0.2)",
         queueSourceType: "similarTracks",
