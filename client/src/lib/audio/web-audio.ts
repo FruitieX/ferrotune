@@ -26,6 +26,10 @@ export let analyserNode: AnalyserNode | null = null;
 export let preBufferedTrackId: string | null = null;
 export let preBufferedStreamUrl: string | null = null;
 export let preBufferReady = false;
+// Timestamp (ms, Date.now()) before which pre-buffering should not be retried
+// after a failure. Prevents an expired-token / transient-network failure from
+// spinning startPreBuffering on every timeupdate tick.
+export let preBufferBackoffUntil = 0;
 // Time in seconds before track end to start pre-buffering
 export const PRE_BUFFER_LEAD_TIME = 15;
 
@@ -230,6 +234,11 @@ export function setPreBufferedStreamUrl(url: string | null): void {
 
 export function setPreBufferReady(ready: boolean): void {
   preBufferReady = ready;
+}
+
+/** Set the pre-buffer retry backoff deadline (Date.now()-based ms timestamp). */
+export function setPreBufferBackoffUntil(timestamp: number): void {
+  preBufferBackoffUntil = timestamp;
 }
 
 /** Get the gain node for a specific element index. */

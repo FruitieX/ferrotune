@@ -82,6 +82,19 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
     let cancelled = false;
     let refreshInFlight = false;
 
+    // Persist proactive/background URL-token refreshes to the auth store so the
+    // fresh token survives reloads and account switches.
+    client.setUrlTokenRefreshListener((urlToken) => {
+      if (cancelled) {
+        return;
+      }
+      persistAuthSessionUpdate({
+        sessionExpiresAt: urlToken.sessionExpiresAt,
+        urlToken: urlToken.urlToken,
+        urlTokenExpiresAt: urlToken.urlTokenExpiresAt,
+      });
+    });
+
     const refreshAuthSession = async (blockWhileValidating: boolean) => {
       if (!connection.sessionToken || refreshInFlight) {
         return;
@@ -134,6 +147,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
 
     return () => {
       cancelled = true;
+      client.setUrlTokenRefreshListener(undefined);
       window.removeEventListener("focus", refreshWithoutBlocking);
       window.removeEventListener(appResumeRepaintEvent, refreshWithoutBlocking);
       document.removeEventListener("visibilitychange", handleVisibilityChange);

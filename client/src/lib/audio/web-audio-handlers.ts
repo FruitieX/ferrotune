@@ -27,6 +27,7 @@ import {
 import {
   performGaplessHandoff,
   checkAndStartPreBuffering,
+  resetPreBufferRetry,
 } from "@/lib/audio/gapless-playback";
 import {
   audioElements,
@@ -282,6 +283,7 @@ export function createWebAudioHandlers({
           preBufferedTrackId,
         );
         setPreBufferReady(true);
+        resetPreBufferRetry();
       }
       return;
     }

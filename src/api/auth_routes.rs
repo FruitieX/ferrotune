@@ -211,7 +211,11 @@ fn bearer_token_from_headers(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn url_token_duration() -> Duration {
-    Duration::minutes(30)
+    // Scoped media/events URL tokens are embedded in query strings, so they are
+    // kept relatively short-lived to limit the blast radius of a leaked URL.
+    // The web client proactively refreshes the token well before expiry, so a
+    // few hours is plenty while keeping refresh churn low.
+    Duration::hours(4)
 }
 
 impl From<User> for AuthUserResponse {

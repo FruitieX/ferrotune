@@ -7,15 +7,18 @@ import {
   preBufferReady,
   preBufferedTrackId,
   preBufferedStreamUrl,
+  preBufferBackoffUntil,
   PRE_BUFFER_LEAD_TIME,
   setActiveIndex,
   setPreBufferedTrackId,
   setPreBufferedStreamUrl,
   setPreBufferReady,
+  setPreBufferBackoffUntil,
   getGainNode,
   setReplayGain,
   getTrackReplayGain,
   resumeAudioContext,
+  invalidatePreBuffer,
 } from "./web-audio";
 
 interface SongWithReplayGain {
@@ -39,6 +42,55 @@ interface EngineStateCallbacks {
   setCurrentLoadedTrackId: (id: string | null) => void;
   setIsGaplessHandoff: (v: boolean) => void;
   setGaplessHandoffExpectedTrackId: (id: string | null) => void;
+}
+
+// Bounded retry/backoff for pre-buffer failures. A failed pre-buffer load
+// (expired URL token -> 401, or a transient network drop) must not re-fire on
+// every timeupdate tick. We back off with increasing delays and force a token
+// refresh between attempts in case the failure was an expired credential.
+const PRE_BUFFER_RETRY_DELAYS = [1000, 2000, 4000, 8000];
+const PRE_BUFFER_GIVE_UP_COOLDOWN_MS = 30_000;
+let preBufferRetryCount = 0;
+
+/** Reset pre-buffer retry/backoff state after a successful (re)buffer or handoff. */
+export function resetPreBufferRetry(): void {
+  preBufferRetryCount = 0;
+  setPreBufferBackoffUntil(0);
+}
+
+/**
+ * Handle a pre-buffer (inactive element) load error without spinning.
+ * Invalidates the stale pre-buffer, schedules a backoff window so
+ * checkAndStartPreBuffering retries later (not instantly), and force-refreshes
+ * the URL token in case the failure was caused by token expiry.
+ */
+export function handlePreBufferError(): void {
+  // Clear the failed pre-buffer; this resets preBufferedTrackId so a retry can
+  // start once the backoff window elapses.
+  invalidatePreBuffer();
+
+  if (preBufferRetryCount >= PRE_BUFFER_RETRY_DELAYS.length) {
+    console.warn(
+      "[Audio] Pre-buffer failed repeatedly; backing off before retrying",
+    );
+    setPreBufferBackoffUntil(Date.now() + PRE_BUFFER_GIVE_UP_COOLDOWN_MS);
+    preBufferRetryCount = 0;
+    return;
+  }
+
+  const delay = PRE_BUFFER_RETRY_DELAYS[preBufferRetryCount]!;
+  preBufferRetryCount += 1;
+  setPreBufferBackoffUntil(Date.now() + delay);
+  console.log(
+    `[Audio] Pre-buffer error; retrying in ${delay}ms (attempt ${preBufferRetryCount}/${PRE_BUFFER_RETRY_DELAYS.length})`,
+  );
+
+  // Best-effort token refresh so the retry uses a fresh credential. Safe to
+  // call repeatedly; it no-ops while a refresh is unnecessary on the server.
+  const client = getClient();
+  void client?.refreshUrlToken().catch((error) => {
+    console.warn("[Audio] Token refresh after pre-buffer error failed", error);
+  });
 }
 
 /**
@@ -101,6 +153,7 @@ export function performGaplessHandoff(
   setPreBufferedTrackId(null);
   setPreBufferedStreamUrl(null);
   setPreBufferReady(false);
+  resetPreBufferRetry();
 
   // Reset scrobble tracking for new track
   setters.setHasScrobbled(false);
@@ -185,6 +238,7 @@ export function checkAndStartPreBuffering(
   if (
     duration > 0 &&
     !preBufferedTrackId &&
+    Date.now() >= preBufferBackoffUntil &&
     state.queueState?.repeatMode !== "one" &&
     activeAudio.currentTime > duration - PRE_BUFFER_LEAD_TIME
   ) {

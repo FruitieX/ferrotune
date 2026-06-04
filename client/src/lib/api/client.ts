@@ -281,6 +281,8 @@ export class FerrotuneClient {
   private sessionExpiresAt?: string;
   private urlToken?: string;
   private urlTokenExpiresAt?: string;
+  private urlTokenRefreshTimer?: ReturnType<typeof setTimeout>;
+  private onUrlTokenRefreshed?: (response: AuthUrlTokenResponse) => void;
 
   constructor(connection: ServerConnection) {
     this.serverUrl = connection.serverUrl.replace(/\/$/, "");
@@ -288,6 +290,7 @@ export class FerrotuneClient {
     this.sessionExpiresAt = connection.sessionExpiresAt;
     this.urlToken = connection.urlToken;
     this.urlTokenExpiresAt = connection.urlTokenExpiresAt;
+    this.scheduleUrlTokenAutoRefresh();
   }
 
   async login(
@@ -334,6 +337,8 @@ export class FerrotuneClient {
     this.urlToken = response.urlToken;
     this.urlTokenExpiresAt = response.urlTokenExpiresAt;
     this.sessionExpiresAt = response.sessionExpiresAt;
+    this.onUrlTokenRefreshed?.(response);
+    this.scheduleUrlTokenAutoRefresh();
     return response;
   }
 
@@ -345,6 +350,96 @@ export class FerrotuneClient {
     }
 
     return this.refreshUrlToken(scope);
+  }
+
+  /**
+   * Register a listener that is invoked whenever the URL token is refreshed
+   * (including proactive background refreshes). Used to persist the new token
+   * to the auth store so it survives reloads/account switches.
+   */
+  setUrlTokenRefreshListener(
+    listener: ((response: AuthUrlTokenResponse) => void) | undefined,
+  ): void {
+    this.onUrlTokenRefreshed = listener;
+  }
+
+  /** Whether a URL token is currently available for media/stream requests. */
+  hasUrlToken(): boolean {
+    return !!this.urlToken;
+  }
+
+  /**
+   * Rewrite the `urlToken` query parameter of an existing stream/media URL to
+   * the current (possibly just-refreshed) token. Returns the URL unchanged if
+   * no token is available. Used by playback error recovery so a reload after a
+   * token refresh uses the fresh credential instead of the stale one.
+   */
+  withFreshUrlToken(url: string): string {
+    if (!this.urlToken) {
+      return url;
+    }
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set("urlToken", this.urlToken);
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }
+
+  /** Stop the proactive URL-token auto-refresh timer (e.g. on disconnect). */
+  stopUrlTokenAutoRefresh(): void {
+    if (this.urlTokenRefreshTimer !== undefined) {
+      clearTimeout(this.urlTokenRefreshTimer);
+      this.urlTokenRefreshTimer = undefined;
+    }
+  }
+
+  /**
+   * Schedule a background refresh of the URL token shortly before it expires.
+   * This keeps long-running playback sessions authenticated without relying on
+   * window focus/visibility events. Timers can be throttled while the tab is
+   * backgrounded, so playback error recovery still force-refreshes as a backstop.
+   */
+  private scheduleUrlTokenAutoRefresh(): void {
+    this.stopUrlTokenAutoRefresh();
+
+    if (typeof window === "undefined" || !this.sessionToken || !this.urlToken) {
+      return;
+    }
+
+    const expiresAt = this.urlTokenExpiresAt
+      ? Date.parse(this.urlTokenExpiresAt)
+      : NaN;
+    if (!Number.isFinite(expiresAt)) {
+      return;
+    }
+
+    // Refresh ~2 minutes before expiry, clamped so we never busy-loop and never
+    // schedule absurdly far out (setTimeout max is ~24.8 days).
+    const REFRESH_SKEW_MS = 2 * 60 * 1000;
+    const MIN_DELAY_MS = 15 * 1000;
+    const MAX_DELAY_MS = 6 * 60 * 60 * 1000;
+    const delay = Math.min(
+      Math.max(expiresAt - Date.now() - REFRESH_SKEW_MS, MIN_DELAY_MS),
+      MAX_DELAY_MS,
+    );
+
+    this.urlTokenRefreshTimer = setTimeout(() => {
+      this.urlTokenRefreshTimer = undefined;
+      void this.refreshUrlToken().catch((error) => {
+        console.warn("[Auth] Proactive URL token refresh failed", error);
+        // Retry on a short delay so transient failures don't disable refresh.
+        if (typeof window !== "undefined" && this.sessionToken) {
+          this.urlTokenRefreshTimer = setTimeout(() => {
+            this.urlTokenRefreshTimer = undefined;
+            void this.refreshUrlToken().catch(() => {
+              // Give up until the next successful refresh reschedules.
+            });
+          }, 30 * 1000);
+        }
+      });
+    }, delay);
   }
 
   // System endpoints
@@ -3104,5 +3199,6 @@ export function getClient(): FerrotuneClient | null {
 }
 
 export function clearClient(): void {
+  clientInstance?.stopUrlTokenAutoRefresh();
   clientInstance = null;
 }

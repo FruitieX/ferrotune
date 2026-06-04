@@ -5,12 +5,9 @@
  * and transitions to error state when streams stall without progress.
  */
 import { toast } from "sonner";
-import {
-  audioElements,
-  activeIndex,
-  invalidatePreBuffer,
-  resumeAudioContext,
-} from "./web-audio";
+import { audioElements, activeIndex, resumeAudioContext } from "./web-audio";
+import { handlePreBufferError } from "./gapless-playback";
+import { getClient } from "@/lib/api/client";
 
 // Re-export for type safety of the deps interface
 import type { PlaybackState } from "@/lib/store/player";
@@ -124,12 +121,13 @@ export function createNetworkErrorHandlers(
   };
 
   const handleError = (e: Event) => {
-    // Skip errors from inactive (pre-buffer) element — just invalidate pre-buffer
+    // Skip errors from inactive (pre-buffer) element — recover via bounded
+    // retry/backoff (with a token refresh) instead of spinning.
     if (!deps.isFromActive(e)) {
       console.warn(
-        "[Audio] Error on inactive (pre-buffer) element, invalidating pre-buffer",
+        "[Audio] Error on inactive (pre-buffer) element, scheduling pre-buffer retry",
       );
-      invalidatePreBuffer();
+      handlePreBufferError();
       return;
     }
 
@@ -173,65 +171,98 @@ export function createNetworkErrorHandlers(
 
     console.error("[Audio] Playback error:", errorMessage, mediaError);
 
-    // Auto-retry on network errors (server restart, dropped connection)
-    if (
-      mediaError?.code === MediaError.MEDIA_ERR_NETWORK &&
-      networkRetryCount < NETWORK_RETRY_DELAYS.length
-    ) {
+    // Auto-retry on recoverable errors:
+    //  - MEDIA_ERR_NETWORK: server restart, dropped connection, wifi<->cellular
+    //    handoff, etc.
+    //  - MEDIA_ERR_SRC_NOT_SUPPORTED: a non-media response, which is what an
+    //    expired/invalid URL token (HTTP 401) looks like to the audio element.
+    // Both are retried with backoff and a forced URL-token refresh so playback
+    // resumes once connectivity returns or the credential is renewed.
+    const isRecoverableError =
+      mediaError?.code === MediaError.MEDIA_ERR_NETWORK ||
+      mediaError?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+    if (isRecoverableError && networkRetryCount < NETWORK_RETRY_DELAYS.length) {
       const delay = NETWORK_RETRY_DELAYS[networkRetryCount]!;
       networkRetryCount++;
       console.log(
-        `[Audio] Network error, auto-retrying in ${delay}ms (attempt ${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})`,
+        `[Audio] Recoverable playback error, auto-retrying in ${delay}ms (attempt ${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})`,
       );
       deps.settersRef.current.setPlaybackState("loading");
       deps.settersRef.current.setPlaybackError({
-        message: `Network error — retrying (${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})…`,
+        message: `Connection issue — retrying (${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})…`,
         trackId: state.currentSong?.id,
         trackTitle: state.currentSong?.title,
         timestamp: Date.now(),
       });
       setTimeout(() => {
-        // Only retry if we're still in loading/error state (user may have
-        // navigated away or paused)
-        const currentState = deps.stateRef.current.playbackState;
-        if (currentState === "loading" || currentState === "error") {
-          // Retry by reloading the same source and restoring the stream-relative
-          // media position. With byte-range-capable streams, the browser can
-          // turn that seek into a range request instead of replaying from zero.
-          const activeAudio = audioElements[activeIndex];
-          if (activeAudio?.src) {
-            const currentSrc = activeAudio.src;
-            const resumeTime = Number.isFinite(activeAudio.currentTime)
-              ? activeAudio.currentTime
-              : 0;
-            const streamTimeOffset = deps.getCurrentStreamTimeOffset();
-            const restoreRetryPosition = () => {
-              if (resumeTime <= 0) return;
-              try {
-                activeAudio.currentTime = resumeTime;
-              } catch (error) {
-                console.warn(
-                  "[Audio] Failed to restore retry position:",
-                  error,
-                );
-              }
-            };
-
-            activeAudio.addEventListener(
-              "loadedmetadata",
-              restoreRetryPosition,
-              { once: true },
-            );
-            activeAudio.src = "";
-            activeAudio.src = currentSrc;
-            deps.setCurrentStreamTimeOffset(streamTimeOffset);
-            deps.setIsLoadingNewTrack(true);
-            activeAudio.load();
-            resumeAudioContext().then(() => {
-              activeAudio.play().catch(console.error);
-            });
+        void (async () => {
+          // Only retry if we're still in loading/error state (user may have
+          // navigated away or paused)
+          const currentState = deps.stateRef.current.playbackState;
+          if (currentState !== "loading" && currentState !== "error") {
+            return;
           }
-        }
+
+          const activeAudio = audioElements[activeIndex];
+          if (!activeAudio?.src) {
+            return;
+          }
+
+          // Force-refresh the URL token in case the failure was an expired
+          // credential. Best-effort: a transient network outage will make this
+          // throw, but reloading the existing URL still recovers once the
+          // connection returns.
+          const client = getClient();
+          if (client) {
+            try {
+              await client.refreshUrlToken();
+            } catch (error) {
+              console.warn(
+                "[Audio] Token refresh during retry failed (will retry with existing token)",
+                error,
+              );
+            }
+          }
+
+          // Re-check state after the awaited refresh.
+          const stateAfterRefresh = deps.stateRef.current.playbackState;
+          if (
+            stateAfterRefresh !== "loading" &&
+            stateAfterRefresh !== "error"
+          ) {
+            return;
+          }
+
+          // Rebuild the source URL with the freshest token so an expired-token
+          // failure isn't retried with the same stale credential.
+          const currentSrc = client
+            ? client.withFreshUrlToken(activeAudio.src)
+            : activeAudio.src;
+          const resumeTime = Number.isFinite(activeAudio.currentTime)
+            ? activeAudio.currentTime
+            : 0;
+          const streamTimeOffset = deps.getCurrentStreamTimeOffset();
+          const restoreRetryPosition = () => {
+            if (resumeTime <= 0) return;
+            try {
+              activeAudio.currentTime = resumeTime;
+            } catch (error) {
+              console.warn("[Audio] Failed to restore retry position:", error);
+            }
+          };
+
+          activeAudio.addEventListener("loadedmetadata", restoreRetryPosition, {
+            once: true,
+          });
+          activeAudio.src = "";
+          activeAudio.src = currentSrc;
+          deps.setCurrentStreamTimeOffset(streamTimeOffset);
+          deps.setIsLoadingNewTrack(true);
+          activeAudio.load();
+          resumeAudioContext().then(() => {
+            activeAudio.play().catch(console.error);
+          });
+        })();
       }, delay);
       return;
     }

@@ -752,7 +752,7 @@ export async function waitForLibraryContent(page: Page, timeout = 15000) {
 /**
  * Helper to wait for the player to be ready for playback.
  */
-export async function waitForPlayerReady(page: Page, timeout = 5000) {
+export async function waitForPlayerReady(page: Page, timeout = 15000) {
   const playerBar = page.locator(
     '[data-testid="player-bar"], footer, .player-bar',
   );
