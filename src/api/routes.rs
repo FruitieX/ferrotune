@@ -1,11 +1,11 @@
 //! Native Ferrotune API router.
 
 use super::{
-    auth_routes, browse, directory, disabled_songs, duplicates, filesystem, history, history_admin,
-    home, lastfm, listening, lists, match_dictionary, media, music_folders, playlists, playqueue,
-    preferences, queue, recycle_bin, scan, scrobbles, search, server_config, sessions, setup,
-    shuffle_exclude, smart_playlists, songs, starring, stats, tagger, tagger_session, tags,
-    testing, users, waveform,
+    auth_routes, browse, directory, disabled_songs, discovery, duplicates, filesystem, history,
+    history_admin, home, lastfm, listening, lists, match_dictionary, media, music_folders,
+    playlists, playqueue, preferences, queue, recycle_bin, scan, scrobbles, search, server_config,
+    sessions, setup, shuffle_exclude, smart_playlists, songs, starring, stats, tagger,
+    tagger_session, tags, testing, users, waveform,
 };
 
 use crate::api::AppState;
@@ -33,6 +33,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Home page batch endpoint
         .route("/home", get(home::get_home))
         .route("/continue-listening", get(home::get_continue_listening))
+        // Discovery endpoints
+        .route(
+            "/discovery/similar-songs",
+            get(discovery::get_similar_songs),
+        )
         // Browse endpoints
         .route("/ping", get(browse::ping))
         .route("/artists", get(browse::get_artists))

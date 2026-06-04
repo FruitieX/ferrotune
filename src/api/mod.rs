@@ -10,6 +10,7 @@ pub mod common;
 pub mod cover_art;
 pub mod directory;
 mod disabled_songs;
+mod discovery;
 mod duplicates;
 pub mod embedded_ui;
 mod filesystem;

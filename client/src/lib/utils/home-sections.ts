@@ -14,6 +14,7 @@ export const homeSectionHrefs = {
   recentlyAdded: "/home/recently-added",
   forgottenFavorites: "/home/forgotten-favorites",
   discover: "/home/discover",
+  similarTracks: "/home/similar-tracks",
 };
 
 export type HomeSectionKind =
@@ -22,6 +23,7 @@ export type HomeSectionKind =
   | "recentlyAdded"
   | "forgottenFavorites"
   | "discover"
+  | "similarTracks"
   | "topAlbums"
   | "recentAlbums"
   | "playlistSongs";
@@ -103,6 +105,13 @@ export const HOME_SECTION_OPTIONS: HomeSectionOption[] = [
     href: homeSectionHrefs.discover,
   },
   {
+    kind: "similarTracks",
+    label: "Similar To What You've Heard",
+    description: "Tracks similar to your recent listening",
+    icon: Sparkles,
+    href: homeSectionHrefs.similarTracks,
+  },
+  {
     kind: "topAlbums",
     label: "Top Albums",
     description: "Albums played most in a chosen recent period",
@@ -142,6 +151,7 @@ export const DEFAULT_HOME_SECTIONS: HomeSectionConfig[] = [
       DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
   },
   { id: "discover", kind: "discover", enabled: true },
+  { id: "similar-tracks", kind: "similarTracks", enabled: true },
   {
     id: "top-albums",
     kind: "topAlbums",

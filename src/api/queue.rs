@@ -2097,6 +2097,34 @@ async fn materialize_most_played_recently_queue_songs(
     Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
 }
 
+/// Materialize songs for the Similar Tracks (discovery) queue source.
+async fn materialize_similar_tracks_queue_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    #[cfg(feature = "bliss")]
+    {
+        // Pick the most recently played song as a seed
+        let seed_aggregates =
+            crate::db::repo::history::list_recent_song_aggregates(database.conn(), user_id, 1, 0)
+                .await?;
+        let Some(seed) = seed_aggregates.first() else {
+            return Ok(Vec::new());
+        };
+
+        let similar =
+            crate::bliss::find_similar_songs(database, &seed.song_id, user_id, 200).await?;
+        let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
+        return Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?);
+    }
+
+    #[cfg(not(feature = "bliss"))]
+    {
+        let _ = (database, user_id);
+        Ok(Vec::new())
+    }
+}
+
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
     database: &crate::db::Database,
@@ -2362,6 +2390,11 @@ async fn materialize_queue_songs(
                             .await?;
                         songs.extend(most_played_recently_songs);
                     }
+                    "similarTracks" => {
+                        let similar_songs =
+                            materialize_similar_tracks_queue_songs(database, user_id).await?;
+                        songs.extend(similar_songs);
+                    }
                     _ => {}
                 }
             }
@@ -2389,6 +2422,9 @@ async fn materialize_queue_songs(
                 sort_dir.as_deref(),
             )
             .await
+        }
+        QueueSourceType::SimilarTracks => {
+            materialize_similar_tracks_queue_songs(database, user_id).await
         }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library

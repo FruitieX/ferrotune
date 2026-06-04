@@ -137,6 +137,8 @@ function getContinueListeningSourceIcon(
       return History;
     case "mostPlayedRecently":
       return TrendingUp;
+    case "similarTracks":
+      return Sparkles;
     default:
       return null;
   }
@@ -973,6 +975,12 @@ export default function HomePage() {
     "home",
     currentAccountKey,
   ] as const;
+  const similarTracksQueryKey = [
+    "discovery",
+    "similar-songs",
+    "home",
+    currentAccountKey,
+  ] as const;
   const batchSectionsKey = [
     isSectionEnabled("continueListening") ? "continue" : "no-continue",
     isSectionEnabled("recentlyAdded") ? "newest" : "no-newest",
@@ -1390,6 +1398,47 @@ export default function HomePage() {
     enabled: isReady && isSectionEnabled("recentAlbums"),
   });
 
+  // --- Similar Tracks: discovery based on listening history ---
+  const {
+    data: similarTracksData,
+    isLoading: loadingSimilarTracks,
+    hasNextPage: hasNextSimilarTracks,
+    isFetchingNextPage: fetchingNextSimilarTracks,
+    fetchNextPage: fetchNextSimilarTracks,
+  } = useInfiniteQuery({
+    queryKey: similarTracksQueryKey,
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getDiscoverySimilarSongs({
+        size: pageSize,
+        offset: pageParam,
+        inlineImages: "medium",
+      });
+      return {
+        songs: response.song ?? [],
+        total: response.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.songs.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
+    },
+    enabled: isReady && isSectionEnabled("similarTracks"),
+  });
+
   const stickyRandomData = useStickyHomeSection(
     randomQueryKey,
     randomData,
@@ -1444,6 +1493,12 @@ export default function HomePage() {
   const recentAlbumsTotal =
     recentAlbumsData?.pages[0]?.total != null
       ? Math.min(recentAlbumsData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const similarTracksSongs =
+    similarTracksData?.pages.flatMap((p) => p.songs) ?? [];
+  const similarTracksTotal =
+    similarTracksData?.pages[0]?.total != null
+      ? Math.min(similarTracksData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
 
   // Play album - uses server-side queue (always disables shuffle)
@@ -1829,6 +1884,60 @@ export default function HomePage() {
             itemGap={itemGap}
             paddingX={paddingX}
           />
+        );
+      case "similarTracks":
+        return (
+          <section key={section.id} className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title={sectionOption.label}
+              icon={sectionOption.icon}
+              hasItems={similarTracksSongs.length > 0}
+              isLoading={loadingSimilarTracks}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "similarTracks",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: false,
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "similarTracks",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: true,
+                })
+              }
+            />
+            <VirtualizedHorizontalScroll<Song>
+              items={similarTracksSongs}
+              totalCount={similarTracksTotal}
+              isLoading={loadingSimilarTracks}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              hasNextPage={hasNextSimilarTracks}
+              isFetchingNextPage={fetchingNextSimilarTracks}
+              fetchNextPage={fetchNextSimilarTracks}
+              renderItem={(song, index) => (
+                <SongCard
+                  song={song}
+                  index={index}
+                  songIndex={index}
+                  queueSource={{
+                    type: "similarTracks",
+                    name: sectionOption.label,
+                  }}
+                  inlineImagesRequested
+                  className="ring-0"
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+              emptyMessage="No similar tracks found"
+            />
+          </section>
         );
       case "topAlbums":
         return (

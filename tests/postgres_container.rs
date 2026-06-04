@@ -3243,6 +3243,7 @@ fn test_postgres_home_handler_works() {
                 include_recently_added: None,
                 include_forgotten_favorites: None,
                 include_discover: None,
+                include_similar_tracks: None,
             }),
         )
         .await

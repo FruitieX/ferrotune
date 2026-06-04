@@ -70,6 +70,7 @@ export type { DirectoryIndex } from './DirectoryIndex';
 export type { DirectoryPagedResponse } from './DirectoryPagedResponse';
 export type { DisabledSongsResponse } from './DisabledSongsResponse';
 export type { DisabledStatusResponse } from './DisabledStatusResponse';
+export type { DiscoveryResponse } from './DiscoveryResponse';
 export type { DuplicateFile } from './DuplicateFile';
 export type { DuplicateGroup } from './DuplicateGroup';
 export type { DuplicatesResponse } from './DuplicatesResponse';

@@ -142,6 +142,7 @@ import type { DeleteManagedHistoryEntriesRequest } from "./generated/DeleteManag
 import type { DeleteMatchingManagedHistoryEntriesRequest } from "./generated/DeleteMatchingManagedHistoryEntriesRequest";
 import type { DeleteManagedHistoryEntriesResponse } from "./generated/DeleteManagedHistoryEntriesResponse";
 import type { HomePageResponse } from "./generated/HomePageResponse";
+import type { DiscoveryResponse } from "./generated/DiscoveryResponse";
 import type { HomeContinueListeningSection } from "./generated/HomeContinueListeningSection";
 import type { FerrotuneSimilarSongsResponse } from "./generated/FerrotuneSimilarSongsResponse";
 import { PlaylistInFolder } from "./generated";
@@ -641,6 +642,20 @@ export class FerrotuneClient {
   ): Promise<HomeContinueListeningSection> {
     const endpoint = buildEndpoint("/api/continue-listening", params);
     return this.request<HomeContinueListeningSection>(endpoint);
+  }
+
+  // Discovery endpoint
+  async getDiscoverySimilarSongs(
+    params: {
+      size?: number;
+      offset?: number;
+      inlineImages?: "small" | "medium";
+      count?: number;
+      excludeRecentDays?: number;
+    } = {},
+  ): Promise<DiscoveryResponse> {
+    const endpoint = buildEndpoint("/api/discovery/similar-songs", params);
+    return this.request<DiscoveryResponse>(endpoint);
   }
 
   // Search endpoint

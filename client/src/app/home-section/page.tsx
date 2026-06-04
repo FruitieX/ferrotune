@@ -96,6 +96,8 @@ function getContinueListeningSourceIcon(
       return History;
     case "mostPlayedRecently":
       return TrendingUp;
+    case "similarTracks":
+      return Sparkles;
     default:
       return null;
   }
@@ -128,7 +130,10 @@ type HomeSectionConfig =
       icon: LucideIcon;
       iconClassName: string;
       gradientColor: string;
-      queueSourceType: "forgottenFavorites" | "mostPlayedRecently";
+      queueSourceType:
+        | "forgottenFavorites"
+        | "mostPlayedRecently"
+        | "similarTracks";
       queueSourceName: string;
     }
   | {
@@ -212,6 +217,19 @@ function getHomeSectionConfig(
         gradientColor: "rgba(139,92,246,0.2)",
         albumListType: "random",
         queueSourceName: "Discover",
+      };
+    case "similar-tracks":
+      return {
+        id: sectionId,
+        kind: "song",
+        title: "Similar To What You've Heard",
+        label: "Home",
+        emptyTitle: "No similar tracks found",
+        icon: Sparkles,
+        iconClassName: "bg-linear-to-br from-emerald-500 to-cyan-700",
+        gradientColor: "rgba(16,185,129,0.2)",
+        queueSourceType: "similarTracks",
+        queueSourceName: "Similar Tracks",
       };
     default:
       return null;
@@ -598,6 +616,26 @@ export default function HomeSectionPage() {
         };
       }
 
+      if (
+        section.kind === "song" &&
+        section.queueSourceType === "similarTracks"
+      ) {
+        const response = await client.getDiscoverySimilarSongs({
+          size: PAGE_SIZE,
+          offset: pageParam,
+          inlineImages: "small",
+        });
+        return {
+          entries: [] as ContinueListeningEntry[],
+          songs: response.song ?? [],
+          albums: [] as Album[],
+          total: response.total,
+          count: response.song.length,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
       if (section.kind === "album") {
         const response = await client.getAlbumList2({
           type: section.albumListType,
@@ -689,9 +727,11 @@ export default function HomeSectionPage() {
       const sectionFilters =
         section.queueSourceType === "mostPlayedRecently"
           ? mostPlayedFiltersRef.current
-          : seedRef.current !== undefined
-            ? { ...forgottenFavoritesFilters, seed: seedRef.current }
-            : forgottenFavoritesFilters;
+          : section.queueSourceType === "similarTracks"
+            ? undefined
+            : seedRef.current !== undefined
+              ? { ...forgottenFavoritesFilters, seed: seedRef.current }
+              : forgottenFavoritesFilters;
       startQueue({
         sourceType: section.queueSourceType,
         sourceName: section.queueSourceName,

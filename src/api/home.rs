@@ -40,6 +40,8 @@ pub struct HomePageParams {
     pub include_forgotten_favorites: Option<bool>,
     /// Include Discover in the batch response (default true)
     pub include_discover: Option<bool>,
+    /// Include Similar Tracks (discovery) in the batch response (default true)
+    pub include_similar_tracks: Option<bool>,
 }
 
 /// A section of the home page containing albums
@@ -98,6 +100,7 @@ pub struct HomePageResponse {
     pub recently_added: HomeAlbumSection,
     pub forgotten_favorites: HomeForgottenFavoritesSection,
     pub discover: HomeAlbumSection,
+    pub similar_tracks: HomeSongSection,
 }
 
 /// GET /api/home - Get all home page data in a single request
@@ -125,11 +128,19 @@ pub async fn get_home(
     let include_recently_added = params.include_recently_added.unwrap_or(true);
     let include_forgotten_favorites = params.include_forgotten_favorites.unwrap_or(true);
     let include_discover = params.include_discover.unwrap_or(true);
+    let include_similar_tracks = params.include_similar_tracks.unwrap_or(true);
 
     // Run requested queries concurrently. Skipped sections return empty payloads
     // so older clients keep the same response shape while newer clients avoid
     // paying for disabled or separately configured sections.
-    let (continue_result, frequent_result, newest_result, random_result, forgotten_result) = tokio::join!(
+    let (
+        continue_result,
+        frequent_result,
+        newest_result,
+        random_result,
+        forgotten_result,
+        similar_result,
+    ) = tokio::join!(
         async {
             if !include_continue_listening {
                 return Ok::<HomeContinueListeningSection, crate::error::FerrotuneApiError>(
@@ -274,6 +285,40 @@ pub async fn get_home(
                 },
             )
         },
+        async {
+            if !include_similar_tracks {
+                return Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {
+                    song: Vec::new(),
+                    total: 0,
+                });
+            }
+
+            #[cfg(feature = "bliss")]
+            {
+                let similar = crate::api::discovery::discover_similar_songs(
+                    database,
+                    user_id,
+                    size,
+                    7,
+                    size,
+                    0,
+                    inline_size,
+                )
+                .await?;
+                Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {
+                    song: similar.song,
+                    total: similar.total,
+                })
+            }
+
+            #[cfg(not(feature = "bliss"))]
+            {
+                Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {
+                    song: Vec::new(),
+                    total: 0,
+                })
+            }
+        },
     );
 
     Ok((
@@ -287,6 +332,7 @@ pub async fn get_home(
             recently_added: newest_result?,
             forgotten_favorites: forgotten_result?,
             discover: random_result?,
+            similar_tracks: similar_result?,
         }),
     ))
 }
