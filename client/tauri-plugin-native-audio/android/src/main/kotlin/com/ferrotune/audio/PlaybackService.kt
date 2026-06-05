@@ -964,7 +964,40 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
-        player.play()
+        player.playWhenReady = true
+
+        // player.play() only flips playWhenReady; it cannot resume a player that
+        // finished its loaded window (STATE_ENDED) or was reset by an error/stop
+        // (STATE_IDLE). Rapidly switching tracks via the queue can leave the
+        // player in one of those states, which makes pressing play appear to do
+        // nothing. Re-prepare here, mirroring playAtIndex()/autonomousSkipNext().
+        if (player.mediaItemCount > 0 &&
+            PlaybackResumeLogic.requiresReprepareToResume(player.playbackState)
+        ) {
+            val playerState = player.playbackState
+            val currentIndex = player.currentMediaItemIndex
+            Log.d(
+                TAG,
+                "play(): re-preparing player from state=${playbackStateName(playerState)} " +
+                    "at index=$currentIndex"
+            )
+            logPlaybackDiagnostic(
+                DiagnosticLevel.INFO,
+                "play_reprepare",
+                "Re-preparing player on explicit play from a non-resumable state",
+                mapOf(
+                    "playbackState" to playbackStateName(playerState),
+                    "currentIndex" to currentIndex,
+                ),
+            )
+            if (PlaybackResumeLogic.shouldResetToItemStartBeforeReprepare(playerState) &&
+                currentIndex != C.INDEX_UNSET
+            ) {
+                player.seekTo(currentIndex, 0)
+                seekTimeOffsetMs = 0
+            }
+            player.prepare()
+        }
     }
 
     fun pause() {
