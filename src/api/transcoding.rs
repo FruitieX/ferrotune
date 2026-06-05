@@ -299,6 +299,12 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     let mut granule_pos: u64 = 0;
     let chunk_size = 1024usize;
 
+    // Bound runaway decode-error loops: if the decoder keeps failing while the
+    // demuxer keeps yielding packets, the loop would spin CPU-bound emitting no
+    // audio and no progress, which the client perceives as a silent stall.
+    let mut consecutive_decode_errors: usize = 0;
+    const MAX_CONSECUTIVE_DECODE_ERRORS: usize = 512;
+
     // Decode and encode loop
     loop {
         let packet = match format.next_packet() {
@@ -323,8 +329,21 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
         }
 
         let decoded = match decoder.decode(&packet) {
-            Ok(decoded) => decoded,
-            Err(_) => continue,
+            Ok(decoded) => {
+                consecutive_decode_errors = 0;
+                decoded
+            }
+            Err(_) => {
+                consecutive_decode_errors += 1;
+                if consecutive_decode_errors >= MAX_CONSECUTIVE_DECODE_ERRORS {
+                    tracing::warn!(
+                        "Aborting transcode after {} consecutive decode errors",
+                        consecutive_decode_errors
+                    );
+                    break;
+                }
+                continue;
+            }
         };
 
         let spec = *decoded.spec();

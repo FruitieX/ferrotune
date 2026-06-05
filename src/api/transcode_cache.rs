@@ -12,7 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::{watch, Mutex};
@@ -20,6 +20,11 @@ use tokio::sync::{watch, Mutex};
 const CONTENT_TYPE_OPUS_OGG: &str = "audio/ogg";
 const RANGE_CHUNK_BYTES: u64 = 256 * 1024;
 const READ_CHUNK_BYTES: usize = 64 * 1024;
+/// Maximum time a streaming reader will wait for the transcode generator to
+/// make progress before giving up. Converts a stalled or hung generator (a
+/// panicked task, a CPU spin, or any indefinite block) into an HTTP error so
+/// the client fails fast and retries instead of hanging silently.
+const GENERATION_STALL_TIMEOUT: Duration = Duration::from_secs(20);
 
 static CACHE_REGISTRY: LazyLock<StdMutex<HashMap<CacheRegistryKey, Arc<TranscodeCache>>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
@@ -415,17 +420,31 @@ impl CacheEntry {
 
         let entry = self.clone();
         tokio::task::spawn_blocking(move || {
-            let result = entry.generate(
-                &source_path,
-                &config,
-                time_offset_seconds,
-                replaygain_info,
-                accurate_seek,
-                ogg_serial,
-            );
+            // Guard against panics in the decode/encode pipeline. Without this a
+            // panic would unwind the blocking task, leaving `generation.running`
+            // stuck `true` and the progress watch channel without a terminal
+            // update: every reader would hang forever and the cache key would be
+            // permanently un-generatable until a server restart.
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                entry.generate(
+                    &source_path,
+                    &config,
+                    time_offset_seconds,
+                    replaygain_info,
+                    accurate_seek,
+                    ogg_serial,
+                )
+            }));
 
-            if let Err(error) = result {
-                entry.mark_failed(error);
+            match outcome {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => entry.mark_failed(error),
+                Err(panic) => {
+                    let message = panic_message(panic.as_ref());
+                    entry.mark_failed(Error::Internal(format!(
+                        "Transcoding task panicked: {message}"
+                    )));
+                }
             }
         });
     }
@@ -506,24 +525,37 @@ impl CacheEntry {
         let _ = self.progress_tx.send(progress);
     }
 
-    async fn wait_for_progress(&self) -> Result<CacheProgress> {
-        let mut receiver = self.progress_tx.subscribe();
-        receiver
-            .changed()
-            .await
-            .map_err(|_| Error::Internal("Transcode cache progress channel closed".to_string()))?;
-        let progress = *receiver.borrow();
-        if progress.failed {
-            return Err(Error::Internal(
-                "Transcode cache generation failed".to_string(),
-            ));
+    /// Wait for the next progress change on an already-subscribed receiver,
+    /// bounded by [`GENERATION_STALL_TIMEOUT`]. Callers must subscribe *before*
+    /// reading the current progress so that a publish landing between the read
+    /// and the wait is not lost (a lost terminal `complete` publish would
+    /// otherwise hang the reader forever).
+    async fn await_progress_change(
+        receiver: &mut watch::Receiver<CacheProgress>,
+    ) -> Result<CacheProgress> {
+        match tokio::time::timeout(GENERATION_STALL_TIMEOUT, receiver.changed()).await {
+            Ok(Ok(())) => {
+                let progress = *receiver.borrow_and_update();
+                if progress.failed {
+                    return Err(Error::Internal(
+                        "Transcode cache generation failed".to_string(),
+                    ));
+                }
+                Ok(progress)
+            }
+            Ok(Err(_)) => Err(Error::Internal(
+                "Transcode cache progress channel closed".to_string(),
+            )),
+            Err(_) => Err(Error::Internal(
+                "Transcode cache generation stalled".to_string(),
+            )),
         }
-        Ok(progress)
     }
 
     async fn wait_until_size_or_complete(&self, target_size: u64) -> Result<CacheProgress> {
+        let mut receiver = self.progress_tx.subscribe();
         loop {
-            let progress = self.progress();
+            let progress = *receiver.borrow_and_update();
             if progress.failed {
                 return Err(Error::Internal(
                     "Transcode cache generation failed".to_string(),
@@ -532,7 +564,23 @@ impl CacheEntry {
             if progress.size >= target_size || progress.complete {
                 return Ok(progress);
             }
-            self.wait_for_progress().await?;
+            Self::await_progress_change(&mut receiver).await?;
+        }
+    }
+
+    async fn wait_until_complete(&self) -> Result<CacheProgress> {
+        let mut receiver = self.progress_tx.subscribe();
+        loop {
+            let progress = *receiver.borrow_and_update();
+            if progress.failed {
+                return Err(Error::Internal(
+                    "Transcode cache generation failed".to_string(),
+                ));
+            }
+            if progress.complete {
+                return Ok(progress);
+            }
+            Self::await_progress_change(&mut receiver).await?;
         }
     }
 
@@ -699,10 +747,7 @@ async fn resolve_range(entry: Arc<CacheEntry>, range: RangeSpec) -> Result<Optio
             }))
         }
         RangeSpec::Suffix { length } => {
-            let mut progress = entry.progress();
-            while !progress.complete {
-                progress = entry.wait_for_progress().await?;
-            }
+            let progress = entry.wait_until_complete().await?;
             if progress.size == 0 {
                 return Ok(None);
             }
@@ -723,12 +768,15 @@ fn stream_entry(
 ) -> impl futures::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
     async_stream::stream! {
         let _guard = entry.reader_guard();
+        // Subscribe once, up front, so progress publishes (including the terminal
+        // `complete` update) are never lost between a read and the next wait.
+        let mut receiver = entry.progress_tx.subscribe();
         let mut position = start;
         let mut file = loop {
             match File::open(&entry.path).await {
                 Ok(file) => break file,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    if let Err(error) = entry.wait_for_progress().await {
+                    if let Err(error) = CacheEntry::await_progress_change(&mut receiver).await {
                         yield Err(std::io::Error::other(error.to_string()));
                         return;
                     }
@@ -753,9 +801,9 @@ fn stream_entry(
                 }
             }
 
-            let mut progress = entry.progress();
+            let mut progress = *receiver.borrow_and_update();
             while position >= progress.size && !progress.complete {
-                match entry.wait_for_progress().await {
+                match CacheEntry::await_progress_change(&mut receiver).await {
                     Ok(new_progress) => progress = new_progress,
                     Err(error) => {
                         yield Err(std::io::Error::other(error.to_string()));
@@ -861,6 +909,17 @@ fn now_unix_seconds() -> u64 {
         .unwrap_or_default()
 }
 
+/// Extract a human-readable message from a caught panic payload.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = panic.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = panic.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -923,5 +982,101 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    fn test_entry(initial: CacheProgress) -> Arc<CacheEntry> {
+        let (progress_tx, _) = watch::channel(initial);
+        Arc::new(CacheEntry {
+            key: "test".to_string(),
+            path: PathBuf::from("/nonexistent.ogg"),
+            metadata_path: PathBuf::from("/nonexistent.json"),
+            progress_tx,
+            generation: StdMutex::new(GenerationState { running: false }),
+            active_readers: AtomicUsize::new(0),
+        })
+    }
+
+    #[test]
+    fn panic_message_extracts_str_and_string() {
+        let payload: Box<dyn std::any::Any + Send> = Box::new("boom");
+        assert_eq!(panic_message(payload.as_ref()), "boom");
+
+        let payload: Box<dyn std::any::Any + Send> = Box::new(String::from("kaboom"));
+        assert_eq!(panic_message(payload.as_ref()), "kaboom");
+
+        let payload: Box<dyn std::any::Any + Send> = Box::new(42i32);
+        assert_eq!(panic_message(payload.as_ref()), "unknown panic");
+    }
+
+    #[tokio::test]
+    async fn wait_returns_when_already_complete() {
+        let entry = test_entry(CacheProgress {
+            size: 10,
+            complete: true,
+            failed: false,
+        });
+        let progress = entry.wait_until_complete().await.unwrap();
+        assert!(progress.complete);
+        assert_eq!(progress.size, 10);
+    }
+
+    #[tokio::test]
+    async fn wait_wakes_on_late_complete_publish() {
+        // Reader subscribes while the file is still being generated, then the
+        // generator publishes its terminal `complete` update. The reader must
+        // observe it (regression guard for the lost-update race that previously
+        // hung the reader forever).
+        let entry = test_entry(CacheProgress {
+            size: 0,
+            complete: false,
+            failed: false,
+        });
+        let reader = entry.clone();
+        let handle = tokio::spawn(async move { reader.wait_until_size_or_complete(100).await });
+
+        tokio::task::yield_now().await;
+        entry.publish(CacheProgress {
+            size: 50,
+            complete: true,
+            failed: false,
+        });
+
+        let progress = handle.await.unwrap().unwrap();
+        assert!(progress.complete);
+        assert_eq!(progress.size, 50);
+    }
+
+    #[tokio::test]
+    async fn wait_propagates_generation_failure() {
+        let entry = test_entry(CacheProgress {
+            size: 0,
+            complete: false,
+            failed: false,
+        });
+        let reader = entry.clone();
+        let handle = tokio::spawn(async move { reader.wait_until_size_or_complete(100).await });
+
+        tokio::task::yield_now().await;
+        entry.publish(CacheProgress {
+            size: 0,
+            complete: false,
+            failed: true,
+        });
+
+        assert!(handle.await.unwrap().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_surfaces_stall_timeout() {
+        // A generator that stops publishing without ever marking complete or
+        // failed (e.g. a panicked or spinning task) must not hang the reader
+        // indefinitely: the stall timeout converts it into an error.
+        let entry = test_entry(CacheProgress {
+            size: 0,
+            complete: false,
+            failed: false,
+        });
+        let result = entry.wait_until_size_or_complete(100).await;
+        assert!(result.is_err());
     }
 }

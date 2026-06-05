@@ -145,6 +145,7 @@ notify-debouncer-mini = "0.4"
 datatest-stable = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 testcontainers-modules = { version = "0.15.0", features = ["blocking", "postgres"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 which = "7.0"
 
 [[test]]

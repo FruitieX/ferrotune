@@ -103,6 +103,19 @@ class PlaybackService : MediaSessionService() {
         private const val PREFETCH_THRESHOLD = 5
         // Sync position to server every N milliseconds
         private const val POSITION_SYNC_INTERVAL_MS = 30_000L
+        // Stall watchdog: how often to sample playback progress while the player
+        // intends to play.
+        private const val STALL_WATCHDOG_INTERVAL_MS = 3_000L
+        // Treat playback as stalled when neither the playback position nor the
+        // buffered position advances for this long while we intend to play and
+        // ExoPlayer never reported an error. Kept comfortably above
+        // STREAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS so a legitimate rebuffer
+        // (where the buffered position keeps advancing) is not misread as a stall.
+        private const val STALL_THRESHOLD_MS = 15_000L
+        // Minimum position/buffer delta (ms) that counts as forward progress.
+        private const val STALL_POSITION_EPSILON_MS = 500L
+        // How many silent-stall reloads to attempt before skipping the track.
+        private const val MAX_STALL_RECOVERIES = 2
         // How many ms before track end to pre-apply next track's ReplayGain.
         // This should be long enough to cover ExoPlayer's gapless pre-decode buffer
         // but short enough that the volume difference on the current track's tail is inaudible.
@@ -256,6 +269,14 @@ class PlaybackService : MediaSessionService() {
     private val NETWORK_RETRY_MAX_DELAY_MS = 10_000L
     private var pendingNetworkRetryRunnable: Runnable? = null
     private var pendingNetworkRetryTrackId: String? = null
+
+    // Detects silent playback stalls (no progress, no ExoPlayer error) so the
+    // watchdog can reload or skip instead of leaving the user with frozen audio.
+    private val stallMonitor = PlaybackStallMonitor(
+        stallThresholdMs = STALL_THRESHOLD_MS,
+        positionEpsilonMs = STALL_POSITION_EPSILON_MS,
+        maxRecoveries = MAX_STALL_RECOVERIES,
+    )
 
     // SSE remote control
     private var sseConnected = false
@@ -415,6 +436,54 @@ class PlaybackService : MediaSessionService() {
                 handler.postDelayed(this, POSITION_SYNC_INTERVAL_MS)
             }
         }
+    }
+
+    // Watchdog for silent playback stalls. While the player intends to play,
+    // sample forward progress; if neither the playback position nor the
+    // buffered position advances for STALL_THRESHOLD_MS (and ExoPlayer never
+    // raised an error), reload the current track and, if that keeps failing,
+    // skip it. This turns an otherwise indefinite freeze into a brief recovery.
+    private val stallWatchdogRunnable = object : Runnable {
+        override fun run() {
+            // Stop sampling when playback is no longer intended; it is
+            // rescheduled when playWhenReady becomes true again.
+            if (!player.playWhenReady) {
+                stallMonitor.reset()
+                return
+            }
+
+            val state = player.playbackState
+            val intendsToPlay = nativeOwnsSession &&
+                !pausedForAudioOutputLoss &&
+                player.mediaItemCount > 0 &&
+                // Let the dedicated error-retry path own recovery when it is active.
+                pendingNetworkRetryRunnable == null &&
+                (state == Player.STATE_READY || state == Player.STATE_BUFFERING)
+            val trackKey = player.currentMediaItem?.mediaId ?: currentTrack?.id
+            val positionMs = getAbsolutePlaybackPositionMs()
+            val bufferedMs = (player.bufferedPosition + seekTimeOffsetMs).coerceAtLeast(0)
+
+            when (
+                stallMonitor.evaluate(
+                    SystemClock.elapsedRealtime(),
+                    trackKey,
+                    intendsToPlay,
+                    positionMs,
+                    bufferedMs,
+                )
+            ) {
+                PlaybackStallMonitor.Action.RECOVER -> recoverFromPlaybackStall(positionMs)
+                PlaybackStallMonitor.Action.SKIP -> skipAfterPlaybackStall()
+                PlaybackStallMonitor.Action.NONE -> {}
+            }
+
+            handler.postDelayed(this, STALL_WATCHDOG_INTERVAL_MS)
+        }
+    }
+
+    private fun ensureStallWatchdogScheduled() {
+        handler.removeCallbacks(stallWatchdogRunnable)
+        handler.postDelayed(stallWatchdogRunnable, STALL_WATCHDOG_INTERVAL_MS)
     }
 
     inner class LocalBinder : Binder() {
@@ -791,6 +860,8 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(inactivityTimeoutRunnable)
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
+        handler.removeCallbacks(stallWatchdogRunnable)
+        stallMonitor.reset()
         clearPendingNetworkRetry("service destroy")
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
         apiClient.disconnectSSE()
@@ -929,6 +1000,8 @@ class PlaybackService : MediaSessionService() {
         queueSourceId = null
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
+        handler.removeCallbacks(stallWatchdogRunnable)
+        stallMonitor.reset()
         replayGainProcessor.clearPendingGain()
         // Schedule service shutdown so we don't keep the foreground service,
         // ExoPlayer wake/wifi locks, and the SSE connection alive indefinitely
@@ -2638,6 +2711,84 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Reload/re-prepare the current track at the given absolute position.
+     *
+     * Shared by the network-error retry path and the silent-stall watchdog.
+     * For transcoded streams this rebuilds the stream URL with a server-side
+     * time offset; for direct streams it re-seeks and re-prepares in place.
+     */
+    private fun reloadCurrentItemAtPosition(
+        track: TrackInfo,
+        positionMs: Long,
+        playWhenReady: Boolean,
+    ) {
+        val currentIndex = player.currentMediaItemIndex
+        if (playbackSettings.transcodingEnabled) {
+            val timeOffsetSeconds = positionMs / 1000
+            seekTimeOffsetMs = positionMs
+            lastKnownGoodPositionMs = positionMs
+            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+            val newMediaItem = createMediaItem(track, newUrl)
+            player.replaceMediaItem(currentIndex, newMediaItem)
+            player.seekTo(currentIndex, 0)
+        } else {
+            seekTimeOffsetMs = 0
+            lastKnownGoodPositionMs = positionMs
+            if (currentIndex != C.INDEX_UNSET && currentIndex < player.mediaItemCount) {
+                player.seekTo(currentIndex, positionMs)
+            } else {
+                player.seekTo(positionMs)
+            }
+        }
+        player.playWhenReady = playWhenReady
+        player.prepare()
+        invalidateSessionExport()
+    }
+
+    /**
+     * Recover from a silent playback stall by reloading the current track at
+     * the furthest known-good position. Triggered by the stall watchdog when
+     * playback froze without ExoPlayer raising an error.
+     */
+    private fun recoverFromPlaybackStall(positionMs: Long) {
+        val track = currentTrack ?: return
+        if (player.mediaItemCount == 0) return
+        val recoverPositionMs = maxOf(positionMs, lastKnownGoodPositionMs).coerceAtLeast(0)
+        NativeAudioLogger.warn(
+            TAG,
+            "playback_stall_recovery",
+            "Playback stalled with no progress; reloading current track",
+            mapOf(
+                "trackId" to track.id,
+                "queueIndex" to serverQueueIndex,
+                "positionMs" to recoverPositionMs,
+                "playbackState" to playbackStateName(player.playbackState),
+                "transcoding" to playbackSettings.transcodingEnabled,
+            ),
+        )
+        reloadCurrentItemAtPosition(track, recoverPositionMs, playWhenReady = true)
+    }
+
+    /**
+     * Last-resort recovery: a stall persisted through repeated reloads, so skip
+     * to the next track instead of leaving the user stuck on dead audio.
+     */
+    private fun skipAfterPlaybackStall() {
+        val track = currentTrack
+        NativeAudioLogger.warn(
+            TAG,
+            "playback_stall_skip",
+            "Playback stall persisted after recovery attempts; skipping to next track",
+            mapOf(
+                "trackId" to track?.id,
+                "queueIndex" to serverQueueIndex,
+            ),
+        )
+        stallMonitor.reset()
+        autonomousSkipNext()
+    }
+
     private fun clearPendingNetworkRetry(reason: String) {
         pendingNetworkRetryRunnable?.let {
             handler.removeCallbacks(it)
@@ -2720,17 +2871,7 @@ class PlaybackService : MediaSessionService() {
                     // known playback position so a transient player reset at
                     // the track boundary does not reopen the current item from 0.
                     val timeOffsetSeconds = retryPositionMs / 1000
-                    seekTimeOffsetMs = retryPositionMs
-                    lastKnownGoodPositionMs = retryPositionMs
-                    val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
-                    val newMediaItem = createMediaItem(track, newUrl)
-
-                    val currentIndex = player.currentMediaItemIndex
-                    player.replaceMediaItem(currentIndex, newMediaItem)
-                    player.seekTo(currentIndex, 0)
-                    player.playWhenReady = retryPlayWhenReady
-                    player.prepare()
-                    invalidateSessionExport()
+                    reloadCurrentItemAtPosition(track, retryPositionMs, retryPlayWhenReady)
                     Log.d(
                         TAG,
                         "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
@@ -2751,17 +2892,7 @@ class PlaybackService : MediaSessionService() {
                         ),
                     )
                 } else {
-                    seekTimeOffsetMs = 0
-                    lastKnownGoodPositionMs = retryPositionMs
-                    val currentIndex = player.currentMediaItemIndex
-                    if (currentIndex != C.INDEX_UNSET && currentIndex < player.mediaItemCount) {
-                        player.seekTo(currentIndex, retryPositionMs)
-                    } else {
-                        player.seekTo(retryPositionMs)
-                    }
-                    player.playWhenReady = retryPlayWhenReady
-                    player.prepare()
-                    invalidateSessionExport()
+                    reloadCurrentItemAtPosition(track, retryPositionMs, retryPlayWhenReady)
                     Log.d(
                         TAG,
                         "Network retry: re-prepared non-transcoded stream at ${retryPositionMs}ms " +
@@ -4081,6 +4212,7 @@ class PlaybackService : MediaSessionService() {
                 lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
                 handler.removeCallbacks(inactivityTimeoutRunnable)
+                ensureStallWatchdogScheduled()
                 // Send heartbeat when playback becomes ready (e.g., after buffering)
                 if (isActive) {
                     sendPlaybackStateHeartbeat(true)
@@ -4247,6 +4379,15 @@ class PlaybackService : MediaSessionService() {
             player.setWakeMode(
                 if (playWhenReady) C.WAKE_MODE_NETWORK else C.WAKE_MODE_NONE
             )
+
+            if (playWhenReady) {
+                // Watch for silent stalls from the moment playback is intended,
+                // including the initial buffering phase before STATE_READY.
+                ensureStallWatchdogScheduled()
+            } else {
+                handler.removeCallbacks(stallWatchdogRunnable)
+                stallMonitor.reset()
+            }
 
             if (playWhenReady && player.playbackState == Player.STATE_READY) {
                 refreshAudioOutputRouteSnapshot("playWhenReady=true")
