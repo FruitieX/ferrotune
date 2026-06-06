@@ -42,6 +42,29 @@ export function resolveNativeSessionReadyPromise(): void {
   }
 }
 
+/**
+ * Wait for the native session (Kotlin API credentials) to be configured.
+ *
+ * If the readiness promise hasn't been created yet — which happens during the
+ * cold-start window before useNativeSessionInit's effect runs — this creates
+ * it and waits, rather than dropping the play intent. useNativeSessionInit
+ * reuses the same promise and resolves it once credentials reach Kotlin. A
+ * timeout guards against hanging forever if native session init never runs.
+ */
+export async function ensureNativeSessionReady(
+  timeoutMs = 10_000,
+): Promise<void> {
+  if (!nativeSessionReady) {
+    createNativeSessionReadyPromise();
+  }
+  const promise = nativeSessionReady;
+  if (!promise) return;
+  await Promise.race([
+    promise,
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
 /** Monotonic identity for async playback work; reset boundaries advance it. */
 let playbackRuntimeGeneration = 0;
 

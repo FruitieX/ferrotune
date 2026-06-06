@@ -13,6 +13,7 @@
  */
 
 import { atom, type Atom, type Getter, type Setter } from "jotai";
+import { toast } from "sonner";
 import type {
   Song,
   QueueSourceInfo,
@@ -42,6 +43,7 @@ import {
   ownerClientIdAtom,
   ownerClientNameAtom,
   selfTakeoverPending,
+  waitForSessionReady,
 } from "./session";
 import { playbackStateAtom, type PlaybackState } from "./player";
 
@@ -349,6 +351,14 @@ export const startQueueAtom = atom(
     const client = getClient();
     if (!client) return;
 
+    // On cold start (especially after the app has been idle), the play button
+    // becomes interactive before connectSession resolves, leaving
+    // effectiveSessionIdAtom null. Wait for the session so the first play
+    // isn't sent without a session id (which the backend rejects with 400).
+    if (!get(effectiveSessionIdAtom)) {
+      await waitForSessionReady();
+    }
+
     const isRemote = get(isRemoteControllingAtom);
 
     // If there's no current owner (cleared by inactivity), optimistically
@@ -386,6 +396,10 @@ export const startQueueAtom = atom(
         params.shuffle ?? get(serverQueueStateAtom)?.isShuffled ?? false;
 
       const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+      if (!sessionId) {
+        toast.error("Couldn't start playback — still connecting. Try again.");
+        return;
+      }
       let clientId = getRequestClientId(get);
       if (shouldPlay && sessionId) {
         clientId =
@@ -1030,7 +1044,18 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   const client = getClient();
   if (!client) return;
 
+  // Wait for the playback session before reading it: tapping a track right
+  // after a cold start can race ahead of connectSession, which would
+  // otherwise silently drop the play.
+  if (!get(effectiveSessionIdAtom)) {
+    await waitForSessionReady();
+  }
+
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  if (!sessionId) {
+    toast.error("Couldn't start playback — still connecting. Try again.");
+    return;
+  }
 
   // When native audio owns playback, delegate entirely to Kotlin which handles
   // server position update + queue refetch + ExoPlayer rebuild atomically.
@@ -1258,9 +1283,20 @@ export const addToQueueAtom = atom(
     const client = getClient();
     if (!client) return { success: false, addedCount: 0 };
 
+    // Starting a brand-new queue (no existing queue) right after a cold start
+    // can race ahead of connectSession; wait so the request isn't sent without
+    // a session id (rejected by the backend).
+    if (!get(effectiveSessionIdAtom)) {
+      await waitForSessionReady();
+    }
+
     const state = get(serverQueueStateAtom);
     const hasQueue = state !== null && state.totalCount > 0;
     const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+    if (!sessionId) {
+      toast.error("Couldn't update the queue — still connecting. Try again.");
+      return { success: false, addedCount: 0 };
+    }
 
     set(isQueueOperationPendingAtom, true);
 
@@ -1614,7 +1650,15 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
   const client = getClient();
   if (!client) return;
 
+  if (!get(effectiveSessionIdAtom)) {
+    await waitForSessionReady();
+  }
+
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  if (!sessionId) {
+    toast.error("Couldn't start preview — still connecting. Try again.");
+    return;
+  }
 
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false);

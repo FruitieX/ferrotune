@@ -14,6 +14,8 @@ import {
   ownerClientNameAtom,
   remotePlaybackStateAtom,
   selfTakeoverPending,
+  markSessionReady,
+  markSessionNotReady,
 } from "@/lib/store/session";
 import {
   isClientInitializedAtom,
@@ -181,6 +183,7 @@ export function useSessionInit() {
       initGenerationRef.current += 1;
       selfTakeoverPending.value = false;
       previousAccountKeyRef.current = currentKey;
+      markSessionNotReady();
       setSessionAccountKey(null);
       setSessionId(null);
       setConnectedClients([]);
@@ -207,6 +210,7 @@ export function useSessionInit() {
 
         setSessionAccountKey(currentKey);
         setSessionId(response.id);
+        markSessionReady();
         setOwnerClientId(response.ownerClientId);
         setOwnerClientName(
           response.ownerClientId ? response.ownerClientName : null,

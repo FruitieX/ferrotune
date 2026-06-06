@@ -37,7 +37,7 @@ import {
   currentLoadedTrackId,
   setCurrentLoadedTrackId,
   nativeAudioReady,
-  nativeSessionReady,
+  ensureNativeSessionReady,
   setLastNativeTranscodingEnabled,
   setLastNativeTranscodingBitrate,
   lastNativeTranscodingEnabled,
@@ -243,8 +243,11 @@ export function loadTrackNative(
     if (!loadStillCurrent()) return;
 
     // Wait for session init (API credentials) before making any API calls.
-    if (!nativeSessionReady) return;
-    await nativeSessionReady;
+    // If the readiness promise hasn't been created yet (cold-start race where
+    // the play intent arrives before useNativeSessionInit's effect runs), wait
+    // for it instead of dropping the load — the signal has already been marked
+    // processed synchronously, so bailing here would silently lose the play.
+    await ensureNativeSessionReady();
     if (!loadStillCurrent()) return;
 
     // Kotlin manages the queue itself — tell it to fetch & play

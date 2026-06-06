@@ -339,6 +339,52 @@ export const effectiveSessionIdAtom = atom<string | null>((get) => {
   return sessionId;
 });
 
+// ============================================================================
+// Session readiness signaling
+// ============================================================================
+// The playback session is established asynchronously on startup via
+// connectSession. The UI (including play buttons) becomes interactive before
+// that resolves, so a playback-start action can fire while
+// effectiveSessionIdAtom is still null — leading to a request with no session
+// id (rejected by the backend) or a silently dropped play. These helpers let
+// playback-start actions wait for the session instead of failing on the first
+// attempt after a cold start.
+
+let sessionReady = false;
+let sessionReadyWaiters: Array<() => void> = [];
+
+/** Mark the playback session as established and release any waiters. */
+export function markSessionReady(): void {
+  sessionReady = true;
+  const waiters = sessionReadyWaiters;
+  sessionReadyWaiters = [];
+  for (const resolve of waiters) resolve();
+}
+
+/** Mark the playback session as not yet established (e.g. account switch). */
+export function markSessionNotReady(): void {
+  sessionReady = false;
+}
+
+/**
+ * Resolve once the playback session is established, or after `timeoutMs` as a
+ * safety net so callers never hang indefinitely if session init fails.
+ */
+export function waitForSessionReady(timeoutMs = 5000): Promise<void> {
+  if (sessionReady) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const onReady = () => {
+      if (settled) return;
+      settled = true;
+      sessionReadyWaiters = sessionReadyWaiters.filter((w) => w !== onReady);
+      resolve();
+    };
+    sessionReadyWaiters.push(onReady);
+    setTimeout(onReady, timeoutMs);
+  });
+}
+
 /**
  * Whether this tab is a follower (not the audio owner).
  */
