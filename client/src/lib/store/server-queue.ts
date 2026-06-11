@@ -33,6 +33,7 @@ import {
   nativeSetRepeatMode,
   nativePlayAtIndex,
   nativeSoftInvalidateQueue,
+  nativeInvalidateQueue,
 } from "@/lib/audio/native-engine";
 
 import {
@@ -1456,10 +1457,18 @@ export const removeFromQueueAtom = atom(
       }
       set(queueWindowAtom, queueResponse.window);
 
-      // Native PlaybackService already receives the server-broadcast
-      // QueueUpdated event and applies the change from its own SSE stream.
-      // Triggering a second invalidate here can make Android apply the same
-      // queue mutation twice and advance playback unnecessarily.
+      // Invalidate the native queue as a backstop in case the SSE
+      // QueueUpdated event was missed or processed incorrectly.
+      // The native player uses queue version tracking to skip redundant
+      // invalidations when both SSE and this explicit call arrive.
+      if (hasNativeAudio() && get(isAudioOwnerAtom)) {
+        void nativeInvalidateQueue().catch((error) => {
+          console.error(
+            "Failed to invalidate native queue after remove:",
+            error,
+          );
+        });
+      }
     } catch (error) {
       console.error("Failed to remove from queue:", error);
     } finally {
@@ -1576,10 +1585,15 @@ export const moveInQueueAtom = atom(
       }
       set(queueWindowAtom, queueResponse.window);
 
-      // Native PlaybackService already receives the server-broadcast
-      // QueueUpdated event and applies the change from its own SSE stream.
-      // Triggering a second invalidate here can make Android apply the same
-      // queue mutation twice and advance playback unnecessarily.
+      // Invalidate the native queue as a backstop in case the SSE
+      // QueueUpdated event was missed or processed incorrectly.
+      // The native player uses queue version tracking to skip redundant
+      // invalidations when both SSE and this explicit call arrive.
+      if (hasNativeAudio() && get(isAudioOwnerAtom)) {
+        void nativeInvalidateQueue().catch((error) => {
+          console.error("Failed to invalidate native queue after move:", error);
+        });
+      }
     } catch (error) {
       console.error("Failed to move in queue:", error);
       // On error, refetch to restore correct state

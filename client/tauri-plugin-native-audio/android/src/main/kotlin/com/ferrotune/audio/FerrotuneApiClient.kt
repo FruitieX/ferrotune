@@ -81,6 +81,8 @@ data class GetQueueResponse(
     val isShuffled: Boolean,
     val repeatMode: String,
     val window: QueueWindow,
+    /** Optimistic concurrency version — incremented on each queue mutation. */
+    val version: Long = 0,
 )
 
 /**
@@ -551,6 +553,7 @@ class FerrotuneApiClient {
                 offset = windowJson.getInt("offset"),
                 songs = songs,
             ),
+            version = json.optLong("version", 0),
         )
     }
 

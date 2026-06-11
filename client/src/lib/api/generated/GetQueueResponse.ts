@@ -33,4 +33,10 @@ source: QueueSourceInfo,
 /**
  * Requested window of songs
  */
-window: QueueWindow, };
+window: QueueWindow, 
+/**
+ * Optimistic concurrency version — incremented on each queue mutation.
+ * Used by native clients to skip redundant invalidations when both SSE
+ * and explicit invalidation arrive for the same version.
+ */
+version: number, };

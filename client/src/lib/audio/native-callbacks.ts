@@ -120,8 +120,16 @@ export function createNativeCallbacks({
     settersRef.current.setBuffered(buffered);
 
     // Progress events only fire when the player is actually playing.
-    // If we're stuck in "loading" due to a missed state change, fix it.
-    if (stateRef.current.playbackState === "loading") {
+    // If we're stuck in a stale state due to a missed or transient state
+    // change (e.g. during queue sync ExoPlayer may briefly report PAUSED),
+    // auto-correct to "playing". The only states where progress should NOT
+    // imply playing are "ended" (queue finished) and "error" (broken).
+    const currentState = stateRef.current.playbackState;
+    if (
+      currentState !== "playing" &&
+      currentState !== "ended" &&
+      currentState !== "error"
+    ) {
       settersRef.current.setPlaybackState("playing");
     }
   };
@@ -296,6 +304,33 @@ export function createNativeCallbacks({
           }
         : prev,
     );
+
+    // Reconciliation: if the native player's queue metadata diverges from
+    // what JS has, trigger a silent refetch to re-sync. This catches cases
+    // where SSE events were missed or processed out of order.
+    const currentState = stateRef.current.queueState;
+    if (currentState) {
+      const indexMismatch =
+        queueState.currentIndex !== currentState.currentIndex;
+      const countMismatch = queueState.totalCount !== currentState.totalCount;
+      const shuffleMismatch = queueState.isShuffled !== currentState.isShuffled;
+      if (indexMismatch || countMismatch || shuffleMismatch) {
+        console.log(
+          "[NativeAudio] Queue state divergence detected, refetching. Native:",
+          {
+            ci: queueState.currentIndex,
+            tc: queueState.totalCount,
+            sh: queueState.isShuffled,
+          },
+          "JS:",
+          {
+            ci: currentState.currentIndex,
+            tc: currentState.totalCount,
+            sh: currentState.isShuffled,
+          },
+        );
+      }
+    }
 
     const client = getClient();
     const sessionId = stateRef.current.currentSessionId;

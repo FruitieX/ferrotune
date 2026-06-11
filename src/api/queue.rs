@@ -151,6 +151,11 @@ pub struct GetQueueResponse {
     pub source: QueueSourceInfo,
     /// Requested window of songs
     pub window: QueueWindow,
+    /// Optimistic concurrency version — incremented on each queue mutation.
+    /// Used by native clients to skip redundant invalidations when both SSE
+    /// and explicit invalidation arrive for the same version.
+    #[ts(type = "number")]
+    pub version: i64,
 }
 
 /// Queue source information
@@ -971,6 +976,7 @@ pub async fn get_queue(
                     offset: 0,
                     songs: vec![],
                 },
+                version: 0,
             }));
         }
     };
@@ -1029,6 +1035,7 @@ pub async fn get_queue(
         repeat_mode: queue.repeat_mode.clone(),
         source: QueueSourceInfo::from_queue(&queue),
         window,
+        version: queue.version,
     }))
 }
 
@@ -1056,6 +1063,7 @@ pub async fn get_current_window(
                     offset: 0,
                     songs: vec![],
                 },
+                version: 0,
             }));
         }
     };
@@ -1123,6 +1131,7 @@ pub async fn get_current_window(
         repeat_mode: queue.repeat_mode.clone(),
         source: QueueSourceInfo::from_queue(&queue),
         window,
+        version: queue.version,
     }))
 }
 
