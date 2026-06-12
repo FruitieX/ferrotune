@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
+import { hapticConfirm, hapticSelection } from "@/lib/utils/haptic";
 
 // Shared row container styles
 export const rowContainerStyles = cn(
@@ -135,6 +136,7 @@ export function MediaRow({
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        hapticSelection();
         onSelect(e);
       }}
     >
@@ -196,6 +198,7 @@ export function MediaRow({
           ? (e: React.MouseEvent) => {
               e.preventDefault();
               e.stopPropagation();
+              hapticConfirm();
               onPlay();
             }
           : undefined
@@ -225,6 +228,7 @@ export function MediaRow({
           )}
           onClick={(e) => {
             e.preventDefault();
+            hapticConfirm();
             e.stopPropagation();
             onPlay();
           }}

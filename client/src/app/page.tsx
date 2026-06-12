@@ -90,6 +90,12 @@ import {
   type HomeTilePresentation,
 } from "@/lib/utils/home-tiles";
 import { cn } from "@/lib/utils";
+import {
+  hapticConfirm,
+  hapticDouble,
+  hapticTap,
+  hapticToggle,
+} from "@/lib/utils/haptic";
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
 import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
@@ -229,7 +235,11 @@ function SectionHeader({
   viewAllHref?: string;
 }) {
   const titleContent = viewAllHref ? (
-    <Link href={viewAllHref} className="hover:text-primary transition-colors">
+    <Link
+      href={viewAllHref}
+      onClick={() => hapticTap()}
+      className="hover:text-primary transition-colors"
+    >
       {title}
     </Link>
   ) : (
@@ -249,7 +259,10 @@ function SectionHeader({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={onPlayAll}
+                  onClick={() => {
+                    hapticConfirm();
+                    onPlayAll();
+                  }}
                   disabled={isLoading}
                   aria-label={`Play ${title}`}
                 >
@@ -266,7 +279,10 @@ function SectionHeader({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={onShuffleAll}
+                  onClick={() => {
+                    hapticDouble();
+                    onShuffleAll();
+                  }}
                   disabled={isLoading}
                   aria-label={`Shuffle ${title}`}
                 >
@@ -279,6 +295,7 @@ function SectionHeader({
           {viewAllHref && (
             <Link
               href={viewAllHref}
+              onClick={() => hapticTap()}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors ml-1"
             >
               View all
@@ -344,9 +361,17 @@ function HomeQuickTile({
       className={className}
       disabled={tile.isIncomplete}
       onClick={() => {
+        // Distinguish the "kind" of action with a small haptic vocabulary:
+        //   - shuffle queue → playful double-tap (exciting)
+        //   - queue (open/play) → decisive confirm
+        //   - account switch → asymmetric toggle
+        //   - link → light tap (already handled by the <Link> branch above)
         if (tile.action.type === "queue") {
+          if (tile.action.shuffle) hapticDouble();
+          else hapticConfirm();
           onQueueAction(tile.action);
         } else if (tile.action.type === "account") {
+          hapticToggle();
           onAccountAction(tile.action);
         }
       }}
@@ -880,6 +905,7 @@ export default function HomePage() {
 
   // Navigate to search when user starts typing
   const handleSearchFocus = () => {
+    hapticTap();
     router.push("/search");
   };
 

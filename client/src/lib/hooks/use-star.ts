@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 import { useInvalidateFavorites } from "@/lib/store/starred";
+import { hapticStar, hapticUnstar } from "@/lib/utils/haptic";
 
 export type StarItemType = "song" | "album" | "artist";
 
@@ -36,6 +37,12 @@ export function useStar({
   const toggleStar = async () => {
     const client = getClient();
     if (!client) return;
+
+    // Fire the appropriate haptic *before* the network call so the
+    // feedback is perceived as instant. Subsequent callers can override
+    // this with their own pre-call pattern if they want a different feel.
+    if (isStarred) hapticUnstar();
+    else hapticStar();
 
     try {
       if (isStarred) {

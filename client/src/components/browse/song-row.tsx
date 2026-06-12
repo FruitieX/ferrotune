@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
+import { hapticConfirm, hapticSelection } from "@/lib/utils/haptic";
 
 // Track number column - shows number, now playing indicator, or selection checkbox on hover
 interface TrackIndexProps {
@@ -253,6 +254,7 @@ export function SongRow({
       : undefined;
 
   const handlePlay = () => {
+    hapticConfirm();
     if (isCurrentTrack) {
       togglePlayPause();
     } else if (queueSource?.type && queueSource.type !== "other") {
@@ -299,6 +301,7 @@ export function SongRow({
     // If holding modifier keys or in selection mode, handle selection
     if (onSelect && (e.shiftKey || e.ctrlKey || e.metaKey || isSelectionMode)) {
       e.preventDefault();
+      hapticSelection();
       onSelect(song.id, e);
     }
   };
@@ -659,6 +662,7 @@ export function SongCard({
       : undefined;
 
   const handlePlay = () => {
+    hapticConfirm();
     if (isCurrentTrack) {
       togglePlayPause();
     } else if (queueSource?.type && queueSource.type !== "other") {

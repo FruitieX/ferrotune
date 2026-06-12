@@ -171,6 +171,7 @@ function VirtualQueueItem({
             className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 active:opacity-100 active:bg-black/60 transition-opacity rounded cursor-pointer"
             onClick={(event) => {
               event.stopPropagation();
+              hapticTap();
 
               if (isCurrent) {
                 onTogglePlayPause();

@@ -44,6 +44,7 @@ import {
   DrawerMenuCheckboxItem,
   DrawerMenuLabel,
 } from "@/components/shared/drawer-menu";
+import { hapticSelection, hapticTap, hapticToggle } from "@/lib/utils/haptic";
 import type {
   SortField,
   SortDirection,
@@ -177,10 +178,12 @@ export function SongListToolbar({
     // For "custom" sort (playlist order), don't toggle direction - always use ascending
     // as it represents the natural playlist order
     if (field === "custom") {
+      hapticSelection();
       onSortChange({ field, direction: "asc" });
       return;
     }
 
+    hapticSelection();
     if (sortConfig.field === field) {
       onSortChange({
         field,
@@ -192,6 +195,7 @@ export function SongListToolbar({
   };
 
   const toggleColumn = (key: keyof ColumnVisibility) => {
+    hapticToggle();
     onColumnVisibilityChange({
       ...columnVisibility,
       [key]: !columnVisibility[key],
@@ -220,7 +224,10 @@ export function SongListToolbar({
                 variant="ghost"
                 size="icon"
                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                onClick={() => onFilterChange("")}
+                onClick={() => {
+                  hapticTap();
+                  onFilterChange("");
+                }}
                 aria-label="Clear filter"
               >
                 <X className="w-3 h-3" />
@@ -306,7 +313,10 @@ export function SongListToolbar({
               variant={viewMode === "grid" ? "secondary" : "ghost"}
               size="icon"
               className="h-8 w-8"
-              onClick={() => onViewModeChange("grid")}
+              onClick={() => {
+                hapticTap();
+                onViewModeChange("grid");
+              }}
               aria-label="Grid view"
               aria-pressed={viewMode === "grid"}
             >
@@ -316,7 +326,10 @@ export function SongListToolbar({
               variant={viewMode === "list" ? "secondary" : "ghost"}
               size="icon"
               className="h-8 w-8"
-              onClick={() => onViewModeChange("list")}
+              onClick={() => {
+                hapticTap();
+                onViewModeChange("list");
+              }}
               aria-label="List view"
               aria-pressed={viewMode === "list"}
             >
@@ -335,9 +348,10 @@ export function SongListToolbar({
             <div className="flex items-center animate-in fade-in-0 zoom-in-95 duration-200">
               <button
                 type="button"
-                onClick={() =>
-                  onSortChange({ field: "name", direction: "asc" })
-                }
+                onClick={() => {
+                  hapticSelection();
+                  onSortChange({ field: "name", direction: "asc" });
+                }}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
                 aria-label={`Sorted by ${sortOptions.find((o) => o.value === sortConfig.field)?.label ?? sortConfig.field}. Click to reset.`}
               >

@@ -33,7 +33,12 @@ import {
 } from "lucide-react";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
-import { hapticTap, hapticConfirm } from "@/lib/utils/haptic";
+import {
+  hapticTap,
+  hapticConfirm,
+  hapticToggle,
+  hapticDouble,
+} from "@/lib/utils/haptic";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -184,7 +189,7 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
           size="icon"
           className="hidden lg:flex shrink-0 h-8 w-8"
           onClick={() => {
-            hapticTap();
+            // toggleStar fires its own star/unstar haptic pattern
             toggleStar();
           }}
         >
@@ -759,11 +764,11 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
     previous();
   };
   const handleShuffle = () => {
-    hapticTap();
+    hapticToggle();
     toggleShuffle();
   };
   const handleRepeat = () => {
-    hapticTap();
+    hapticToggle();
     cycleRepeatMode();
   };
 
@@ -903,7 +908,10 @@ function VolumeControls() {
       variant="ghost"
       size="icon"
       className="h-8 w-8"
-      onClick={toggleMute}
+      onClick={() => {
+        hapticToggle();
+        toggleMute();
+      }}
       aria-label={isMuted ? "Unmute" : "Mute"}
     >
       {isClipping ? (
@@ -951,6 +959,7 @@ function QueueButton() {
   const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
 
   const toggleQueue = () => {
+    hapticDouble();
     setQueuePanelOpen(!queuePanelOpen);
   };
 
@@ -987,11 +996,13 @@ function MobileMoreMenu() {
 
   const handleFullscreen = () => {
     setIsOpen(false);
+    hapticTap();
     setFullscreenOpen(true);
   };
 
   const handleCast = () => {
     setIsOpen(false);
+    hapticToggle();
     if (isCasting) {
       stopCasting();
     } else {
@@ -1019,7 +1030,10 @@ function MobileMoreMenu() {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={previous}
+              onClick={() => {
+                hapticTap();
+                previous();
+              }}
               aria-label="Previous"
             >
               <SkipBack className="w-4 h-4" />
@@ -1028,7 +1042,10 @@ function MobileMoreMenu() {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={togglePlayPause}
+              onClick={() => {
+                hapticTap();
+                togglePlayPause();
+              }}
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? (
@@ -1041,7 +1058,10 @@ function MobileMoreMenu() {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={next}
+              onClick={() => {
+                hapticTap();
+                next();
+              }}
               aria-label="Next"
             >
               <SkipForward className="w-4 h-4" />
@@ -1054,7 +1074,10 @@ function MobileMoreMenu() {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 p-0"
-                onClick={toggleMute}
+                onClick={() => {
+                  hapticToggle();
+                  toggleMute();
+                }}
               >
                 <VolumeIcon className="w-4 h-4" />
               </Button>
@@ -1092,7 +1115,10 @@ function MobileMoreMenu() {
               "justify-start gap-2",
               isShuffled && "text-primary hover:text-primary",
             )}
-            onClick={toggleShuffle}
+            onClick={() => {
+              hapticToggle();
+              toggleShuffle();
+            }}
           >
             <Shuffle className="w-4 h-4" />
             Shuffle {isShuffled && "On"}
@@ -1105,7 +1131,10 @@ function MobileMoreMenu() {
               "justify-start gap-2",
               repeatMode !== "off" && "text-primary hover:text-primary",
             )}
-            onClick={cycleRepeatMode}
+            onClick={() => {
+              hapticToggle();
+              cycleRepeatMode();
+            }}
           >
             <RepeatIcon className="w-4 h-4" />
             Repeat{" "}
@@ -1138,6 +1167,15 @@ function CastButton() {
 
   if (!isAvailable) return null;
 
+  const handleCastClick = () => {
+    hapticToggle();
+    if (isCasting) {
+      stopCasting();
+    } else {
+      requestCast();
+    }
+  };
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -1145,7 +1183,7 @@ function CastButton() {
           variant="ghost"
           size="icon"
           className={cn("hidden md:flex h-8 w-8", isCasting && "text-primary")}
-          onClick={isCasting ? stopCasting : requestCast}
+          onClick={handleCastClick}
           aria-label={isCasting ? "Stop casting" : "Cast"}
         >
           <Cast className="w-4 h-4" />

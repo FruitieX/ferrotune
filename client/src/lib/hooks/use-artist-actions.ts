@@ -7,6 +7,11 @@ import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
 import { useStar } from "./use-star";
+import {
+  hapticConfirm,
+  hapticDouble,
+  hapticSelection,
+} from "@/lib/utils/haptic";
 import type { Artist, Song } from "@/lib/api/types";
 
 interface UseArtistActionsReturn {
@@ -78,6 +83,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   });
 
   const handlePlay = () => {
+    hapticConfirm();
     startQueue({
       sourceType: "artist",
       sourceId: artist.id,
@@ -89,6 +95,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   };
 
   const handleShuffle = () => {
+    hapticDouble();
     startQueue({
       sourceType: "artist",
       sourceId: artist.id,
@@ -102,6 +109,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   const handlePlayNext = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
+      hapticSelection();
       addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
@@ -112,6 +120,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   const handleAddToQueue = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
+      hapticSelection();
       addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${artist.name}" songs to queue`);
     } else {

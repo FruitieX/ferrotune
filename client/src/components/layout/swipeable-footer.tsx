@@ -11,6 +11,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { fullscreenPlayerOpenAtom, fullscreenOpenDragY } from "@/lib/store/ui";
 import { currentSongAtom } from "@/lib/store/server-queue";
+import { hapticConfirm } from "@/lib/utils/haptic";
 
 // Module-level handle for the open animation so the fullscreen player
 // can cancel it when the user dismisses during the opening spring.
@@ -114,11 +115,7 @@ export function SwipeableFooter({ children }: SwipeableFooterProps) {
 
     if (shouldOpenFullscreen && currentTrack) {
       // Haptic feedback on gesture trigger
-      try {
-        navigator.vibrate?.(10);
-      } catch {
-        /* ignore */
-      }
+      hapticConfirm();
       // Animate to fully open position then set state
       openAnimationControls = animate(
         fullscreenOpenDragY,

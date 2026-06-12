@@ -17,6 +17,7 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { hapticConfirm, hapticDouble } from "@/lib/utils/haptic";
 
 interface ActionBarProps {
   /** Handler for play all button */
@@ -72,7 +73,10 @@ export function ActionBar({
           <Button
             size="lg"
             className="rounded-full gap-2 md:px-8"
-            onClick={onPlayAll}
+            onClick={() => {
+              hapticConfirm();
+              onPlayAll();
+            }}
             disabled={disablePlay}
           >
             <Play className="w-5 h-5 ml-0.5" />
@@ -88,7 +92,10 @@ export function ActionBar({
               "rounded-full gap-2",
               compactMobile && !showShuffleOnMobile && "hidden md:inline-flex",
             )}
-            onClick={onShuffle}
+            onClick={() => {
+              hapticDouble();
+              onShuffle();
+            }}
             disabled={disablePlay}
           >
             <Shuffle className="w-5 h-5" />

@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
-import { hapticTap, hapticConfirm } from "@/lib/utils/haptic";
+import { hapticTap, hapticConfirm, hapticToggle } from "@/lib/utils/haptic";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -142,7 +142,7 @@ function FullscreenVolumeControls({
       size="icon"
       className="shrink-0 rounded-full h-8 w-8"
       onClick={() => {
-        hapticTap();
+        hapticToggle();
         setIsMuted(!isMuted);
       }}
     >
@@ -1264,7 +1264,7 @@ export function FullscreenPlayer() {
                 size="icon"
                 className="rounded-full shrink-0"
                 onClick={() => {
-                  hapticTap();
+                  // toggleStar fires its own star/unstar haptic pattern
                   toggleStar();
                 }}
               >
@@ -1332,7 +1332,7 @@ export function FullscreenPlayer() {
                   queueState?.isShuffled && "text-primary hover:text-primary",
                 )}
                 onClick={() => {
-                  hapticTap();
+                  hapticToggle();
                   toggleShuffle();
                 }}
               >
@@ -1386,7 +1386,7 @@ export function FullscreenPlayer() {
                   repeatMode !== "off" && "text-primary hover:text-primary",
                 )}
                 onClick={() => {
-                  hapticTap();
+                  hapticToggle();
                   cycleRepeat();
                 }}
               >

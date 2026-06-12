@@ -35,6 +35,7 @@ import {
   DrawerMenuCheckboxItem,
   DrawerMenuLabel,
 } from "@/components/shared/drawer-menu";
+import { hapticSelection, hapticTap, hapticToggle } from "@/lib/utils/haptic";
 import type {
   SortField,
   SortDirection,
@@ -108,6 +109,7 @@ export function PlaylistsListToolbar({
   showColumns = true,
 }: PlaylistsListToolbarProps) {
   const handleSort = (field: SortField) => {
+    hapticSelection();
     if (sortConfig.field === field) {
       onSortChange({
         field,
@@ -120,6 +122,7 @@ export function PlaylistsListToolbar({
 
   const handleColumnToggle = (key: keyof PlaylistColumnVisibility) => {
     if (!columnVisibility || !onColumnVisibilityChange) return;
+    hapticToggle();
     onColumnVisibilityChange({
       ...columnVisibility,
       [key]: !columnVisibility[key],
@@ -147,7 +150,10 @@ export function PlaylistsListToolbar({
               variant="ghost"
               size="icon"
               className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-              onClick={() => onFilterChange("")}
+              onClick={() => {
+                hapticTap();
+                onFilterChange("");
+              }}
               aria-label="Clear filter"
             >
               <X className="w-3 h-3" />
@@ -227,7 +233,10 @@ export function PlaylistsListToolbar({
             variant={viewMode === "grid" ? "secondary" : "ghost"}
             size="icon"
             className="h-8 w-8"
-            onClick={() => onViewModeChange("grid")}
+            onClick={() => {
+              hapticTap();
+              onViewModeChange("grid");
+            }}
             aria-label="Grid view"
             aria-pressed={viewMode === "grid"}
           >
@@ -237,7 +246,10 @@ export function PlaylistsListToolbar({
             variant={viewMode === "list" ? "secondary" : "ghost"}
             size="icon"
             className="h-8 w-8"
-            onClick={() => onViewModeChange("list")}
+            onClick={() => {
+              hapticTap();
+              onViewModeChange("list");
+            }}
             aria-label="List view"
             aria-pressed={viewMode === "list"}
           >
@@ -288,6 +300,7 @@ export function PlaylistsMobileMenu({
   const [open, setOpen] = useState(false);
 
   const handleSort = (field: SortField) => {
+    hapticSelection();
     if (sortConfig.field === field) {
       onSortChange({
         field,
@@ -300,6 +313,7 @@ export function PlaylistsMobileMenu({
 
   const handleColumnToggle = (key: keyof PlaylistColumnVisibility) => {
     if (!columnVisibility || !onColumnVisibilityChange) return;
+    hapticToggle();
     onColumnVisibilityChange({
       ...columnVisibility,
       [key]: !columnVisibility[key],

@@ -7,6 +7,7 @@ import { atomFamily } from "jotai-family";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
+import { hapticStar, hapticUnstar } from "@/lib/utils/haptic";
 
 /**
  * Global store for tracking starred (favorited) items.
@@ -156,6 +157,13 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
 
     // Optimistic update
     const newStarred = !isStarred;
+
+    // Fire the appropriate haptic *before* the network call so the feedback
+    // is perceived as instant. Optimistic UI + delayed API keeps the perceived
+    // action immediate.
+    if (newStarred) hapticStar();
+    else hapticUnstar();
+
     setStarredValue(newStarred);
 
     try {

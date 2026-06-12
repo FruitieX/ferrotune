@@ -22,7 +22,7 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { hapticHeavy } from "@/lib/utils/haptic";
+import { hapticDestructive, hapticTap } from "@/lib/utils/haptic";
 import { getQueueSourceHref } from "@/lib/utils/source-links";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
@@ -168,12 +168,13 @@ export function QueueSidebar() {
 
   const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
-    hapticHeavy();
+    hapticDestructive();
     clearQueue();
     toast.success(`Cleared ${trackCount} tracks from queue`);
   };
 
   const handleJumpToNowPlaying = () => {
+    hapticTap();
     queueDisplayRef.current?.scrollToNowPlaying("smooth");
   };
 
@@ -236,7 +237,10 @@ export function QueueSidebar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setIsOpen(false)}
+                  onClick={() => {
+                    hapticTap();
+                    setIsOpen(false);
+                  }}
                   className="h-8 w-8"
                   aria-label="Close queue"
                 >

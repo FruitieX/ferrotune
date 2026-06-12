@@ -10,6 +10,7 @@ import { CoverArtModal } from "./cover-art-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hapticTap } from "@/lib/utils/haptic";
 
 interface DetailHeaderProps {
   /** Back button behavior */
@@ -148,7 +149,10 @@ export function DetailHeader({
             variant="ghost"
             size="icon"
             className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
-            onClick={() => navigateBack()}
+            onClick={() => {
+              hapticTap();
+              navigateBack();
+            }}
             aria-label="Go back"
           >
             <ArrowLeft className="w-5 h-5" />

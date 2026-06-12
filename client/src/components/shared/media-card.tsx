@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
+import { hapticConfirm, hapticSelection } from "@/lib/utils/haptic";
 
 interface MediaCardProps {
   /** Cover art URL */
@@ -135,6 +136,7 @@ export function MediaCard({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                hapticSelection();
                 onSelect(e);
               }}
             >
@@ -184,6 +186,7 @@ export function MediaCard({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    hapticConfirm();
                     onPlay();
                   }}
                 >

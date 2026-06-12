@@ -130,6 +130,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildInfo, formatBuildDate } from "@/lib/build-info";
 import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
+import {
+  hapticDestructive,
+  hapticSelection,
+  hapticTap,
+  hapticToggle,
+} from "@/lib/utils/haptic";
 
 const progressTimeLabelVisibilityOptions = [
   { value: "always", label: "Always" },
@@ -333,10 +339,12 @@ export default function SettingsPage() {
       return;
     }
 
+    hapticSelection();
     setNewTileKind(value);
   };
 
   const updateHomeTile = (tileId: string, patch: Partial<HomeTileConfig>) => {
+    hapticSelection();
     setHomeTiles((current) =>
       normalizeHomeTiles(current).map((tile) =>
         tile.id === tileId ? { ...tile, ...patch } : tile,
@@ -348,6 +356,10 @@ export default function SettingsPage() {
     sectionId: string,
     patch: Partial<HomeSectionConfig>,
   ) => {
+    // Toggle a binary `enabled` flag with the dedicated toggle pattern so it
+    // feels distinct from a plain select change.
+    if (typeof patch.enabled === "boolean") hapticToggle();
+    else hapticSelection();
     setHomeSections((current) =>
       normalizeHomeSections(current).map((section) =>
         section.id === sectionId ? { ...section, ...patch } : section,
@@ -358,6 +370,7 @@ export default function SettingsPage() {
   const numberFromInput = (value: string) => Math.max(1, Number(value) || 1);
 
   const moveHomeTile = (tileId: string, direction: -1 | 1) => {
+    hapticSelection();
     setHomeTiles((current) => {
       const next = [...normalizeHomeTiles(current)];
       const index = next.findIndex((tile) => tile.id === tileId);
@@ -373,6 +386,7 @@ export default function SettingsPage() {
   };
 
   const moveHomeSection = (sectionId: string, direction: -1 | 1) => {
+    hapticSelection();
     setHomeSections((current) => {
       const next = [...normalizeHomeSections(current)];
       const index = next.findIndex((section) => section.id === sectionId);
@@ -388,6 +402,7 @@ export default function SettingsPage() {
   };
 
   const removeHomeTile = (tileId: string) => {
+    hapticDestructive();
     setHomeTiles((current) => {
       const next = normalizeHomeTiles(current).filter(
         (tile) => tile.id !== tileId,
@@ -397,6 +412,7 @@ export default function SettingsPage() {
   };
 
   const addHomeTile = () => {
+    hapticTap();
     const nextTile = createHomeTileConfig(newTileKind);
     setHomeTiles((current) => [...normalizeHomeTiles(current), nextTile]);
     setEditingHomeTileId(nextTile.id);
@@ -470,6 +486,7 @@ export default function SettingsPage() {
   };
 
   const addPlaylistHomeSection = () => {
+    hapticTap();
     const nextSection = createPlaylistHomeSectionConfig();
     setHomeSections((current) => [
       ...normalizeHomeSections(current),
@@ -479,6 +496,7 @@ export default function SettingsPage() {
   };
 
   const removeHomeSection = (sectionId: string) => {
+    hapticDestructive();
     setHomeSections((current) =>
       normalizeHomeSections(current).filter(
         (section) => section.id !== sectionId,
@@ -856,7 +874,10 @@ export default function SettingsPage() {
                           size="icon"
                           className="h-8 w-8"
                           aria-label={`Edit ${presentation.label}`}
-                          onClick={() => setEditingHomeTileId(tile.id)}
+                          onClick={() => {
+                            hapticTap();
+                            setEditingHomeTileId(tile.id);
+                          }}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -1120,7 +1141,10 @@ export default function SettingsPage() {
                           size="icon"
                           className="h-8 w-8"
                           aria-label={`Edit ${presentation.label}`}
-                          onClick={() => setEditingHomeSectionId(section.id)}
+                          onClick={() => {
+                            hapticTap();
+                            setEditingHomeSectionId(section.id);
+                          }}
                           disabled={!presentation.hasSettings}
                         >
                           <Pencil className="h-4 w-4" />

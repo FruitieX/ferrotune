@@ -19,6 +19,13 @@ import {
   invalidatePlaylistQueries,
   invalidateRecycleBinQueries,
 } from "@/lib/api/cache-invalidation";
+import {
+  hapticConfirm,
+  hapticDestructive,
+  hapticDouble,
+  hapticSelection,
+  hapticToggle,
+} from "@/lib/utils/haptic";
 import type { Song } from "@/lib/api/types";
 
 export interface QueueSource {
@@ -102,6 +109,7 @@ export function useSongActions({
     if (!client) return;
 
     const newExcluded = !isExcludedFromShuffle;
+    hapticToggle();
     try {
       await client.setShuffleExclude(song.id, newExcluded);
       setShuffleExcludes((prev: Set<string>) => {
@@ -129,6 +137,7 @@ export function useSongActions({
     if (!client) return;
 
     const newDisabled = !isDisabled;
+    hapticToggle();
     try {
       await client.setDisabled(song.id, newDisabled);
       setDisabledSongs((prev: Set<string>) => {
@@ -150,6 +159,7 @@ export function useSongActions({
   };
 
   const handlePlay = () => {
+    hapticConfirm();
     if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
       const index =
@@ -185,6 +195,7 @@ export function useSongActions({
   };
 
   const handleStartRadio = () => {
+    hapticDouble();
     startQueue({
       sourceType: "songRadio",
       sourceId: song.id,
@@ -196,6 +207,7 @@ export function useSongActions({
   const handlePlayNext = async () => {
     const result = await addToQueue({ songIds: [song.id], position: "next" });
     if (result.success) {
+      hapticSelection();
       toast.success(`Added "${song.title}" to play next`);
     } else {
       toast.error(`Failed to add "${song.title}" to queue`);
@@ -205,6 +217,7 @@ export function useSongActions({
   const handleAddToQueue = async () => {
     const result = await addToQueue({ songIds: [song.id], position: "end" });
     if (result.success) {
+      hapticSelection();
       toast.success(`Added "${song.title}" to queue`);
     } else {
       toast.error(`Failed to add "${song.title}" to queue`);
@@ -215,6 +228,7 @@ export function useSongActions({
     const client = getClient();
     if (!client) return;
 
+    hapticSelection();
     try {
       await client.setRating(song.id, rating);
       setCurrentRating(rating);
@@ -243,6 +257,7 @@ export function useSongActions({
     const client = getClient();
     if (!client) return;
 
+    hapticDestructive();
     try {
       await client.markForDeletion([song.id]);
       setConfirmDeletionOpen(false);

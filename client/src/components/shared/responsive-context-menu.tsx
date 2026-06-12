@@ -38,6 +38,7 @@ export {
 };
 import type { MenuComponents } from "@/components/shared/media-menu-items";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
+import { hapticDouble } from "@/lib/utils/haptic";
 
 // ===================================
 // Menu component adapters (centralized)
@@ -107,7 +108,11 @@ export function ResponsiveContextMenu({
   // Desktop: standard context menu
   if (hasFinePointer) {
     return (
-      <ContextMenu>
+      <ContextMenu
+        onOpenChange={(open) => {
+          if (open) hapticDouble();
+        }}
+      >
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent
           className={contentClassName}
@@ -136,12 +141,14 @@ export function ResponsiveContextMenu({
         className={className}
         onContextMenu={(e) => {
           e.preventDefault();
+          hapticDouble();
           setDrawerOpen(true);
         }}
         onTouchStart={() => {
           touchMoved.current = false;
           longPressTimer.current = setTimeout(() => {
             if (!touchMoved.current) {
+              hapticDouble();
               setDrawerOpen(true);
             }
           }, 500);
@@ -213,7 +220,12 @@ export function ResponsiveDropdownMenu({
   // Desktop: standard dropdown menu
   if (hasFinePointer) {
     return (
-      <DropdownMenu onOpenChange={onOpenChange}>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          onOpenChange?.(open);
+          if (open) hapticDouble();
+        }}
+      >
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent
           align={align}
@@ -237,6 +249,7 @@ export function ResponsiveDropdownMenu({
         onClickCapture={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          hapticDouble();
           onOpenChange?.(true);
           setDrawerOpen(true);
         }}
