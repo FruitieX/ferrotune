@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getQueueSourceHref } from "@/lib/utils/source-links";
+import { hapticConfirm } from "@/lib/utils/haptic";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -298,6 +299,8 @@ export function MobileQueueSheet() {
     const shouldClose = offset.x > 100 || velocity.x > 500;
 
     if (shouldClose) {
+      // Haptic feedback on swipe close
+      hapticConfirm();
       // Mark that we're closing via gesture so the layer becomes
       // non-interactive while the motion value handles the visual close.
       setIsDraggingSheet(false);

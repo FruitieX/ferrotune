@@ -421,14 +421,12 @@ class PlaybackService : MediaSessionService() {
                 updateLastKnownGoodPosition()
                 emitProgressEvent()
                 // Track accumulated listen time for scrobbling
-                if (isActive) {
-                    val now = System.currentTimeMillis()
-                    if (lastProgressTimestamp > 0) {
-                        accumulatedListenMs += (now - lastProgressTimestamp)
-                    }
-                    lastProgressTimestamp = now
-                    checkScrobble()
+                val now = System.currentTimeMillis()
+                if (lastProgressTimestamp > 0) {
+                    accumulatedListenMs += (now - lastProgressTimestamp)
                 }
+                lastProgressTimestamp = now
+                checkScrobble()
                 handler.postDelayed(this, PROGRESS_UPDATE_INTERVAL_MS)
             }
         }

@@ -455,7 +455,20 @@ export const startQueueAtom = atom(
         });
 
         set(queueWindowAtom, response.window);
-        set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+
+        // When native audio is active, call native directly instead of
+        // incrementing trackChangeSignalAtom. This avoids a race condition
+        // where both the track-loader (triggered by trackChangeSignal) and
+        // the native SSE QueueChanged handler try to start playback,
+        // causing the track to restart 1-2 seconds after it starts.
+        // The native playAtIndex will set the current track, and when
+        // QueueChanged SSE arrives, isCurrentTrackAtTarget will return
+        // true and use syncQueueWithoutRestart.
+        if (hasNativeAudio() && shouldPlay) {
+          nativePlayAtIndex(response.currentIndex);
+        } else {
+          set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+        }
       }
 
       // No explicit sendSessionCommand("queueChanged") needed here:

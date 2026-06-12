@@ -158,7 +158,10 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           className="shrink-0 album-glow cursor-pointer"
-          onClick={() => setFullscreenOpen(true)}
+          onClick={() => {
+            hapticTap();
+            setFullscreenOpen(true);
+          }}
         >
           <CoverImage
             src={coverArtUrl}
@@ -1245,7 +1248,10 @@ function FullscreenButton() {
       variant="ghost"
       size="icon"
       className="hidden md:flex h-8 w-8"
-      onClick={() => setFullscreenOpen(true)}
+      onClick={() => {
+        hapticTap();
+        setFullscreenOpen(true);
+      }}
       aria-label="Fullscreen"
     >
       <Maximize2 className="w-4 h-4" />

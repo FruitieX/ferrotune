@@ -386,7 +386,7 @@ export function BulkActionsBar(
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className={cn(
-              "fixed bottom-24 left-1/2 -translate-x-1/2 z-50",
+              "fixed bottom-40 lg:bottom-24 left-1/2 -translate-x-1/2 z-[60]",
               "bg-card/95 backdrop-blur-lg border border-border rounded-full",
               "shadow-2xl shadow-black/20",
               "px-2 py-2",
