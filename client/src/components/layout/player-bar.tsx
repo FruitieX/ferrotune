@@ -679,6 +679,8 @@ function SwipeableNowPlaying({
               maxHorizontalDistance.current < TAP_MAX_DISTANCE &&
               maxVerticalDistance.current < TAP_MAX_DISTANCE;
             if (wasTap) {
+              // Match the swipe-up gesture haptic so both entry paths feel consistent
+              hapticConfirm();
               onOpenFullscreen();
             }
           }}

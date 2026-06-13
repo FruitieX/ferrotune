@@ -30,6 +30,7 @@ import {
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
 import { hapticTap, hapticConfirm, hapticToggle } from "@/lib/utils/haptic";
+import { releaseDragPointerCapture } from "@/lib/utils/gesture";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -206,6 +207,11 @@ export function FullscreenPlayer() {
   const followerSessionName = useAtomValue(followerSessionNameAtom);
   const followerClientName = useAtomValue(followerSessionClientNameAtom);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
+  // Refs to the draggable fullscreen sheet and backdrop so we can
+  // release pointer capture and disable pointer events synchronously
+  // after a swipe close.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const isSmallScreen = useIsSmallScreen();
 
   // Track if we're in the middle of a gesture-based close animation
@@ -447,6 +453,16 @@ export function FullscreenPlayer() {
     // Keep the logical fullscreen state open while the gesture-owned
     // MotionValue animates the visual sheet out. The atom is closed in
     // settleGestureClosed, after the layer has been hidden.
+    //
+    // Disable pointer events immediately so the brief window before
+    // React re-renders doesn't leave the overlay swallowing the next
+    // tap on Android WebView.
+    if (sheetRef.current) {
+      sheetRef.current.style.pointerEvents = "none";
+    }
+    if (backdropRef.current) {
+      backdropRef.current.style.pointerEvents = "none";
+    }
     dragY.stop();
     const closeDurationMs = getGestureCloseDurationMs();
     animate(dragY, viewportHeight, {
@@ -883,7 +899,7 @@ export function FullscreenPlayer() {
 
   // Handler for swipe-to-close gesture end
   const handleDragEnd = (
-    _event: MouseEvent | TouchEvent | PointerEvent,
+    event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
     const { offset, velocity } = info;
@@ -892,9 +908,15 @@ export function FullscreenPlayer() {
 
     if (shouldClose) {
       hapticConfirm();
+      // On Android Tauri, the WebView's pointer capture can leak after a
+      // fast swipe, causing the next tap to be routed to the sheet
+      // instead of the element under the finger. Release the capture on
+      // the drag container explicitly.
+      releaseDragPointerCapture(event, sheetRef.current);
       closeWithGestureAnimation();
     } else {
       // Snap back to origin
+      releaseDragPointerCapture(event, sheetRef.current);
       animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
         () => setIsDraggingSheet(false),
       );
@@ -903,6 +925,9 @@ export function FullscreenPlayer() {
 
   // Handler for drag start
   const handleDragStart = () => {
+    // Stop any in-flight open animation so the drag takes over
+    // immediately without fighting the animate prop.
+    dragY.stop();
     setIsDraggingSheet(true);
   };
 
@@ -932,7 +957,8 @@ export function FullscreenPlayer() {
     isClosingViaGesture ||
     isDraggingSheet ||
     !isClosedAnimationSettled;
-  const isInteractive = isOpen && !isClosingViaGesture;
+  const isInteractive =
+    (isOpen || isOpeningWithGesture) && !isClosingViaGesture;
   const shouldCaptureBackdropPointerEvents = isOverlayVisible;
   const sheetOpacity = isOverlayVisible ? 1 : 0;
   const sheetVisibility = isOverlayVisible ? "visible" : "hidden";
@@ -951,6 +977,7 @@ export function FullscreenPlayer() {
     <>
       {/* Backdrop - fades in/out */}
       <motion.div
+        ref={backdropRef}
         key="fullscreen-backdrop"
         initial={{ opacity: 0 }}
         animate={{
@@ -988,6 +1015,7 @@ export function FullscreenPlayer() {
 
       {/* Content - slides up/down, also draggable to close on small screens */}
       <motion.div
+        ref={sheetRef}
         key="fullscreen-content"
         initial={false}
         animate={{ y: isOpen ? 0 : "100%" }}

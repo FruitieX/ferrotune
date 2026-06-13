@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getQueueSourceHref } from "@/lib/utils/source-links";
+import { releaseDragPointerCapture } from "@/lib/utils/gesture";
 import { hapticConfirm } from "@/lib/utils/haptic";
 import {
   cleanUpHistoryState,
@@ -173,13 +174,11 @@ export function MobileQueueSheet() {
 
   // Track if we're in the middle of a gesture-based close animation
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);
-  // Keep the sheet mounted for one render after the visual close so the
-  // AnimatePresence exit can use the instant gesture-close path.
-  const [keepGestureCloseRendered, setKeepGestureCloseRendered] =
-    useState(false);
   const [isDraggingSheet, setIsDraggingSheet] = useState(false);
-  // Track whether the entry animation has finished so queue work can stay off
-  // the critical animation path.
+  // Track whether the entry animation has finished. Set once when the open
+  // animation completes, reset only on close — the open path doesn't
+  // reset it, so there's no synchronous re-render at the start of the
+  // animation.
   const [isSheetSettled, setIsSheetSettled] = useState(false);
 
   // Motion values for swipe-to-close (horizontal)
@@ -194,36 +193,41 @@ export function MobileQueueSheet() {
   // Track if we've already scrolled for this open state
   const hasScrolledRef = useRef(false);
 
-  // Reset scroll tracking when panel closes
+  // Reset scroll tracking and settled state when panel closes
   useEffect(() => {
     if (!isOpen) {
       hasScrolledRef.current = false;
       setIsSheetSettled(false);
-      if (!isClosingViaGesture && !keepGestureCloseRendered) {
+      if (!isClosingViaGesture) {
         dragX.set(0);
       }
-    } else {
-      setIsSheetSettled(false);
     }
-  }, [isOpen, isClosingViaGesture, keepGestureCloseRendered, dragX]);
+    // Intentionally not resetting on open: isSheetSettled only flips false
+    // → true via the animation complete handler, and false → true on close.
+    // This avoids a synchronous re-render at the start of the open
+    // animation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
-  // Auto-scroll to current song when queue panel opens (only once per open)
-  useEffect(() => {
-    if (
-      isOpen &&
-      isSheetSettled &&
-      !isQueueLoading &&
-      queueState &&
-      queueState.totalCount > 0 &&
-      !hasScrolledRef.current
-    ) {
-      hasScrolledRef.current = true;
-      const rafId = requestAnimationFrame(() => {
-        queueDisplayRef.current?.scrollToNowPlaying("auto");
-      });
-      return () => cancelAnimationFrame(rafId);
+  // Auto-scroll to current song once the open animation has settled.
+  // Driven by onAnimationComplete directly so it doesn't require a
+  // re-render to trigger.
+  const handleSheetAnimationComplete = () => {
+    if (isOpen && !isClosingViaGesture) {
+      setIsSheetSettled(true);
+      if (
+        !isQueueLoading &&
+        queueState &&
+        queueState.totalCount > 0 &&
+        !hasScrolledRef.current
+      ) {
+        hasScrolledRef.current = true;
+        requestAnimationFrame(() => {
+          queueDisplayRef.current?.scrollToNowPlaying("auto");
+        });
+      }
     }
-  }, [isOpen, isSheetSettled, isQueueLoading, queueState]);
+  };
 
   // Handle Escape key to close
   useEffect(() => {
@@ -244,6 +248,12 @@ export function MobileQueueSheet() {
   const closedViaPopstateRef = useRef(false);
   // Track whether we've pushed a history entry that needs cleanup
   const pushedHistoryRef = useRef(false);
+  // Refs to the sheet and backdrop so we can disable pointer events
+  // synchronously in the drag-end handler before React has re-rendered.
+  // This prevents the Android WebView from routing the next tap to the
+  // still-capturing overlay during the close animation.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   // Push history state when queue opens on mobile for proper back navigation.
   // When queue closes via non-back-button means (X, swipe, backdrop tap),
@@ -291,7 +301,7 @@ export function MobileQueueSheet() {
 
   // Handler for swipe-to-close gesture end
   const handleDragEnd = (
-    _event: MouseEvent | TouchEvent | PointerEvent,
+    event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
     const { offset, velocity } = info;
@@ -301,13 +311,39 @@ export function MobileQueueSheet() {
     if (shouldClose) {
       // Haptic feedback on swipe close
       hapticConfirm();
+
+      // Release pointer capture on the drag target. On Android Tauri
+      // (WebView), the browser's pointer-capture model can leak: after a
+      // fast swipe, the next tap is dispatched to whatever element
+      // captured the pointer during the drag. Explicitly releasing the
+      // capture on the drag container drops the ghost tap.
+      releaseDragPointerCapture(event, sheetRef.current);
+
       // Mark that we're closing via gesture so the layer becomes
       // non-interactive while the motion value handles the visual close.
-      setIsDraggingSheet(false);
+      // Keep isDraggingSheet true during the momentum animation so the
+      // sheet doesn't try to accept tap/click events while it's sliding
+      // away.
       setIsClosingViaGesture(true);
-      setKeepGestureCloseRendered(true);
-      setIsOpen(false);
-      // Animate off-screen then close - use window width to ensure fully offscreen
+      setIsDraggingSheet(true);
+
+      // Disable pointer events on the sheet and backdrop immediately,
+      // before React has had a chance to re-render. Without this, the
+      // brief window between the drag-end handler and the next paint
+      // leaves the overlay as the hit-test target on Android WebView,
+      // swallowing the following tap.
+      if (sheetRef.current) {
+        sheetRef.current.style.pointerEvents = "none";
+      }
+      if (backdropRef.current) {
+        backdropRef.current.style.pointerEvents = "none";
+      }
+
+      // Animate off-screen. Keep the atom open until the animation
+      // finishes so AnimatePresence doesn't fire its exit animation
+      // early — that exit would snap the sheet to x: "100%" and hide it
+      // instantly. Only set isOpen(false) once the gesture animation has
+      // fully settled; handleExitComplete will clear the gesture flags.
       const targetX =
         typeof window !== "undefined" ? window.innerWidth : SHEET_WIDTH;
       animate(dragX, targetX, {
@@ -315,30 +351,24 @@ export function MobileQueueSheet() {
         duration: 0.5,
         ease: [0.32, 0.72, 0, 1],
       }).then(() => {
-        setKeepGestureCloseRendered(false);
+        setIsOpen(false);
       });
     } else {
-      // Snap back to origin
+      // Snap back to origin — also release capture here in case the
+      // browser leaked it on a slow swipe that ends in a cancel.
+      releaseDragPointerCapture(event, sheetRef.current);
       animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
         () => setIsDraggingSheet(false),
       );
     }
   };
 
-  const shouldRender = isOpen || keepGestureCloseRendered;
+  const shouldRender = isOpen;
 
   const handleExitComplete = () => {
-    if (!isClosingViaGesture) return;
     setIsClosingViaGesture(false);
     setIsDraggingSheet(false);
-    setKeepGestureCloseRendered(false);
     // dragX is reset by the useEffect watching isClosingViaGesture
-  };
-
-  const handleSheetAnimationComplete = () => {
-    if (isOpen && !isClosingViaGesture) {
-      setIsSheetSettled(true);
-    }
   };
 
   // Only render on mobile (when fullscreen is open and queue is requested)
@@ -349,12 +379,15 @@ export function MobileQueueSheet() {
 
   const useGestureBackdrop = isDraggingSheet || isClosingViaGesture;
 
+  const isInteractive = isOpen && !isClosingViaGesture;
+
   return (
     <AnimatePresence onExitComplete={handleExitComplete}>
       {shouldRender && (
         <>
           {/* Backdrop */}
           <motion.div
+            ref={backdropRef}
             initial={{
               opacity: 0,
               backdropFilter: "blur(0px)",
@@ -371,11 +404,19 @@ export function MobileQueueSheet() {
                     backdropFilter: "blur(0px)",
                   }
             }
-            transition={{ duration: 0.3 }}
+            // When the gesture backdrop is active, the motion value
+            // (backdropOpacity / backdropBlur) drives opacity. Set the
+            // transition to instant so the `animate` prop doesn't fight
+            // with the style motion value — otherwise the backdrop snaps
+            // to its target on the next frame instead of fading smoothly
+            // with the dragX motion value.
+            transition={
+              useGestureBackdrop ? { duration: 0 } : { duration: 0.3 }
+            }
             style={{
               opacity: useGestureBackdrop ? backdropOpacity : undefined,
               backdropFilter: useGestureBackdrop ? backdropBlur : undefined,
-              pointerEvents: isOpen && !isClosingViaGesture ? "auto" : "none",
+              pointerEvents: isInteractive ? "auto" : "none",
             }}
             className="fixed inset-0 z-60 bg-black/50"
             onClick={() => setIsOpen(false)}
@@ -383,6 +424,7 @@ export function MobileQueueSheet() {
 
           {/* Sheet */}
           <motion.div
+            ref={sheetRef}
             data-queue-panel="open"
             data-gesture-closing={isClosingViaGesture ? "true" : undefined}
             data-sheet-settled={isSheetSettled ? "true" : "false"}
@@ -390,26 +432,38 @@ export function MobileQueueSheet() {
             aria-label="Queue"
             aria-modal="true"
             initial={{ x: "100%" }}
-            animate={{ x: 0 }}
+            animate={{
+              x:
+                isDraggingSheet || isClosingViaGesture ? undefined : 0,
+            }}
             exit={
               isClosingViaGesture
                 ? { transition: { duration: 0 } }
                 : { x: "100%" }
             }
-            transition={{
-              type: "tween",
-              duration: 0.4,
-              ease: [0.32, 0.72, 0, 1],
-            }}
+            transition={
+              isDraggingSheet || isClosingViaGesture
+                ? { duration: 0 }
+                : {
+                    type: "tween",
+                    duration: 0.4,
+                    ease: [0.32, 0.72, 0, 1],
+                  }
+            }
             style={{
               x: dragX,
-              pointerEvents: isOpen && !isClosingViaGesture ? "auto" : "none",
+              pointerEvents: isInteractive ? "auto" : "none",
             }}
-            drag="x"
+            drag={isInteractive ? "x" : false}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={{ left: 0, right: 0.5 }}
             dragDirectionLock
-            onDragStart={() => setIsDraggingSheet(true)}
+            onDragStart={() => {
+              // Stop any in-flight open animation so the drag takes
+              // over immediately without fighting the animate prop.
+              dragX.stop();
+              setIsDraggingSheet(true);
+            }}
             onDragEnd={handleDragEnd}
             onAnimationComplete={handleSheetAnimationComplete}
             className={cn(
