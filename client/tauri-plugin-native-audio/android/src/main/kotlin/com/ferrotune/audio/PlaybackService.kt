@@ -246,15 +246,6 @@ class PlaybackService : MediaSessionService() {
     // SSE QueueUpdated skips full-reload when an invalidation is pending
     // (the invalidateQueue path preserves player.currentPosition correctly).
     private var invalidateVersion = 0
-    // Last queue version applied from a GetQueueResponse. Used to skip
-    // redundant syncs when both SSE QueueUpdated and an explicit
-    // invalidateQueue() arrive for the same queue version.
-    private var lastAppliedQueueVersion: Long = 0
-    // When true, suppresses emitStateChange() from PlayerListener during
-    // surgical queue updates (replaceMediaItems) to avoid transient
-    // BUFFERING/PAUSED states reaching the JS layer.
-    @Volatile
-    private var isSyncingQueue = false
     // Scrobble state
     private var accumulatedListenMs: Long = 0
     private var hasScrobbled = false
@@ -1335,7 +1326,6 @@ class PlaybackService : MediaSessionService() {
                     Log.d(TAG, "Ignoring QueueUpdated while not session owner")
                     return
                 }
-                Log.d(TAG, "SSE QueueUpdated: lastAppliedVersion=$lastAppliedQueueVersion, invalidateVersion=$invalidateVersion")
                 val versionAtStart = invalidateVersion
                 val generation = nextQueueLoadGeneration("SSE QueueUpdated")
                 apiExecutor.execute {
@@ -1343,14 +1333,6 @@ class PlaybackService : MediaSessionService() {
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
                             if (!isQueueLoadGenerationCurrent(generation, "SSE QueueUpdated")) return@post
-
-                            // Skip if we've already applied this queue version (e.g. from
-                            // an explicit invalidateQueue/softInvalidateQueue call).
-                            if (response.version != 0L && response.version == lastAppliedQueueVersion) {
-                                Log.d(TAG, "SSE QueueUpdated: skipping, version ${response.version} already applied")
-                                return@post
-                            }
-
                             // Check if the currently playing track is still the track
                             // at the target position. If not (e.g., current track was
                             // removed), do a full reload to start the new current track.
@@ -1769,7 +1751,6 @@ class PlaybackService : MediaSessionService() {
         serverTotalCount = response.totalCount
         this.isShuffled = response.isShuffled
         this.repeatMode = response.repeatMode
-        lastAppliedQueueVersion = response.version
         player.shuffleModeEnabled = false
         player.repeatMode = exoRepeatMode(response.repeatMode)
 
@@ -2220,11 +2201,6 @@ class PlaybackService : MediaSessionService() {
             emptyList()
         }
 
-        // Suppress transient state emissions during surgical queue update.
-        // replaceMediaItems() can cause brief BUFFERING/PAUSED transitions
-        // that would incorrectly set the JS playback state while audio continues.
-        isSyncingQueue = true
-        try {
         // Replace tracks after the current item first so the current index stays stable.
         if (currentExoIndex + 1 < itemCount || afterItems.isNotEmpty()) {
             player.replaceMediaItems(currentExoIndex + 1, itemCount, afterItems)
@@ -2233,7 +2209,6 @@ class PlaybackService : MediaSessionService() {
         val currentIndexAfterTailUpdate = player.currentMediaItemIndex
         if (currentIndexAfterTailUpdate == C.INDEX_UNSET) {
             Log.w(TAG, "Queue sync: lost current item after tail update, falling back to full reload")
-            isSyncingQueue = false
             handleQueueWindowResponse(
                 response,
                 targetIndex,
@@ -2246,13 +2221,6 @@ class PlaybackService : MediaSessionService() {
         if (currentIndexAfterTailUpdate > 0 || beforeItems.isNotEmpty()) {
             player.replaceMediaItems(0, currentIndexAfterTailUpdate, beforeItems)
         }
-        } finally {
-            isSyncingQueue = false
-        }
-
-        // Emit the authoritative state now that the queue sync is complete.
-        // This ensures JS sees the correct play/pause state after the update.
-        emitStateChange()
 
         // Update tracking structures
         exoIndexToServerPosition = newPositions.toMutableList()
@@ -2391,15 +2359,6 @@ class PlaybackService : MediaSessionService() {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "invalidateQueue")) return@post
-
-                    // Skip if we've already applied this queue version (e.g. from SSE).
-                    // This prevents double-processing when both SSE QueueUpdated and
-                    // this explicit invalidation arrive for the same server state.
-                    if (response.version != 0L && response.version == lastAppliedQueueVersion) {
-                        Log.d(TAG, "invalidateQueue: skipping, version ${response.version} already applied")
-                        return@post
-                    }
-
                     val shouldPlay = player.playWhenReady
 
                     // Check if the currently playing track is still the track
@@ -2485,7 +2444,6 @@ class PlaybackService : MediaSessionService() {
         emitQueueState: Boolean,
     ) {
         serverQueueIndex = targetIndex
-        lastAppliedQueueVersion = response.version
         handleShuffleQueueUpdate(response, targetIndex)
         player.shuffleModeEnabled = false
         player.repeatMode = exoRepeatMode(response.repeatMode)
@@ -2514,13 +2472,6 @@ class PlaybackService : MediaSessionService() {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "softInvalidateQueue")) return@post
-
-                    // Skip if we've already applied this queue version (e.g. from SSE).
-                    if (response.version != 0L && response.version == lastAppliedQueueVersion) {
-                        Log.d(TAG, "softInvalidateQueue: skipping, version ${response.version} already applied")
-                        return@post
-                    }
-
                     val shouldPlay = player.playWhenReady
 
                     if (isCurrentTrackAtTarget(response, response.currentIndex)) {
@@ -4266,15 +4217,6 @@ class PlaybackService : MediaSessionService() {
                 ),
             )
 
-            // Suppress transient state emissions during surgical queue updates.
-            // replaceMediaItems() can cause brief BUFFERING or READY+!playWhenReady
-            // transitions that would incorrectly set the JS playback state to
-            // "loading" or "paused" while audio is actually still playing.
-            if (isSyncingQueue) {
-                Log.d(TAG, "onPlaybackStateChanged: suppressed during queue sync (state=$playbackState)")
-                return
-            }
-
             // Restore volume after track transition completes
             if (playbackState == Player.STATE_READY) {
                 refreshAudioOutputRouteSnapshot("playback ready")
@@ -4461,10 +4403,7 @@ class PlaybackService : MediaSessionService() {
             ) {
                 clearAudioOutputLossPause("playWhenReady=true reason=${playWhenReadyChangeReasonName(reason)}")
             }
-            // Suppress transient state emissions during surgical queue updates
-            if (!isSyncingQueue) {
-                emitStateChange()
-            }
+            emitStateChange()
 
             // Only hold the ExoPlayer wake/wifi lock while playback is intended
             // to play. This prevents background battery drain when paused.
