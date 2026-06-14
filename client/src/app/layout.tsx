@@ -13,6 +13,7 @@ import { MobileQueueSheet } from "@/components/queue/mobile-queue-sheet";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { MainContent } from "@/components/layout/main-content";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
+import { useStopScrollInertiaOnTap } from "@/lib/hooks/use-stop-scroll-inertia-on-tap";
 
 export default function RootLayout({
   children,
@@ -21,6 +22,10 @@ export default function RootLayout({
 }>) {
   const pathname = usePathname();
   const isStandaloneRoute = pathname === "/login" || pathname === "/setup";
+
+  // Cancel inertial scrolling on the first pointerdown so taps on controls
+  // aren't lost stopping a coasting scroll on Android WebView.
+  useStopScrollInertiaOnTap();
 
   return (
     <Providers>

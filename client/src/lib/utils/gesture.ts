@@ -23,12 +23,66 @@ export function releaseDragPointerCapture(
   event: MouseEvent | TouchEvent | PointerEvent,
   dragElement?: Element | null,
 ) {
+  // Collect the drag element, the event targets, and ancestors of the drag
+  // element. Capture can only live on the element that received pointerdown,
+  // but on Android WebView we've seen it leak to a parent, so walking up is
+  // a cheap safety net.
+  const ancestors: Element[] = [];
+  if (dragElement?.parentElement) {
+    let node: Element | null = dragElement.parentElement;
+    while (node) {
+      ancestors.push(node);
+      if (node === document.body) break;
+      node = node.parentElement;
+    }
+  }
+
   const targets = new Set<Element>(
-    [dragElement, event.currentTarget, event.target].filter(
+    [dragElement, event.currentTarget, event.target, ...ancestors].filter(
       (t): t is Element =>
         t != null && typeof (t as Element).hasPointerCapture === "function",
     ),
   );
+
+  // Force framer-motion's drag handler to clean up its internal state.
+  // On Android WebView the pointerup that ends a fast swipe can be missed
+  // by the drag listener, leaving it (and its capture) active. Dispatch a
+  // pointercancel/touchcancel *before* releasing capture so the handler sees
+  // the cancel while the pointer is still captured (matching a real browser
+  // cancel), then release, then dispatch an up/end to fully settle the
+  // pointer state.
+  const hasPointerId = "pointerId" in event;
+  if (dragElement && typeof PointerEvent !== "undefined" && hasPointerId) {
+    const pointerEvent = event as PointerEvent;
+    dragElement.dispatchEvent(
+      new PointerEvent("pointercancel", {
+        bubbles: true,
+        cancelable: false,
+        pointerId: pointerEvent.pointerId,
+        pointerType: pointerEvent.pointerType,
+        isPrimary: pointerEvent.isPrimary,
+        clientX: "clientX" in event ? (event as MouseEvent).clientX : 0,
+        clientY: "clientY" in event ? (event as MouseEvent).clientY : 0,
+      }),
+    );
+  } else if (
+    dragElement &&
+    typeof TouchEvent !== "undefined" &&
+    event instanceof TouchEvent &&
+    event.changedTouches.length > 0
+  ) {
+    const touch = event.changedTouches[0];
+    dragElement.dispatchEvent(
+      new TouchEvent("touchcancel", {
+        bubbles: true,
+        cancelable: false,
+        changedTouches: [touch],
+        touches: [],
+        targetTouches: [],
+      }),
+    );
+  }
+
   for (const target of targets) {
     // In practice only one pointer is active during a single-finger swipe,
     // but we check the most common IDs to be safe.
@@ -38,4 +92,58 @@ export function releaseDragPointerCapture(
       }
     }
   }
+
+  if (dragElement && typeof PointerEvent !== "undefined" && hasPointerId) {
+    const pointerEvent = event as PointerEvent;
+    dragElement.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: false,
+        pointerId: pointerEvent.pointerId,
+        pointerType: pointerEvent.pointerType,
+        isPrimary: pointerEvent.isPrimary,
+        clientX: "clientX" in event ? (event as MouseEvent).clientX : 0,
+        clientY: "clientY" in event ? (event as MouseEvent).clientY : 0,
+      }),
+    );
+  } else if (
+    dragElement &&
+    typeof TouchEvent !== "undefined" &&
+    event instanceof TouchEvent &&
+    event.changedTouches.length > 0
+  ) {
+    const touch = event.changedTouches[0];
+    dragElement.dispatchEvent(
+      new TouchEvent("touchend", {
+        bubbles: true,
+        cancelable: false,
+        changedTouches: [touch],
+        touches: [],
+        targetTouches: [],
+      }),
+    );
+  }
+}
+
+/**
+ * Stop inertial scrolling on the main scroll container and any known
+ * scrollable descendants. On Android WebView, an inertial scroll can
+ * continue to consume touch events for several seconds after the user
+ * lifted their finger, causing the next tap on an unrelated element to
+ * be swallowed. Re-issuing the current scroll offset with `auto`
+ * behavior cancels the inertia.
+ */
+export function stopMainScrollInertia() {
+  if (typeof document === "undefined") return;
+
+  const main = document.getElementById("main-scroll-container");
+  if (main) {
+    main.scrollTo({ top: main.scrollTop, behavior: "auto" });
+  }
+
+  // Stop inertia on any virtualized grid/list scroll containers too.
+  document.querySelectorAll("[data-scroll-container]").forEach((el) => {
+    if (!(el instanceof HTMLElement)) return;
+    el.scrollTo({ top: el.scrollTop, behavior: "auto" });
+  });
 }

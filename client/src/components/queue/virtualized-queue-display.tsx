@@ -274,6 +274,7 @@ interface VirtualizedQueueDisplayProps {
 /** Handle exposed by VirtualizedQueueDisplay for imperative control */
 export interface VirtualizedQueueDisplayHandle {
   scrollToNowPlaying: (behavior?: "auto" | "smooth") => void;
+  stopScrollInertia: () => void;
 }
 
 /**
@@ -383,6 +384,13 @@ export const VirtualizedQueueDisplay = forwardRef<
       scrollToNowPlaying: (behavior: "auto" | "smooth" = "smooth") => {
         if (totalCount === 0) return;
         virtualizer.scrollToIndex(currentIndex, { align: "start", behavior });
+      },
+      stopScrollInertia: () => {
+        const element = virtualizer.scrollElement;
+        if (!element) return;
+        // Re-applying the current scroll offset forces the browser to stop
+        // any inertial scrolling on Android WebView.
+        element.scrollTo({ top: element.scrollTop, behavior: "auto" });
       },
     }),
     [totalCount, virtualizer, currentIndex],

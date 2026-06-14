@@ -30,7 +30,10 @@ import {
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
 import { hapticTap, hapticConfirm, hapticToggle } from "@/lib/utils/haptic";
-import { releaseDragPointerCapture } from "@/lib/utils/gesture";
+import {
+  releaseDragPointerCapture,
+  stopMainScrollInertia,
+} from "@/lib/utils/gesture";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -224,6 +227,11 @@ export function FullscreenPlayer() {
 
   // Track if user is actively dragging the sheet (for backdrop opacity)
   const [isDraggingSheet, setIsDraggingSheet] = useState(false);
+
+  // Generation counter for active sheet drag gestures. Used to invalidate
+  // stale animation callbacks when the user starts a new drag before the
+  // previous animation has settled.
+  const dragGenerationRef = useRef(0);
 
   // Track if we're currently opening via gesture (shared motion value is being dragged)
   const [isOpeningWithGesture, setIsOpeningWithGesture] = useState(false);
@@ -699,6 +707,10 @@ export function FullscreenPlayer() {
     queueMicrotask(() => setIsClosedAnimationSettled(false));
   }, [isOpen, isClosingViaGesture, isDraggingSheet, isClosedAnimationSettled]);
 
+  useEffect(() => {
+    console.log("[fs isOpen] changed to", isOpen, "isClosingViaGesture=", isClosingViaGesture, "isOpeningWithGesture=", isOpeningWithGesture);
+  }, [isOpen, isClosingViaGesture, isOpeningWithGesture]);
+
   // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
   // Also cancel any pending close animation timeout to prevent stale closes
   useLayoutEffect(() => {
@@ -794,6 +806,7 @@ export function FullscreenPlayer() {
     fsPushedHistoryRef.current = true;
 
     const handlePopState = (event: PopStateEvent) => {
+      console.log("[fs popstate] isHistoryCleanup=", isHistoryCleanup(event), "state=", event.state);
       if (isHistoryCleanup(event)) return;
 
       // Check if there are any higher priority overlays open
@@ -902,6 +915,12 @@ export function FullscreenPlayer() {
     event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
+    // Ignore synthetic cancel events dispatched by releaseDragPointerCapture
+    // to avoid re-entering this handler recursively.
+    if (event.type === "pointercancel" || event.type === "touchcancel") {
+      return;
+    }
+
     const { offset, velocity } = info;
     const shouldClose =
       offset.y > CLOSE_SWIPE_THRESHOLD || velocity.y > CLOSE_VELOCITY_THRESHOLD;
@@ -917,17 +936,39 @@ export function FullscreenPlayer() {
     } else {
       // Snap back to origin
       releaseDragPointerCapture(event, sheetRef.current);
+      const generation = dragGenerationRef.current;
       animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
-        () => setIsDraggingSheet(false),
+        () => {
+          if (dragGenerationRef.current === generation) {
+            setIsDraggingSheet(false);
+          }
+        },
       );
     }
   };
 
   // Handler for drag start
   const handleDragStart = () => {
-    // Stop any in-flight open animation so the drag takes over
+    // Stop any in-flight open/close animation so the drag takes over
     // immediately without fighting the animate prop.
     dragY.stop();
+    // Cancel inertial scrolling on the main page so the browser doesn't
+    // swallow the next tap to stop the scroll.
+    stopMainScrollInertia();
+    dragGenerationRef.current += 1;
+    // If the user grabs the sheet again while a gesture close is still
+    // animating, cancel that close so the new drag owns the sheet.
+    if (closePendingRef.current) {
+      closePendingRef.current = false;
+      clearGestureCloseFallback();
+      setIsClosingViaGesture(false);
+      if (sheetRef.current) {
+        sheetRef.current.style.pointerEvents = "";
+      }
+      if (backdropRef.current) {
+        backdropRef.current.style.pointerEvents = "";
+      }
+    }
     setIsDraggingSheet(true);
   };
 
@@ -1066,6 +1107,8 @@ export function FullscreenPlayer() {
                 ? "open"
                 : "closed"
         }
+        data-sheet-pointer-events={sheetPointerEvents}
+        data-is-interactive={isInteractive ? "true" : "false"}
         aria-hidden={!isInteractive}
         className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
       >
