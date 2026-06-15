@@ -7426,3 +7426,104 @@ fn test_postgres_ferrotune_history_handler_work() {
         assert!(!song_2_entry.played_at.is_empty());
     });
 }
+
+#[test]
+fn test_postgres_get_song_play_count_and_last_uses_sum_and_submission_filter() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (owner, _artist_id, _album_id, song_1, song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let pool = database
+            .postgres_pool()
+            .expect("postgres runtime database should expose a PgPool");
+        let old_play = Utc::now() - chrono::Duration::days(200);
+
+        // Two submission scrobbles for song_1, each play_count=5 (sum=10).
+        for _ in 0..2 {
+            sqlx::query(
+                "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count) VALUES ($1, $2, $3, TRUE, $4)",
+            )
+            .bind(owner.id)
+            .bind(&song_1)
+            .bind(old_play)
+            .bind(5_i64)
+            .execute(pool)
+            .await
+            .expect("postgres submission scrobble insert should succeed");
+        }
+        // A non-submission scrobble for song_1 must be excluded by the
+        // Submission filter so it does not inflate the play count.
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count) VALUES ($1, $2, $3, FALSE, $4)",
+        )
+        .bind(owner.id)
+        .bind(&song_1)
+        .bind(old_play)
+        .bind(100_i64)
+        .execute(pool)
+        .await
+        .expect("postgres non-submission scrobble insert should succeed");
+
+        // song_2: one submission scrobble with NULL played_at and play_count=2.
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count) VALUES ($1, $2, NULL, TRUE, $3)",
+        )
+        .bind(owner.id)
+        .bind(&song_2)
+        .bind(2_i64)
+        .execute(pool)
+        .await
+        .expect("postgres null played_at scrobble insert should succeed");
+
+        // Regression: play count must SUM submission scrobbles (10), not
+        // count rows (3). The legacy COUNT(id) caused the forgotten-
+        // favorites view to display the row count instead of the true play
+        // count whenever a single scrobble represented multiple plays
+        // (e.g. Last.fm imports).
+        let stats_1 = ferrotune::db::repo::browse::get_song_play_count_and_last(
+            &database, owner.id, &song_1,
+        )
+        .await
+        .expect("postgres song play stats should succeed");
+        assert_eq!(
+            stats_1.play_count, 10,
+            "play count must SUM submission scrobbles, not count rows"
+        );
+        assert!(
+            stats_1.last_played.is_some(),
+            "last_played must reflect max(played_at)"
+        );
+
+        // song_2: sum=2; with all played_at NULL, last_played is None.
+        let stats_2 = ferrotune::db::repo::browse::get_song_play_count_and_last(
+            &database, owner.id, &song_2,
+        )
+        .await
+        .expect("postgres song play stats should succeed");
+        assert_eq!(stats_2.play_count, 2);
+        assert!(
+            stats_2.last_played.is_none(),
+            "last_played must be None when all played_at are NULL"
+        );
+    });
+}

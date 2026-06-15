@@ -701,12 +701,24 @@ pub async fn get_song_play_count_and_last(
     user_id: i64,
     song_id: &str,
 ) -> Result<SongPlayCountAndLast> {
+    // Aggregate `play_count` (sum) rather than counting scrobble rows, and
+    // restrict to submission scrobbles, so the returned play count matches
+    // what the scrobbles-based list filters (e.g. forgotten-favorites'
+    // `minPlays`) compute via `fetch_song_play_stats_rows`.
     let row: Option<SongPlayCountAndLast> = entity::scrobbles::Entity::find()
         .select_only()
-        .expr_as(entity::scrobbles::Column::Id.count(), "play_count")
+        .expr_as(
+            Expr::expr(Func::coalesce([
+                Expr::col(entity::scrobbles::Column::PlayCount).sum(),
+                Expr::val(0_i64).into(),
+            ]))
+            .cast_as(sea_orm::sea_query::Alias::new("BIGINT")),
+            "play_count",
+        )
         .expr_as(entity::scrobbles::Column::PlayedAt.max(), "last_played")
         .filter(entity::scrobbles::Column::UserId.eq(user_id))
         .filter(entity::scrobbles::Column::SongId.eq(song_id))
+        .filter(entity::scrobbles::Column::Submission.eq(true))
         .into_model::<SongPlayCountAndLast>()
         .one(database.conn())
         .await?;
