@@ -58,6 +58,34 @@ HTTP 200
 [Asserts]
 jsonpath "$.searchResult" exists
 
+# Fuzzy supplement results are included in songTotal.
+# "ong" does not prefix-match any FTS token, but fuzzy LIKE falls back to
+# songs such as "First Song", "Second Song" and "Third Song".
+GET {{base_url}}/api/search?query=ong&songCount=2
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.searchResult.song" count == 2
+jsonpath "$.searchResult.songTotal" == 2
+
+# Fuzzy supplement results are included in artistTotal.
+# "rtist" does not prefix-match "artist", but fuzzy LIKE falls back to artists.
+GET {{base_url}}/api/search?query=rtist&artistCount=2
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.searchResult.artist" count == 2
+jsonpath "$.searchResult.artistTotal" == 2
+
+# Fuzzy supplement results are included in albumTotal.
+# "lbum" does not prefix-match "album", but fuzzy LIKE falls back to albums.
+GET {{base_url}}/api/search?query=lbum&albumCount=2
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.searchResult.album" count == 2
+jsonpath "$.searchResult.albumTotal" == 2
+
 # Unauthenticated request should fail
 GET {{base_url}}/api/search?query=test
 HTTP 401

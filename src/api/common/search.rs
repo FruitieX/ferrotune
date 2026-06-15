@@ -1043,7 +1043,11 @@ pub async fn search_songs_for_queue(
         // `fts.rank` alias that the default clause may produce.
         "s.title".to_string()
     } else {
-        get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref())
+        get_song_order_clause_for_search(
+            params.song_sort.as_ref(),
+            params.song_sort_dir.as_ref(),
+            !is_wildcard,
+        )
     };
 
     // When not wildcard and tokenisation yielded no usable query, return empty.
@@ -1074,15 +1078,28 @@ pub async fn search_songs_for_queue(
     // default "name" when no sort was provided. The SQLite path used ORDER BY
     // directly. We now always apply the server-side ORDER BY, but keep the
     // post-sort for Postgres parity in case future logic relies on it.
-    if is_postgres(database) {
-        Ok(crate::api::common::sorting::sort_songs(
+    let songs = if is_postgres(database) {
+        crate::api::common::sorting::sort_songs(
             songs,
             params.song_sort.as_deref().or(Some("name")),
             params.song_sort_dir.as_deref(),
-        ))
+        )
     } else {
-        Ok(songs)
-    }
+        songs
+    };
+
+    // Fuzzy supplements keep search-based queues consistent with the search endpoint.
+    let limit = params.song_count.map(|c| c as i64).unwrap_or(50);
+    let songs = if !is_wildcard && (songs.len() as i64) < limit {
+        match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, limit).await {
+            Ok(supplemented) => supplemented,
+            Err(_) => songs,
+        }
+    } else {
+        songs
+    };
+
+    Ok(songs)
 }
 
 /// Result type for artist search
@@ -1339,6 +1356,7 @@ pub async fn search_artists(
     };
 
     // Fuzzy fallback (only when not wildcard, on first page).
+    let original_len = artists.len();
     let artists = if !is_wildcard && offset == 0 && (artists.len() as i64) < limit {
         match fuzzy_supplement_artists(
             database,
@@ -1358,6 +1376,15 @@ pub async fn search_artists(
     } else {
         artists
     };
+
+    // Fuzzy supplements are appended on the first page; include them in the total.
+    let total = total.map(|t| {
+        if offset == 0 {
+            t + (artists.len() as i64 - original_len as i64)
+        } else {
+            t
+        }
+    });
 
     // On Postgres we fetched all rows; paginate now. SQLite already paginated via LIMIT/OFFSET.
     let artists = if pg {
@@ -1539,6 +1566,7 @@ pub async fn search_albums(
         (vec![], Some(0))
     };
 
+    let original_len = albums.len();
     let albums = if !is_wildcard && offset == 0 && (albums.len() as i64) < limit {
         match fuzzy_supplement_albums(database, user_id, trimmed_query, &albums, limit).await {
             Ok(supplemented) => supplemented,
@@ -1547,6 +1575,15 @@ pub async fn search_albums(
     } else {
         albums
     };
+
+    // Fuzzy supplements are appended on the first page; include them in the total.
+    let total = total.map(|t| {
+        if offset == 0 {
+            t + (albums.len() as i64 - original_len as i64)
+        } else {
+            t
+        }
+    });
 
     let albums = if pg {
         let (paged, _) = paginate_search_results(albums, limit, offset);
@@ -1624,6 +1661,7 @@ pub async fn search_songs(
             params.song_sort_dir.as_deref(),
         );
         let total = Some(songs.len() as i64);
+        let original_len = songs.len();
         let songs = if !is_wildcard && offset == 0 && (songs.len() as i64) < limit {
             match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, limit).await {
                 Ok(supplemented) => supplemented,
@@ -1632,6 +1670,13 @@ pub async fn search_songs(
         } else {
             songs
         };
+        let total = total.map(|t| {
+            if offset == 0 {
+                t + (songs.len() as i64 - original_len as i64)
+            } else {
+                t
+            }
+        });
         let (songs, _) = paginate_search_results(songs, limit, offset);
         return Ok(SongSearchResult { songs, total });
     }
@@ -1669,6 +1714,7 @@ pub async fn search_songs(
         (vec![], Some(0))
     };
 
+    let original_len = songs.len();
     let songs = if !is_wildcard && offset == 0 && (songs.len() as i64) < limit {
         match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, limit).await {
             Ok(supplemented) => supplemented,
@@ -1677,6 +1723,15 @@ pub async fn search_songs(
     } else {
         songs
     };
+
+    // Fuzzy supplements are appended on the first page; include them in the total.
+    let total = total.map(|t| {
+        if offset == 0 {
+            t + (songs.len() as i64 - original_len as i64)
+        } else {
+            t
+        }
+    });
 
     Ok(SongSearchResult { songs, total })
 }

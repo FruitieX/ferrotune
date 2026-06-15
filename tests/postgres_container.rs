@@ -5473,6 +5473,83 @@ fn test_postgres_search_queue_materialization_works() {
 }
 
 #[test]
+fn test_postgres_search_queue_materialization_includes_fuzzy_supplements() {
+    if !docker_available() {
+        eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
+        return;
+    }
+
+    let container = Postgres::default()
+        .start()
+        .expect("postgres container should start");
+    let host = container
+        .get_host()
+        .expect("postgres container host should resolve");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .expect("postgres container port should resolve");
+    let config = postgres_config(&host.to_string(), port);
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
+    runtime.block_on(async move {
+        let database = db::create_pool(&config)
+            .await
+            .expect("postgres database pool should connect");
+        let (user, _artist_id, _album_id, song_1, _song_2) =
+            seed_postgres_library_sample(&database).await;
+
+        let params = ferrotune::api::common::search::SearchParams {
+            query: "pening".to_string(),
+            artist_count: None,
+            artist_offset: None,
+            album_count: None,
+            album_offset: None,
+            song_count: Some(10),
+            song_offset: None,
+            song_sort: None,
+            song_sort_dir: None,
+            album_sort: None,
+            album_sort_dir: None,
+            artist_sort: None,
+            artist_sort_dir: None,
+            inline_images: None,
+            min_year: None,
+            max_year: None,
+            genre: None,
+            min_duration: None,
+            max_duration: None,
+            min_rating: None,
+            max_rating: None,
+            starred_only: None,
+            min_play_count: None,
+            max_play_count: None,
+            shuffle_excluded_only: None,
+            disabled_only: None,
+            min_bitrate: None,
+            max_bitrate: None,
+            added_after: None,
+            added_before: None,
+            missing_cover_art: None,
+            file_format: None,
+            artist_filter: None,
+            album_filter: None,
+            title_filter: None,
+            last_played_after: None,
+            last_played_before: None,
+            music_folder_id: None,
+        };
+
+        let songs = ferrotune::api::common::search::search_songs_for_queue(
+            &database, user.id, "pening", &params,
+        )
+        .await
+        .expect("postgres fuzzy queue materialization should succeed");
+        let song_ids: Vec<String> = songs.into_iter().map(|song| song.id).collect();
+        assert_eq!(song_ids, vec![song_1]);
+    });
+}
+
+#[test]
 fn test_postgres_execute_search_works() {
     if !docker_available() {
         eprintln!("Skipping PostgreSQL container test because Docker is unavailable");
@@ -5575,6 +5652,8 @@ fn test_postgres_execute_search_works() {
         .expect("postgres shared fuzzy artist/album search should succeed");
         assert_eq!(typo_results.artist_responses.len(), 1);
         assert_eq!(typo_results.album_responses.len(), 1);
+        assert_eq!(typo_results.artist_total, Some(1));
+        assert_eq!(typo_results.album_total, Some(1));
 
         let song_typo_results = ferrotune::api::common::search_utils::execute_search(
             &database, user.id, "pening", &params, 5, 0, 5, 0, 5, 0, None,
@@ -5587,6 +5666,7 @@ fn test_postgres_execute_search_works() {
             .map(|song| song.id)
             .collect();
         assert_eq!(typo_song_ids, vec![song_1]);
+        assert_eq!(song_typo_results.song_total, Some(1));
 
         let pool = database
             .postgres_pool()
