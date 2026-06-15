@@ -456,16 +456,24 @@ export const startQueueAtom = atom(
 
         set(queueWindowAtom, response.window);
 
-        // When native audio is active, call native directly instead of
-        // incrementing trackChangeSignalAtom. This avoids a race condition
-        // where both the track-loader (triggered by trackChangeSignal) and
-        // the native SSE QueueChanged handler try to start playback,
-        // causing the track to restart 1-2 seconds after it starts.
-        // The native playAtIndex will set the current track, and when
-        // QueueChanged SSE arrives, isCurrentTrackAtTarget will return
-        // true and use syncQueueWithoutRestart.
+        // When native audio is active, trigger a full queue reload on the
+        // native side instead of calling nativePlayAtIndex(). The previous
+        // playAtIndex() approach was buggy because it looked up the new
+        // queue's currentIndex in the OLD queue's exoIndexToServerPosition
+        // mapping; if a track existed at that position number in the old
+        // queue, it would seek to the wrong track (and often restart the
+        // currently playing song). invalidateQueue() does a proper full
+        // reload via handleQueueWindowResponse, which correctly loads the
+        // new queue and starts the selected song from position 0.
+        // The SSE QueueChanged event will also arrive and the handler will
+        // run, but invalidating here reduces latency.
         if (hasNativeAudio() && shouldPlay) {
-          nativePlayAtIndex(response.currentIndex);
+          void nativeInvalidateQueue().catch((error) => {
+            console.error(
+              "Failed to invalidate native queue after startQueue:",
+              error,
+            );
+          });
         } else {
           set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
         }
