@@ -158,11 +158,12 @@ export function QueueSidebar() {
       !hasScrolledRef.current
     ) {
       hasScrolledRef.current = true;
-      // Use a small delay to ensure the virtualized list is mounted
-      const timer = setTimeout(() => {
+      // Wait for the layout animation to finish and the scroll container to
+      // have stable dimensions before scrolling to the current track.
+      const rafId = requestAnimationFrame(() => {
         queueDisplayRef.current?.scrollToNowPlaying("auto");
-      }, 100);
-      return () => clearTimeout(timer);
+      });
+      return () => cancelAnimationFrame(rafId);
     }
   }, [hydrated, isOpen, isQueueLoading, queueState]);
 
@@ -250,7 +251,10 @@ export function QueueSidebar() {
             </div>
 
             <QueueSourceDisplay />
-            <VirtualizedQueueDisplay ref={queueDisplayRef} />
+            <VirtualizedQueueDisplay
+              ref={queueDisplayRef}
+              key={queueState?.source?.instanceId ?? "no-queue"}
+            />
           </motion.div>
         )}
       </AnimatePresence>

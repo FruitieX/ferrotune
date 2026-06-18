@@ -374,6 +374,17 @@ export function MobileQueueSheet() {
     }
   };
 
+  // After the sheet has visually opened and the layout has settled, remeasure
+  // the virtualized list so its first visible range is computed against real
+  // container dimensions.
+  useEffect(() => {
+    if (!isSheetSettled) return;
+    const rafId = requestAnimationFrame(() => {
+      queueDisplayRef.current?.scrollToNowPlaying("auto");
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [isSheetSettled]);
+
   // Only render on mobile (when fullscreen is open and queue is requested)
   // The desktop version is handled by QueueSidebar
   if (!isFullscreen && isDesktop) {
@@ -513,6 +524,7 @@ export function MobileQueueSheet() {
             />
             <VirtualizedQueueDisplay
               ref={queueDisplayRef}
+              key={queueState?.source?.instanceId ?? "no-queue"}
               suspendWork={!isSheetSettled || isClosingViaGesture}
               onNavigate={() => {
                 // Close both the queue sheet and fullscreen player when navigating

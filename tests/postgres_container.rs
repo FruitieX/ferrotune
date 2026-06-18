@@ -5540,7 +5540,7 @@ fn test_postgres_search_queue_materialization_includes_fuzzy_supplements() {
         };
 
         let songs = ferrotune::api::common::search::search_songs_for_queue(
-            &database, user.id, "pening", &params,
+            &database, user.id, "pening", &params, None, None,
         )
         .await
         .expect("postgres fuzzy queue materialization should succeed");

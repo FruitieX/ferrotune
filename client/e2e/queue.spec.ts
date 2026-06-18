@@ -240,4 +240,55 @@ test.describe.serial("Queue Management", () => {
         .filter({ hasText: "First Song" }),
     ).toHaveCount(0);
   });
+
+  test("queue panel renders visible rows without requiring a scroll nudge", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const queuePanel = await openQueuePanel(page);
+
+    // Assert that real queue items are rendered (not just placeholders).
+    // This regression test guards against the virtualization race where the
+    // visible range is computed while the animated sidebar still has zero/too
+    // small dimensions, leaving only skeleton rows until the user scrolls.
+    await expect(
+      queuePanel.locator('[data-testid="queue-item"]').first(),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(queuePanel.getByText("First Song")).toBeVisible();
+    await expect(queuePanel.getByText("Second Song")).toBeVisible();
+    await expect(queuePanel.getByText("Third Song")).toBeVisible();
+  });
+
+  test("queue sheet on mobile viewport renders visible rows without scrolling", async ({
+    authenticatedPage: page,
+  }) => {
+    // Use a mobile viewport so the queue renders as a sheet inside the
+    // fullscreen player instead of the desktop sidebar.
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto("/");
+
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    // Open the fullscreen player, then the queue sheet
+    await page.getByTestId("player-bar").click();
+    const fullscreenQueueButton = page
+      .locator('[data-fullscreen-player="true"]')
+      .getByRole("button", { name: "Queue" })
+      .first();
+    await expect(fullscreenQueueButton).toBeVisible({ timeout: 10000 });
+    await fullscreenQueueButton.click();
+
+    const queuePanel = page.locator('[role="dialog"]').filter({
+      has: page.getByRole("heading", { name: "Queue" }),
+    });
+    await expect(
+      queuePanel.locator('[data-testid="queue-item"]').first(),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(queuePanel.getByText("First Song")).toBeVisible();
+    await expect(queuePanel.getByText("Second Song")).toBeVisible();
+    await expect(queuePanel.getByText("Third Song")).toBeVisible();
+  });
 });

@@ -708,7 +708,14 @@ export function FullscreenPlayer() {
   }, [isOpen, isClosingViaGesture, isDraggingSheet, isClosedAnimationSettled]);
 
   useEffect(() => {
-    console.log("[fs isOpen] changed to", isOpen, "isClosingViaGesture=", isClosingViaGesture, "isOpeningWithGesture=", isOpeningWithGesture);
+    console.log(
+      "[fs isOpen] changed to",
+      isOpen,
+      "isClosingViaGesture=",
+      isClosingViaGesture,
+      "isOpeningWithGesture=",
+      isOpeningWithGesture,
+    );
   }, [isOpen, isClosingViaGesture, isOpeningWithGesture]);
 
   // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
@@ -806,7 +813,12 @@ export function FullscreenPlayer() {
     fsPushedHistoryRef.current = true;
 
     const handlePopState = (event: PopStateEvent) => {
-      console.log("[fs popstate] isHistoryCleanup=", isHistoryCleanup(event), "state=", event.state);
+      console.log(
+        "[fs popstate] isHistoryCleanup=",
+        isHistoryCleanup(event),
+        "state=",
+        event.state,
+      );
       if (isHistoryCleanup(event)) return;
 
       // Check if there are any higher priority overlays open

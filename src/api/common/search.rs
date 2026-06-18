@@ -1013,11 +1013,14 @@ pub fn build_album_filter_conditions(params: &SearchParams) -> Vec<String> {
 /// This is a reusable function for materializing search-based queues.
 ///
 /// If `query` is empty or "*", returns all songs matching the filters.
+/// `offset` and `limit` enable server-side pagination for lazy queues.
 pub async fn search_songs_for_queue(
     database: &Database,
     user_id: i64,
     query: &str,
     params: &SearchParams,
+    offset: Option<usize>,
+    limit: Option<usize>,
 ) -> crate::error::Result<Vec<crate::db::models::Song>> {
     let trimmed_query = query.trim_matches('"');
     let is_wildcard_input = trimmed_query.is_empty() || trimmed_query == "*";
@@ -1055,6 +1058,12 @@ pub async fn search_songs_for_queue(
         return Ok(vec![]);
     }
 
+    // Apply server-side pagination for lazy queues when offset/limit are given.
+    let limit_offset = match (offset, limit) {
+        (Some(off), Some(lim)) => Some((lim as i64, off as i64)),
+        _ => None,
+    };
+
     let songs = search_songs_unified(
         database,
         user_id,
@@ -1070,7 +1079,7 @@ pub async fn search_songs_for_queue(
         },
         &filter_conds,
         &song_order,
-        None,
+        limit_offset,
     )
     .await?;
 
@@ -1088,10 +1097,22 @@ pub async fn search_songs_for_queue(
         songs
     };
 
+    // Apply offset/limit for server-side pagination. This is used by lazy
+    // queue page requests; when offset/limit are None the existing behaviour
+    // (return all matching songs) is preserved.
+    let songs = if let (Some(off), Some(lim)) = (offset, limit) {
+        songs.into_iter().skip(off).take(lim).collect()
+    } else {
+        songs
+    };
+
     // Fuzzy supplements keep search-based queues consistent with the search endpoint.
-    let limit = params.song_count.map(|c| c as i64).unwrap_or(50);
-    let songs = if !is_wildcard && (songs.len() as i64) < limit {
-        match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, limit).await {
+    // Only apply when not paginating, otherwise the skip/take would slice an
+    // incomplete result set.
+    let default_limit = params.song_count.map(|c| c as i64).unwrap_or(50);
+    let songs = if offset.is_none() && !is_wildcard && (songs.len() as i64) < default_limit {
+        match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, default_limit).await
+        {
             Ok(supplemented) => supplemented,
             Err(_) => songs,
         }
@@ -1100,6 +1121,54 @@ pub async fn search_songs_for_queue(
     };
 
     Ok(songs)
+}
+
+/// Count songs matching the same criteria used by `search_songs_for_queue`.
+/// Used by lazy queues to avoid full materialization just to get a total count.
+pub async fn count_songs_for_queue(
+    database: &Database,
+    user_id: i64,
+    query: &str,
+    params: &SearchParams,
+) -> crate::error::Result<i64> {
+    let trimmed_query = query.trim_matches('"');
+    let is_wildcard_input = trimmed_query.is_empty() || trimmed_query == "*";
+
+    let fts_query = if !is_wildcard_input {
+        build_fts_query(trimmed_query)
+    } else {
+        None
+    };
+    let postgres_ts_query = if !is_wildcard_input {
+        build_postgres_tsquery(trimmed_query)
+    } else {
+        None
+    };
+
+    let is_wildcard = is_wildcard_input || fts_query.is_none();
+
+    if !is_wildcard_input && fts_query.is_none() {
+        return Ok(0);
+    }
+
+    let filter_conds = build_song_filter_conditions(params, user_id);
+
+    count_songs_unified(
+        database,
+        user_id,
+        if is_wildcard {
+            None
+        } else {
+            postgres_ts_query.as_deref()
+        },
+        if is_wildcard {
+            None
+        } else {
+            fts_query.as_deref()
+        },
+        &filter_conds,
+    )
+    .await
 }
 
 /// Result type for artist search

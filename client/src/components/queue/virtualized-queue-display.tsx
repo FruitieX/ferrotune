@@ -39,6 +39,16 @@ import { isTauriMobile } from "@/lib/tauri";
 import { formatDuration } from "@/lib/utils/format";
 import type { QueueSongEntry } from "@/lib/api/types";
 
+// Gated debug logging for queue virtualization diagnostics.
+// Set to true to log container geometry, visible ranges, and fetch decisions.
+const DEBUG_QUEUE_VIRTUALIZER = false;
+
+function debugLog(message: string, ...args: unknown[]) {
+  if (DEBUG_QUEUE_VIRTUALIZER) {
+    console.debug(`[QueueVirtualizer] ${message}`, ...args);
+  }
+}
+
 // Item height for virtualization (px)
 const ITEM_HEIGHT = 56;
 // How many items before/after viewport to render
@@ -324,8 +334,17 @@ export const VirtualizedQueueDisplay = forwardRef<
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
+  const queueInstanceId = queueState?.source?.instanceId ?? null;
+
+  // Reset the initial scroll offset whenever the queue instance changes so
+  // an old offset doesn't outlive a new queue.
   const initialScrollOffsetRef = useRef<number | null>(null);
-  if (initialScrollOffsetRef.current === null) {
+  const lastQueueInstanceIdRef = useRef<string | null>(null);
+  if (
+    initialScrollOffsetRef.current === null ||
+    lastQueueInstanceIdRef.current !== queueInstanceId
+  ) {
+    lastQueueInstanceIdRef.current = queueInstanceId;
     initialScrollOffsetRef.current = currentIndex * ITEM_HEIGHT;
   }
 
@@ -367,11 +386,30 @@ export const VirtualizedQueueDisplay = forwardRef<
     overscan: OVERSCAN,
   });
 
+  // Observe scroll container size changes and force the virtualizer to
+  // re-measure. This is critical because the queue is rendered inside
+  // motion-animated shells (sidebar width animation, mobile sheet slide-in)
+  // whose geometry is transient when the virtualizer first computes ranges.
+  useEffect(() => {
+    const element = parentRef.current;
+    if (!element) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      virtualizer.measure();
+    });
+    resizeObserver.observe(element);
+    return () => resizeObserver.disconnect();
+  }, [virtualizer]);
+
   const virtualItems = virtualizer.getVirtualItems();
 
   // Track which ranges we've fetched to avoid duplicate requests
   const fetchedRangesRef = useRef<Set<string>>(new Set());
   const isFetchingRef = useRef(false);
+
+  // Track previous suspendWork state so we can trigger a fetch immediately
+  // when the sheet/sidebar finishes its open animation.
+  const prevSuspendWorkRef = useRef(suspendWork);
 
   // Memoize the first and last visible indices to stabilize callback dependencies
   const firstVisible = virtualItems[0]?.index ?? 0;
@@ -494,12 +532,18 @@ export const VirtualizedQueueDisplay = forwardRef<
       // Clear fetched ranges since we have a new queue
       fetchedRangesRef.current.clear();
       isFetchingRef.current = false;
+      prevSuspendWorkRef.current = false;
+
+      // Reset initial scroll offset for the new queue
+      initialScrollOffsetRef.current = currentIndex * ITEM_HEIGHT;
 
       // Scroll to the current track position using virtualizer API
       // This ensures the virtualizer properly updates its internal state
-      virtualizer.scrollToIndex(currentIndex, {
-        align: "start",
-        behavior: "auto",
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(currentIndex, {
+          align: "start",
+          behavior: "auto",
+        });
       });
     }
   }, [
@@ -517,6 +561,32 @@ export const VirtualizedQueueDisplay = forwardRef<
     if (suspendWork) return;
     if (totalCount === 0) return;
 
+    const justResumedFromSuspend = prevSuspendWorkRef.current === true;
+    prevSuspendWorkRef.current = suspendWork;
+
+    const containerHeight = parentRef.current?.clientHeight ?? 0;
+    debugLog("fetch effect check", {
+      firstVisible,
+      lastVisible,
+      virtualItems: virtualItems.length,
+      containerHeight,
+      loadedSongs: songsByPositionRef.current.size,
+      isFetching: isFetchingRef.current,
+      suspendWork,
+      justResumedFromSuspend,
+    });
+
+    // If the virtualizer hasn't produced any visible items yet, the scroll
+    // container's geometry was probably still zero/transient. Re-measure and
+    // schedule another check instead of trying to fetch nothing.
+    if (virtualItems.length === 0 || containerHeight === 0) {
+      const rafId = requestAnimationFrame(() => {
+        virtualizer.measure();
+        debugLog("remeasure after empty visible range");
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+
     // Debounce the fetch to avoid spamming requests during rapid scrolling
     const debounceTimeout = setTimeout(async () => {
       // Don't start a new fetch if one is already in progress
@@ -525,7 +595,9 @@ export const VirtualizedQueueDisplay = forwardRef<
       // Read from ref to get current loaded songs (not stale closure value)
       const currentSongsByPosition = songsByPositionRef.current;
 
-      // Find gaps in the loaded data within the visible + threshold range
+      // Find gaps in the loaded data within the visible + threshold range.
+      // We fetch if *any* visible-or-nearby position is unloaded so that
+      // holes in the middle of the viewport are also covered.
       const checkStart = Math.max(0, firstVisible - FETCH_THRESHOLD);
       const checkEnd = Math.min(totalCount - 1, lastVisible + FETCH_THRESHOLD);
 
@@ -556,6 +628,7 @@ export const VirtualizedQueueDisplay = forwardRef<
 
         const rangeKey = `${adjustedStart}-${adjustedEnd}`;
         if (!fetchedRangesRef.current.has(rangeKey)) {
+          debugLog("fetching range", { adjustedStart, adjustedEnd });
           fetchedRangesRef.current.add(rangeKey);
           isFetchingRef.current = true;
 
@@ -600,6 +673,66 @@ export const VirtualizedQueueDisplay = forwardRef<
     fetchQueueRange,
     songs,
     suspendWork,
+    virtualItems.length,
+    virtualizer,
+  ]);
+
+  // Safety net: if the panel opens and visible rows are still placeholders
+  // after a short grace period, force a remeasure and targeted fetch. This
+  // catches intermittent race conditions where the virtualizer computed an
+  // empty range before the animated shell had nonzero dimensions.
+  useEffect(() => {
+    if (suspendWork) return;
+    if (totalCount === 0) return;
+
+    const timeoutId = setTimeout(() => {
+      if (isFetchingRef.current) return;
+
+      const currentSongsByPosition = songsByPositionRef.current;
+      let firstMissingInViewport = -1;
+      let lastMissingInViewport = -1;
+
+      for (let i = firstVisible; i <= lastVisible; i++) {
+        if (!currentSongsByPosition.has(i)) {
+          if (firstMissingInViewport === -1) firstMissingInViewport = i;
+          lastMissingInViewport = i;
+        }
+      }
+
+      if (firstMissingInViewport !== -1) {
+        debugLog("nudge fallback fetching visible range", {
+          firstMissingInViewport,
+          lastMissingInViewport,
+        });
+        virtualizer.measure();
+        const adjustedStart = Math.max(0, firstMissingInViewport - 5);
+        const adjustedEnd = Math.min(totalCount - 1, lastMissingInViewport + 5);
+        const rangeKey = `${adjustedStart}-${adjustedEnd}`;
+        if (!fetchedRangesRef.current.has(rangeKey)) {
+          fetchedRangesRef.current.add(rangeKey);
+          isFetchingRef.current = true;
+          fetchQueueRange({
+            offset: adjustedStart,
+            limit: adjustedEnd - adjustedStart + 1,
+          })
+            .catch(() => {
+              fetchedRangesRef.current.delete(rangeKey);
+            })
+            .finally(() => {
+              isFetchingRef.current = false;
+            });
+        }
+      }
+    }, 400);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    firstVisible,
+    lastVisible,
+    totalCount,
+    fetchQueueRange,
+    suspendWork,
+    virtualizer,
   ]);
 
   // Reset fetched ranges when shuffle state changes

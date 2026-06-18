@@ -212,9 +212,10 @@ pub async fn get_song_ids(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
 ) -> FerrotuneApiResult<Json<SongIdsResponse>> {
-    let songs = search_songs_for_queue(&state.database, user.user_id, &params.query, &params)
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to fetch song IDs: {}", e)))?;
+    let songs =
+        search_songs_for_queue(&state.database, user.user_id, &params.query, &params, None, None)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to search songs: {e}")))?;
 
     let ids: Vec<String> = songs.into_iter().map(|song| song.id).collect();
     let total = ids.len() as i64;

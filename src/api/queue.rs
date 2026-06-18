@@ -802,9 +802,10 @@ pub async fn start_queue(
         // Invalidate shuffle cache since queue changed
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        // Build initial window from the materialized songs we already have
-        let window_start = (current_index as usize).saturating_sub(20);
-        let window_end = (current_index as usize + 21).min(total_count);
+        // Build initial window from the materialized songs we already have.
+        // Use a larger radius so the first visible viewport is usually covered.
+        let window_start = (current_index as usize).saturating_sub(50);
+        let window_end = (current_index as usize + 51).min(total_count);
         let window_songs: Vec<_> = songs[window_start..window_end].to_vec();
 
         build_lazy_queue_window(
@@ -840,13 +841,14 @@ pub async fn start_queue(
         // Invalidate shuffle cache since queue changed
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        // Build initial window using the efficient path (fetches only needed entries)
+        // Build initial window using the efficient path (fetches only needed entries).
+        // Use a larger radius so the first visible viewport is usually covered.
         let queue = queries::get_play_queue_by_session(&state.database, session_id, user.user_id)
             .await?
             .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-        let start = (current_index as usize).saturating_sub(20);
-        let end = (current_index as usize + 21).min(total_count);
+        let start = (current_index as usize).saturating_sub(50);
+        let end = (current_index as usize + 51).min(total_count);
 
         build_queue_window_efficient(
             &state.database,
@@ -2217,7 +2219,10 @@ async fn materialize_queue_songs(
             // Use text filter as FTS query, or wildcard for all songs in genre
             let query = text_filter.unwrap_or("*");
 
-            Ok(search_songs_for_queue(database, user_id, query, &search_params).await?)
+            Ok(
+                search_songs_for_queue(database, user_id, query, &search_params, None, None)
+                    .await?,
+            )
         }
         QueueSourceType::Favorites => {
             materialize_favorites_songs(
@@ -2241,7 +2246,10 @@ async fn materialize_queue_songs(
             // Parse filters and sort from JSON into SearchParams
             let search_params = build_search_params_from_json(filters, sort);
 
-            Ok(search_songs_for_queue(database, user_id, query, &search_params).await?)
+            Ok(
+                search_songs_for_queue(database, user_id, query, &search_params, None, None)
+                    .await?,
+            )
         }
         QueueSourceType::Directory => {
             let dir_id = source_id
@@ -2438,7 +2446,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
             let search_params = build_search_params_from_json(filters, sort);
-            Ok(search_songs_for_queue(database, user_id, "*", &search_params).await?)
+            Ok(search_songs_for_queue(database, user_id, "*", &search_params, None, None).await?)
         }
     }
 }
@@ -2688,9 +2696,36 @@ pub async fn materialize_lazy_queue_page(
         .await;
     }
 
-    // For non-shuffled queues, we can materialize just the page
-    // However, the current materialization functions don't support pagination
-    // So we materialize all and slice - this could be optimized further
+    // For non-shuffled lazy queues, materialize just the page we need when
+    // the source supports server-side pagination (library/search/genre).
+    // This avoids loading thousands of songs just to render a 50-song slice.
+    if matches!(
+        source_type,
+        QueueSourceType::Library
+            | QueueSourceType::Search
+            | QueueSourceType::Genre
+            | QueueSourceType::Favorites
+            | QueueSourceType::Directory
+            | QueueSourceType::DirectoryFlat
+    ) {
+        if let Some(page) = materialize_lazy_queue_page_paginated(
+            database,
+            user_id,
+            source_type,
+            queue.source_id.as_deref(),
+            filters.as_ref(),
+            sort.as_ref(),
+            offset,
+            limit,
+        )
+        .await?
+        {
+            return Ok(page);
+        }
+    }
+
+    // Fallback: materialize all songs and slice. This path is used for sources
+    // that don't yet support server-side pagination.
     let all_songs = materialize_queue_songs(
         database,
         user_id,
@@ -2702,6 +2737,85 @@ pub async fn materialize_lazy_queue_page(
     .await?;
 
     Ok(all_songs.into_iter().skip(offset).take(limit).collect())
+}
+
+/// Materialize a single page of a lazy queue using source-native pagination.
+/// Returns None when the source cannot be paginated server-side, so callers
+/// can fall back to full materialization.
+#[allow(clippy::too_many_arguments)]
+async fn materialize_lazy_queue_page_paginated(
+    database: &crate::db::Database,
+    user_id: i64,
+    source_type: QueueSourceType,
+    source_id: Option<&str>,
+    filters: Option<&serde_json::Value>,
+    sort: Option<&serde_json::Value>,
+    offset: usize,
+    limit: usize,
+) -> FerrotuneApiResult<Option<Vec<crate::db::models::Song>>> {
+    let (_sort_field, _sort_dir) = sorting::parse_sort_from_json(sort);
+    let text_filter = filters
+        .and_then(|f| f.get("filter"))
+        .and_then(|v| v.as_str());
+
+    let songs = match source_type {
+        QueueSourceType::Library | QueueSourceType::Search => {
+            let query_from_filters = filters
+                .and_then(|f| f.get("query"))
+                .and_then(|v| v.as_str());
+            let query = query_from_filters.or(source_id).unwrap_or("*");
+            let search_params = build_search_params_from_json(filters, sort);
+
+            search_songs_for_queue(
+                database,
+                user_id,
+                query,
+                &search_params,
+                Some(offset),
+                Some(limit),
+            )
+            .await?
+        }
+        QueueSourceType::Genre => {
+            let genre =
+                source_id.ok_or_else(|| Error::InvalidRequest("Genre required".to_string()))?;
+            let mut search_params = build_search_params_from_json(filters, sort);
+            search_params.genre = Some(genre.to_string());
+            let query = text_filter.unwrap_or("*");
+
+            search_songs_for_queue(
+                database,
+                user_id,
+                query,
+                &search_params,
+                Some(offset),
+                Some(limit),
+            )
+            .await?
+        }
+        QueueSourceType::Favorites => {
+            // Favorites are filtered/sorted in memory; we still load all but
+            // this is acceptable because the favorites list is bounded by the
+            // user's starred songs. For very large libraries this can be
+            // revisited to push filtering/sorting to the database.
+            return Ok(None);
+        }
+        QueueSourceType::Directory => {
+            let dir_id = source_id
+                .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
+            let all = queries::get_songs_by_directory(database, dir_id, user_id).await?;
+            return Ok(Some(all.into_iter().skip(offset).take(limit).collect()));
+        }
+        QueueSourceType::DirectoryFlat => {
+            let dir_id = source_id
+                .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
+            let all = queries::get_songs_by_directory_flat(database, dir_id, user_id).await?;
+            return Ok(Some(all.into_iter().skip(offset).take(limit).collect()));
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(songs))
 }
 
 /// Get the total count for a queue (handles both lazy and non-lazy queues)
@@ -2737,7 +2851,7 @@ pub async fn get_lazy_queue_count(
         return Ok(song_ids.len());
     }
 
-    // Otherwise, materialize and count
+    // Otherwise, count without materializing when the source supports it.
     let source_type: QueueSourceType = queue.source_type.parse().unwrap_or_default();
     let filters: Option<serde_json::Value> = queue
         .filters_json
@@ -2748,6 +2862,57 @@ pub async fn get_lazy_queue_count(
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok());
 
+    if matches!(
+        source_type,
+        QueueSourceType::Library
+            | QueueSourceType::Search
+            | QueueSourceType::Genre
+            | QueueSourceType::Directory
+            | QueueSourceType::DirectoryFlat
+    ) {
+        let text_filter = filters
+            .as_ref()
+            .and_then(|f| f.get("filter"))
+            .and_then(|v| v.as_str());
+
+        let mut search_params = build_search_params_from_json(filters.as_ref(), sort.as_ref());
+        if let QueueSourceType::Genre = source_type {
+            let genre = queue
+                .source_id
+                .as_deref()
+                .ok_or_else(|| Error::InvalidRequest("Genre required".to_string()))?;
+            search_params.genre = Some(genre.to_string());
+        }
+
+        let query = match source_type {
+            QueueSourceType::Library
+            | QueueSourceType::Directory
+            | QueueSourceType::DirectoryFlat => text_filter.unwrap_or("*"),
+            QueueSourceType::Search => queue.source_id.as_deref().unwrap_or("*"),
+            QueueSourceType::Genre => text_filter.unwrap_or("*"),
+            _ => "*",
+        };
+
+        // For directory sources, the directory materialization functions don't
+        // currently support a server-side count, so count the full materialized
+        // set. Library/search/genre can use the fast COUNT query.
+        if matches!(
+            source_type,
+            QueueSourceType::Library | QueueSourceType::Search | QueueSourceType::Genre
+        ) {
+            return crate::api::common::search::count_songs_for_queue(
+                database,
+                user_id,
+                query,
+                &search_params,
+            )
+            .await
+            .map(|c| c as usize)
+            .map_err(FerrotuneApiError::from);
+        }
+    }
+
+    // Fallback: materialize all songs and count.
     let songs = materialize_queue_songs(
         database,
         user_id,
