@@ -4,4 +4,17 @@ import type { SongResponse } from "./SongResponse";
 /**
  * Response for the discovery endpoint
  */
-export type DiscoveryResponse = { song: Array<SongResponse>, total: number, };
+export type DiscoveryResponse = { song: Array<SongResponse>, total: number, 
+/**
+ * Seed used for the deterministic shuffle so the client can replay the
+ * same list when starting playback.
+ */
+seed: number, 
+/**
+ * Number of candidates requested from bliss (mirrors the request).
+ */
+count: number, 
+/**
+ * Days used for the "recently played" exclusion window (mirrors the request).
+ */
+excludeRecentDays: number, };

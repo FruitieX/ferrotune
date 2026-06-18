@@ -652,6 +652,7 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
       count?: number;
       excludeRecentDays?: number;
+      seed?: number;
     } = {},
   ): Promise<DiscoveryResponse> {
     const endpoint = buildEndpoint("/api/discovery/similar-songs", params);

@@ -271,9 +271,14 @@ pub async fn get_similar_songs(
         use crate::api::common::starring::{get_ratings_map, get_starred_map};
         use crate::db::models::ItemType;
 
-        let similar =
-            crate::bliss::find_similar_songs(&state.database, &id, user.user_id, params.count)
-                .await?;
+        let similar = crate::bliss::find_similar_songs(
+            &state.database,
+            &id,
+            user.user_id,
+            params.count,
+            None,
+        )
+        .await?;
         let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
         let songs = crate::db::repo::browse::get_songs_by_ids_for_user(
             &state.database,

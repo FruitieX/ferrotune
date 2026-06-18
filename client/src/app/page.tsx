@@ -861,6 +861,11 @@ export default function HomePage() {
   const discoverSeedRef = useRef<number | undefined>(undefined);
   // Store the random seed for Forgotten Favorites for consistent pagination
   const forgottenFavSeedRef = useRef<number | undefined>(undefined);
+  // Store the discovery seed/count/exclusion for Similar Tracks so playback queues
+  // match the rendered list.
+  const similarTracksSeedRef = useRef<number | undefined>(undefined);
+  const similarTracksCountRef = useRef<number>(50);
+  const similarTracksExcludeRef = useRef<number>(7);
 
   // Responsive item dimensions
   const itemWidth = isSmallScreen ? 130 : 180;
@@ -891,6 +896,7 @@ export default function HomePage() {
   useEffect(() => {
     discoverSeedRef.current = undefined;
     forgottenFavSeedRef.current = undefined;
+    similarTracksSeedRef.current = undefined;
   }, [
     currentAccountKey,
     forgottenFavoritesFilters.minPlays,
@@ -1437,11 +1443,20 @@ export default function HomePage() {
     queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
+      if (similarTracksSeedRef.current === undefined) {
+        similarTracksSeedRef.current = Math.floor(
+          Math.random() * Number.MAX_SAFE_INTEGER,
+        );
+      }
       const response = await client.getDiscoverySimilarSongs({
         size: pageSize,
         offset: pageParam,
         inlineImages: "medium",
+        seed: similarTracksSeedRef.current,
       });
+      similarTracksSeedRef.current = response.seed;
+      similarTracksCountRef.current = response.count;
+      similarTracksExcludeRef.current = response.excludeRecentDays;
       return {
         songs: response.song ?? [],
         total: response.total,
@@ -1926,6 +1941,11 @@ export default function HomePage() {
                   sourceName: sectionOption.label,
                   startIndex: 0,
                   shuffle: false,
+                  filters: {
+                    seed: similarTracksSeedRef.current,
+                    count: similarTracksCountRef.current,
+                    excludeRecentDays: similarTracksExcludeRef.current,
+                  },
                 })
               }
               onShuffleAll={() =>
@@ -1934,6 +1954,11 @@ export default function HomePage() {
                   sourceName: sectionOption.label,
                   startIndex: 0,
                   shuffle: true,
+                  filters: {
+                    seed: similarTracksSeedRef.current,
+                    count: similarTracksCountRef.current,
+                    excludeRecentDays: similarTracksExcludeRef.current,
+                  },
                 })
               }
               viewAllHref={getHomeSectionHref(section)}
@@ -1956,6 +1981,11 @@ export default function HomePage() {
                   queueSource={{
                     type: "similarTracks",
                     name: sectionOption.label,
+                    filters: {
+                      seed: similarTracksSeedRef.current,
+                      count: similarTracksCountRef.current,
+                      excludeRecentDays: similarTracksExcludeRef.current,
+                    },
                   }}
                   inlineImagesRequested
                   className="ring-0"

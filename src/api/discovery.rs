@@ -30,6 +30,9 @@ pub struct DiscoveryParams {
     pub count: Option<i64>,
     /// Days to look back for "recently played" exclusion (default 7)
     pub exclude_recent_days: Option<i64>,
+    /// Optional seed for deterministic shuffle. The response echoes the seed
+    /// so the client can materialize the same queue later.
+    pub seed: Option<i64>,
 }
 
 /// Response for the discovery endpoint
@@ -40,6 +43,16 @@ pub struct DiscoveryResponse {
     pub song: Vec<crate::api::common::models::SongResponse>,
     #[ts(type = "number")]
     pub total: i64,
+    /// Seed used for the deterministic shuffle so the client can replay the
+    /// same list when starting playback.
+    #[ts(type = "number")]
+    pub seed: i64,
+    /// Number of candidates requested from bliss (mirrors the request).
+    #[ts(type = "number")]
+    pub count: i64,
+    /// Days used for the "recently played" exclusion window (mirrors the request).
+    #[ts(type = "number")]
+    pub exclude_recent_days: i64,
 }
 
 /// GET /api/discovery/similar-songs
@@ -68,6 +81,7 @@ pub async fn get_similar_songs(
             size,
             offset,
             inline_size,
+            params.seed,
         )
         .await?;
 
@@ -82,6 +96,9 @@ pub async fn get_similar_songs(
             Json(DiscoveryResponse {
                 song: Vec::new(),
                 total: 0,
+                seed: 0,
+                count,
+                exclude_recent_days,
             }),
         ))
     }
@@ -89,6 +106,7 @@ pub async fn get_similar_songs(
 
 /// Core discovery logic: find songs similar to the user's recent listening.
 #[cfg(feature = "bliss")]
+#[allow(clippy::too_many_arguments)]
 pub async fn discover_similar_songs(
     database: &crate::db::Database,
     user_id: i64,
@@ -97,6 +115,7 @@ pub async fn discover_similar_songs(
     size: i64,
     offset: i64,
     inline_image_size: Option<ThumbnailSize>,
+    seed: Option<i64>,
 ) -> crate::error::Result<DiscoveryResponse> {
     use chrono::Duration;
 
@@ -105,12 +124,18 @@ pub async fn discover_similar_songs(
         crate::db::repo::history::list_recent_song_aggregates(database.conn(), user_id, 1, 0)
             .await?;
 
+    let response_seed = seed.unwrap_or_else(rand::random::<i64>);
+    let rng_seed = Some(response_seed as u64);
+
     let seed_id = match seed_aggregates.first() {
         Some(row) => row.song_id.clone(),
         None => {
             return Ok(DiscoveryResponse {
                 song: Vec::new(),
                 total: 0,
+                seed: response_seed,
+                count,
+                exclude_recent_days,
             });
         }
     };
@@ -132,7 +157,8 @@ pub async fn discover_similar_songs(
 
     // 3. Find similar songs using bliss (loads all candidates, computes distances)
     let similar =
-        crate::bliss::find_similar_songs(database, &seed_id, user_id, count as usize).await?;
+        crate::bliss::find_similar_songs(database, &seed_id, user_id, count as usize, rng_seed)
+            .await?;
 
     // 4. Filter out recently played songs
     let filtered: Vec<(String, f32)> = similar
@@ -146,6 +172,9 @@ pub async fn discover_similar_songs(
         return Ok(DiscoveryResponse {
             song: Vec::new(),
             total: 0,
+            seed: response_seed,
+            count,
+            exclude_recent_days,
         });
     }
 
@@ -161,6 +190,9 @@ pub async fn discover_similar_songs(
         return Ok(DiscoveryResponse {
             song: Vec::new(),
             total,
+            seed: response_seed,
+            count,
+            exclude_recent_days,
         });
     }
 
@@ -215,5 +247,8 @@ pub async fn discover_similar_songs(
     Ok(DiscoveryResponse {
         song: responses,
         total,
+        seed: response_seed,
+        count,
+        exclude_recent_days,
     })
 }

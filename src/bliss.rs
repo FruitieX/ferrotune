@@ -12,6 +12,7 @@ use bliss_audio::decoder::Decoder as BlissDecoder;
 use bliss_audio::playlist::euclidean_distance;
 use bliss_audio::{Analysis, FeaturesVersion, NUMBER_FEATURES};
 use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use std::path::Path;
 
 /// Result of bliss audio analysis for a single track.
@@ -83,11 +84,15 @@ type BlissCandidateRow = (String, Vec<u8>, String, String);
 /// Loads all analyzed songs' feature vectors from the database, computes
 /// euclidean distance against the seed song's features, and returns the
 /// closest matches.
+///
+/// An optional `rng_seed` makes the shuffle deterministic so that a client
+/// can later materialize the same list server-side (e.g. for playback queues).
 pub async fn find_similar_songs(
     database: &crate::db::Database,
     seed_song_id: &str,
     user_id: i64,
     count: usize,
+    rng_seed: Option<u64>,
 ) -> Result<Vec<(String, f32)>> {
     let seed_row = crate::db::repo::bliss::fetch_seed(database.conn(), seed_song_id, user_id)
         .await
@@ -164,7 +169,10 @@ pub async fn find_similar_songs(
     let pool_size = (count * 3).min(filtered.len());
     filtered.truncate(pool_size);
 
-    let mut rng = rand::thread_rng();
+    let mut rng: Box<dyn rand::RngCore> = match rng_seed {
+        Some(seed) => Box::new(rand::rngs::StdRng::seed_from_u64(seed)),
+        None => Box::new(rand::thread_rng()),
+    };
     filtered.shuffle(&mut rng);
 
     let results: Vec<(String, f32)> = filtered

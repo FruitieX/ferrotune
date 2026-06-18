@@ -6003,7 +6003,7 @@ fn test_postgres_bliss_similarity_query_works() {
             .await
             .expect("postgres candidate song bliss update should succeed");
 
-        let similar = ferrotune::bliss::find_similar_songs(&database, &song_1, user.id, 5)
+        let similar = ferrotune::bliss::find_similar_songs(&database, &song_1, user.id, 5, None)
             .await
             .expect("postgres bliss similarity query should succeed");
         assert_eq!(similar.len(), 1);

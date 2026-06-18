@@ -503,12 +503,16 @@ export default function HomeSectionPage() {
   };
   const debouncedFilter = useDebounce(filter, 300);
   const seedRef = useRef<number | undefined>(undefined);
+  const similarTracksSeedRef = useRef<number | undefined>(undefined);
+  const similarTracksCountRef = useRef<number>(50);
+  const similarTracksExcludeRef = useRef<number>(7);
   const mostPlayedFiltersRef = useRef(
     getMostPlayedRecentlyFilters(mostPlayedRecentlyDays),
   );
 
   useEffect(() => {
     seedRef.current = undefined;
+    similarTracksSeedRef.current = undefined;
     mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters(
       mostPlayedRecentlyDays,
     );
@@ -621,11 +625,20 @@ export default function HomeSectionPage() {
         section.kind === "song" &&
         section.queueSourceType === "similarTracks"
       ) {
+        if (similarTracksSeedRef.current === undefined) {
+          similarTracksSeedRef.current = Math.floor(
+            Math.random() * Number.MAX_SAFE_INTEGER,
+          );
+        }
         const response = await client.getDiscoverySimilarSongs({
           size: PAGE_SIZE,
           offset: pageParam,
           inlineImages: "small",
+          seed: similarTracksSeedRef.current,
         });
+        similarTracksSeedRef.current = response.seed;
+        similarTracksCountRef.current = response.count;
+        similarTracksExcludeRef.current = response.excludeRecentDays;
         return {
           entries: [] as ContinueListeningEntry[],
           songs: response.song ?? [],
@@ -634,6 +647,9 @@ export default function HomeSectionPage() {
           count: response.song.length,
           nextOffset: pageParam + PAGE_SIZE,
           pageSize: PAGE_SIZE,
+          seed: response.seed,
+          responseCount: response.count,
+          responseExclude: response.excludeRecentDays,
         };
       }
 
@@ -729,7 +745,11 @@ export default function HomeSectionPage() {
         section.queueSourceType === "mostPlayedRecently"
           ? mostPlayedFiltersRef.current
           : section.queueSourceType === "similarTracks"
-            ? undefined
+            ? {
+                seed: similarTracksSeedRef.current,
+                count: similarTracksCountRef.current,
+                excludeRecentDays: similarTracksExcludeRef.current,
+              }
             : seedRef.current !== undefined
               ? { ...forgottenFavoritesFilters, seed: seedRef.current }
               : forgottenFavoritesFilters;
@@ -815,9 +835,15 @@ export default function HomeSectionPage() {
             debouncedFilter,
             section.queueSourceType === "mostPlayedRecently"
               ? mostPlayedFiltersRef.current
-              : seedRef.current !== undefined
-                ? { seed: seedRef.current }
-                : undefined,
+              : section.queueSourceType === "similarTracks"
+                ? {
+                    seed: similarTracksSeedRef.current,
+                    count: similarTracksCountRef.current,
+                    excludeRecentDays: similarTracksExcludeRef.current,
+                  }
+                : seedRef.current !== undefined
+                  ? { seed: seedRef.current }
+                  : undefined,
           ),
           sort: {
             field: sortConfig.field,

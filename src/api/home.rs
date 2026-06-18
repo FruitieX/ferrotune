@@ -303,6 +303,7 @@ pub async fn get_home(
                     size,
                     0,
                     inline_size,
+                    None,
                 )
                 .await?;
                 Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {

@@ -17,6 +17,9 @@ HTTP 200
 header "Content-Type" contains "application/json"
 jsonpath "$.song" isCollection
 jsonpath "$.total" exists
+jsonpath "$.seed" exists
+jsonpath "$.count" == 30
+jsonpath "$.excludeRecentDays" == 7
 
 # Get similar songs with inline images
 GET {{base_url}}/api/discovery/similar-songs?size=5&inlineImages=small
@@ -25,6 +28,7 @@ HTTP 200
 [Asserts]
 header "Content-Type" contains "application/json"
 jsonpath "$.song" isCollection
+jsonpath "$.count" == 30
 
 # Get similar songs with custom exclude window
 GET {{base_url}}/api/discovery/similar-songs?size=10&excludeRecentDays=3
@@ -33,6 +37,8 @@ HTTP 200
 [Asserts]
 header "Content-Type" contains "application/json"
 jsonpath "$.song" isCollection
+jsonpath "$.excludeRecentDays" == 3
+jsonpath "$.count" == 30
 
 # Get similar songs with pagination
 GET {{base_url}}/api/discovery/similar-songs?size=5&offset=0
@@ -41,6 +47,17 @@ HTTP 200
 [Asserts]
 jsonpath "$.song" isCollection
 jsonpath "$.total" exists
+jsonpath "$.count" == 30
+
+# Request with an explicit seed echoes the seed back
+GET {{base_url}}/api/discovery/similar-songs?size=5&seed=12345
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.song" isCollection
+jsonpath "$.seed" == 12345
+jsonpath "$.count" == 30
+jsonpath "$.excludeRecentDays" == 7
 
 # Unauthenticated access should fail
 GET {{base_url}}/api/discovery/similar-songs?size=10
