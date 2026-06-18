@@ -10,12 +10,18 @@ import {
 } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
+import { hasNativeAudio } from "@/lib/tauri";
 import { useAudioEngine } from "./hooks";
 
 /**
  * Hook for Media Session API integration.
  * Enables OS-level media controls (play/pause, next, previous, seek).
  * Should be called in a component that has access to audio controls.
+ *
+ * On mobile (native audio), the Android PlaybackService owns the Media3
+ * MediaSession, so we skip the web MediaSession entirely. Leaving the web
+ * handlers active can cause phantom pause/play events from the OS to be
+ * delivered to the WebView and forwarded to the native player.
  */
 export function useMediaSession() {
   const currentSong = useAtomValue(currentSongAtom);
@@ -27,7 +33,11 @@ export function useMediaSession() {
 
   // Update Media Session metadata when track changes
   useEffect(() => {
-    if (typeof window === "undefined" || !("mediaSession" in navigator)) {
+    if (
+      typeof window === "undefined" ||
+      !("mediaSession" in navigator) ||
+      hasNativeAudio()
+    ) {
       return;
     }
 
@@ -57,7 +67,11 @@ export function useMediaSession() {
 
   // Update playback state
   useEffect(() => {
-    if (typeof window === "undefined" || !("mediaSession" in navigator)) {
+    if (
+      typeof window === "undefined" ||
+      !("mediaSession" in navigator) ||
+      hasNativeAudio()
+    ) {
       return;
     }
 
@@ -67,7 +81,11 @@ export function useMediaSession() {
 
   // Update position state
   useEffect(() => {
-    if (typeof window === "undefined" || !("mediaSession" in navigator)) {
+    if (
+      typeof window === "undefined" ||
+      !("mediaSession" in navigator) ||
+      hasNativeAudio()
+    ) {
       return;
     }
 
@@ -90,7 +108,11 @@ export function useMediaSession() {
 
   // Set up action handlers
   useEffect(() => {
-    if (typeof window === "undefined" || !("mediaSession" in navigator)) {
+    if (
+      typeof window === "undefined" ||
+      !("mediaSession" in navigator) ||
+      hasNativeAudio()
+    ) {
       return;
     }
 
