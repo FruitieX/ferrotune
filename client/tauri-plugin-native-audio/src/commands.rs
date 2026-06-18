@@ -1,6 +1,8 @@
 use serde_json::Value;
 use tauri::{command, AppHandle, Runtime};
 
+#[cfg(not(mobile))]
+use crate::Error;
 use crate::{
     error::Result,
     models::{
@@ -342,15 +344,18 @@ pub async fn start_playback<R: Runtime>(
 
 /// Invalidate the queue window and refetch from server
 #[command]
-pub async fn invalidate_queue<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+pub async fn invalidate_queue<R: Runtime>(
+    app: AppHandle<R>,
+    play_when_ready: Option<bool>,
+) -> Result<()> {
     #[cfg(mobile)]
     {
-        app.native_audio().invalidate_queue()
+        app.native_audio().invalidate_queue(play_when_ready)
     }
 
     #[cfg(not(mobile))]
     {
-        let _ = app;
+        let _ = (app, play_when_ready);
         log::warn!("invalidate_queue() called on desktop - native audio only available on mobile");
         Err(Error::ServiceNotAvailable)
     }

@@ -2350,16 +2350,22 @@ class PlaybackService : MediaSessionService() {
      * Invalidate the queue window and refetch from server.
      * Called when JS modifies the queue (add/remove/reorder).
      */
-    fun invalidateQueue() {
+    fun invalidateQueue(playWhenReady: Boolean? = null) {
         invalidateVersion++
-        Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex (version=$invalidateVersion)")
+        Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex (version=$invalidateVersion, explicitPlay=$playWhenReady)")
         val generation = nextQueueLoadGeneration("invalidateQueue")
         apiExecutor.execute {
             try {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "invalidateQueue")) return@post
-                    val shouldPlay = player.playWhenReady
+                    val explicitPlay = playWhenReady == true
+                    val shouldPlay = explicitPlay || player.playWhenReady
+
+                    if (explicitPlay) {
+                        claimNativeSessionOwnership("invalidateQueue explicit play", 0, serverQueueIndex)
+                        clearAudioOutputLossPause("invalidateQueue explicit play")
+                    }
 
                     // Check if the currently playing track is still the track
                     // at the target position. If so, update the surrounding
@@ -2367,15 +2373,15 @@ class PlaybackService : MediaSessionService() {
                     if (isCurrentTrackAtTarget(response, response.currentIndex)) {
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
                         if (shouldPlay && !player.playWhenReady) {
-                            player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
-                                true,
-                                "invalidateQueue existing target"
-                            )
+                            player.playWhenReady = true
                         }
                     } else {
                         Log.d(TAG, "invalidateQueue: current track changed, full reload")
                         handleQueueWindowResponse(response, response.currentIndex,
                             response.positionMs, shouldPlay)
+                        if (explicitPlay && !player.playWhenReady) {
+                            player.playWhenReady = true
+                        }
                     }
                 }
             } catch (e: Exception) {

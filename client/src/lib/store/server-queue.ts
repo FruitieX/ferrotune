@@ -468,7 +468,7 @@ export const startQueueAtom = atom(
         // The SSE QueueChanged event will also arrive and the handler will
         // run, but invalidating here reduces latency.
         if (hasNativeAudio() && shouldPlay) {
-          void nativeInvalidateQueue().catch((error) => {
+          void nativeInvalidateQueue(true).catch((error) => {
             console.error(
               "Failed to invalidate native queue after startQueue:",
               error,

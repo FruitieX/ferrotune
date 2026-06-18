@@ -179,9 +179,15 @@ export async function startPlayback(params: {
 /**
  * Invalidate the queue window and refetch from server.
  * Call after reordering, adding, or removing tracks.
+ *
+ * @param playWhenReady If provided, forces the native player to start or stay
+ * paused after reloading the queue. When omitted, the current playWhenReady
+ * state is preserved.
  */
-export async function invalidateQueue(): Promise<void> {
-  await invoke("plugin:native-audio|invalidate_queue");
+export async function invalidateQueue(playWhenReady?: boolean): Promise<void> {
+  await invoke("plugin:native-audio|invalidate_queue", {
+    playWhenReady,
+  });
 }
 
 /**

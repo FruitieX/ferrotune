@@ -101,6 +101,11 @@ internal class ToggleShuffleArgs {
 }
 
 @InvokeArg
+internal class InvalidateQueueArgs {
+    var playWhenReady: Boolean? = null
+}
+
+@InvokeArg
 internal class SoftInvalidateQueueArgs {
     var totalCount: Int = 0
 }
@@ -791,6 +796,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
 
     @Command
     fun invalidateQueue(invoke: Invoke) {
+        val args = invoke.parseArgs(InvalidateQueueArgs::class.java)
         scope.launch {
             try {
                 val service = awaitService()
@@ -799,7 +805,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
-                service.invalidateQueue()
+                service.invalidateQueue(args.playWhenReady)
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in invalidateQueue()", e)

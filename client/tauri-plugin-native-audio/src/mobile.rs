@@ -163,9 +163,12 @@ impl<R: Runtime> NativeAudio<R> {
     }
 
     /// Invalidate queue window and refetch from server
-    pub fn invalidate_queue(&self) -> Result<()> {
+    pub fn invalidate_queue(&self, play_when_ready: Option<bool>) -> Result<()> {
         self.0
-            .run_mobile_plugin("invalidateQueue", ())
+            .run_mobile_plugin(
+                "invalidateQueue",
+                serde_json::json!({ "playWhenReady": play_when_ready }),
+            )
             .map_err(Into::into)
     }
 

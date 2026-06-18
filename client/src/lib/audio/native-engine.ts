@@ -591,11 +591,20 @@ export async function nativeStartPlayback(params: {
 
 /**
  * Invalidate the native queue window and refetch from server.
+ *
+ * @param playWhenReady When true, the native player will start playback after
+ * reloading the queue even if it is currently paused/stopped. When omitted, the
+ * current playWhenReady state is preserved.
  */
-export async function nativeInvalidateQueue(): Promise<void> {
-  console.log("[NativeAudio] nativeInvalidateQueue() called");
+export async function nativeInvalidateQueue(
+  playWhenReady?: boolean,
+): Promise<void> {
+  console.log(
+    "[NativeAudio] nativeInvalidateQueue() called, playWhenReady:",
+    playWhenReady,
+  );
   const api = await getNativeApi();
-  await api.invalidateQueue();
+  await api.invalidateQueue(playWhenReady);
 }
 
 /**
