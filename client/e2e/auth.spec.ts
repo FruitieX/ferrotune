@@ -339,4 +339,140 @@ test.describe("Authentication", () => {
       )
       .toMatch(/\/$/);
   });
+
+  test("switching accounts shows only current user's playlists in sidebar", async ({
+    page,
+    server,
+  }) => {
+    // Create primary playlist
+    const primaryLogin = await loginForSession(server.url, {
+      username: server.username,
+      password: server.password,
+    });
+    const primaryPlaylistName = `Primary Playlist ${Date.now()}`;
+    const primaryPlaylistResponse = await page.request.post(
+      `${server.url}/api/playlists`,
+      {
+        headers: { Authorization: `Bearer ${primaryLogin.sessionToken}` },
+        data: { name: primaryPlaylistName, entries: [] },
+      },
+    );
+    expect(primaryPlaylistResponse.ok()).toBe(true);
+
+    // Create secondary user
+    const secondaryUsername = `secondary${Date.now()}`;
+    const secondaryPassword = "secondarypass";
+    const createUserResponse = await page.request.post(
+      `${server.url}/api/users`,
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`,
+        },
+        data: {
+          username: secondaryUsername,
+          password: secondaryPassword,
+          email: null,
+          isAdmin: false,
+          libraryAccess: [],
+        },
+      },
+    );
+    expect(createUserResponse.ok()).toBe(true);
+
+    // Create secondary playlist
+    const secondaryLogin = await loginForSession(server.url, {
+      username: secondaryUsername,
+      password: secondaryPassword,
+    });
+    const secondaryPlaylistName = `Secondary Playlist ${Date.now()}`;
+    const secondaryPlaylistResponse = await page.request.post(
+      `${server.url}/api/playlists`,
+      {
+        headers: { Authorization: `Bearer ${secondaryLogin.sessionToken}` },
+        data: { name: secondaryPlaylistName, entries: [] },
+      },
+    );
+    expect(secondaryPlaylistResponse.ok()).toBe(true);
+
+    // Log in through the UI so the session is fully initialized
+    await login(page, {
+      serverUrl: server.url,
+      username: server.username,
+      password: server.password,
+    });
+
+    // Add secondary account to saved accounts (primary is already active)
+    await page.evaluate(
+      ({ secondary }) => {
+        const connection = JSON.parse(
+          localStorage.getItem("ferrotune-connection") || "null",
+        );
+        localStorage.setItem(
+          "ferrotune-saved-accounts",
+          JSON.stringify([
+            { ...connection, label: "Primary account" },
+            { ...secondary, label: "Secondary account" },
+          ]),
+        );
+      },
+      {
+        secondary: {
+          serverUrl: server.url,
+          username: secondaryLogin.user.username,
+          userId: secondaryLogin.user.id,
+          email: secondaryLogin.user.email ?? null,
+          isAdmin: secondaryLogin.user.isAdmin,
+          sessionToken: secondaryLogin.sessionToken,
+          sessionExpiresAt: secondaryLogin.sessionExpiresAt,
+          urlToken: secondaryLogin.urlToken,
+          urlTokenExpiresAt: secondaryLogin.urlTokenExpiresAt,
+        },
+      },
+    );
+
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    // Switch to secondary account
+    await page.getByTestId("user-switcher-trigger").click();
+
+    const secondarySidebarRefetch = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.status() === 200 &&
+        response.url().includes("/api/playlist-folders"),
+    );
+
+    await page.getByText("Secondary account").click();
+    await secondarySidebarRefetch;
+
+    // Secondary playlist should be visible; primary playlist should not
+    await expect(
+      page.getByRole("link", { name: secondaryPlaylistName }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("link", { name: primaryPlaylistName }),
+    ).not.toBeVisible();
+
+    // Switch back to primary account
+    await page.getByTestId("user-switcher-trigger").click();
+
+    const primarySidebarRefetch = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.status() === 200 &&
+        response.url().includes("/api/playlist-folders"),
+    );
+
+    await page.getByText("Primary account").click();
+    await primarySidebarRefetch;
+
+    // Primary playlist should be visible; secondary playlist should not
+    await expect(
+      page.getByRole("link", { name: primaryPlaylistName }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("link", { name: secondaryPlaylistName }),
+    ).not.toBeVisible();
+  });
 });

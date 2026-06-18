@@ -33,6 +33,8 @@ export function UserSwitcher({ isCollapsed, isActive }: UserSwitcherProps) {
       trigger={
         <Button
           variant="ghost"
+          aria-label={displayLabel}
+          data-testid="user-switcher-trigger"
           className={cn(
             "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
             isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",

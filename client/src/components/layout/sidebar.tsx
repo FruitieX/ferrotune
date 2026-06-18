@@ -49,7 +49,11 @@ import {
   sidebarItemSizeAtom,
   type SidebarItemSize,
 } from "@/lib/store/ui";
-import { isConnectedAtom } from "@/lib/store/auth";
+import {
+  accountKey,
+  isConnectedAtom,
+  serverConnectionAtom,
+} from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { ScanStatusIndicator } from "@/components/admin/scan-status-indicator";
 import { ScanDialog } from "@/components/admin/scan-dialog";
@@ -124,6 +128,8 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useAtom(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const isConnected = useAtomValue(isConnectedAtom);
+  const connection = useAtomValue(serverConnectionAtom);
+  const currentAccountKey = connection ? accountKey(connection) : null;
   const itemSize = useAtomValue(sidebarItemSizeAtom);
   const [playlistsExpanded, setPlaylistsExpanded] = useAtom(
     playlistsSidebarExpandedAtom,
@@ -143,7 +149,7 @@ export function Sidebar() {
 
   // Fetch playlist folders from new API
   const { data: playlistFoldersData, isLoading: playlistsLoading } = useQuery({
-    queryKey: ["playlistFolders"],
+    queryKey: ["playlistFolders", currentAccountKey],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -154,7 +160,7 @@ export function Sidebar() {
 
   // Fetch smart playlists
   const { data: smartPlaylists } = useQuery({
-    queryKey: ["smartPlaylists"],
+    queryKey: ["smartPlaylists", currentAccountKey],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
