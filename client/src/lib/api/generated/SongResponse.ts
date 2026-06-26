@@ -16,7 +16,7 @@ coverArtHeight: number | null, size: number, contentType: string, suffix: string
 /**
  * Full filesystem path (Ferrotune extension)
  */
-fullPath: string | null, starred: string | null, userRating: number | null, created: string, type: string, playCount: number | null, lastPlayed: string | null, 
+fullPath: string | null, starred: string | null, userRating: number | null, created: string, type: string, playCount: number | null, lastPlayed: string | null, playStarts: number | null, 
 /**
  * ReplayGain track gain - prefers computed, falls back to original (in dB)
  */

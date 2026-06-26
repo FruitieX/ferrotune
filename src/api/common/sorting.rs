@@ -147,6 +147,7 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             "year" => a.year.unwrap_or(0).cmp(&b.year.unwrap_or(0)),
             "dateAdded" | "created" => a.created_at.cmp(&b.created_at),
             "playCount" => a.play_count.unwrap_or(0).cmp(&b.play_count.unwrap_or(0)),
+            "playStarts" => a.play_starts.unwrap_or(0).cmp(&b.play_starts.unwrap_or(0)),
             "lastPlayed" => compare_option_nulls_last(&a.last_played, &b.last_played, descending),
             "duration" => a.duration.cmp(&b.duration),
             "size" => a.file_size.cmp(&b.file_size),
@@ -376,6 +377,7 @@ mod tests {
             play_count: Some(0),
             last_played: None,
             starred_at: None,
+            play_starts: None,
         }
     }
 

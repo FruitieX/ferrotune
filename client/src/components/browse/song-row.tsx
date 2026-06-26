@@ -140,6 +140,7 @@ interface SongRowProps {
   showCover?: boolean;
   showDuration?: boolean;
   showPlayCount?: boolean;
+  showPlayStarts?: boolean;
   showYear?: boolean;
   showDateAdded?: boolean;
   /** Override the date shown in "Date Added" column (e.g., for playlist entry dates) */
@@ -197,6 +198,7 @@ export function SongRow({
   showCover = false,
   showDuration = true,
   showPlayCount = false,
+  showPlayStarts = false,
   showYear = false,
   showDateAdded = false,
   dateAddedOverride,
@@ -499,6 +501,9 @@ export function SongRow({
               )}
               {showPlayCount && (
                 <span className="w-12 text-right">{song.playCount ?? 0}</span>
+              )}
+              {showPlayStarts && (
+                <span className="w-12 text-right">{song.playStarts ?? 0}</span>
               )}
               {showLastPlayed && (
                 <span className="w-24 text-right">

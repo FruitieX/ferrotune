@@ -513,6 +513,7 @@ pub fn song_to_response_with_stats(
         media_type: "music".to_string(),
         play_count,
         last_played,
+        play_starts: song.play_starts,
         replay_gain_track_gain,
         replay_gain_track_peak,
         original_replay_gain_track_gain,

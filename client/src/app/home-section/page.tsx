@@ -1008,6 +1008,7 @@ export default function HomeSectionPage() {
                   showAlbum={songColumnVisibility.album}
                   showDuration={songColumnVisibility.duration}
                   showPlayCount={songColumnVisibility.playCount}
+                  showPlayStarts={songColumnVisibility.playStarts}
                   showYear={songColumnVisibility.year}
                   showDateAdded={songColumnVisibility.dateAdded}
                   showLastPlayed={songColumnVisibility.lastPlayed}

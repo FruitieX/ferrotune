@@ -515,6 +515,7 @@ function SmartPlaylistPageContent() {
                     showArtist={columnVisibility.artist}
                     showDuration={columnVisibility.duration}
                     showPlayCount={columnVisibility.playCount}
+                    showPlayStarts={columnVisibility.playStarts}
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
                     showLastPlayed={columnVisibility.lastPlayed}

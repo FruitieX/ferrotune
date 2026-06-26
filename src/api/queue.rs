@@ -723,6 +723,8 @@ pub async fn start_queue(
         }
     }
 
+    let mut chosen_start_index = start_index;
+
     // Handle shuffle - when starting shuffled playback without a specific song selected,
     // pick a random starting position for a true shuffle experience
     let (is_shuffled, shuffle_seed, shuffle_indices, current_index) = if request.shuffle {
@@ -737,6 +739,7 @@ pub async fn start_queue(
             } else {
                 start_index
             };
+        chosen_start_index = effective_start;
 
         let indices = generate_shuffle_indices(total_count, effective_start, seed as u64);
         let indices_json = serde_json::to_string(&indices)
@@ -746,6 +749,8 @@ pub async fn start_queue(
     } else {
         (false, None, None, start_index as i64)
     };
+
+    let starting_song_id = song_ids.get(chosen_start_index).cloned();
 
     let repeat_mode = request.repeat_mode.as_deref().unwrap_or("off");
     let filters_json = request.filters.as_ref().map(|f| f.to_string());
@@ -942,6 +947,25 @@ pub async fn start_queue(
         broadcast_queue_updated(&state, session_id).await;
     } else {
         broadcast_queue_changed(&state, session_id).await;
+    }
+
+    // Record explicit playback start event
+    if let Some(song_id) = starting_song_id {
+        let trigger_type = if request.shuffle { "shuffle" } else { "direct" };
+        if let Err(e) = crate::db::repo::listening::create_playback_start(
+            &state.database,
+            user.user_id,
+            &song_id,
+            Some(session_id),
+            Some(&request.source_type),
+            request.source_id.as_deref(),
+            request.client_name.as_deref(),
+            Some(trigger_type),
+        )
+        .await
+        {
+            tracing::warn!("Failed to log playback start for song {}: {:?}", song_id, e);
+        }
     }
 
     Ok(Json(StartQueueResponse {
@@ -3169,6 +3193,7 @@ async fn build_window_from_entries(
                 original_replaygain_track_peak: entry.original_replaygain_track_peak,
                 computed_replaygain_track_gain: entry.computed_replaygain_track_gain,
                 computed_replaygain_track_peak: entry.computed_replaygain_track_peak,
+                play_starts: None,
             };
             let song_response = song_to_response_with_stats(
                 song,

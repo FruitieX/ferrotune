@@ -74,6 +74,8 @@ pub struct Song {
     pub last_played: Option<DateTime<Utc>>,
     /// Starred timestamp from starred table (populated via JOIN)
     pub starred_at: Option<DateTime<Utc>>,
+    /// Play starts count from listening_sessions table (populated via JOIN)
+    pub play_starts: Option<i64>,
 }
 
 /// Song with its music library enabled status
@@ -111,6 +113,7 @@ pub struct SongWithLibraryStatus {
     pub play_count: Option<i64>,
     pub last_played: Option<DateTime<Utc>>,
     pub starred_at: Option<DateTime<Utc>>,
+    pub play_starts: Option<i64>,
 }
 
 impl SongWithLibraryStatus {
@@ -144,6 +147,7 @@ impl SongWithLibraryStatus {
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
+            play_starts: self.play_starts,
         }
     }
 }
@@ -183,6 +187,7 @@ pub struct SongWithFolder {
     pub play_count: Option<i64>,
     pub last_played: Option<DateTime<Utc>>,
     pub starred_at: Option<DateTime<Utc>>,
+    pub play_starts: Option<i64>,
 }
 
 impl SongWithFolder {
@@ -216,6 +221,7 @@ impl SongWithFolder {
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
+            play_starts: self.play_starts,
         }
     }
 

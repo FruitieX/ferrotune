@@ -349,6 +349,11 @@ async fn search_songs_unified(
     sql.push_str(
         "SELECT s.*, ar.name AS artist_name, al.name AS album_name, pc.play_count, pc.last_played, ",
     );
+    sql.push_str(if pg {
+        "COALESCE(ps.play_starts, 0)::BIGINT AS play_starts, "
+    } else {
+        "COALESCE(ps.play_starts, 0) AS play_starts, "
+    });
     sql.push_str(if filter_conds.has_starred_filter {
         "st.starred_at AS starred_at"
     } else if pg {
@@ -374,6 +379,11 @@ async fn search_songs_unified(
     sql.push_str(" AND user_id = ");
     push_bind(&mut sql, &mut binds, user_id, pg);
     sql.push_str(" GROUP BY song_id) pc ON s.id = pc.song_id");
+    sql.push_str(
+        " LEFT JOIN (SELECT song_id, COUNT(*) AS play_starts FROM playback_starts WHERE user_id = ",
+    );
+    push_bind(&mut sql, &mut binds, user_id, pg);
+    sql.push_str(" GROUP BY song_id) ps ON s.id = ps.song_id");
 
     if filter_conds.has_rating_filter {
         sql.push_str(
@@ -640,6 +650,9 @@ pub fn get_song_order_clause_for_search(
         Some("year") => format!("s.year {dir}, s.title COLLATE NOCASE {dir}"),
         Some("duration") => format!("s.duration {dir}, s.title COLLATE NOCASE {dir}"),
         Some("playCount") => format!("COALESCE(play_count, 0) {dir}, s.title COLLATE NOCASE {dir}"),
+        Some("playStarts") => {
+            format!("COALESCE(play_starts, 0) {dir}, s.title COLLATE NOCASE {dir}")
+        }
         Some("lastPlayed") => format!("last_played {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("starred") => format!("starred_at {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("s.created_at {dir}, s.title COLLATE NOCASE {dir}"),

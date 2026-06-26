@@ -404,6 +404,7 @@ function ArtistDetailContent() {
                       showAlbum={columnVisibility.album}
                       showDuration={columnVisibility.duration}
                       showPlayCount={columnVisibility.playCount}
+                      showPlayStarts={columnVisibility.playStarts}
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
                       showLastPlayed={columnVisibility.lastPlayed}

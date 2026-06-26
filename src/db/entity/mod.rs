@@ -14,6 +14,7 @@ pub mod music_folders;
 pub mod play_queue_entries;
 pub mod play_queues;
 pub mod playback_sessions;
+pub mod playback_starts;
 pub mod playlist_folders;
 pub mod playlist_shares;
 pub mod playlist_songs;

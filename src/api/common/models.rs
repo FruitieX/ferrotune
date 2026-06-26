@@ -117,6 +117,9 @@ pub struct SongResponse {
     pub play_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_played: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub play_starts: Option<i64>,
     // Ferrotune extensions for ReplayGain
     /// ReplayGain track gain - prefers computed, falls back to original (in dB)
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -156,6 +156,7 @@ pub(crate) fn song_select(database: &Database) -> sea_orm::Select<entity::songs:
         .column_as(nullable_bigint_expr(database), "play_count")
         .column_as(nullable_timestamptz_expr(database), "last_played")
         .column_as(nullable_timestamptz_expr(database), "starred_at")
+        .column_as(nullable_bigint_expr(database), "play_starts")
 }
 
 fn song_with_folder_select(database: &Database) -> sea_orm::Select<entity::songs::Entity> {
@@ -188,30 +189,10 @@ fn song_with_library_status_select(database: &Database) -> sea_orm::Select<entit
         )
 }
 
-pub(crate) fn apply_song_play_stats(songs: &mut [Song], stats: Vec<SongPlayStatsRow>) {
-    let stats_by_song = stats
-        .into_iter()
-        .map(|row| {
-            let song_id = row.song_id.clone();
-            (song_id, row)
-        })
-        .collect::<HashMap<_, _>>();
-
-    for song in songs {
-        if let Some(row) = stats_by_song.get(&song.id) {
-            song.play_count = Some(row.play_count);
-            song.last_played = row.last_played;
-        } else {
-            song.play_count = None;
-            song.last_played = None;
-        }
-        song.starred_at = None;
-    }
-}
-
-fn apply_song_library_status_play_stats(
-    songs: &mut [SongWithLibraryStatus],
+pub(crate) fn apply_song_play_stats(
+    songs: &mut [Song],
     stats: Vec<SongPlayStatsRow>,
+    play_starts: Vec<(String, i64)>,
 ) {
     let stats_by_song = stats
         .into_iter()
@@ -221,6 +202,8 @@ fn apply_song_library_status_play_stats(
         })
         .collect::<HashMap<_, _>>();
 
+    let play_starts_by_song = play_starts.into_iter().collect::<HashMap<String, i64>>();
+
     for song in songs {
         if let Some(row) = stats_by_song.get(&song.id) {
             song.play_count = Some(row.play_count);
@@ -229,6 +212,35 @@ fn apply_song_library_status_play_stats(
             song.play_count = None;
             song.last_played = None;
         }
+        song.play_starts = play_starts_by_song.get(&song.id).copied();
+        song.starred_at = None;
+    }
+}
+
+fn apply_song_library_status_play_stats(
+    songs: &mut [SongWithLibraryStatus],
+    stats: Vec<SongPlayStatsRow>,
+    play_starts: Vec<(String, i64)>,
+) {
+    let stats_by_song = stats
+        .into_iter()
+        .map(|row| {
+            let song_id = row.song_id.clone();
+            (song_id, row)
+        })
+        .collect::<HashMap<_, _>>();
+
+    let play_starts_by_song = play_starts.into_iter().collect::<HashMap<String, i64>>();
+
+    for song in songs {
+        if let Some(row) = stats_by_song.get(&song.id) {
+            song.play_count = Some(row.play_count);
+            song.last_played = row.last_played;
+        } else {
+            song.play_count = None;
+            song.last_played = None;
+        }
+        song.play_starts = play_starts_by_song.get(&song.id).copied();
         song.starred_at = None;
     }
 }
@@ -400,7 +412,9 @@ pub async fn get_songs_by_album(database: &Database, album_id: &str) -> Result<V
         PlayStatsAggregation::SumPlayCount,
     )
     .await?;
-    apply_song_play_stats(&mut songs, stats);
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, None, &song_ids).await?;
+    apply_song_play_stats(&mut songs, stats, play_starts);
 
     Ok(songs)
 }
@@ -433,12 +447,14 @@ pub async fn get_songs_by_album_for_user(
     let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
     let stats = scrobbles::fetch_song_play_stats_rows(
         database,
-        Some(user_id),
+        None,
         &song_ids,
         PlayStatsAggregation::SumPlayCount,
     )
     .await?;
-    apply_song_play_stats(&mut songs, stats);
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, None, &song_ids).await?;
+    apply_song_play_stats(&mut songs, stats, play_starts);
 
     Ok(songs)
 }
@@ -467,7 +483,9 @@ pub async fn get_songs_by_artist(database: &Database, artist_id: &str) -> Result
         PlayStatsAggregation::CountRows,
     )
     .await?;
-    apply_song_play_stats(&mut songs, stats);
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, None, &song_ids).await?;
+    apply_song_play_stats(&mut songs, stats, play_starts);
 
     Ok(songs)
 }
@@ -503,7 +521,10 @@ pub async fn get_songs_by_artist_for_user(
         PlayStatsAggregation::CountRows,
     )
     .await?;
-    apply_song_play_stats(&mut songs, stats);
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
+            .await?;
+    apply_song_play_stats(&mut songs, stats, play_starts);
 
     Ok(songs)
 }
@@ -574,7 +595,10 @@ pub async fn get_songs_by_ids_with_library_status(
         PlayStatsAggregation::SumPlayCount,
     )
     .await?;
-    apply_song_library_status_play_stats(&mut songs, stats);
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
+            .await?;
+    apply_song_library_status_play_stats(&mut songs, stats, play_starts);
 
     // Preserve the input ordering.
     let song_map: std::collections::HashMap<String, SongWithLibraryStatus> =

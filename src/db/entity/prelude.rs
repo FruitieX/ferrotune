@@ -12,6 +12,7 @@ pub use super::music_folders::Entity as MusicFolders;
 pub use super::play_queue_entries::Entity as PlayQueueEntries;
 pub use super::play_queues::Entity as PlayQueues;
 pub use super::playback_sessions::Entity as PlaybackSessions;
+pub use super::playback_starts::Entity as PlaybackStarts;
 pub use super::playlist_folders::Entity as PlaylistFolders;
 pub use super::playlist_shares::Entity as PlaylistShares;
 pub use super::playlist_songs::Entity as PlaylistSongs;

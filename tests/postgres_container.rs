@@ -4505,6 +4505,31 @@ fn test_postgres_playlist_start_queue_handler_works() {
         .await
         .expect("postgres playlist last_played_at lookup should succeed");
         assert!(last_played_set);
+
+        let play_starts_rows = db::repo::listening::fetch_song_play_starts_rows(
+            &database,
+            Some(user.id),
+            &[song_2.clone()],
+        )
+        .await
+        .expect("fetching play starts should succeed");
+        assert_eq!(play_starts_rows.len(), 1);
+        assert_eq!(play_starts_rows[0], (song_2.clone(), 1));
+
+        let pg_pool = database.postgres_pool().expect("pg pool must resolve");
+        let telemetry: (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT session_id, source_type, source_id, client_name, trigger_type FROM playback_starts WHERE song_id = $1"
+        )
+        .bind(&song_2)
+        .fetch_one(pg_pool)
+        .await
+        .expect("fetching telemetry row should succeed");
+
+        assert_eq!(telemetry.0, Some(session.id.clone()));
+        assert_eq!(telemetry.1, Some("playlist".to_string()));
+        assert_eq!(telemetry.2, Some(playlist_id.clone()));
+        assert_eq!(telemetry.3, None);
+        assert_eq!(telemetry.4, Some("direct".to_string()));
     });
 }
 

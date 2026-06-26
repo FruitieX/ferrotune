@@ -93,6 +93,7 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
   { value: "playCount", label: "Play Count" },
+  { value: "playStarts", label: "Play Starts" },
   { value: "lastPlayed", label: "Last Played" },
   { value: "duration", label: "Duration" },
 ];
@@ -116,6 +117,7 @@ const songColumnOptions: {
   { key: "album", label: "Album" },
   { key: "duration", label: "Duration" },
   { key: "playCount", label: "Play Count" },
+  { key: "playStarts", label: "Play Starts" },
   { key: "dateAdded", label: "Date Added" },
   { key: "lastPlayed", label: "Last Played" },
   { key: "year", label: "Year" },

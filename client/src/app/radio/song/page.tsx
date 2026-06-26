@@ -25,6 +25,7 @@ const RADIO_COLUMN_VISIBILITY: ColumnVisibility = {
   album: true,
   duration: true,
   playCount: false,
+  playStarts: false,
   year: false,
   dateAdded: false,
   lastPlayed: false,

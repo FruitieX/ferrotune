@@ -795,7 +795,8 @@ async fn execute_song_sql(
 /// Build the common three-user-id prefix + remaining `SqlArg`s into a
 /// `Vec<Value>` suitable for `Statement::from_sql_and_values`.
 fn build_scalar_binds(user_id: i64, args: &[SqlArg]) -> Vec<Value> {
-    let mut binds: Vec<Value> = Vec::with_capacity(3 + args.len());
+    let mut binds: Vec<Value> = Vec::with_capacity(4 + args.len());
+    binds.push(Value::from(user_id));
     binds.push(Value::from(user_id));
     binds.push(Value::from(user_id));
     binds.push(Value::from(user_id));
@@ -818,6 +819,10 @@ fn postgresize_smart_playlist_sql(sql: &str) -> String {
         .replace(
             "SUM(play_count) as play_count",
             "SUM(play_count)::BIGINT as play_count",
+        )
+        .replace(
+            "COALESCE(ps.play_starts, 0) as play_starts",
+            "COALESCE(ps.play_starts, 0)::BIGINT as play_starts",
         )
         .replace("LIMIT -1 OFFSET ", "OFFSET ")
         .replace("MIN(", "LEAST(");
@@ -852,6 +857,7 @@ fn smart_playlist_text_order_by(
         (SmartPlaylistSqlDialect::Postgres, Some("album")) => "LOWER(al.name), al.name",
         (_, Some("year")) => "s.year",
         (_, Some("playCount")) => "pc.play_count",
+        (_, Some("playStarts")) => "ps.play_starts",
         (_, Some("dateAdded")) | (_, Some("createdAt")) => "s.created_at",
         (_, Some("lastPlayed")) => "pc.last_played",
         (_, Some("duration")) => "s.duration",
@@ -955,7 +961,7 @@ pub async fn materialize_smart_playlist_songs(
 
     let sqlite_query = format!(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
-                pc.play_count, pc.last_played, st.starred_at
+                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts, st.starred_at
          FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
@@ -964,6 +970,9 @@ pub async fn materialize_smart_playlist_songs(
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+            ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
          ORDER BY {} {}
@@ -1011,6 +1020,9 @@ async fn count_matching_songs_filtered(
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+            ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
         combined_where
@@ -1081,6 +1093,9 @@ async fn sum_matching_songs_duration_filtered(
                 LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                            FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
                    ON s.id = pc.song_id
+                LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                           FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                   ON s.id = ps.song_id
                 LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
                 {}
                 ORDER BY {} {}
@@ -1098,6 +1113,9 @@ async fn sum_matching_songs_duration_filtered(
              LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                         FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
                 ON s.id = pc.song_id
+             LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                        FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                ON s.id = ps.song_id
              LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
              {}",
             combined_where
@@ -1175,7 +1193,7 @@ async fn materialize_smart_playlist_songs_filtered(
 
     let query = format!(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
-                pc.play_count, pc.last_played, st.starred_at
+                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts, st.starred_at
          FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
@@ -1184,6 +1202,9 @@ async fn materialize_smart_playlist_songs_filtered(
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+            ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
          ORDER BY {} {}

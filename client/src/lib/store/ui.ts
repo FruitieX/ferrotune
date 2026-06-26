@@ -110,6 +110,7 @@ export type SortField =
   | "dateAdded"
   | "addedToPlaylist"
   | "playCount"
+  | "playStarts"
   | "lastPlayed"
   | "duration"
   | "albumCount"
@@ -142,6 +143,7 @@ export interface ColumnVisibility {
   album: boolean;
   duration: boolean;
   playCount: boolean;
+  playStarts: boolean;
   dateAdded: boolean;
   lastPlayed: boolean;
   year: boolean;
@@ -159,6 +161,7 @@ export const columnVisibilityAtom =
     album: true,
     duration: true,
     playCount: false,
+    playStarts: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -241,6 +244,7 @@ export const playlistColumnVisibilityAtom =
     album: true,
     duration: true,
     playCount: false,
+    playStarts: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -351,6 +355,7 @@ export const homeSongColumnVisibilityAtom =
     album: true,
     duration: true,
     playCount: true,
+    playStarts: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -416,6 +421,7 @@ export const albumDetailColumnVisibilityAtom =
     album: false, // Already on album page
     duration: true,
     playCount: false,
+    playStarts: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -445,6 +451,7 @@ export const artistDetailColumnVisibilityAtom =
     album: true,
     duration: true,
     playCount: false,
+    playStarts: false,
     dateAdded: false,
     lastPlayed: false,
     year: true,
@@ -474,6 +481,7 @@ export const genreDetailColumnVisibilityAtom =
     album: true,
     duration: true,
     playCount: false,
+    playStarts: false,
     dateAdded: false,
     lastPlayed: false,
     year: true,

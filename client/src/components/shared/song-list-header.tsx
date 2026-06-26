@@ -186,6 +186,15 @@ export function SongListHeader({
             onSort={handleSort}
           />
         )}
+        {columnVisibility.playStarts && (
+          <SortableHeader
+            field="playStarts"
+            label="Starts"
+            width="w-12"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
         {columnVisibility.lastPlayed && (
           <SortableHeader
             field="lastPlayed"

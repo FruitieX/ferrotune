@@ -188,3 +188,64 @@ pub async fn get_listening_stats_for_period(
         scrobble_count,
     })
 }
+
+pub async fn fetch_song_play_starts_rows(
+    database: &Database,
+    user_id: Option<i64>,
+    song_ids: &[String],
+) -> Result<Vec<(String, i64)>> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut query = entity::playback_starts::Entity::find()
+        .select_only()
+        .column(entity::playback_starts::Column::SongId)
+        .column_as(
+            Expr::col(entity::playback_starts::Column::Id)
+                .count()
+                .cast_as("BIGINT"),
+            "play_starts",
+        )
+        .filter(entity::playback_starts::Column::SongId.is_in(song_ids.iter().cloned()));
+
+    if let Some(user_id) = user_id {
+        query = query.filter(entity::playback_starts::Column::UserId.eq(user_id));
+    }
+
+    let rows = query
+        .group_by(entity::playback_starts::Column::SongId)
+        .into_tuple::<(String, i64)>()
+        .all(database.conn())
+        .await?;
+
+    Ok(rows)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_playback_start(
+    database: &Database,
+    user_id: i64,
+    song_id: &str,
+    session_id: Option<&str>,
+    source_type: Option<&str>,
+    source_id: Option<&str>,
+    client_name: Option<&str>,
+    trigger_type: Option<&str>,
+) -> Result<i64> {
+    let inserted = entity::playback_starts::ActiveModel {
+        user_id: Set(user_id),
+        song_id: Set(song_id.to_string()),
+        session_id: Set(session_id.map(|s| s.to_string())),
+        source_type: Set(source_type.map(|s| s.to_string())),
+        source_id: Set(source_id.map(|s| s.to_string())),
+        client_name: Set(client_name.map(|s| s.to_string())),
+        trigger_type: Set(trigger_type.map(|s| s.to_string())),
+        started_at: Set(Utc::now().fixed_offset()),
+        ..Default::default()
+    }
+    .insert(database.conn())
+    .await?;
+
+    Ok(inserted.id)
+}
