@@ -201,6 +201,7 @@ export function useSongActions({
       sourceId: song.id,
       sourceName: `${song.title} Radio`,
       startIndex: 0,
+      startSongId: song.id,
     });
   };
 

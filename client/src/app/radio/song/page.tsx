@@ -142,8 +142,8 @@ function SongRadioPageContent() {
       />
 
       <ActionBar
-        onPlayAll={() => playRadio(0, false)}
-        onShuffle={() => playRadio(0, true)}
+        onPlayAll={() => playRadio(0, false, seedSong?.id)}
+        onShuffle={() => playRadio(0, true, seedSong?.id)}
         disablePlay={isLoading || radioSongs.length === 0}
       />
 

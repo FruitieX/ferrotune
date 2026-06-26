@@ -633,6 +633,64 @@ test.describe("Home continue listening", () => {
     await expect(
       page.getByText(`Based on ${seedSongTitle} by Test Artist`),
     ).toBeVisible();
+
+    // Mock the queue start endpoint for the radio playback verification
+    await page.route("**/api/queue/start", async (route) => {
+      const body = route.request().postDataJSON() as {
+        sourceType: string;
+        sourceId?: string;
+        shuffle?: boolean;
+        startSongId?: string;
+      };
+      await route.fulfill({
+        json: {
+          totalCount: 3,
+          currentIndex: 0,
+          isShuffled: Boolean(body.shuffle),
+          repeatMode: "off",
+          source: {
+            type: body.sourceType,
+            id: body.sourceId ?? null,
+            name: radioName,
+            filters: null,
+            sort: null,
+            instanceId: "00000000-0000-4000-8000-000000000000",
+          },
+          window: {
+            offset: 0,
+            songs: [
+              makeSong(seedSongId, seedSongTitle),
+              makeSong("radio-similar-1", "Similar Song One"),
+              makeSong("radio-similar-2", "Similar Song Two"),
+            ],
+          },
+        },
+      });
+    });
+
+    const startQueueRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/queue/start") &&
+        request.method() === "POST",
+    );
+
+    await page
+      .locator("#main-scroll-container")
+      .getByRole("button", { name: "Shuffle" })
+      .click();
+
+    const request = await startQueueRequest;
+    const requestBody = request.postDataJSON() as {
+      sourceType: string;
+      sourceId?: string;
+      shuffle?: boolean;
+      startSongId?: string;
+    };
+
+    expect(requestBody.sourceType).toBe("songRadio");
+    expect(requestBody.sourceId).toBe(seedSongId);
+    expect(requestBody.shuffle).toBe(true);
+    expect(requestBody.startSongId).toBe(seedSongId);
   });
 
   test("virtual source entries link correctly and expose context menus", async ({
