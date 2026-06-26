@@ -2749,6 +2749,43 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
+     * Evict any cached stream data for the currently loaded media item from
+     * ExoPlayer's [SimpleCache]. This prevents stale, truncated data from
+     * being served on retry after a mid-stream network interruption: without
+     * eviction, ExoPlayer reads from the cache and stops at the exact byte
+     * where the original connection dropped.
+     */
+    @OptIn(UnstableApi::class)
+    private fun evictCachedStreamForCurrentItem() {
+        val cache = streamCache ?: return
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return
+        // CacheDataSource uses the URI string as the cache key by default
+        // (no custom CacheKeyFactory is set).
+        val cacheKey = uri.toString()
+        try {
+            val removedBytes = cache.getCacheSpace().let { before ->
+                cache.removeResource(cacheKey)
+                before - cache.getCacheSpace()
+            }
+            if (removedBytes > 0) {
+                Log.d(TAG, "Evicted ${removedBytes} cached bytes for stream: $cacheKey")
+                NativeAudioLogger.info(
+                    TAG,
+                    "cache_evict",
+                    "Evicted truncated cache entry for current stream",
+                    mapOf(
+                        "cacheKey" to cacheKey,
+                        "evictedBytes" to removedBytes,
+                        "trackId" to currentTrack?.id,
+                    ),
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to evict cached stream: $cacheKey", e)
+        }
+    }
+
+    /**
      * Reload/re-prepare the current track at the given absolute position.
      *
      * Shared by the network-error retry path and the silent-stall watchdog.
@@ -2760,6 +2797,9 @@ class PlaybackService : MediaSessionService() {
         positionMs: Long,
         playWhenReady: Boolean,
     ) {
+        // Evict any partially cached data so the reload fetches fresh bytes
+        // instead of replaying truncated data from a broken connection.
+        evictCachedStreamForCurrentItem()
         val currentIndex = player.currentMediaItemIndex
         if (playbackSettings.transcodingEnabled) {
             val timeOffsetSeconds = positionMs / 1000
@@ -2791,6 +2831,9 @@ class PlaybackService : MediaSessionService() {
     private fun recoverFromPlaybackStall(positionMs: Long) {
         val track = currentTrack ?: return
         if (player.mediaItemCount == 0) return
+        // Evict any truncated cached data — a silent stall can be caused by
+        // ExoPlayer reading from a cache entry that will never grow further.
+        evictCachedStreamForCurrentItem()
         val recoverPositionMs = maxOf(positionMs, lastKnownGoodPositionMs).coerceAtLeast(0)
         NativeAudioLogger.warn(
             TAG,
@@ -3034,6 +3077,10 @@ class PlaybackService : MediaSessionService() {
                 "repeatMode" to repeatMode,
             ),
         )
+
+        // Evict any truncated cached data before recovery so ExoPlayer
+        // fetches a fresh stream instead of replaying stale bytes.
+        evictCachedStreamForCurrentItem()
 
         if (repeatMode == "one") {
             if (seekTimeOffsetMs > 0) {
@@ -4539,6 +4586,10 @@ class PlaybackService : MediaSessionService() {
             )
 
             if (classification.retryable && networkRetryCount < MAX_NETWORK_RETRIES && trackAtError != null) {
+                // Evict any partially cached stream data so the retry
+                // fetches fresh bytes instead of replaying truncated data
+                // from the broken connection.
+                evictCachedStreamForCurrentItem()
                 networkRetryCount++
                 Log.d(
                     TAG,
