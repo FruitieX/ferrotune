@@ -44,9 +44,12 @@
       devShells = {
         default = pkgs.mkShell {
           name = "ferrotune";
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.cmake
+          ];
           buildInputs = [
             rustToolchain
-            pkgs.pkg-config
             postgresqlPackage
             pkgs.openssl
             pkgs.nodejs_24
@@ -59,7 +62,6 @@
             pkgs.proto
             pkgs.cargo-watch  # for hot-reloading backend dev server
             pkgs.sqlite  # for database inspection
-            pkgs.cmake # needed for libopus
             pkgs.libopus # for transcoding to Opus
             pkgs.libclang.lib # needed for bindgen (bliss-audio aubio bindings)
             # Tauri desktop dependencies (for building plugin on desktop)
@@ -117,9 +119,12 @@
         # Shell with Android SDK for Tauri mobile development
         android = pkgs.mkShell {
           name = "ferrotune-android";
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.cmake
+          ];
           buildInputs = [
             rustToolchain
-            pkgs.pkg-config
             postgresqlPackage
             pkgs.openssl
             pkgs.nodejs_24
@@ -131,7 +136,6 @@
             pkgs.moon
             pkgs.proto
             pkgs.sqlite
-            pkgs.cmake
             pkgs.libopus
             pkgs.libclang.lib # needed for bindgen (bliss-audio aubio bindings)
             # Android development
