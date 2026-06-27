@@ -718,13 +718,16 @@ async fn count_matching_songs(
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+            ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
         combined_where
     );
 
     let count =
-        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 3).await?;
+        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 4).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -1606,6 +1609,7 @@ fn build_condition(
         "duration" => ("s.duration".to_string(), vec![]),
         "bitrate" => ("COALESCE(s.bitrate, 0)".to_string(), vec![]),
         "playCount" => ("COALESCE(pc.play_count, 0)".to_string(), vec![]),
+        "playStarts" => ("COALESCE(ps.play_starts, 0)".to_string(), vec![]),
         "rating" => (
             "COALESCE((SELECT r.rating FROM ratings r WHERE r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?), 0)".to_string(),
             vec![SqlArg::I64(user_id)],
@@ -1879,6 +1883,27 @@ mod tests {
                 assert_eq!(*rating, 5);
             }
             _ => panic!("expected integer SQL args"),
+        }
+    }
+
+    #[test]
+    fn test_build_condition_play_starts() {
+        let condition = SmartPlaylistConditionApi {
+            field: "playStarts".to_string(),
+            operator: "gte".to_string(),
+            value: serde_json::json!(5),
+        };
+
+        let (sql, args) = build_condition(&condition, 42).expect("condition should be built");
+
+        assert!(sql.contains("COALESCE(ps.play_starts, 0) >= ?"));
+        assert_eq!(args.len(), 1);
+
+        match &args[0] {
+            SqlArg::I64(value) => {
+                assert_eq!(*value, 5);
+            }
+            _ => panic!("expected integer SQL arg"),
         }
     }
 }

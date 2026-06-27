@@ -84,6 +84,7 @@ export const DEFAULT_SONG_FIELDS: FieldDefinition[] = [
   { value: "genre", label: "Genre", type: "text" },
   { value: "year", label: "Year", type: "number" },
   { value: "playCount", label: "Play Count", type: "number" },
+  { value: "playStarts", label: "Play Starts", type: "number" },
   { value: "duration", label: "Duration (seconds)", type: "number" },
   { value: "bitrate", label: "Bitrate (kbps)", type: "number" },
   { value: "rating", label: "Rating", type: "number" },
