@@ -723,7 +723,8 @@ async fn count_matching_songs(
         combined_where
     );
 
-    let count = execute_smart_playlist_scalar_query(database, &query, where_args, user_id).await?;
+    let count =
+        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 3).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -762,12 +763,15 @@ async fn execute_scalar_sql(
         SmartPlaylistSqlDialect::Postgres => postgresize_smart_playlist_sql(sqlite_query),
     };
 
-    let stmt = Statement::from_sql_and_values(database.sea_backend(), &sql, Values(binds));
-    let row = database
-        .conn()
-        .query_one(stmt)
-        .await?
-        .ok_or_else(|| Error::Internal("scalar query returned no rows".to_string()))?;
+    let stmt = Statement::from_sql_and_values(database.sea_backend(), &sql, Values(binds.clone()));
+    let row = match database.conn().query_one(stmt).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("SQL Query failed:\n{}\nBinds: {:?}", sql, binds);
+            return Err(e.into());
+        }
+    };
+    let row = row.ok_or_else(|| Error::Internal("scalar query returned no rows".to_string()))?;
     let value: i64 = row.try_get_by_index(0)?;
     Ok(value)
 }
@@ -794,12 +798,11 @@ async fn execute_song_sql(
 
 /// Build the common three-user-id prefix + remaining `SqlArg`s into a
 /// `Vec<Value>` suitable for `Statement::from_sql_and_values`.
-fn build_scalar_binds(user_id: i64, args: &[SqlArg]) -> Vec<Value> {
-    let mut binds: Vec<Value> = Vec::with_capacity(4 + args.len());
-    binds.push(Value::from(user_id));
-    binds.push(Value::from(user_id));
-    binds.push(Value::from(user_id));
-    binds.push(Value::from(user_id));
+fn build_scalar_binds(user_id: i64, args: &[SqlArg], static_count: usize) -> Vec<Value> {
+    let mut binds: Vec<Value> = Vec::with_capacity(static_count + args.len());
+    for _ in 0..static_count {
+        binds.push(Value::from(user_id));
+    }
     for arg in args {
         match arg {
             SqlArg::Text(v) => binds.push(Value::from(v.clone())),
@@ -884,8 +887,9 @@ async fn execute_smart_playlist_scalar_query(
     sqlite_query: &str,
     args: Vec<SqlArg>,
     user_id: i64,
+    static_count: usize,
 ) -> FerrotuneApiResult<i64> {
-    let binds = build_scalar_binds(user_id, &args);
+    let binds = build_scalar_binds(user_id, &args, static_count);
     execute_scalar_sql(database, sqlite_query, binds).await
 }
 
@@ -894,8 +898,9 @@ async fn execute_smart_playlist_song_query(
     sqlite_query: &str,
     args: Vec<SqlArg>,
     user_id: i64,
+    static_count: usize,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
-    let binds = build_scalar_binds(user_id, &args);
+    let binds = build_scalar_binds(user_id, &args, static_count);
     execute_song_sql(database, sqlite_query, binds).await
 }
 
@@ -980,7 +985,7 @@ pub async fn materialize_smart_playlist_songs(
         combined_where, order_by, direction, limit_offset_clause
     );
 
-    execute_smart_playlist_song_query(database, &sqlite_query, where_args, user_id).await
+    execute_smart_playlist_song_query(database, &sqlite_query, where_args, user_id, 4).await
 }
 
 /// Count songs matching the smart playlist rules with optional text filter (respecting max_songs if set)
@@ -1030,7 +1035,8 @@ async fn count_matching_songs_filtered(
 
     where_args.append(&mut filter_args);
 
-    let count = execute_smart_playlist_scalar_query(database, &query, where_args, user_id).await?;
+    let count =
+        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 4).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -1124,7 +1130,7 @@ async fn sum_matching_songs_duration_filtered(
 
     where_args.append(&mut filter_args);
 
-    execute_smart_playlist_scalar_query(database, &query, where_args, user_id).await
+    execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 4).await
 }
 
 /// Materialize songs matching the smart playlist rules with optional text filter
@@ -1214,7 +1220,7 @@ async fn materialize_smart_playlist_songs_filtered(
 
     where_args.append(&mut filter_args);
 
-    execute_smart_playlist_song_query(database, &query, where_args, user_id).await
+    execute_smart_playlist_song_query(database, &query, where_args, user_id, 4).await
 }
 
 /// Public helper to get songs from a smart playlist by ID.
