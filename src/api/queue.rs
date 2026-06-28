@@ -952,6 +952,7 @@ pub async fn start_queue(
     // Record explicit playback start event
     if let Some(song_id) = starting_song_id {
         let trigger_type = if request.shuffle { "shuffle" } else { "direct" };
+        let explicit_start = request.start_song_id.is_some();
         if let Err(e) = crate::db::repo::listening::create_playback_start(
             &state.database,
             user.user_id,
@@ -961,6 +962,7 @@ pub async fn start_queue(
             request.source_id.as_deref(),
             request.client_name.as_deref(),
             Some(trigger_type),
+            explicit_start,
         )
         .await
         {

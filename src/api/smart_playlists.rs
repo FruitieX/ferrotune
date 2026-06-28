@@ -719,7 +719,7 @@ async fn count_matching_songs(
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
-                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                    FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
@@ -822,6 +822,7 @@ fn postgresize_smart_playlist_sql(sql: &str) -> String {
         .replace("ESCAPE '\\\\'", "ESCAPE '\\'")
         .replace(" COLLATE NOCASE", "")
         .replace("mf.enabled = 1", "mf.enabled")
+        .replace("explicit_start = 1", "explicit_start")
         .replace(
             "SUM(play_count) as play_count",
             "SUM(play_count)::BIGINT as play_count",
@@ -979,7 +980,7 @@ pub async fn materialize_smart_playlist_songs(
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
-                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                    FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
@@ -1029,7 +1030,7 @@ async fn count_matching_songs_filtered(
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
-                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                    FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
@@ -1103,7 +1104,7 @@ async fn sum_matching_songs_duration_filtered(
                            FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
                    ON s.id = pc.song_id
                 LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
-                           FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                           FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
                    ON s.id = ps.song_id
                 LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
                 {}
@@ -1123,7 +1124,7 @@ async fn sum_matching_songs_duration_filtered(
                         FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
                 ON s.id = pc.song_id
              LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
-                        FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                        FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
                 ON s.id = ps.song_id
              LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
              {}",
@@ -1212,7 +1213,7 @@ async fn materialize_smart_playlist_songs_filtered(
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
-                    FROM playback_starts WHERE user_id = ? GROUP BY song_id) ps
+                    FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}

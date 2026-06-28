@@ -232,6 +232,7 @@ pub async fn create_playback_start(
     source_id: Option<&str>,
     client_name: Option<&str>,
     trigger_type: Option<&str>,
+    explicit_start: bool,
 ) -> Result<i64> {
     let inserted = entity::playback_starts::ActiveModel {
         user_id: Set(user_id),
@@ -242,6 +243,7 @@ pub async fn create_playback_start(
         client_name: Set(client_name.map(|s| s.to_string())),
         trigger_type: Set(trigger_type.map(|s| s.to_string())),
         started_at: Set(Utc::now().fixed_offset()),
+        explicit_start: Set(explicit_start),
         ..Default::default()
     }
     .insert(database.conn())

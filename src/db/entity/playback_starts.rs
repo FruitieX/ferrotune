@@ -22,6 +22,7 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub trigger_type: Option<String>,
     pub started_at: DateTimeWithTimeZone,
+    pub explicit_start: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -383,7 +383,11 @@ async fn search_songs_unified(
         " LEFT JOIN (SELECT song_id, COUNT(*) AS play_starts FROM playback_starts WHERE user_id = ",
     );
     push_bind(&mut sql, &mut binds, user_id, pg);
-    sql.push_str(" GROUP BY song_id) ps ON s.id = ps.song_id");
+    sql.push_str(if pg {
+        " AND explicit_start GROUP BY song_id) ps ON s.id = ps.song_id"
+    } else {
+        " AND explicit_start = 1 GROUP BY song_id) ps ON s.id = ps.song_id"
+    });
 
     if filter_conds.has_rating_filter {
         sql.push_str(
