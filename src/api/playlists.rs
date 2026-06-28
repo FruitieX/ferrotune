@@ -1466,6 +1466,10 @@ pub async fn get_playlist_songs(
                     .play_count
                     .unwrap_or(0)
                     .cmp(&song_b.play_count.unwrap_or(0)),
+                "playStarts" => song_a
+                    .play_starts
+                    .unwrap_or(0)
+                    .cmp(&song_b.play_starts.unwrap_or(0)),
                 "lastPlayed" => song_a.last_played.cmp(&song_b.last_played),
                 "duration" => song_a.duration.cmp(&song_b.duration),
                 _ => std::cmp::Ordering::Equal,

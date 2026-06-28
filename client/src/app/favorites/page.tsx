@@ -2,7 +2,18 @@
 
 import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { Heart, Play, Shuffle, Upload } from "lucide-react";
+import {
+  Heart,
+  Upload,
+  MoreHorizontal,
+  Check,
+  Columns,
+  ArrowUpDown,
+  Grid,
+  List,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import type {
   SongResponse,
   AlbumResponse,
@@ -64,7 +75,10 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { DetailHeader } from "@/components/shared/detail-header";
-import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import {
+  SongListToolbar,
+  MobileFilterInput,
+} from "@/components/shared/song-list-toolbar";
 import { SongListHeader } from "@/components/shared/song-list-header";
 import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
@@ -72,7 +86,26 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { ImportFavoritesDialog } from "@/components/stats/import-favorites-dialog";
+import { ActionBar } from "@/components/shared/action-bar";
+import {
+  DrawerMenu,
+  DrawerMenuItem,
+  DrawerMenuSeparator,
+  DrawerMenuCollapsible,
+  DrawerMenuCollapsibleTrigger,
+  DrawerMenuCollapsibleContent,
+  DrawerMenuCheckboxItem,
+  DrawerMenuLabel,
+} from "@/components/shared/drawer-menu";
 import type { Album, Artist, Song } from "@/lib/api/types";
+import type {
+  SortField,
+  ColumnVisibility,
+  ViewMode,
+  SortConfig,
+  AlbumColumnVisibility,
+  ArtistColumnVisibility,
+} from "@/lib/store/ui";
 
 type TabValue = "songs" | "albums" | "artists";
 
@@ -622,93 +655,123 @@ export default function FavoritesPage() {
         subtitle={!isLoading && getSubtitle()}
       />
 
-      {/* Action buttons */}
-      <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 px-4 pb-4 pt-safe-4 lg:px-6">
-          <Button
-            size="lg"
-            className="rounded-full gap-2 px-8"
-            onClick={handlePlayAll}
-            disabled={isLoading || displaySongs.length === 0}
-          >
-            <Play className="w-5 h-5 ml-0.5" />
-            Play
-          </Button>
+      {/* Action bar */}
+      <ActionBar
+        onPlayAll={handlePlayAll}
+        onShuffle={handleShuffle}
+        disablePlay={isLoading || displaySongs.length === 0}
+        showShuffleOnMobile
+        actions={
           <Button
             variant="outline"
-            size="lg"
-            className="rounded-full gap-2"
-            onClick={handleShuffle}
-            disabled={isLoading || displaySongs.length === 0}
-          >
-            <Shuffle className="w-5 h-5" />
-            Shuffle
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
             className="rounded-full gap-2"
             onClick={() => setImportDialogOpen(true)}
           >
-            <Upload className="w-5 h-5" />
-            Import
+            <Upload className="w-4 h-4" />
+            <span>Import</span>
           </Button>
+        }
+        toolbar={
+          <>
+            {activeTab === "songs" && (
+              <SongListToolbar
+                filter={songSearchQuery}
+                onFilterChange={setSongSearchQuery}
+                sortConfig={songSortConfig}
+                onSortChange={setSongSortConfig}
+                columnVisibility={columnVisibility}
+                onColumnVisibilityChange={setColumnVisibility}
+                viewMode={songViewMode}
+                onViewModeChange={setSongViewMode}
+                filterPlaceholder="Search songs..."
+              />
+            )}
 
-          {/* Spacer */}
-          <div className="flex-1" />
+            {activeTab === "albums" && (
+              <MediaListToolbar
+                filter={albumSearchQuery}
+                onFilterChange={setAlbumSearchQuery}
+                sortConfig={albumSortConfig}
+                onSortChange={setAlbumSortConfig}
+                viewMode={albumViewMode}
+                onViewModeChange={setAlbumViewMode}
+                mediaType="album"
+                filterPlaceholder="Search albums..."
+                columnVisibility={albumColumnVisibility}
+                onColumnVisibilityChange={(v) =>
+                  setAlbumColumnVisibility(v as typeof albumColumnVisibility)
+                }
+              />
+            )}
 
-          {/* Song list toolbar - only show on songs tab */}
-          {activeTab === "songs" && (
-            <SongListToolbar
-              filter={songSearchQuery}
-              onFilterChange={setSongSearchQuery}
-              sortConfig={songSortConfig}
-              onSortChange={setSongSortConfig}
-              columnVisibility={columnVisibility}
-              onColumnVisibilityChange={setColumnVisibility}
-              viewMode={songViewMode}
-              onViewModeChange={setSongViewMode}
-              filterPlaceholder="Search songs..."
-            />
-          )}
-
-          {/* Albums toolbar */}
-          {activeTab === "albums" && (
-            <MediaListToolbar
-              filter={albumSearchQuery}
-              onFilterChange={setAlbumSearchQuery}
-              sortConfig={albumSortConfig}
-              onSortChange={setAlbumSortConfig}
-              viewMode={albumViewMode}
-              onViewModeChange={setAlbumViewMode}
-              mediaType="album"
-              filterPlaceholder="Search albums..."
-              columnVisibility={albumColumnVisibility}
-              onColumnVisibilityChange={(v) =>
-                setAlbumColumnVisibility(v as typeof albumColumnVisibility)
-              }
-            />
-          )}
-
-          {/* Artists toolbar */}
-          {activeTab === "artists" && (
-            <MediaListToolbar
-              filter={artistSearchQuery}
-              onFilterChange={setArtistSearchQuery}
-              sortConfig={artistSortConfig}
-              onSortChange={setArtistSortConfig}
-              viewMode={artistViewMode}
-              onViewModeChange={setArtistViewMode}
-              mediaType="artist"
-              filterPlaceholder="Search artists..."
-              columnVisibility={artistColumnVisibility}
-              onColumnVisibilityChange={(v) =>
-                setArtistColumnVisibility(v as typeof artistColumnVisibility)
-              }
-            />
-          )}
-        </div>
-      </div>
+            {activeTab === "artists" && (
+              <MediaListToolbar
+                filter={artistSearchQuery}
+                onFilterChange={setArtistSearchQuery}
+                sortConfig={artistSortConfig}
+                onSortChange={setArtistSortConfig}
+                viewMode={artistViewMode}
+                onViewModeChange={setArtistViewMode}
+                mediaType="artist"
+                filterPlaceholder="Search artists..."
+                columnVisibility={artistColumnVisibility}
+                onColumnVisibilityChange={(v) =>
+                  setArtistColumnVisibility(v as typeof artistColumnVisibility)
+                }
+              />
+            )}
+          </>
+        }
+        mobileFilter={
+          <>
+            {activeTab === "songs" && (
+              <MobileFilterInput
+                filter={songSearchQuery}
+                onFilterChange={setSongSearchQuery}
+                placeholder="Search songs..."
+              />
+            )}
+            {activeTab === "albums" && (
+              <MobileFilterInput
+                filter={albumSearchQuery}
+                onFilterChange={setAlbumSearchQuery}
+                placeholder="Search albums..."
+              />
+            )}
+            {activeTab === "artists" && (
+              <MobileFilterInput
+                filter={artistSearchQuery}
+                onFilterChange={setArtistSearchQuery}
+                placeholder="Search artists..."
+              />
+            )}
+          </>
+        }
+        mobileMenuContent={
+          <FavoritesMobileMenu
+            activeTab={activeTab}
+            onImport={() => setImportDialogOpen(true)}
+            songSortConfig={songSortConfig}
+            onSongSortChange={setSongSortConfig}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            songViewMode={songViewMode}
+            onSongViewModeChange={setSongViewMode}
+            albumSortConfig={albumSortConfig}
+            onAlbumSortChange={setAlbumSortConfig}
+            albumViewMode={albumViewMode}
+            onAlbumViewModeChange={setAlbumViewMode}
+            albumColumnVisibility={albumColumnVisibility}
+            onAlbumColumnVisibilityChange={setAlbumColumnVisibility}
+            artistSortConfig={artistSortConfig}
+            onArtistSortChange={setArtistSortConfig}
+            artistViewMode={artistViewMode}
+            onArtistViewModeChange={setArtistViewMode}
+            artistColumnVisibility={artistColumnVisibility}
+            onArtistColumnVisibilityChange={setArtistColumnVisibility}
+          />
+        }
+      />
 
       {/* Content tabs */}
       <Tabs
@@ -1099,5 +1162,343 @@ export default function FavoritesPage() {
         onOpenChange={setImportDialogOpen}
       />
     </div>
+  );
+}
+
+interface FavoritesMobileMenuProps {
+  activeTab: "songs" | "albums" | "artists";
+  onImport: () => void;
+  // Songs Sort & Columns
+  songSortConfig: SortConfig;
+  onSongSortChange: (config: SortConfig) => void;
+  columnVisibility: ColumnVisibility;
+  onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
+  songViewMode: ViewMode;
+  onSongViewModeChange: (mode: ViewMode) => void;
+  // Albums Sort & Columns
+  albumSortConfig: SortConfig;
+  onAlbumSortChange: (config: SortConfig) => void;
+  albumViewMode: ViewMode;
+  onAlbumViewModeChange: (mode: ViewMode) => void;
+  albumColumnVisibility: AlbumColumnVisibility;
+  onAlbumColumnVisibilityChange: (visibility: AlbumColumnVisibility) => void;
+  // Artists Sort & Columns
+  artistSortConfig: SortConfig;
+  onArtistSortChange: (config: SortConfig) => void;
+  artistViewMode: ViewMode;
+  onArtistViewModeChange: (mode: ViewMode) => void;
+  artistColumnVisibility: ArtistColumnVisibility;
+  onArtistColumnVisibilityChange: (visibility: ArtistColumnVisibility) => void;
+}
+
+const songSortOptions = [
+  { value: "recommended", label: "Recommended" },
+  { value: "name", label: "Title" },
+  { value: "artist", label: "Artist" },
+  { value: "album", label: "Album" },
+  { value: "year", label: "Year" },
+  { value: "genre", label: "Genre" },
+  { value: "dateAdded", label: "Date Added" },
+  { value: "playCount", label: "Play Count" },
+  { value: "playStarts", label: "Play Starts" },
+  { value: "lastPlayed", label: "Last Played" },
+  { value: "duration", label: "Duration" },
+  { value: "starred", label: "Favorited" },
+  { value: "rating", label: "Rating" },
+];
+
+const songColumnOptions = [
+  { key: "trackNumber", label: "Track Number" },
+  { key: "artist", label: "Artist" },
+  { key: "album", label: "Album" },
+  { key: "duration", label: "Duration" },
+  { key: "playCount", label: "Play Count" },
+  { key: "playStarts", label: "Play Starts" },
+  { key: "dateAdded", label: "Date Added" },
+  { key: "lastPlayed", label: "Last Played" },
+  { key: "year", label: "Year" },
+  { key: "starred", label: "Favorited" },
+  { key: "genre", label: "Genre" },
+  { key: "bitRate", label: "Bit Rate" },
+  { key: "format", label: "Format" },
+  { key: "rating", label: "Rating" },
+];
+
+const albumSortOptions = [
+  { value: "recommended", label: "Recommended" },
+  { value: "name", label: "Name" },
+  { value: "artist", label: "Artist" },
+  { value: "year", label: "Year" },
+  { value: "genre", label: "Genre" },
+  { value: "dateAdded", label: "Date Added" },
+  { value: "starred", label: "Favorited" },
+  { value: "songCount", label: "Track Count" },
+  { value: "duration", label: "Duration" },
+];
+
+const albumColumnOptions = [
+  { key: "showIndex", label: "Row Number" },
+  { key: "artist", label: "Artist" },
+  { key: "year", label: "Year" },
+  { key: "songCount", label: "Songs" },
+  { key: "duration", label: "Duration" },
+  { key: "genre", label: "Genre" },
+  { key: "starred", label: "Favorited" },
+  { key: "rating", label: "Rating" },
+  { key: "dateAdded", label: "Date Added" },
+];
+
+const artistSortOptions = [
+  { value: "name", label: "Name" },
+  { value: "starred", label: "Favorited" },
+  { value: "albumCount", label: "Album Count" },
+];
+
+const artistColumnOptions = [
+  { key: "showIndex", label: "Row Number" },
+  { key: "albumCount", label: "Albums" },
+  { key: "songCount", label: "Songs" },
+  { key: "starred", label: "Favorited" },
+];
+
+function FavoritesMobileMenu({
+  activeTab,
+  onImport,
+  songSortConfig,
+  onSongSortChange,
+  columnVisibility,
+  onColumnVisibilityChange,
+  songViewMode,
+  onSongViewModeChange,
+  albumSortConfig,
+  onAlbumSortChange,
+  albumViewMode,
+  onAlbumViewModeChange,
+  albumColumnVisibility,
+  onAlbumColumnVisibilityChange,
+  artistSortConfig,
+  onArtistSortChange,
+  artistViewMode,
+  onArtistViewModeChange,
+  artistColumnVisibility,
+  onArtistColumnVisibilityChange,
+}: FavoritesMobileMenuProps) {
+  const [open, setOpen] = useState(false);
+
+  const handleSort = (field: SortField) => {
+    if (activeTab === "songs") {
+      if (songSortConfig.field === field) {
+        onSongSortChange({
+          field,
+          direction: songSortConfig.direction === "asc" ? "desc" : "asc",
+        });
+      } else {
+        onSongSortChange({ field, direction: "asc" });
+      }
+    } else if (activeTab === "albums") {
+      if (albumSortConfig.field === field) {
+        onAlbumSortChange({
+          field,
+          direction: albumSortConfig.direction === "asc" ? "desc" : "asc",
+        });
+      } else {
+        onAlbumSortChange({ field, direction: "asc" });
+      }
+    } else if (activeTab === "artists") {
+      if (artistSortConfig.field === field) {
+        onArtistSortChange({
+          field,
+          direction: artistSortConfig.direction === "asc" ? "desc" : "asc",
+        });
+      } else {
+        onArtistSortChange({ field, direction: "asc" });
+      }
+    }
+  };
+
+  const handleSongColumnToggle = (key: keyof ColumnVisibility) => {
+    onColumnVisibilityChange({
+      ...columnVisibility,
+      [key]: !columnVisibility[key],
+    });
+  };
+
+  const handleAlbumColumnToggle = (key: keyof AlbumColumnVisibility) => {
+    onAlbumColumnVisibilityChange({
+      ...albumColumnVisibility,
+      [key]: !albumColumnVisibility[key],
+    });
+  };
+
+  const handleArtistColumnToggle = (key: keyof ArtistColumnVisibility) => {
+    onArtistColumnVisibilityChange({
+      ...artistColumnVisibility,
+      [key]: !artistColumnVisibility[key],
+    });
+  };
+
+  const currentSortConfig =
+    activeTab === "songs"
+      ? songSortConfig
+      : activeTab === "albums"
+        ? albumSortConfig
+        : artistSortConfig;
+
+  const SortIcon = currentSortConfig.direction === "asc" ? ArrowUp : ArrowDown;
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        aria-label="More options"
+        onClick={() => setOpen(true)}
+      >
+        <MoreHorizontal className="w-4 h-4" />
+      </Button>
+      <DrawerMenu open={open} onOpenChange={setOpen} title="Options">
+        {activeTab === "songs" && (
+          <>
+            <DrawerMenuItem
+              onClick={() => {
+                setOpen(false);
+                onImport();
+              }}
+            >
+              <Upload className="w-4 h-4" />
+              Import Favorites
+            </DrawerMenuItem>
+            <DrawerMenuSeparator />
+          </>
+        )}
+
+        {/* Sort collapsible */}
+        <DrawerMenuCollapsible>
+          <DrawerMenuCollapsibleTrigger>
+            <ArrowUpDown className="w-4 h-4" />
+            Sort
+          </DrawerMenuCollapsibleTrigger>
+          <DrawerMenuCollapsibleContent>
+            {(activeTab === "songs"
+              ? songSortOptions
+              : activeTab === "albums"
+                ? albumSortOptions
+                : artistSortOptions
+            ).map((option) => (
+              <DrawerMenuItem
+                key={option.value}
+                onClick={() => handleSort(option.value as SortField)}
+              >
+                <span className="flex-1">{option.label}</span>
+                {currentSortConfig.field === option.value && (
+                  <SortIcon className="w-4 h-4 text-primary" />
+                )}
+              </DrawerMenuItem>
+            ))}
+          </DrawerMenuCollapsibleContent>
+        </DrawerMenuCollapsible>
+
+        {/* Column visibility collapsible - only in list view */}
+        {((activeTab === "songs" && songViewMode === "list") ||
+          (activeTab === "albums" && albumViewMode === "list") ||
+          (activeTab === "artists" && artistViewMode === "list")) && (
+          <DrawerMenuCollapsible>
+            <DrawerMenuCollapsibleTrigger>
+              <Columns className="w-4 h-4" />
+              Columns
+            </DrawerMenuCollapsibleTrigger>
+            <DrawerMenuCollapsibleContent>
+              {activeTab === "songs" &&
+                songColumnOptions.map((option) => (
+                  <DrawerMenuCheckboxItem
+                    key={option.key}
+                    checked={
+                      columnVisibility[option.key as keyof ColumnVisibility]
+                    }
+                    onCheckedChange={() =>
+                      handleSongColumnToggle(
+                        option.key as keyof ColumnVisibility,
+                      )
+                    }
+                  >
+                    {option.label}
+                  </DrawerMenuCheckboxItem>
+                ))}
+              {activeTab === "albums" &&
+                albumColumnOptions.map((option) => (
+                  <DrawerMenuCheckboxItem
+                    key={option.key}
+                    checked={
+                      albumColumnVisibility[
+                        option.key as keyof AlbumColumnVisibility
+                      ]
+                    }
+                    onCheckedChange={() =>
+                      handleAlbumColumnToggle(
+                        option.key as keyof AlbumColumnVisibility,
+                      )
+                    }
+                  >
+                    {option.label}
+                  </DrawerMenuCheckboxItem>
+                ))}
+              {activeTab === "artists" &&
+                artistColumnOptions.map((option) => (
+                  <DrawerMenuCheckboxItem
+                    key={option.key}
+                    checked={
+                      artistColumnVisibility[
+                        option.key as keyof ArtistColumnVisibility
+                      ]
+                    }
+                    onCheckedChange={() =>
+                      handleArtistColumnToggle(
+                        option.key as keyof ArtistColumnVisibility,
+                      )
+                    }
+                  >
+                    {option.label}
+                  </DrawerMenuCheckboxItem>
+                ))}
+            </DrawerMenuCollapsibleContent>
+          </DrawerMenuCollapsible>
+        )}
+
+        {/* View mode */}
+        <DrawerMenuSeparator />
+        <DrawerMenuLabel>View</DrawerMenuLabel>
+        <DrawerMenuItem
+          onClick={() => {
+            if (activeTab === "songs") onSongViewModeChange("grid");
+            else if (activeTab === "albums") onAlbumViewModeChange("grid");
+            else if (activeTab === "artists") onArtistViewModeChange("grid");
+          }}
+        >
+          <Grid className="w-4 h-4" />
+          Grid
+          {((activeTab === "songs" && songViewMode === "grid") ||
+            (activeTab === "albums" && albumViewMode === "grid") ||
+            (activeTab === "artists" && artistViewMode === "grid")) && (
+            <Check className="w-4 h-4 ml-auto text-primary" />
+          )}
+        </DrawerMenuItem>
+        <DrawerMenuItem
+          onClick={() => {
+            if (activeTab === "songs") onSongViewModeChange("list");
+            else if (activeTab === "albums") onAlbumViewModeChange("list");
+            else if (activeTab === "artists") onArtistViewModeChange("list");
+          }}
+        >
+          <List className="w-4 h-4" />
+          List
+          {((activeTab === "songs" && songViewMode === "list") ||
+            (activeTab === "albums" && albumViewMode === "list") ||
+            (activeTab === "artists" && artistViewMode === "list")) && (
+            <Check className="w-4 h-4 ml-auto text-primary" />
+          )}
+        </DrawerMenuItem>
+      </DrawerMenu>
+    </>
   );
 }
