@@ -85,6 +85,10 @@ pub struct ClientListResponse {
 #[serde(rename_all = "camelCase")]
 pub struct HeartbeatRequest {
     pub client_id: Option<String>,
+    /// Optional client name (e.g. "ferrotune-web"). Used when the heartbeat
+    /// has to re-register the client in the in-memory `SessionManager`
+    /// (because its SSE was silently torn down but the tab is still alive).
+    pub client_name: Option<String>,
     #[serde(default)]
     pub is_playing: bool,
     pub current_index: Option<usize>,
@@ -321,6 +325,26 @@ pub async fn session_heartbeat(
     let session = queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+
+    // Refresh (or re-create) this client's entry in the in-memory
+    // `SessionManager`. The connected-clients list is keyed on SSE liveness,
+    // and a tab's SSE can be silently torn down by a proxy/browser even though
+    // the tab itself keeps playing (and heartbeating). Recording the heartbeat
+    // here keeps the tab visible + remotely controllable for
+    // `HEARTBEAT_GRACE` after the SSE drops, and the background sweep reaps it
+    // only once heartbeats also stop.
+    if let Some(ref client_id) = request.client_id {
+        let created = state
+            .session_manager
+            .record_heartbeat(&session.id, client_id, request.client_name.as_deref())
+            .await;
+        if created {
+            state
+                .session_manager
+                .broadcast(&session.id, SessionEvent::ClientListChanged)
+                .await;
+        }
+    }
 
     // Distinguish owner heartbeats (include song info or position) from
     // follower keepalive heartbeats (only { isPlaying: false }).

@@ -129,6 +129,7 @@ export function useSessionInit() {
       try {
         await client.sessionHeartbeat(sid, {
           clientId: clientIdRef.current || undefined,
+          clientName: getClientName(),
           isPlaying: false,
         });
       } catch {
@@ -147,6 +148,7 @@ export function useSessionInit() {
       try {
         await client.sessionHeartbeat(sid, {
           clientId: clientIdRef.current || undefined,
+          clientName: getClientName(),
           isPlaying,
         });
       } catch {
@@ -158,6 +160,7 @@ export function useSessionInit() {
     try {
       await client.sessionHeartbeat(sid, {
         clientId: clientIdRef.current || undefined,
+        clientName: getClientName(),
         isPlaying,
         currentIndex: state?.currentIndex,
         positionMs: Math.round(currentTimeSec * 1000),

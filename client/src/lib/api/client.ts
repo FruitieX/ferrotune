@@ -2188,6 +2188,7 @@ export class FerrotuneClient {
     sessionId: string,
     params: {
       clientId?: string;
+      clientName?: string;
       isPlaying?: boolean;
       currentIndex?: number;
       positionMs?: number;

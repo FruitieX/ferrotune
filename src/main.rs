@@ -286,6 +286,27 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         });
     }
 
+    // Background task: reap connected-client entries whose SSE has been gone
+    // (`connection_count == 0`) and whose heartbeat is stale past the grace
+    // period. This clears out tabs that were silently disconnected and never
+    // came back; tabs that are still playing keep heartbeating and are kept
+    // alive by `SessionManager::record_heartbeat`.
+    {
+        let session_manager = session_manager.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let changed = session_manager.sweep_stale_clients().await;
+                for session_id in changed {
+                    session_manager
+                        .broadcast(&session_id, api::SessionEvent::ClientListChanged)
+                        .await;
+                }
+            }
+        });
+    }
+
     // Build API router. All API routes are served below /api.
     let app = api::create_router(state);
 

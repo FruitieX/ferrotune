@@ -115,10 +115,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
 
 pub use scan_state::{create_scan_state, ScanState};
+
+/// How long a client entry stays alive after its last SSE stream drops, as long
+/// as it keeps receiving heartbeats. The web client sends heartbeats every 30s
+/// while visible or playing, so 90s (3×) gives plenty of slack. After this
+/// grace period with no further heartbeat, the background sweep reaps the
+/// entry.
+const HEARTBEAT_GRACE: Duration = Duration::from_secs(90);
 
 /// Create the API router with a single global `/api` prefix.
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -253,9 +260,19 @@ fn merge_client_metadata(client: &mut ConnectedClient, metadata: ConnectedClient
 /// native PlaybackService keeps background media controls alive. Track the
 /// number of live streams so dropping one stream does not make the whole device
 /// look disconnected.
+///
+/// `connection_count` tracks live SSE streams. When it reaches zero the client
+/// is only kept alive while its heartbeat is still fresh (see
+/// `HEARTBEAT_GRACE`). The background sweep in `main.rs` removes entries whose
+/// SSE has been gone (`connection_count == 0`) and whose `last_heartbeat_at` is
+/// stale, so a tab whose SSE was silently torn down by a proxy/browser but
+/// that is still playing (and therefore still heartbeating) stays in the
+/// connected-clients list — playback itself uses a separate streaming path and
+/// does not depend on SSE.
 struct ConnectedClientState {
     client: ConnectedClient,
     connection_count: usize,
+    last_heartbeat_at: Option<Instant>,
 }
 
 /// Per-session state: broadcast channel + connected clients.
@@ -374,6 +391,7 @@ impl SessionManager {
                 ConnectedClientState {
                     client,
                     connection_count: 1,
+                    last_heartbeat_at: None,
                 },
             );
         }
@@ -405,22 +423,121 @@ impl SessionManager {
         true
     }
 
+    /// Record a heartbeat for a client.
+    ///
+    /// Returns `true` if a new entry was created (i.e. the client was missing
+    /// from the in-memory map), so the caller can broadcast `ClientListChanged`
+    /// to other tabs/clients. Returns `false` if the client already existed
+    /// (just refreshed its `last_heartbeat_at`).
+    ///
+    /// This is the key liveness signal that lets a tab stay in the
+    /// connected-clients list even when its SSE stream has been silently
+    /// torn down by a proxy/browser: the backend's `ClientCleanupGuard`
+    /// keeps the entry alive for [`HEARTBEAT_GRACE`] after the SSE drops, and
+    /// as long as heartbeats keep landing the entry is refreshed and the
+    /// background sweep won't reap it.
+    pub async fn record_heartbeat(
+        &self,
+        session_id: &str,
+        client_id: &str,
+        client_name: Option<&str>,
+    ) -> bool {
+        let _ = self.get_or_create_sender(session_id).await;
+        let now = Instant::now();
+        let mut sessions = self.sessions.write().await;
+        let Some(state) = sessions.get_mut(session_id) else {
+            return false;
+        };
+
+        if let Some(existing) = state.clients.get_mut(client_id) {
+            existing.last_heartbeat_at = Some(now);
+            if let Some(name) = client_name {
+                existing.client.client_name = name.to_string();
+            }
+            return false;
+        }
+
+        let client = ConnectedClient {
+            client_id: client_id.to_string(),
+            client_name: client_name.unwrap_or("ferrotune-web").to_string(),
+            network_address: None,
+            hostname: None,
+            device_label: None,
+            connected_at: now,
+        };
+        state.clients.insert(
+            client_id.to_string(),
+            ConnectedClientState {
+                client,
+                connection_count: 0,
+                last_heartbeat_at: Some(now),
+            },
+        );
+        true
+    }
+
+    /// Sweep clients whose SSE has been gone (`connection_count == 0`) and
+    /// whose heartbeat is stale (or never received) past the grace period.
+    ///
+    /// Returns the list of session IDs that had at least one client removed,
+    /// so the caller can broadcast `ClientListChanged` to remaining clients.
+    pub async fn sweep_stale_clients(&self) -> Vec<String> {
+        let now = Instant::now();
+        let grace = HEARTBEAT_GRACE;
+        let mut changed_sessions = Vec::new();
+        let mut sessions = self.sessions.write().await;
+        for (session_id, state) in sessions.iter_mut() {
+            let before = state.clients.len();
+            state.clients.retain(|_, c| {
+                if c.connection_count > 0 {
+                    return true;
+                }
+                match c.last_heartbeat_at {
+                    Some(t) => now.duration_since(t) < grace,
+                    None => false,
+                }
+            });
+            if state.clients.len() != before {
+                changed_sessions.push(session_id.clone());
+            }
+        }
+        changed_sessions
+    }
+
     /// Unregister a client from a session.
     ///
     /// Returns true only when the logical client was fully removed. Duplicate
     /// connections for the same client_id are reference-counted and return
     /// false until the final stream disconnects.
+    ///
+    /// When the final SSE stream drops but the client has a fresh heartbeat,
+    /// the entry is *kept* (with `connection_count == 0`) so a tab whose SSE
+    /// was silently torn down by a proxy/browser but that is still playing
+    /// (and therefore still heartbeating) stays in the connected-clients list.
+    /// The background sweep in `main.rs` reaps it once the heartbeat also
+    /// goes stale.
     pub async fn unregister_client(&self, session_id: &str, client_id: &str) -> bool {
+        let now = Instant::now();
+        let grace = HEARTBEAT_GRACE;
         let mut sessions = self.sessions.write().await;
         if let Some(state) = sessions.get_mut(session_id) {
             if let Some(existing) = state.clients.get_mut(client_id) {
                 if existing.connection_count > 1 {
                     existing.connection_count -= 1;
                     return false;
-                } else {
-                    state.clients.remove(client_id);
-                    return true;
                 }
+                // Last SSE stream is gone: keep the entry alive while the
+                // heartbeat is fresh, so the tab stays controllable remotely
+                // even if its SSE was silently dropped.
+                let heartbeat_alive = existing
+                    .last_heartbeat_at
+                    .is_some_and(|t| now.duration_since(t) < grace);
+                if heartbeat_alive {
+                    existing.connection_count = 0;
+                    return false;
+                }
+                state.clients.remove(client_id);
+                return true;
             }
         }
         false
