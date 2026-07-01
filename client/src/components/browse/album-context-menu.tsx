@@ -37,6 +37,9 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     albumSongs,
     detailsOpen,
     setDetailsOpen,
+    handleDownload,
+    handleRemoveDownload,
+    isDownloaded,
   } = useAlbumActions(album);
 
   const coverArtUrl = album.coverArt
@@ -54,8 +57,10 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
         handleAddToPlaylist,
         toggleStar,
         setDetailsOpen,
+        handleDownload,
+        handleRemoveDownload,
       }}
-      state={{ isStarred }}
+      state={{ isStarred, isDownloaded }}
       album={{ artistId: album.artistId }}
     />
   );
@@ -114,6 +119,9 @@ export function AlbumDropdownMenu({
     albumSongs,
     detailsOpen,
     setDetailsOpen,
+    handleDownload,
+    handleRemoveDownload,
+    isDownloaded,
   } = useAlbumActions(album);
 
   // Use custom onPlay if provided, otherwise use hook's handlePlay
@@ -148,8 +156,10 @@ export function AlbumDropdownMenu({
         handleAddToPlaylist,
         toggleStar,
         setDetailsOpen,
+        handleDownload,
+        handleRemoveDownload,
       }}
-      state={{ isStarred }}
+      state={{ isStarred, isDownloaded }}
       album={{ artistId: album.artistId }}
     />
   );

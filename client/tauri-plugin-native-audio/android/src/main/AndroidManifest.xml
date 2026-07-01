@@ -13,6 +13,15 @@
     <!-- Optional: Wake lock to prevent CPU from sleeping during playback -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Required for offline download notifications (API 33+). The app must
+         request this at runtime before the DownloadService starts a download. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Required for the offline DownloadService foreground service type
+         (API 34+ typed FGS for dataSync). FOREGROUND_SERVICE is already
+         declared above for media playback. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <application>
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
@@ -31,6 +40,19 @@
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Offline download service (Media3 DownloadService). Handles
+             background downloads of audio + cover-art for offline playback.
+             foregroundServiceType=dataSync allows downloads to continue when
+             the app is backgrounded; the service is started on demand. -->
+        <service
+            android:name=".FerrotuneDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="androidx.media3.exoplayer.downloadService.action.INIT" />
             </intent-filter>
         </service>
     </application>

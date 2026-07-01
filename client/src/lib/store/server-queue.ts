@@ -26,6 +26,7 @@ import {
   type FerrotuneClient,
 } from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
+import { materializeOfflineQueueIfPossible } from "@/lib/offline/queue-materializer";
 import {
   nativeNextTrack,
   nativePreviousTrack,
@@ -349,6 +350,16 @@ export const startQueueAtom = atom(
       songIds?: string[];
     },
   ) => {
+    // Offline bypass: if the device is offline, short-circuit the server-side
+    // materialization. `materializeOfflineQueueIfPossible` builds the queue
+    // from persisted downloaded-song metadata when the source is a known
+    // downloaded container (album/artist/playlist); otherwise it surfaces an
+    // offline-appropriate error toast and returns `true` so the caller doesn't
+    // attempt the network call.
+    if (await materializeOfflineQueueIfPossible(params)) {
+      return;
+    }
+
     const client = getClient();
     if (!client) return;
 

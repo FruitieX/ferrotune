@@ -233,6 +233,39 @@ class FerrotuneApiClient {
     }
 
     /**
+     * Build a stream URL for offline download.
+     *
+     * Unlike [buildStreamUrl], this honors the user's download-quality settings
+     * (independent of the streaming transcoding settings). When [format] is
+     * "opus", the URL carries `format=opus` and `maxBitRate=<maxBitRate>` so
+     * the backend serves a single complete transcoded Opus file. When
+     * [format] is "original", no transcoding parameters are appended and the
+     * backend serves the source file as-is.
+     */
+    fun buildDownloadStreamUrl(songId: String, format: String, maxBitRate: Int?): String {
+        val config = getConfig()
+        val uriBuilder = Uri.parse("${config.serverUrl}/api/stream").buildUpon()
+        appendCommonParams(uriBuilder)
+        uriBuilder.appendQueryParameter("id", songId)
+        if (format.lowercase() == "opus" && maxBitRate != null) {
+            uriBuilder.appendQueryParameter("maxBitRate", maxBitRate.toString())
+            uriBuilder.appendQueryParameter("format", "opus")
+        }
+        NativeAudioLogger.debug(
+            TAG,
+            "download_stream_url_built",
+            "Built download stream URL metadata",
+            mapOf(
+                "songId" to songId,
+                "format" to format,
+                "maxBitRate" to maxBitRate,
+                "hasAuthHeader" to (config.sessionToken != null),
+            ),
+        )
+        return uriBuilder.build().toString()
+    }
+
+    /**
     * Add auth headers for JSON API calls.
      */
     private fun addAuthHeaders(requestBuilder: Request.Builder) {

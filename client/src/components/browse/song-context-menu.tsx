@@ -742,6 +742,8 @@ export function SongContextMenu({
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
+    handleRemoveDownload,
+    isDownloaded,
     confirmDeletionOpen,
     setConfirmDeletionOpen,
     handleConfirmDeletion,
@@ -855,6 +857,7 @@ export function SongContextMenu({
           components={components}
           handlers={{
             handleDownload,
+            handleRemoveDownload,
             setDetailsOpen,
             onNavigate,
           }}
@@ -863,6 +866,7 @@ export function SongContextMenu({
             artistId: song.artistId,
             albumId: song.albumId,
           }}
+          isDownloaded={isDownloaded}
         />
       </>
     );
@@ -998,6 +1002,8 @@ export function SongDropdownMenu({
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
+    handleRemoveDownload,
+    isDownloaded,
     confirmDeletionOpen,
     setConfirmDeletionOpen,
     handleConfirmDeletion,
@@ -1099,6 +1105,7 @@ export function SongDropdownMenu({
         components={components}
         handlers={{
           handleDownload,
+          handleRemoveDownload,
           setDetailsOpen,
           onNavigate,
         }}
@@ -1107,6 +1114,7 @@ export function SongDropdownMenu({
           artistId: song.artistId,
           albumId: song.albumId,
         }}
+        isDownloaded={isDownloaded}
       />
     </>
   );

@@ -4,6 +4,8 @@ import { useAtom } from "jotai";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
 import { LastfmCard } from "./lastfm-card";
+import { DownloadsSettingsCard } from "./downloads-card";
+import { isTauriMobile } from "@/lib/tauri";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -34,6 +36,7 @@ import {
   ArrowUp,
   ArrowDown,
   Pencil,
+  Download as DownloadIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -576,6 +579,10 @@ export default function SettingsPage() {
             { id: "library", label: "Library", icon: BarChart3 },
             { id: "home", label: "Home", icon: Rows3 },
             { id: "playback", label: "Playback", icon: Music2 },
+            // Mobile-only offline downloads settings tab.
+            ...(isTauriMobile()
+              ? [{ id: "downloads", label: "Downloads", icon: DownloadIcon }]
+              : []),
             { id: "appearance", label: "Appearance", icon: Palette },
             { id: "about", label: "About", icon: SettingsIcon },
           ].map((section) => (
@@ -1535,6 +1542,9 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Offline Downloads (mobile-only; renders nothing on desktop) */}
+        <DownloadsSettingsCard />
 
         {/* Appearance */}
         <motion.div

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification channel for the offline download foreground service. -->
+    <string name="ferrotune_download_channel_name">Downloads</string>
+    <string name="ferrotune_download_channel_description">Downloading music for offline playback</string>
+</resources>

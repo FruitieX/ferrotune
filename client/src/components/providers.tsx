@@ -4,6 +4,7 @@ import {
   IsRestoringProvider,
   QueryClient,
   QueryClientProvider,
+  useQueryClient,
 } from "@tanstack/react-query";
 import {
   type PersistQueryClientOptions,
@@ -63,6 +64,11 @@ import {
 import { resetServerPreferences } from "@/lib/store/server-storage";
 import { needsDarkForeground } from "@/lib/utils/color";
 import { useQueueCacheSync } from "@/lib/hooks/use-queue-cache-sync";
+import {
+  useOfflineMode,
+  useOnlineTransition,
+} from "@/lib/hooks/use-offline-mode";
+import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
 
 const NO_ACCOUNT_QUERY_KEY = "__no_account__";
 
@@ -104,12 +110,39 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useAppResumeRefresh(); // Invalidate queries after Android resume
   useCastInit(); // Initialize Chromecast SDK
   useQueueCacheSync(isCacheRestored); // Sync queue state ↔ React Query cache
+  useOfflineLifecycle(); // Toggles isOfflineModeAtom + online-transition recovery
   return (
     <>
       <SessionEventHandler />
       {children}
     </>
   );
+}
+
+/**
+ * Single mount-point for offline-mode lifecycle:
+ * - Listens to navigator online/offline + ping reachability probes via
+ *   `useOfflineMode`.
+ * - On `true → false` transition (back online), re-validates auth + invalidates
+ *   stale React Query caches so the UI re-syncs from the freshly-reachable
+ *   server.
+ */
+function useOfflineLifecycle() {
+  useOfflineMode();
+
+  const queryClient = useQueryClient();
+  useOnlineTransition(() => {
+    // Auth re-validation: trigger the same path that useAuth runs on
+    // foreground resume. The simplest, guaranteed-correct approach is to
+    // briefly toggle `shouldRefreshSession` by invalidating the connection
+    // dependency of useAuth via a window event the hook listens to.
+    window.dispatchEvent(new Event(appResumeRepaintEvent));
+    // Invalidate React Query caches so the next fetch pulls fresh data
+    // from the now-reachable server.
+    void queryClient.invalidateQueries().catch((err) => {
+      console.warn("[offline] queryClient.invalidateQueries failed", err);
+    });
+  });
 }
 
 // Component that applies accent color
@@ -272,6 +305,27 @@ function AccountScopedQueryProvider({
   // this finishes.
   useEffect(() => {
     cacheInit(currentKey);
+  }, [currentKey]);
+
+  // Initialize the offline download manager. On Tauri mobile it subscribes
+  // to native download-state-changed events and asks for an initial
+  // snapshot; on the web it's a no-op. Re-runs on account switch so the
+  // persisted IndexedDB metadata is re-read under the new account key.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { initDownloadManager } =
+          await import("@/lib/offline/download-manager");
+        if (cancelled) return;
+        await initDownloadManager();
+      } catch (err) {
+        console.warn("[providers] download manager init failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [currentKey]);
 
   // One-time cleanup of the legacy unified cache key

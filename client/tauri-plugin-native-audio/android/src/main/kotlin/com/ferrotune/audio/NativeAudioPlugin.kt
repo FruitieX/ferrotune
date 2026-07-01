@@ -155,6 +155,23 @@ internal class CastVolumeArgs {
     var muted: Boolean = false
 }
 
+@InvokeArg
+internal class EnqueueDownloadArgs {
+    lateinit var songId: String
+    lateinit var format: String // "opus" | "original"
+    var maxBitRate: Int = 0 // 0 → null (no maxBitRate param sent)
+}
+
+@InvokeArg
+internal class RemoveDownloadArgs {
+    lateinit var songId: String
+}
+
+@InvokeArg
+internal class SetWifiOnlyArgs {
+    var wifiOnly: Boolean = true
+}
+
 /**
  * Tauri plugin for native audio playback on Android.
  * Uses Media3 (ExoPlayer) with MediaSessionService for background playback.
@@ -189,9 +206,17 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             connectedService.setEventEmitter { event, data ->
                 triggerEvent(event, data)
             }
+            // Mirror the same event channel into the offline DownloadManager
+            // singleton so download state changes flow to JS over the
+            // existing native-audio event bridge.
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.setEventEmitter { event, data ->
+                triggerEvent(event, data)
+            }
             lastSessionConfig?.let { config ->
                 Log.d(TAG, "Re-applying cached session config to PlaybackService")
                 connectedService.initSession(config)
+                DownloadManagerHolder.setSessionConfig(config)
             }
             lastPlaybackSettings?.let { settings ->
                 connectedService.updateSettings(settings)
@@ -223,6 +248,13 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             triggerEvent(event, data)
         }
         nativeCastManager?.initialize()
+        // Initialize the offline DownloadManager singleton eagerly so that
+        // resume-from-previous-session downloads can start as soon as the
+        // session token is pushed via initSession.
+        DownloadManagerHolder.initialize(activity.applicationContext)
+        DownloadManagerHolder.setEventEmitter { event, data ->
+            triggerEvent(event, data)
+        }
         bindPlaybackService()
         connectToMediaSession()
 
@@ -329,6 +361,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         scope.cancel()
         nativeCastManager?.release()
         nativeCastManager = null
+        DownloadManagerHolder.setEventEmitter(null)
         releaseMediaController()
         unbindPlaybackService()
     }
@@ -981,6 +1014,107 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             invoke.resolve(nativeCastManager?.getMediaStatus() ?: JSObject())
         } catch (e: Exception) {
             Log.e(TAG, "Error in getCastMediaStatus()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    // === Offline download commands ===
+    // These delegate to the DownloadManagerHolder singleton (initialized in
+    // load()) which owns the DownloadManager. The DownloadService itself is
+    // started on demand by DownloadService.sendAddDownload(...).
+
+    @Command
+    fun enqueueDownload(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(EnqueueDownloadArgs::class.java)
+            val maxBitRate: Int? = args.maxBitRate.takeIf { it > 0 }
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.enqueueDownload(
+                activity.applicationContext,
+                args.songId,
+                args.format,
+                maxBitRate,
+            )
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in enqueueDownload()", e)
+            NativeAudioLogger.error(TAG, "enqueue_download_failed", "Error in enqueueDownload()", throwable = e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun removeDownload(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(RemoveDownloadArgs::class.java)
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.cancelDownload(activity.applicationContext, args.songId)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in removeDownload()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun removeAllDownloads(invoke: Invoke) {
+        try {
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.removeAll(activity.applicationContext)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in removeAllDownloads()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun pauseDownloads(invoke: Invoke) {
+        try {
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.pauseAll(activity.applicationContext)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in pauseDownloads()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun resumeDownloads(invoke: Invoke) {
+        try {
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.resumeAll(activity.applicationContext)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in resumeDownloads()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun getDownloads(invoke: Invoke) {
+        try {
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            val snapshot = DownloadManagerHolder.snapshot()
+            val arr = app.tauri.plugin.JSArray()
+            snapshot.forEach { arr.put(it.toJSObject()) }
+            invoke.resolve(JSObject().apply { put("downloads", arr) })
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in getDownloads()", e)
+            invoke.reject(e.message)
+        }
+    }
+
+    @Command
+    fun setDownloadWifiOnly(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(SetWifiOnlyArgs::class.java)
+            DownloadManagerHolder.initialize(activity.applicationContext)
+            DownloadManagerHolder.setWifiOnly(args.wifiOnly)
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in setDownloadWifiOnly()", e)
             invoke.reject(e.message)
         }
     }

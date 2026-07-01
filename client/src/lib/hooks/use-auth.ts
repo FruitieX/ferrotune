@@ -19,6 +19,7 @@ import {
   type FerrotuneClient,
 } from "@/lib/api/client";
 import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
+import { useOfflineModeState } from "@/lib/hooks/use-offline-mode";
 
 async function refreshPersistedAuthSession(
   client: FerrotuneClient,
@@ -62,6 +63,9 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   const setClientInitialized = useSetAtom(isClientInitializedAtom);
   const persistAuthSessionUpdate = useSetAtom(authSessionUpdateAtom);
   const [isValidatingSession, setIsValidatingSession] = useState(false);
+  // Live offline flag — when true we use the cached connection as-is,
+  // skipping any network round-trip that would fail.
+  const isOffline = useOfflineModeState();
 
   // Mark as hydrated after first client-side render
   useEffect(() => {
@@ -100,6 +104,16 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
         return;
       }
 
+      // While offline, skip the network round-trip entirely and treat the
+      // cached connection as already-validated. The online transition
+      // (handled via useOnlineTransition) will re-validate on recovery.
+      if (isOffline) {
+        if (blockWhileValidating && !cancelled) {
+          setIsValidatingSession(false);
+        }
+        return;
+      }
+
       refreshInFlight = true;
       if (blockWhileValidating) {
         setIsValidatingSession(true);
@@ -125,7 +139,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
       }
     };
 
-    const blockInitialRefresh = isSessionExpired(connection);
+    const blockInitialRefresh = isOffline || isSessionExpired(connection);
     if (!blockInitialRefresh) {
       setIsValidatingSession(false);
     }
@@ -157,23 +171,44 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
     persistAuthSessionUpdate,
     setClientInitialized,
     setConnection,
+    isOffline,
   ]);
 
-  // Redirect to login if not connected (only after hydration)
+  // Redirect to login if not connected (only after hydration) — unless we're
+  // offline, in which case we trust the cached connection even if it's
+  // technically stale; online-transition recovery will re-validate it.
   useEffect(() => {
-    if (redirectToLogin && isHydrated && !isConnected && !isValidatingSession) {
+    if (
+      !isOffline &&
+      redirectToLogin &&
+      isHydrated &&
+      !isConnected &&
+      !isValidatingSession
+    ) {
       router.push("/login");
     }
-  }, [redirectToLogin, isHydrated, isConnected, isValidatingSession, router]);
+  }, [
+    isOffline,
+    redirectToLogin,
+    isHydrated,
+    isConnected,
+    isValidatingSession,
+    router,
+  ]);
 
   return {
     isHydrated,
     isConnected,
     connection,
-    // Only consider truly connected after hydration
-    isReady: isHydrated && isConnected && !isValidatingSession,
-    // Show loading state before hydration or when not connected but expecting redirect
+    // When offline with a cached connection, treat as ready immediately —
+    // we'll re-validate once back online.
+    isReady:
+      isHydrated &&
+      (isOffline ? !!connection : isConnected) &&
+      !isValidatingSession,
     isLoading:
-      !isHydrated || isValidatingSession || (redirectToLogin && !isConnected),
+      !isHydrated ||
+      (!isOffline &&
+        (isValidatingSession || (redirectToLogin && !isConnected))),
   };
 }

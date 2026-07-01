@@ -39,6 +39,9 @@ export function ArtistContextMenu({
     artistSongs,
     detailsOpen,
     setDetailsOpen,
+    handleDownload,
+    handleRemoveDownload,
+    isDownloaded,
   } = useArtistActions(artist);
 
   const coverArtUrl = artist.coverArt
@@ -56,8 +59,10 @@ export function ArtistContextMenu({
         handleAddToPlaylist,
         toggleStar,
         setDetailsOpen,
+        handleDownload,
+        handleRemoveDownload,
       }}
-      state={{ isStarred }}
+      state={{ isStarred, isDownloaded }}
     />
   );
 
@@ -113,6 +118,9 @@ export function ArtistDropdownMenu({
     artistSongs,
     detailsOpen,
     setDetailsOpen,
+    handleDownload,
+    handleRemoveDownload,
+    isDownloaded,
   } = useArtistActions(artist);
 
   // Use custom callbacks if provided, otherwise use hook's handlers
@@ -148,8 +156,10 @@ export function ArtistDropdownMenu({
         handleAddToPlaylist,
         toggleStar,
         setDetailsOpen,
+        handleDownload,
+        handleRemoveDownload,
       }}
-      state={{ isStarred }}
+      state={{ isStarred, isDownloaded }}
     />
   );
 

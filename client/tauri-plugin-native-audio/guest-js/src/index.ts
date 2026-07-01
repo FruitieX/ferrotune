@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CastMediaStatus, CastStateSnapshot, LoadCastMediaParams, PlaybackState } from "./types";
+import type {
+  CastMediaStatus,
+  CastStateSnapshot,
+  DownloadFormat,
+  DownloadInfo,
+  DownloadStateEventPayload,
+  GetDownloadsResponse,
+  LoadCastMediaParams,
+  PlaybackState,
+} from "./types";
 
 // Re-export types
 export * from "./types";
@@ -266,4 +275,96 @@ export async function setCastVolume(volume: number, muted: boolean): Promise<voi
 
 export async function getCastMediaStatus(): Promise<CastMediaStatus> {
   return await invoke<CastMediaStatus>("plugin:native-audio|get_cast_media_status");
+}
+
+// ===== Offline downloads =====
+
+/**
+ * Enqueue a song for offline download.
+ *
+ * @param songId Ferrotune song id (the value passed as `?id=` to `/api/stream`).
+ * @param format `"opus"` for transcoded Opus at the given bitrate (default),
+ *                or `"original"` to fetch the source file as-is.
+ * @param maxBitRate Target bitrate in kbps when `format === "opus"`. Ignored
+ *                   when `format === "original"`. Defaults to 128.
+ */
+export async function enqueueDownload(
+  songId: string,
+  format: DownloadFormat = "opus",
+  maxBitRate: number = 128,
+): Promise<void> {
+  await invoke("plugin:native-audio|enqueue_download", {
+    songId,
+    format,
+    maxBitRate,
+  });
+}
+
+/**
+ * Cancel an active download or remove a completed one from disk for the
+ * given song. No-op if the song isn't downloaded.
+ */
+export async function removeDownload(songId: string): Promise<void> {
+  await invoke("plugin:native-audio|remove_download", { songId });
+}
+
+/**
+ * Remove all downloaded content from disk and clear the download index.
+ */
+export async function removeAllDownloads(): Promise<void> {
+  await invoke("plugin:native-audio|remove_all_downloads");
+}
+
+/**
+ * Pause all in-flight downloads. Already-completed downloads are untouched.
+ */
+export async function pauseDownloads(): Promise<void> {
+  await invoke("plugin:native-audio|pause_downloads");
+}
+
+/**
+ * Resume any paused or queued downloads.
+ */
+export async function resumeDownloads(): Promise<void> {
+  await invoke("plugin:native-audio|resume_downloads");
+}
+
+/**
+ * Snapshot of all known downloads (active + completed + failed). Includes
+ * progress (bytesDownloaded / bytesTotal / percent) and current state.
+ */
+export async function getDownloads(): Promise<DownloadInfo[]> {
+  const res = await invoke<GetDownloadsResponse>("plugin:native-audio|get_downloads");
+  return res.downloads;
+}
+
+/**
+ * Toggle Wi-Fi-only downloads. When enabled (default), downloads won't
+ * progress over metered connections and will be auto-resumed once an
+ * unmetered network is available.
+ */
+export async function setDownloadWifiOnly(wifiOnly: boolean): Promise<void> {
+  await invoke("plugin:native-audio|set_download_wifi_only", { wifiOnly });
+}
+
+/**
+ * Subscribe to download-state-changed events. The native plugin emits a
+ * payload whenever any download's state or progress changes (throttled to
+ * ~4 Hz per download id). Returns an unsubscribe function.
+ *
+ * Uses the same `ferrotune:native-audio-event` CustomEvent channel as the
+ * playback events — Tauri's standard event system isn't used (the native
+ * plugin deliberately bypasses it for reliability reasons; see
+ * NativeAudioPlugin.triggerEvent comments).
+ */
+export function onDownloadStateChanged(
+  handler: (payload: DownloadStateEventPayload) => void,
+): () => void {
+  const listener = (e: Event) => {
+    const detail = (e as CustomEvent<{ event: string; data: unknown }>).detail;
+    if (detail?.event !== "download-state-changed") return;
+    handler(detail.data as DownloadStateEventPayload);
+  };
+  window.addEventListener("ferrotune:native-audio-event", listener);
+  return () => window.removeEventListener("ferrotune:native-audio-event", listener);
 }

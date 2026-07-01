@@ -1,6 +1,7 @@
 package com.ferrotune.audio
 
 import app.tauri.plugin.JSObject
+import androidx.media3.exoplayer.offline.Download
 
 /**
  * Data class representing track information.
@@ -99,4 +100,82 @@ object AudioEvents {
     const val QUEUE_STATE_CHANGED = "queue-state-changed"
     const val SCROBBLE = "scrobble"
     const val CLIPPING = "clipping"
+    const val DOWNLOAD_STATE_CHANGED = "download-state-changed"
+}
+
+/**
+ * Media3 download state, projected to a JS-friendly value.
+ *
+ * Mirrors androidx.media3.exoplayer.offline.Download.STATE_* constants
+ * but simplified to the states the UI cares about.
+ */
+enum class DownloadStatus(val jsValue: String) {
+    QUEUED("queued"),
+    DOWNLOADING("downloading"),
+    COMPLETED("completed"),
+    FAILED("failed"),
+    REMOVING("removing"),
+    PAUSED("paused");
+
+    companion object {
+        fun fromMedia3State(state: Int, failed: Boolean, manualPause: Boolean): DownloadStatus {
+            return when {
+                failed -> FAILED
+                manualPause -> PAUSED
+                state == Download.STATE_COMPLETED -> COMPLETED
+                state == Download.STATE_DOWNLOADING -> DOWNLOADING
+                state == Download.STATE_QUEUED -> QUEUED
+                state == Download.STATE_REMOVING -> REMOVING
+                else -> QUEUED
+            }
+        }
+    }
+}
+
+/**
+ * Snapshot of a single download's state, sent to JS as part of
+ * [AudioEvents.DOWNLOAD_STATE_CHANGED].
+ */
+data class DownloadInfo(
+    val contentId: String,
+    val songId: String,
+    val kind: String, // "audio" | "cover"
+    val status: String,
+    val percent: Float,
+    val bytesDownloaded: Long,
+    val bytesTotal: Long,
+    val failureReason: String? = null,
+) {
+    fun toJSObject(): JSObject {
+        return JSObject().apply {
+            put("contentId", contentId)
+            put("songId", songId)
+            put("kind", kind)
+            put("status", status)
+            put("percent", percent.toDouble())
+            put("bytesDownloaded", bytesDownloaded)
+            put("bytesTotal", bytesTotal)
+            if (failureReason != null) put("failureReason", failureReason)
+        }
+    }
+}
+
+/**
+ * Top-level payload of a download-state-changed event.
+ * Carries all affected downloads each emission so JS can refresh atomically.
+ */
+data class DownloadStateEventPayload(
+    val downloads: List<DownloadInfo>,
+    val paused: Boolean,
+    val notMetRequirements: Int,
+) {
+    fun toJSObject(): JSObject {
+        return JSObject().apply {
+            val arr = app.tauri.plugin.JSArray()
+            downloads.forEach { arr.put(it.toJSObject()) }
+            put("downloads", arr)
+            put("paused", paused)
+            put("notMetRequirements", notMetRequirements)
+        }
+    }
 }

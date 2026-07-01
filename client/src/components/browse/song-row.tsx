@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { NowPlayingBars } from "@/components/shared/now-playing-bars";
+import { OfflineStatusIcon } from "@/components/shared/offline-status-icon";
+import { useOfflineUnavailableSong } from "@/lib/store/downloads";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 import { hapticConfirm, hapticSelection } from "@/lib/utils/haptic";
@@ -247,6 +249,8 @@ export function SongRow({
   const isPlaying = isCurrentTrack && playbackState === "playing";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
   const isDisabled = disabledSongs.has(song.id);
+  // Gray out when offline and not downloaded — the song can't be played.
+  const isOfflineUnavailable = useOfflineUnavailableSong(song.id);
 
   // Use inline thumbnail if available, otherwise construct URL for fetching
   // If inline images were already requested, don't fetch separately (server chose not to include it)
@@ -431,6 +435,7 @@ export function SongRow({
           }
           rightContent={
             <div className="flex items-center gap-4 text-sm text-muted-foreground tabular-nums shrink-0">
+              <OfflineStatusIcon songId={song.id} />
               {isDisabled && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -553,7 +558,11 @@ export function SongRow({
               {children}
             </SongContextMenu>
           )}
-          className={cn(className, isDisabled && "opacity-50")}
+          className={cn(
+            className,
+            isDisabled && "opacity-50",
+            isOfflineUnavailable && "opacity-40",
+          )}
         >
           {/* Custom content with clickable links */}
           <div className="min-w-0 flex flex-col flex-1">

@@ -157,3 +157,61 @@ export interface LoadCastMediaQueueItemParams {
   durationMs: number;
   position: number;
 }
+
+// ===== Offline downloads =====
+
+/**
+ * Per-content download status. Matches the KotlinDownloadStatus enum
+ * emitted by the native DownloadManager.
+ */
+export type DownloadStatus =
+  | "queued"
+  | "downloading"
+  | "completed"
+  | "failed"
+  | "removing"
+  | "paused";
+
+/**
+ * Download format options for offline tracks.
+ * - "opus" transcodes to Opus at `maxBitRate` kbps (default 128).
+ * - "original" downloads the source file as-is (no transcoding).
+ */
+export type DownloadFormat = "opus" | "original";
+
+/**
+ * Snapshot of a single download's state. Emitted individually within the
+ * `DownloadStateEventPayload.downloads` array of `download-state-changed`
+ * events, and also returned by `getDownloads()`.
+ */
+export interface DownloadInfo {
+  /** Cache content id, e.g. `audio:<songId>` or `cover:<coverArtId>`. */
+  contentId: string;
+  /** Source song id (without the `audio:` prefix). */
+  songId: string;
+  /** Either "audio" or "cover". Phase 1 only emits audio downloads. */
+  kind: "audio" | "cover" | "unknown";
+  status: DownloadStatus;
+  /** 0–100 (or -1 if total size unknown). */
+  percent: number;
+  bytesDownloaded: number;
+  bytesTotal: number;
+  failureReason?: string;
+}
+
+/**
+ * Payload of the `download-state-changed` event. Carries snapshots of all
+ * downloads that changed state in this update plus the global pause /
+ * not-met-requirements flags so JS can refresh atomically.
+ */
+export interface DownloadStateEventPayload {
+  downloads: DownloadInfo[];
+  paused: boolean;
+  /**媒体3 RequirementFlags OR-mask; 0 means all requirements met. */
+  notMetRequirements: number;
+}
+
+/** Response shape of `getDownloads()`. */
+export interface GetDownloadsResponse {
+  downloads: DownloadInfo[];
+}

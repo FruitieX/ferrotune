@@ -23,6 +23,7 @@ import {
   Settings,
   Ban,
   Radio,
+  CheckCircle2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -106,9 +107,15 @@ export interface AlbumMenuItemsProps {
     toggleStar: () => void;
     setDetailsOpen: (open: boolean) => void;
     onNavigate?: () => void;
+    /** Mobile-only: enqueue every song in this album for offline download. */
+    handleDownload?: () => void;
+    /** Mobile-only: remove the downloaded container for this album. */
+    handleRemoveDownload?: () => void;
   };
   state: {
     isStarred: boolean;
+    /** Mobile-only: whether the album has a completed offline download. */
+    isDownloaded?: boolean;
   };
   album: {
     artistId: string;
@@ -166,6 +173,27 @@ export function AlbumMenuItems({
         {state.isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
       <Separator />
+      {/* Mobile-only download / remove download */}
+      {state.isDownloaded
+        ? handlers.handleRemoveDownload &&
+          renderMenuItem(
+            { Item },
+            {
+              icon: Trash2,
+              label: "Remove Download",
+              onClick: handlers.handleRemoveDownload,
+              className: "text-destructive",
+            },
+          )
+        : handlers.handleDownload &&
+          renderMenuItem(
+            { Item },
+            {
+              icon: Download,
+              label: "Download",
+              onClick: handlers.handleDownload,
+            },
+          )}
       {renderMenuItem(
         { Item },
         {
@@ -201,9 +229,15 @@ export interface ArtistMenuItemsProps {
     handleAddToPlaylist: () => void;
     toggleStar: () => void;
     setDetailsOpen: (open: boolean) => void;
+    /** Mobile-only: enqueue every song across this artist's albums for offline download. */
+    handleDownload?: () => void;
+    /** Mobile-only: remove the downloaded container for this artist. */
+    handleRemoveDownload?: () => void;
   };
   state: {
     isStarred: boolean;
+    /** Mobile-only: whether the artist has a completed offline download. */
+    isDownloaded?: boolean;
   };
 }
 
@@ -261,6 +295,27 @@ export function ArtistMenuItems({
         {state.isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
       <Separator />
+      {/* Mobile-only download / remove download */}
+      {state.isDownloaded
+        ? handlers.handleRemoveDownload &&
+          renderMenuItem(
+            { Item },
+            {
+              icon: Trash2,
+              label: "Remove Download",
+              onClick: handlers.handleRemoveDownload,
+              className: "text-destructive",
+            },
+          )
+        : handlers.handleDownload &&
+          renderMenuItem(
+            { Item },
+            {
+              icon: Download,
+              label: "Download",
+              onClick: handlers.handleDownload,
+            },
+          )}
       {renderMenuItem(
         { Item },
         {
@@ -563,6 +618,8 @@ export interface SongMenuItemsNavigationProps {
   components: MenuComponents;
   handlers: {
     handleDownload?: () => void;
+    /** Mobile-only: remove the offline download for this song. */
+    handleRemoveDownload?: () => void;
     setDetailsOpen: (open: boolean) => void;
     onNavigate?: () => void;
   };
@@ -571,12 +628,15 @@ export interface SongMenuItemsNavigationProps {
     artistId: string;
     albumId?: string | null;
   };
+  /** Mobile-only: when true, show "Remove Download" instead of "Download". */
+  isDownloaded?: boolean;
 }
 
 export function SongMenuItemsNavigation({
   components,
   handlers,
   song,
+  isDownloaded,
 }: SongMenuItemsNavigationProps) {
   const { Item, Separator } = components;
 
@@ -602,17 +662,28 @@ export function SongMenuItemsNavigation({
             onClick: handlers.onNavigate,
           },
         )}
-      {/* Download and View Details at the bottom */}
+      {/* Download / Remove Download — only when a download handler is provided (mobile). */}
       <Separator />
-      {handlers.handleDownload &&
-        renderMenuItem(
-          { Item },
-          {
-            icon: Download,
-            label: "Download",
-            onClick: handlers.handleDownload,
-          },
-        )}
+      {isDownloaded
+        ? handlers.handleRemoveDownload &&
+          renderMenuItem(
+            { Item },
+            {
+              icon: Trash2,
+              label: "Remove Download",
+              onClick: handlers.handleRemoveDownload,
+              className: "text-destructive",
+            },
+          )
+        : handlers.handleDownload &&
+          renderMenuItem(
+            { Item },
+            {
+              icon: isDownloaded ? CheckCircle2 : Download,
+              label: "Download",
+              onClick: handlers.handleDownload,
+            },
+          )}
       {renderMenuItem(
         { Item },
         {

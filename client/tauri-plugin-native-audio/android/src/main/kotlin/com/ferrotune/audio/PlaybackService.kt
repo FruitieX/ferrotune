@@ -38,6 +38,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.util.BitmapLoader
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
@@ -209,6 +210,12 @@ class PlaybackService : MediaSessionService() {
     private var httpDataSourceFactory: DefaultHttpDataSource.Factory? = null
     @OptIn(UnstableApi::class)
     private var artworkDataSourceFactory: DefaultHttpDataSource.Factory? = null
+    // Chained (download-cache → http) data source for the MediaSession
+    // bitmap loader, so cover-art for downloaded songs is served from the
+    // download cache instead of the network. Set in onCreate after the
+    // DownloadManager is initialized. Falls back to artworkDataSourceFactory.
+    @OptIn(UnstableApi::class)
+    private var artworkLoaderDataSourceFactory: DataSource.Factory? = null
     private data class NotificationArtworkData(
         val trackId: String,
         val coverArtUrl: String,
@@ -534,6 +541,12 @@ class PlaybackService : MediaSessionService() {
             streamCache = SimpleCache(cacheDir, evictor, databaseProvider)
         }
 
+        // Ensure the offline DownloadManager singleton is initialized so its
+        // download cache can be chained in front of the streaming cache and
+        // its event emitter is wired before any downloads are enqueued.
+        DownloadManagerHolder.initialize(applicationContext)
+        DownloadManagerHolder.setStreamCache(streamCache)
+
         // CacheDataSource wraps the default HTTP data source: bytes are written
         // to the local cache as they arrive and served from there on re-reads.
         // This means ExoPlayer can resume from the cache after a network blip
@@ -543,13 +556,52 @@ class PlaybackService : MediaSessionService() {
         @OptIn(UnstableApi::class)
         artworkDataSourceFactory = DefaultHttpDataSource.Factory()
 
+        // Chained CacheDataSource: downloaded bytes (pinned, never evicted)
+        // win over transient streaming-cache bytes (LRU, 200 MB) which win
+        // over the network. The same FerrotuneCacheKeyFactory is used by the
+        // DownloadManager so the two caches agree on per-song keys: a song
+        // requested at transcoding bitrate X will be served from cached bytes
+        // downloaded at bitrate Y (the downloaded version is always preferred
+        // even when the player asks for a different transcode profile).
         @OptIn(UnstableApi::class)
-        val cacheDataSourceFactory = CacheDataSource.Factory()
+        val streamOnlyCacheFactory = CacheDataSource.Factory()
             .setCache(streamCache!!)
             .setUpstreamDataSourceFactory(httpDataSourceFactory!!)
-            // Allow reading from the cache even while the upstream connection
-            // is still open (progressive caching).
+            .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        @OptIn(UnstableApi::class)
+        val downloadCache = DownloadManagerHolder.downloadCache
+        @OptIn(UnstableApi::class)
+        val cacheDataSourceFactory = if (downloadCache != null) {
+            CacheDataSource.Factory()
+                .setCache(downloadCache)
+                .setUpstreamDataSourceFactory(streamOnlyCacheFactory)
+                .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
+                .setFlags(
+                    CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR or
+                        CacheDataSource.FLAG_BLOCK_ON_CACHE
+                )
+        } else {
+            streamOnlyCacheFactory
+        }
+
+        // Re-point the artwork loader at the same chained cache so cover-art
+        // requests for downloaded songs are served from disk instead of the
+        // network. We keep the inner DefaultHttpDataSource.Factory intact so
+        // auth-header updates can still be pushed via setDefaultRequestProperties.
+        @OptIn(UnstableApi::class)
+        val artworkCacheDataSourceFactory: DataSource.Factory =
+            if (downloadCache != null) {
+                CacheDataSource.Factory()
+                    .setCache(downloadCache)
+                    .setUpstreamDataSourceFactory(artworkDataSourceFactory!!)
+                    .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            } else {
+                artworkDataSourceFactory!!
+            }
+        this.artworkLoaderDataSourceFactory = artworkCacheDataSourceFactory
 
         // Custom load error policy: keep transient network failures inside
         // ExoPlayer so Media3 can resume with byte-range requests while
@@ -782,7 +834,7 @@ class PlaybackService : MediaSessionService() {
         )
 
         val bitmapLoader = DataSourceBitmapLoader.Builder(this)
-            .setDataSourceFactory(artworkDataSourceFactory!!)
+            .setDataSourceFactory(artworkLoaderDataSourceFactory ?: artworkDataSourceFactory!!)
             .setMaximumOutputDimension(NOTIFICATION_ARTWORK_MAX_DIMENSION_PX)
             .build()
         notificationBitmapLoader = bitmapLoader
@@ -1160,6 +1212,12 @@ class PlaybackService : MediaSessionService() {
         val authHeaders = apiClient.getAuthHeaders()
         httpDataSourceFactory?.setDefaultRequestProperties(authHeaders)
         artworkDataSourceFactory?.setDefaultRequestProperties(authHeaders)
+        // Propagate the session config + auth headers to the offline
+        // DownloadManager singleton so its HTTP data source uses the same
+        // bearer-token authentication when fetching `/api/stream` bytes.
+        DownloadManagerHolder.initialize(applicationContext)
+        DownloadManagerHolder.setStreamCache(streamCache)
+        DownloadManagerHolder.setSessionConfig(config)
         Log.d(TAG, "initSession: updated Media3 auth headers, hasAuthorization=${authHeaders.containsKey("Authorization")}")
         NativeAudioLogger.info(
             TAG,

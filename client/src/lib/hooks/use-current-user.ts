@@ -11,10 +11,15 @@ import {
   serverConnectionAtom,
 } from "@/lib/store/auth";
 import { currentUserAtom, isCurrentUserAdminAtom } from "@/lib/store/user";
+import { useOfflineModeState } from "@/lib/hooks/use-offline-mode";
 
 /**
  * Hook to get and manage the current user's info.
  * Automatically fetches the user when connected and updates the global state.
+ *
+ * When offline, the fetch is disabled and the cached `currentUser` (last
+ * value fetched while online) is returned as-is. The React Query cache
+ * persists it across the offline window.
  */
 export function useCurrentUser() {
   const isHydrated = useAtomValue(isHydratedAtom);
@@ -23,6 +28,7 @@ export function useCurrentUser() {
   const [currentUser, setCurrentUser] = useAtom(currentUserAtom);
   const isAdmin = useAtomValue(isCurrentUserAdminAtom);
   const currentAccountKey = connection ? accountKey(connection) : null;
+  const isOffline = useOfflineModeState();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["currentUser", currentAccountKey],
@@ -31,7 +37,9 @@ export function useCurrentUser() {
       if (!client) throw new Error("Not connected");
       return client.getCurrentUser();
     },
-    enabled: isHydrated && isConnected && currentAccountKey !== null,
+    // Don't fire while offline — keep the cached `currentUser` value.
+    enabled:
+      !isOffline && isHydrated && isConnected && currentAccountKey !== null,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 

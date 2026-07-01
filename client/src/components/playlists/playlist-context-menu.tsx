@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useAtomValue } from "jotai";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -15,6 +15,7 @@ import {
   FolderInput,
   Folder,
   Home,
+  Download,
 } from "lucide-react";
 import { ResponsiveContextMenu } from "@/components/shared/responsive-context-menu";
 import type { MenuComponents } from "@/components/shared/media-menu-items";
@@ -42,6 +43,12 @@ import { Button } from "@/components/ui/button";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
+import { isTauriMobile } from "@/lib/tauri";
+import { useDownloadActions } from "@/lib/hooks/use-download-actions";
+import {
+  useContainerDownloaded,
+  downloadedContainersAtom,
+} from "@/lib/store/downloads";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
 import { getPlaylistDisplayName } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
@@ -197,6 +204,28 @@ export function PlaylistContextMenu({
     }
   };
 
+  // Mobile-only offline download actions.
+  const downloadActions = useDownloadActions();
+  const containers = useAtomValue(downloadedContainersAtom);
+  const isDownloadedPlaylist = useContainerDownloaded(
+    `playlist:${playlist.id}`,
+  );
+
+  const handlePlaylistDownload = async () => {
+    const client = getClient();
+    if (!client) return;
+    const response = await client.getPlaylist(playlist.id);
+    const songs = response.playlist.entry ?? [];
+    await downloadActions.downloadPlaylist(playlist.id, songs);
+  };
+  const handlePlaylistRemoveDownload = () => {
+    const songIds = containers.get(`playlist:${playlist.id}`) ?? [];
+    void downloadActions.removeContainerDownload(
+      `playlist:${playlist.id}`,
+      songIds,
+    );
+  };
+
   const renderMenuContent = (components: MenuComponents) => {
     const { Item, Separator, Sub, SubTrigger, SubContent } = components;
     return (
@@ -219,6 +248,21 @@ export function PlaylistContextMenu({
           Add to Queue
         </Item>
         {(Sub || canModify || isOwner) && <Separator />}
+        {isTauriMobile() &&
+          (isDownloadedPlaylist ? (
+            <Item
+              onClick={handlePlaylistRemoveDownload}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Remove Download
+            </Item>
+          ) : (
+            <Item onClick={handlePlaylistDownload}>
+              <Download className="w-4 h-4 mr-2" />
+              Download
+            </Item>
+          ))}
         {Sub && SubTrigger && SubContent && (
           <Sub>
             <SubTrigger>
@@ -489,6 +533,28 @@ export function PlaylistDropdownMenu({
     }
   };
 
+  // Mobile-only offline download actions.
+  const downloadActions = useDownloadActions();
+  const containers = useAtomValue(downloadedContainersAtom);
+  const isDownloadedPlaylist = useContainerDownloaded(
+    `playlist:${playlist.id}`,
+  );
+
+  const handlePlaylistDownload = async () => {
+    const client = getClient();
+    if (!client) return;
+    const response = await client.getPlaylist(playlist.id);
+    const songs = response.playlist.entry ?? [];
+    await downloadActions.downloadPlaylist(playlist.id, songs);
+  };
+  const handlePlaylistRemoveDownload = () => {
+    const songIds = containers.get(`playlist:${playlist.id}`) ?? [];
+    void downloadActions.removeContainerDownload(
+      `playlist:${playlist.id}`,
+      songIds,
+    );
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -536,6 +602,21 @@ export function PlaylistDropdownMenu({
             <ListEnd className="w-4 h-4 mr-2" />
             Add to Queue
           </DropdownMenuItem>
+          {isTauriMobile() &&
+            (isDownloadedPlaylist ? (
+              <DropdownMenuItem
+                onClick={handlePlaylistRemoveDownload}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Remove Download
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={handlePlaylistDownload}>
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </DropdownMenuItem>
+            ))}
           {(canModify || isOwner) && <DropdownMenuSeparator />}
           {isOwner && (
             <DropdownMenuSub>

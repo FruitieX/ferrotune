@@ -13,6 +13,12 @@ import {
   hapticSelection,
 } from "@/lib/utils/haptic";
 import type { Artist, Song } from "@/lib/api/types";
+import { isTauriMobile } from "@/lib/tauri";
+import { useDownloadActions } from "@/lib/hooks/use-download-actions";
+import {
+  useContainerDownloaded,
+  downloadedContainersAtom,
+} from "@/lib/store/downloads";
 
 interface UseArtistActionsReturn {
   // Star state
@@ -34,6 +40,12 @@ interface UseArtistActionsReturn {
   // Details dialog
   detailsOpen: boolean;
   setDetailsOpen: (open: boolean) => void;
+
+  // Offline download actions (mobile-only; undefined on desktop so menu
+  // items don't render).
+  handleDownload?: () => void;
+  handleRemoveDownload?: () => void;
+  isDownloaded?: boolean;
 }
 
 /**
@@ -81,6 +93,24 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
     itemName: artist.name,
     initialStarred: !!artist.starred,
   });
+
+  // Offline downloads — no-op on desktop; the hook returns `undefined`,
+  // which causes menu items to be hidden.
+  const downloadActions = useDownloadActions();
+  const isContainerDownloaded = useContainerDownloaded(`artist:${artist.id}`);
+  const containers = useAtomValue(downloadedContainersAtom);
+  const isDownloaded = isTauriMobile() && isContainerDownloaded;
+
+  const handleDownload = () => {
+    void downloadActions.downloadArtist(artist.id);
+  };
+  const handleRemoveDownload = () => {
+    const songIds = containers.get(`artist:${artist.id}`) ?? [];
+    void downloadActions.removeContainerDownload(
+      `artist:${artist.id}`,
+      songIds,
+    );
+  };
 
   const handlePlay = () => {
     hapticConfirm();
@@ -157,5 +187,8 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
     artistSongs,
     detailsOpen,
     setDetailsOpen,
+    handleDownload: isTauriMobile() ? handleDownload : undefined,
+    handleRemoveDownload: isTauriMobile() ? handleRemoveDownload : undefined,
+    isDownloaded,
   };
 }

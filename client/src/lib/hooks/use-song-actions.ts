@@ -27,6 +27,9 @@ import {
   hapticToggle,
 } from "@/lib/utils/haptic";
 import type { Song } from "@/lib/api/types";
+import { isTauriMobile } from "@/lib/tauri";
+import { useDownloadActions } from "@/lib/hooks/use-download-actions";
+import { useDownloadState } from "@/lib/store/downloads";
 
 export interface QueueSource {
   type: string;
@@ -66,6 +69,10 @@ interface UseSongActionsReturn {
   handlePlayNext: () => void;
   handleAddToQueue: () => void;
   handleDownload: () => void;
+  /** Mobile-only: remove the offline download for this song. */
+  handleRemoveDownload?: () => void;
+  /** Mobile-only: whether this song is downloaded locally. */
+  isDownloaded?: boolean;
 
   // Recycle bin
   confirmDeletionOpen: boolean;
@@ -100,6 +107,11 @@ export function useSongActions({
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirmDeletionOpen, setConfirmDeletionOpen] = useState(false);
+
+  // Offline download state (mobile-only; returns defaults / no-ops on desktop).
+  const downloadActions = useDownloadActions();
+  const downloadState = useDownloadState(song.id);
+  const isDownloaded = isTauriMobile() && downloadState.status === "completed";
 
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
   const isDisabled = disabledSongs.has(song.id);
@@ -247,11 +259,21 @@ export function useSongActions({
   };
 
   const handleDownload = () => {
+    if (isTauriMobile()) {
+      void downloadActions.downloadSong(song);
+      return;
+    }
     const client = getClient();
     if (!client) return;
 
     const downloadUrl = client.getDownloadUrl(song.id);
     window.open(downloadUrl, "_blank");
+  };
+
+  const handleRemoveDownload = () => {
+    if (isTauriMobile()) {
+      void downloadActions.removeSongDownload(song.id);
+    }
   };
 
   const handleConfirmDeletion = async () => {
@@ -294,6 +316,8 @@ export function useSongActions({
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
+    handleRemoveDownload: isTauriMobile() ? handleRemoveDownload : undefined,
+    isDownloaded,
     confirmDeletionOpen,
     setConfirmDeletionOpen,
     handleConfirmDeletion,
