@@ -119,13 +119,29 @@ test.describe("Context Menus", () => {
   test("play next inserts immediately after the current song", async ({
     authenticatedPage: page,
   }) => {
-    await playFirstSong(page);
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/queue/start") && resp.status() === 200,
+      ),
+      playFirstSong(page),
+    ]);
     await waitForPlayerReady(page);
 
     const playerBar = page.getByTestId("player-bar");
     await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await expect(
+      playerBar.getByRole("button", { name: /^Pause$/ }),
+    ).toBeVisible({ timeout: 15000 });
     await playerBar.getByRole("button", { name: /next/i }).click();
     await expect(playerBar).toContainText("Second Song", { timeout: 10000 });
+
+    // Pause playback so the short test fixtures don't end while we navigate
+    // back to the song list and exercise the context menus.
+    await playerBar.getByRole("button", { name: /^Pause$/ }).click();
+    await expect(
+      playerBar.getByRole("button", { name: /^Play$/ }),
+    ).toBeVisible({ timeout: 10000 });
 
     await page.goto("/library/songs");
 
@@ -165,13 +181,29 @@ test.describe("Context Menus", () => {
   test("play next inserts immediately after the current song when shuffle is enabled", async ({
     authenticatedPage: page,
   }) => {
-    await playFirstSong(page);
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/queue/start") && resp.status() === 200,
+      ),
+      playFirstSong(page),
+    ]);
     await waitForPlayerReady(page);
 
     const playerBar = page.getByTestId("player-bar");
     await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await expect(
+      playerBar.getByRole("button", { name: /^Pause$/ }),
+    ).toBeVisible({ timeout: 15000 });
     await playerBar.getByRole("button", { name: /shuffle/i }).click();
     await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+
+    // Pause playback so the short (~3s) test fixture doesn't end during
+    // the subsequent navigation and context-menu interactions.
+    await playerBar.getByRole("button", { name: /^Pause$/ }).click();
+    await expect(
+      playerBar.getByRole("button", { name: /^Play$/ }),
+    ).toBeVisible({ timeout: 10000 });
 
     await page.goto("/library/songs");
 

@@ -151,7 +151,24 @@ test.describe.serial("Queue Management", () => {
     await expect(playerBar).toContainText("FLAC Track One", {
       timeout: 10000,
     });
-    await playerBar.getByRole("button", { name: /pause/i }).first().click();
+
+    // Playback may not have auto-started after /api/queue/start (e.g. under
+    // heavy CPU load or browser autoplay throttling, the audio element can
+    // settle in a paused state). Click Play first if needed so that the
+    // Pause control becomes available; the spec only checks that the row
+    // and card are tagged as the current track after pausing.
+    const pauseButton = playerBar
+      .getByRole("button", { name: /^Pause$/ })
+      .first();
+    const playButton = playerBar
+      .getByRole("button", { name: /^Play$/ })
+      .first();
+    if (!(await pauseButton.isVisible().catch(() => false))) {
+      await expect(playButton).toBeVisible({ timeout: 10000 });
+      await playButton.click();
+      await expect(pauseButton).toBeVisible({ timeout: 10000 });
+    }
+    await pauseButton.click();
     await expect(flacRow).toHaveAttribute("data-current-track", "true", {
       timeout: 10000,
     });

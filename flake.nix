@@ -57,6 +57,7 @@
             pkgs.docker-compose
             # Testing tools
             pkgs.hurl
+            pkgs.lsof  # for killing stale Vite preview in E2E global-setup
             pkgs.ffmpeg
             pkgs.moon  # moon task runner
             pkgs.proto
