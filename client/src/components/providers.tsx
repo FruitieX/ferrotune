@@ -123,25 +123,26 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
  * Single mount-point for offline-mode lifecycle:
  * - Listens to navigator online/offline + ping reachability probes via
  *   `useOfflineMode`.
- * - On `true → false` transition (back online), re-validates auth + invalidates
- *   stale React Query caches so the UI re-syncs from the freshly-reachable
- *   server.
+ * - On `true → false` transition (back online after >3s offline), re-validates
+ *   auth + invalidates stale React Query caches for queues/current-user only
+ *   (targeted; avoids mid-test cache thrash for non-queue data).
  */
 function useOfflineLifecycle() {
   useOfflineMode();
 
   const queryClient = useQueryClient();
   useOnlineTransition(() => {
-    // Auth re-validation: trigger the same path that useAuth runs on
-    // foreground resume. The simplest, guaranteed-correct approach is to
-    // briefly toggle `shouldRefreshSession` by invalidating the connection
-    // dependency of useAuth via a window event the hook listens to.
+    // Dispatch the resume event so `useAuth` re-validates the session
+    // (refreshPersistedAuthSession round-trips + URL-token refresh).
     window.dispatchEvent(new Event(appResumeRepaintEvent));
-    // Invalidate React Query caches so the next fetch pulls fresh data
-    // from the now-reachable server.
-    void queryClient.invalidateQueries().catch((err) => {
-      console.warn("[offline] queryClient.invalidateQueries failed", err);
-    });
+    // Only invalidate the queries that genuinely need a fresh server fetch
+    // after an offline window. Avoids blanket invalidation that could
+    // surface stale-while-revalidate races for unrelated UI during tests.
+    void queryClient
+      .invalidateQueries({ queryKey: ["currentUser"] })
+      .catch((err) => {
+        console.warn("[offline] invalidateQueries failed", err);
+      });
   });
 }
 

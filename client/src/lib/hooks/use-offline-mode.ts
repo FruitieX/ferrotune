@@ -8,33 +8,44 @@ import { getClient } from "@/lib/api/client";
 const PING_INTERVAL_ONLINE_MS = 60_000;
 const PING_INTERVAL_WHEN_OFFLINE_MS = 15_000;
 const PING_PROBE_TIMEOUT_MS = 5_000;
+/**
+ * Number of consecutive ping failures required before we flip offline while
+ * `navigator.onLine` still reports true. Avoids transient single-ping blips
+ * (server briefly busy, GC pause, etc.) from gray-outing the UI.
+ */
+const PING_FAILURE_THRESHOLD = 2;
+/**
+ * Minimum duration (ms) we must have been offline before the online-transition
+ * recovery callback fires. Filters out sub-second blips where recovery would
+ * just thrash the React Query cache needlessly.
+ */
+const MIN_OFFLINE_DURATION_FOR_RECOVERY_MS = 3_000;
 
 /**
  * Network listener — toggles `isOfflineModeAtom` based on:
- *  - `window.online` / `window.offline` events (best-effort; `navigator.onLine`
- *    reports true whenever any network interface is up, e.g. captive portals).
- *  - A periodic `client.ping()` reachability probe — the only source of truth
- *    for whether the *Ferrotune server* is actually reachable.
+ *  - `window.online` / `window.offline` events. `navigator.onLine === false`
+ *    is treated as authoritative and flips offline immediately.
+ *  - A periodic `client.ping()` reachability probe — used to detect
+ *    captive-portal / unreachable-server cases where the browser still
+ *    reports "online". Requires `PING_FAILURE_THRESHOLD` consecutive failures
+ *    before flipping offline, to absorb transient blips.
  *
- * Rules:
- *  - On `offline` event: immediately flip `isOfflineModeAtom = true`.
- *  - On `online` event: schedule a `ping()`; only flip back to online after
- *    the ping succeeds. If the ping fails, keep the offline flag set and
- *    re-probe on the offline-interval cadence.
- *  - On `offline → online` transition: consumers `useOnlineTransition(...)`
- *    fire their recovery side-effects.
+ * On `offline → online` transition (after at least
+ * `MIN_OFFLINE_DURATION_FOR_RECOVERY_MS`), consumers of
+ * `useOnlineTransition(...)` fire their recovery side-effects.
  */
 export function useOfflineMode(): void {
   const [isOffline, setIsOffline] = useAtom(isOfflineModeAtom);
   const isOfflineRef = useRef(isOffline);
   isOfflineRef.current = isOffline;
   const probingRef = useRef(false);
+  const consecutiveFailuresRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
 
-    async function probe(triggeredByOnlineEvent: boolean): Promise<void> {
+    async function probe(): Promise<void> {
       if (cancelled || probingRef.current) return;
       probingRef.current = true;
       try {
@@ -43,15 +54,28 @@ export function useOfflineMode(): void {
         const result = await withTimeout(client.ping(), PING_PROBE_TIMEOUT_MS);
         if (cancelled) return;
         if (result) {
+          consecutiveFailuresRef.current = 0;
           if (isOfflineRef.current) setIsOffline(false);
         } else {
-          if (!isOfflineRef.current) setIsOffline(true);
+          consecutiveFailuresRef.current += 1;
+          if (
+            !isOfflineRef.current &&
+            consecutiveFailuresRef.current >= PING_FAILURE_THRESHOLD
+          ) {
+            setIsOffline(true);
+          }
         }
       } catch (err) {
         if (cancelled) return;
-        if (!isOfflineRef.current) setIsOffline(true);
-        if (triggeredByOnlineEvent) {
-          console.warn("[offline] ping failed after online event", err);
+        consecutiveFailuresRef.current += 1;
+        if (
+          !isOfflineRef.current &&
+          consecutiveFailuresRef.current >= PING_FAILURE_THRESHOLD
+        ) {
+          setIsOffline(true);
+        }
+        if (consecutiveFailuresRef.current === 1) {
+          console.warn("[offline] ping failed (transient)", err);
         }
       } finally {
         probingRef.current = false;
@@ -59,12 +83,14 @@ export function useOfflineMode(): void {
     }
 
     function handleOffline() {
+      // Authoritative — flip immediately.
+      consecutiveFailuresRef.current = PING_FAILURE_THRESHOLD;
       setIsOffline(true);
-      void probe(false);
     }
 
     function handleOnline() {
-      void probe(true);
+      // Browser says we're back; probe to confirm the server is reachable.
+      void probe();
     }
 
     if (
@@ -72,16 +98,16 @@ export function useOfflineMode(): void {
       typeof navigator.onLine === "boolean" &&
       !navigator.onLine
     ) {
-      setIsOffline(true);
+      handleOffline();
     }
 
-    void probe(false);
+    void probe();
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
 
     interval = setInterval(
-      () => void probe(false),
+      () => void probe(),
       isOfflineRef.current
         ? PING_INTERVAL_WHEN_OFFLINE_MS
         : PING_INTERVAL_ONLINE_MS,
@@ -117,25 +143,40 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /**
  * Online-transition recovery. When `isOfflineModeAtom` flips
- * from `true → false`, fires `onOnline`. Returns the current flag so callers
- * can also short-circuit their own network-bound effects while offline.
+ * from `true → false` *and* we were offline for at least
+ * `MIN_OFFLINE_DURATION_FOR_RECOVERY_MS`, fires `onOnline`. Returns the
+ * current flag so callers can also short-circuit their own network-bound
+ * effects while offline.
  *
- * `onOnline` is wrapped in try/catch so the recovery can't crash callers;
- * log warnings only.
+ * Sub-second blips (single transient ping failure that immediately recovered)
+ * are filtered out so the recovery callback doesn't thrash the React Query
+ * cache on noisy networks.
  */
 export function useOnlineTransition(onOnline: () => void): boolean {
   const isOffline = useAtomValue(isOfflineModeAtom);
   const prevOfflineRef = useRef(isOffline);
+  const wentOfflineAtRef = useRef<number | null>(null);
   const onOnlineRef = useRef(onOnline);
   onOnlineRef.current = onOnline;
 
   useEffect(() => {
     const wasOffline = prevOfflineRef.current;
-    if (wasOffline && !isOffline) {
-      try {
-        onOnlineRef.current();
-      } catch (err) {
-        console.warn("[offline] online-transition recovery threw", err);
+    if (!wasOffline && isOffline) {
+      // Going offline — stamp the time.
+      wentOfflineAtRef.current = Date.now();
+    } else if (wasOffline && !isOffline) {
+      // Coming back online — only fire recovery if we were offline long
+      // enough for it to matter.
+      const wentOfflineAt = wentOfflineAtRef.current;
+      const offlineDurationMs =
+        wentOfflineAt !== null ? Date.now() - wentOfflineAt : 0;
+      wentOfflineAtRef.current = null;
+      if (offlineDurationMs >= MIN_OFFLINE_DURATION_FOR_RECOVERY_MS) {
+        try {
+          onOnlineRef.current();
+        } catch (err) {
+          console.warn("[offline] online-transition recovery threw", err);
+        }
       }
     }
     prevOfflineRef.current = isOffline;
