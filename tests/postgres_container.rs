@@ -3766,6 +3766,9 @@ fn test_postgres_session_queue_queries_work() {
         let entry_ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
         assert_eq!(entry_ids, vec![song_1.clone(), song_2.clone()]);
 
+        // Heartbeats only update the session table (liveness + display metadata);
+        // they no longer write `play_queues.current_index` / `position_ms` (that
+        // was a data race — see the comment on `update_session_heartbeat_with_position`).
         db::queries::update_session_heartbeat_with_position(
             &database,
             &session.id,
@@ -3789,10 +3792,22 @@ fn test_postgres_session_queue_queries_work() {
             Some(song_2.as_str())
         );
 
+        // Position is moved via the canonical mutation endpoint.
         let queue = db::queries::get_play_queue_by_session(&database, &session.id, user.id)
             .await
             .expect("postgres queue lookup should still succeed")
             .expect("postgres queue should still exist");
+        assert_eq!(queue.current_index, 0);
+        assert_eq!(queue.position_ms, 0);
+
+        db::queries::update_queue_position_by_session(&database, &session.id, 1, 42_000)
+            .await
+            .expect("postgres position update should succeed");
+
+        let queue = db::queries::get_play_queue_by_session(&database, &session.id, user.id)
+            .await
+            .expect("postgres queue lookup after position update should succeed")
+            .expect("postgres queue should still exist after position update");
         assert_eq!(queue.current_index, 1);
         assert_eq!(queue.position_ms, 42_000);
 

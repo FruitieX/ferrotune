@@ -36,7 +36,7 @@ pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
     FROM songs s
     INNER JOIN artists ar ON s.artist_id = ar.id
     LEFT JOIN albums al ON s.album_id = al.id
-    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
+    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
     WHERE s.marked_for_deletion_at IS NULL
 "#;
@@ -46,7 +46,7 @@ pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
 /// Expects the songs table to be aliased as `s`.
 /// NOTE: This aggregates across ALL users. For per-user stats, use `scrobble_stats_join_for_user()`.
 pub const SCROBBLE_STATS_JOIN: &str = r#"
-    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
+    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
 "#;
 
@@ -55,7 +55,7 @@ pub const SCROBBLE_STATS_JOIN: &str = r#"
 /// Expects the songs table to be aliased as `s`.
 pub fn scrobble_stats_join_for_user() -> &'static str {
     r#"
-    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
+    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
 "#
 }
@@ -962,12 +962,20 @@ pub async fn get_session(
     )
 }
 
-/// Atomically update session heartbeat and queue position in a single transaction.
-/// Ensures followers always see consistent session state + queue position.
+/// Update the session heartbeat liveness + display metadata.
 ///
-/// Note: The queue's `current_index` + `position_ms` are the canonical position
-/// source. The session table stores display metadata (song info) and liveness;
-/// position data there is ephemeral.
+/// Heartbeats NO LONGER write `play_queues.current_index` / `position_ms`.
+/// Those columns are mutated only by the canonical queue endpoints
+/// (`start_queue`, `add_to_queue`, `remove_from_queue`, `move_in_queue`,
+/// `update_position`, `update_queue_shuffle_*`). Writing them from heartbeats
+/// caused data races: heartbeats are sent over HTTP without ordering
+/// guarantees relative to those mutations, so a stale heartbeat arriving
+/// after a `Next`/`Play Next` click would silently overwrite the freshly-written
+/// canonical position and corrupt the in-memory queue state on every tab
+/// observing the next `queueUpdated` SSE event.
+///
+/// Followers still receive live position via the `PositionUpdate` SSE event
+/// broadcast in `session_heartbeat` — that path is independent of the DB.
 #[allow(clippy::too_many_arguments)]
 pub async fn update_session_heartbeat_with_position(
     database: &Database,
@@ -976,8 +984,8 @@ pub async fn update_session_heartbeat_with_position(
     current_song_id: Option<&str>,
     current_song_title: Option<&str>,
     current_song_artist: Option<&str>,
-    current_index: Option<i64>,
-    position_ms: Option<i64>,
+    _current_index: Option<i64>,
+    _position_ms: Option<i64>,
 ) -> crate::error::Result<bool> {
     use entity::playback_sessions::Column as S;
     let tx = database.conn().begin().await?;
@@ -1007,17 +1015,6 @@ pub async fn update_session_heartbeat_with_position(
         .filter(S::Id.eq(session_id))
         .exec(&tx)
         .await?;
-
-    if let (Some(idx), Some(pos)) = (current_index, position_ms) {
-        use entity::play_queues::Column as Q;
-        entity::play_queues::Entity::update_many()
-            .col_expr(Q::CurrentIndex, Expr::value(idx))
-            .col_expr(Q::PositionMs, Expr::value(pos))
-            .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
-            .filter(Q::SessionId.eq(session_id))
-            .exec(&tx)
-            .await?;
-    }
 
     tx.commit().await?;
     Ok(result.rows_affected > 0)
