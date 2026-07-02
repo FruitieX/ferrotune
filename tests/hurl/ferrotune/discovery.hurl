@@ -20,6 +20,7 @@ jsonpath "$.total" exists
 jsonpath "$.seed" exists
 jsonpath "$.count" == 30
 jsonpath "$.excludeRecentDays" == 7
+jsonpath "$.seedSongId" exists
 
 # Get similar songs with inline images
 GET {{base_url}}/api/discovery/similar-songs?size=5&inlineImages=small
@@ -58,6 +59,14 @@ jsonpath "$.song" isCollection
 jsonpath "$.seed" == 12345
 jsonpath "$.count" == 30
 jsonpath "$.excludeRecentDays" == 7
+jsonpath "$.seedSongId" exists
+
+# Passing an explicit seedSongId overrides the scrobble-history lookup.
+# When that song has no bliss analysis (or doesn't exist), the endpoint
+# returns 404, mirroring the behavior of find_similar_songs.
+GET {{base_url}}/api/discovery/similar-songs?size=5&seedSongId=nonexistent-song-id
+Authorization: Basic {{auth_basic}}
+HTTP 404
 
 # Unauthenticated access should fail
 GET {{base_url}}/api/discovery/similar-songs?size=10

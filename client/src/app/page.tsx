@@ -866,6 +866,10 @@ export default function HomePage() {
   const similarTracksSeedRef = useRef<number | undefined>(undefined);
   const similarTracksCountRef = useRef<number>(50);
   const similarTracksExcludeRef = useRef<number>(7);
+  // Resolved seed song ID returned by the discovery API on the first fetch.
+  // Forwarded back when materializing playback queues so the rendered list
+  // matches even if the user's most-recent scrobble has changed since.
+  const similarTracksSeedSongIdRef = useRef<string | null>(null);
 
   // Responsive item dimensions
   const itemWidth = isSmallScreen ? 130 : 180;
@@ -897,6 +901,7 @@ export default function HomePage() {
     discoverSeedRef.current = undefined;
     forgottenFavSeedRef.current = undefined;
     similarTracksSeedRef.current = undefined;
+    similarTracksSeedSongIdRef.current = null;
   }, [
     currentAccountKey,
     forgottenFavoritesFilters.minPlays,
@@ -1457,6 +1462,7 @@ export default function HomePage() {
       similarTracksSeedRef.current = response.seed;
       similarTracksCountRef.current = response.count;
       similarTracksExcludeRef.current = response.excludeRecentDays;
+      similarTracksSeedSongIdRef.current = response.seedSongId ?? null;
       return {
         songs: response.song ?? [],
         total: response.total,
@@ -1945,6 +1951,7 @@ export default function HomePage() {
                     seed: similarTracksSeedRef.current,
                     count: similarTracksCountRef.current,
                     excludeRecentDays: similarTracksExcludeRef.current,
+                    seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
                   },
                 })
               }
@@ -1958,6 +1965,7 @@ export default function HomePage() {
                     seed: similarTracksSeedRef.current,
                     count: similarTracksCountRef.current,
                     excludeRecentDays: similarTracksExcludeRef.current,
+                    seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
                   },
                 })
               }
@@ -1985,6 +1993,8 @@ export default function HomePage() {
                       seed: similarTracksSeedRef.current,
                       count: similarTracksCountRef.current,
                       excludeRecentDays: similarTracksExcludeRef.current,
+                      seedSongId:
+                        similarTracksSeedSongIdRef.current ?? undefined,
                     },
                   }}
                   inlineImagesRequested

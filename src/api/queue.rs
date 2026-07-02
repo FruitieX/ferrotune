@@ -2154,6 +2154,15 @@ async fn materialize_similar_tracks_queue_songs(
             .and_then(|f| f.get("excludeRecentDays"))
             .and_then(|v| v.as_i64())
             .unwrap_or(7);
+        // Forward the seed song ID resolved when the section's list was built.
+        // Without this, a remote-controlling session could have recorded new
+        // scrobbles between view and play, so the server would pick a different
+        // seed song and materialize a different "similar tracks" list than the
+        // one the user clicked — playing the wrong song.
+        let seed_song_id = filters
+            .and_then(|f| f.get("seedSongId"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
 
         let discovery = crate::api::discovery::discover_similar_songs(
             database,
@@ -2164,6 +2173,7 @@ async fn materialize_similar_tracks_queue_songs(
             0,
             None,
             seed,
+            seed_song_id,
         )
         .await?;
 

@@ -17,4 +17,10 @@ count: number,
 /**
  * Days used for the "recently played" exclusion window (mirrors the request).
  */
-excludeRecentDays: number, };
+excludeRecentDays: number, 
+/**
+ * Seed song ID used to compute similarity. Mirrors the request, falling
+ * back to the most-recently-played scrobble when omitted. Forwarded back
+ * when materializing playback queues so the rendered list matches.
+ */
+seedSongId: string | null, };

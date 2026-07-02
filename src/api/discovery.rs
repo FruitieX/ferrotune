@@ -33,6 +33,12 @@ pub struct DiscoveryParams {
     /// Optional seed for deterministic shuffle. The response echoes the seed
     /// so the client can materialize the same queue later.
     pub seed: Option<i64>,
+    /// Optional seed song ID override. When omitted, the server picks the
+    /// most-recently-played song. The response echoes the resolved seed song
+    /// ID so the client can forward it when materializing a playback queue
+    /// (otherwise a changed scrobble history could pick a different seed
+    /// song and produce a different "similar tracks" list).
+    pub seed_song_id: Option<String>,
 }
 
 /// Response for the discovery endpoint
@@ -53,6 +59,10 @@ pub struct DiscoveryResponse {
     /// Days used for the "recently played" exclusion window (mirrors the request).
     #[ts(type = "number")]
     pub exclude_recent_days: i64,
+    /// Seed song ID used to compute similarity. Mirrors the request, falling
+    /// back to the most-recently-played scrobble when omitted. Forwarded back
+    /// when materializing playback queues so the rendered list matches.
+    pub seed_song_id: Option<String>,
 }
 
 /// GET /api/discovery/similar-songs
@@ -82,6 +92,7 @@ pub async fn get_similar_songs(
             offset,
             inline_size,
             params.seed,
+            params.seed_song_id.clone(),
         )
         .await?;
 
@@ -90,15 +101,16 @@ pub async fn get_similar_songs(
 
     #[cfg(not(feature = "bliss"))]
     {
-        let _ = (&user, &state, &params);
+        _ = (&user, &state, &params);
         Ok((
             [(header::CACHE_CONTROL, "private, no-store")],
             Json(DiscoveryResponse {
                 song: Vec::new(),
                 total: 0,
-                seed: 0,
+                seed: params.seed.unwrap_or(0),
                 count,
                 exclude_recent_days,
+                seed_song_id: params.seed_song_id.clone(),
             }),
         ))
     }
@@ -116,29 +128,44 @@ pub async fn discover_similar_songs(
     offset: i64,
     inline_image_size: Option<ThumbnailSize>,
     seed: Option<i64>,
+    seed_song_id: Option<String>,
 ) -> crate::error::Result<DiscoveryResponse> {
     use chrono::Duration;
 
-    // 1. Pick a seed: the most recently played song
-    let seed_aggregates =
-        crate::db::repo::history::list_recent_song_aggregates(database.conn(), user_id, 1, 0)
+    // 1. Pick a seed song. Prefer the explicitly-provided seed_song_id; fall
+    // back to the most-recently-played song. Tracking the resolved seed song
+    // ID lets callers re-materialize the same list later (e.g. for playback
+    // queues) even if the user's scrobble history has since changed — which
+    // matters for remote-controlling sessions where another tab is advancing
+    // playback and recording scrobbles.
+    let seed_id = match seed_song_id {
+        Some(id) => id,
+        None => {
+            let seed_aggregates = crate::db::repo::history::list_recent_song_aggregates(
+                database.conn(),
+                user_id,
+                1,
+                0,
+            )
             .await?;
+            match seed_aggregates.first() {
+                Some(row) => row.song_id.clone(),
+                None => {
+                    return Ok(DiscoveryResponse {
+                        song: Vec::new(),
+                        total: 0,
+                        seed: seed.unwrap_or_else(rand::random::<i64>),
+                        count,
+                        exclude_recent_days,
+                        seed_song_id: None,
+                    });
+                }
+            }
+        }
+    };
 
     let response_seed = seed.unwrap_or_else(rand::random::<i64>);
     let rng_seed = Some(response_seed as u64);
-
-    let seed_id = match seed_aggregates.first() {
-        Some(row) => row.song_id.clone(),
-        None => {
-            return Ok(DiscoveryResponse {
-                song: Vec::new(),
-                total: 0,
-                seed: response_seed,
-                count,
-                exclude_recent_days,
-            });
-        }
-    };
 
     // 2. Get "recently played" set to exclude (avoid recommending what they just heard)
     let cutoff = chrono::Utc::now() - Duration::days(exclude_recent_days);
@@ -175,6 +202,7 @@ pub async fn discover_similar_songs(
             seed: response_seed,
             count,
             exclude_recent_days,
+            seed_song_id: Some(seed_id),
         });
     }
 
@@ -193,6 +221,7 @@ pub async fn discover_similar_songs(
             seed: response_seed,
             count,
             exclude_recent_days,
+            seed_song_id: Some(seed_id),
         });
     }
 
@@ -250,5 +279,6 @@ pub async fn discover_similar_songs(
         seed: response_seed,
         count,
         exclude_recent_days,
+        seed_song_id: Some(seed_id),
     })
 }

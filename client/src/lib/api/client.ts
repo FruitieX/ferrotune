@@ -653,6 +653,7 @@ export class FerrotuneClient {
       count?: number;
       excludeRecentDays?: number;
       seed?: number;
+      seedSongId?: string;
     } = {},
   ): Promise<DiscoveryResponse> {
     const endpoint = buildEndpoint("/api/discovery/similar-songs", params);

@@ -506,6 +506,10 @@ export default function HomeSectionPage() {
   const similarTracksSeedRef = useRef<number | undefined>(undefined);
   const similarTracksCountRef = useRef<number>(50);
   const similarTracksExcludeRef = useRef<number>(7);
+  // Resolved seed song ID returned by the discovery API on the first fetch.
+  // Forwarded back when materializing playback queues so the rendered list
+  // matches even if the user's most-recent scrobble has changed since.
+  const similarTracksSeedSongIdRef = useRef<string | null>(null);
   const mostPlayedFiltersRef = useRef(
     getMostPlayedRecentlyFilters(mostPlayedRecentlyDays),
   );
@@ -513,6 +517,7 @@ export default function HomeSectionPage() {
   useEffect(() => {
     seedRef.current = undefined;
     similarTracksSeedRef.current = undefined;
+    similarTracksSeedSongIdRef.current = null;
     mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters(
       mostPlayedRecentlyDays,
     );
@@ -639,6 +644,7 @@ export default function HomeSectionPage() {
         similarTracksSeedRef.current = response.seed;
         similarTracksCountRef.current = response.count;
         similarTracksExcludeRef.current = response.excludeRecentDays;
+        similarTracksSeedSongIdRef.current = response.seedSongId ?? null;
         return {
           entries: [] as ContinueListeningEntry[],
           songs: response.song ?? [],
@@ -749,6 +755,7 @@ export default function HomeSectionPage() {
                 seed: similarTracksSeedRef.current,
                 count: similarTracksCountRef.current,
                 excludeRecentDays: similarTracksExcludeRef.current,
+                seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
               }
             : seedRef.current !== undefined
               ? { ...forgottenFavoritesFilters, seed: seedRef.current }
@@ -840,6 +847,7 @@ export default function HomeSectionPage() {
                     seed: similarTracksSeedRef.current,
                     count: similarTracksCountRef.current,
                     excludeRecentDays: similarTracksExcludeRef.current,
+                    seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
                   }
                 : seedRef.current !== undefined
                   ? { seed: seedRef.current }
