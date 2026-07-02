@@ -40,13 +40,6 @@
     "native-audio:allow-stop-cast-media",
     "native-audio:allow-seek-cast-media",
     "native-audio:allow-set-cast-volume",
-    "native-audio:allow-get-cast-media-status",
-    "native-audio:allow-enqueue-download",
-    "native-audio:allow-remove-download",
-    "native-audio:allow-remove-all-downloads",
-    "native-audio:allow-pause-downloads",
-    "native-audio:allow-resume-downloads",
-    "native-audio:allow-get-downloads",
-    "native-audio:allow-set-download-wifi-only"
+    "native-audio:allow-get-cast-media-status"
   ]
 }
