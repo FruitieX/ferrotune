@@ -655,10 +655,10 @@
           "markdownDescription": "Denies the update_starred_state command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`",
+          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`\n- `allow-enqueue-download`\n- `allow-remove-download`\n- `allow-remove-all-downloads`\n- `allow-pause-downloads`\n- `allow-resume-downloads`\n- `allow-get-downloads`\n- `allow-set-download-wifi-only`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`"
+          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`\n- `allow-enqueue-download`\n- `allow-remove-download`\n- `allow-remove-all-downloads`\n- `allow-pause-downloads`\n- `allow-resume-downloads`\n- `allow-get-downloads`\n- `allow-set-download-wifi-only`"
         },
         {
           "description": "Allows starting or resuming audio playback",
@@ -839,6 +839,48 @@
           "type": "string",
           "const": "allow-get-cast-media-status",
           "markdownDescription": "Allows reading native Cast media status"
+        },
+        {
+          "description": "Allows enqueueing a song for offline download",
+          "type": "string",
+          "const": "allow-enqueue-download",
+          "markdownDescription": "Allows enqueueing a song for offline download"
+        },
+        {
+          "description": "Allows removing a downloaded song",
+          "type": "string",
+          "const": "allow-remove-download",
+          "markdownDescription": "Allows removing a downloaded song"
+        },
+        {
+          "description": "Allows removing all downloaded songs",
+          "type": "string",
+          "const": "allow-remove-all-downloads",
+          "markdownDescription": "Allows removing all downloaded songs"
+        },
+        {
+          "description": "Allows pausing all active downloads",
+          "type": "string",
+          "const": "allow-pause-downloads",
+          "markdownDescription": "Allows pausing all active downloads"
+        },
+        {
+          "description": "Allows resuming all paused downloads",
+          "type": "string",
+          "const": "allow-resume-downloads",
+          "markdownDescription": "Allows resuming all paused downloads"
+        },
+        {
+          "description": "Allows querying the list of downloaded songs",
+          "type": "string",
+          "const": "allow-get-downloads",
+          "markdownDescription": "Allows querying the list of downloaded songs"
+        },
+        {
+          "description": "Allows configuring Wi-Fi-only download mode",
+          "type": "string",
+          "const": "allow-set-download-wifi-only",
+          "markdownDescription": "Allows configuring Wi-Fi-only download mode"
         }
       ]
     }

@@ -150,6 +150,41 @@ identifier = "allow-get-cast-media-status"
 description = "Allows reading native Cast media status"
 commands.allow = ["get_cast_media_status"]
 
+[[permission]]
+identifier = "allow-enqueue-download"
+description = "Allows enqueueing a song for offline download"
+commands.allow = ["enqueue_download"]
+
+[[permission]]
+identifier = "allow-remove-download"
+description = "Allows removing a downloaded song"
+commands.allow = ["remove_download"]
+
+[[permission]]
+identifier = "allow-remove-all-downloads"
+description = "Allows removing all downloaded songs"
+commands.allow = ["remove_all_downloads"]
+
+[[permission]]
+identifier = "allow-pause-downloads"
+description = "Allows pausing all active downloads"
+commands.allow = ["pause_downloads"]
+
+[[permission]]
+identifier = "allow-resume-downloads"
+description = "Allows resuming all paused downloads"
+commands.allow = ["resume_downloads"]
+
+[[permission]]
+identifier = "allow-get-downloads"
+description = "Allows querying the list of downloaded songs"
+commands.allow = ["get_downloads"]
+
+[[permission]]
+identifier = "allow-set-download-wifi-only"
+description = "Allows configuring Wi-Fi-only download mode"
+commands.allow = ["set_download_wifi_only"]
+
 [[set]]
 identifier = "default"
 description = "Default permissions for native audio playback"
@@ -183,5 +218,12 @@ permissions = [
   "allow-stop-cast-media",
   "allow-seek-cast-media",
   "allow-set-cast-volume",
-  "allow-get-cast-media-status"
+  "allow-get-cast-media-status",
+  "allow-enqueue-download",
+  "allow-remove-download",
+  "allow-remove-all-downloads",
+  "allow-pause-downloads",
+  "allow-resume-downloads",
+  "allow-get-downloads",
+  "allow-set-download-wifi-only"
 ]

@@ -1189,4 +1189,95 @@ Allows reading native Cast media status
 
 </td>
 </tr>
+
+<tr>
+<td>
+
+`native-audio:allow-enqueue-download`
+
+</td>
+<td>
+
+Allows enqueueing a song for offline download
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-remove-download`
+
+</td>
+<td>
+
+Allows removing a downloaded song
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-remove-all-downloads`
+
+</td>
+<td>
+
+Allows removing all downloaded songs
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-pause-downloads`
+
+</td>
+<td>
+
+Allows pausing all active downloads
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-resume-downloads`
+
+</td>
+<td>
+
+Allows resuming all paused downloads
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-get-downloads`
+
+</td>
+<td>
+
+Allows querying the list of downloaded songs
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-download-wifi-only`
+
+</td>
+<td>
+
+Allows configuring Wi-Fi-only download mode
+
+</td>
+</tr>
 </table>
