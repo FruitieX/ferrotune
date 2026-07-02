@@ -915,6 +915,24 @@ class PlaybackService : MediaSessionService() {
         clearPendingNetworkRetry("service destroy")
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
         apiClient.disconnectSSE()
+        // Explicitly disconnect this client so the server removes it from the
+        // connected-clients list immediately, instead of waiting for the
+        // ~90s heartbeat grace period to elapse after the SSE stream drops.
+        // Fire-and-forget on a daemon thread so it cannot block service
+        // teardown; the OkHttp client has its own network timeouts. The JVM
+        // keeps running until the app process is actually killed, so a normal
+        // service stop gives the request time to complete in the background.
+        try {
+            Thread {
+                try {
+                    apiClient.disconnectClient()
+                } catch (e: Exception) {
+                    Log.w(TAG, "disconnectClient failed during service destroy", e)
+                }
+            }.apply { isDaemon = true; name = "ferrotune-disconnect" }.start()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start disconnectClient thread during service destroy", e)
+        }
         replayGainProcessor.setClippingCallback(null)
         apiExecutor.shutdownNow()
         mediaSession.release()
@@ -1988,7 +2006,7 @@ class PlaybackService : MediaSessionService() {
                 player.addMediaItem(i, newMediaItems[i])
             }
             loadedRangeStart = newBehindEntries.first().position
-            // Update queueOffset  
+            // Update queueOffset
             queueOffset = loadedRangeStart
 
             Log.d(TAG, "Prepended ${newTracks.size} tracks, range now $loadedRangeStart..${loadedRangeEnd - 1}")

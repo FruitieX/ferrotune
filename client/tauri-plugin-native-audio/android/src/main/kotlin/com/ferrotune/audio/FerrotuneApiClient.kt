@@ -484,6 +484,60 @@ class FerrotuneApiClient {
     }
 
     /**
+     * DELETE /api/sessions/:id/clients/:clientId.
+     *
+     * Explicitly disconnect this client from the session so the server removes
+     * it from the connected-clients list immediately, instead of waiting for
+     * the ~90s heartbeat grace period to elapse after the SSE stream drops.
+     *
+     * Best-effort fire-and-forget during service teardown.
+     */
+    fun disconnectClient() {
+        val config = sessionConfig ?: return
+        val sessionId = config.sessionId ?: return
+        val clientId = config.clientId ?: return
+        val encodedClientId = java.net.URLEncoder.encode(clientId, "UTF-8")
+        val url = buildApiUrl(
+            "/api/sessions/$sessionId/clients/$encodedClientId",
+            mapOf("clientId" to clientId),
+        )
+        val request = Request.Builder()
+            .url(url)
+            .delete()
+            .also { addAuthHeaders(it) }
+            .build()
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "disconnectClient failed: ${response.code}")
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "disconnect_client_failed",
+                        "Session client disconnect failed",
+                        mapOf(
+                            "sessionId" to sessionId,
+                            "clientId" to clientId,
+                            "httpStatus" to response.code,
+                        ),
+                    )
+                }
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "disconnectClient network error", e)
+            NativeAudioLogger.warn(
+                TAG,
+                "disconnect_client_network_error",
+                "Session client disconnect network error",
+                mapOf(
+                    "sessionId" to sessionId,
+                    "clientId" to clientId,
+                ),
+                e,
+            )
+        }
+    }
+
+    /**
      * POST /api/sessions/:id/command with action=takeOver.
      * Used by native media controls when the WebView is not initiating playback.
      */

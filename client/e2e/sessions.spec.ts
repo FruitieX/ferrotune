@@ -865,6 +865,33 @@ test.describe.serial("Multi-Session Playback", () => {
     }
   });
 
+  test("closing a tab removes it from the connected-clients list immediately", async ({
+    authenticatedPage: ownerPage,
+  }) => {
+    await playFirstSongAndPause(ownerPage);
+
+    const clonePage = await ownerPage.context().newPage();
+    await clonePage.goto(ownerPage.url());
+    await waitForAuthenticatedHome(clonePage);
+
+    try {
+      await expect
+        .poll(() => getConnectedClientCount(ownerPage), { timeout: 10000 })
+        .toBe(2);
+
+      // Closing the cloned tab fires a sendBeacon disconnect request.
+      // The owner's connected-clients list must drop to 1 almost immediately,
+      // without waiting for the ~90s heartbeat grace period.
+      await clonePage.close();
+
+      await expect
+        .poll(() => getConnectedClientCount(ownerPage), { timeout: 15000 })
+        .toBe(1);
+    } finally {
+      await clonePage.close();
+    }
+  });
+
   test("Chromecast session client is listed and can become owner", async ({
     authenticatedPage: page,
   }) => {

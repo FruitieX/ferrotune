@@ -39,6 +39,41 @@ export interface SessionEvent {
 const RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
 /**
+ * Send a best-effort disconnect beacon so the server removes this tab from the
+ * connected-clients list immediately, instead of waiting for the heartbeat
+ * grace period to elapse (which leaves a stale entry for ~90s).
+ *
+ * `sendBeacon` is the right primitive here: it survives the pagehide/unload
+ * transition with a 64KiB body cap and does not need a CORS preflight. We fall
+ * back to `fetch(..., { keepalive: true })` if `sendBeacon` is unavailable.
+ */
+function sendDisconnectBeacon(sessionId: string, clientId: string): void {
+  if (typeof window === "undefined") return;
+  const client = getClient();
+  if (!client) return;
+
+  const url = client.getDisconnectClientBeaconUrl(sessionId, clientId);
+  const blob = new Blob([""], { type: "application/json" });
+
+  if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+    try {
+      navigator.sendBeacon(url, blob);
+      return;
+    } catch {
+      // Fall through to fetch keepalive below.
+    }
+  }
+
+  try {
+    fetch(url, { method: "DELETE", body: blob, keepalive: true }).catch(
+      () => {},
+    );
+  } catch {
+    // Best-effort; nothing to do here.
+  }
+}
+
+/**
  * Hook to maintain an SSE connection for session events.
  * Receives queue changes, playback commands, and position updates
  * from the server for the current session.
@@ -54,6 +89,19 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
   useEffect(() => {
     onEventRef.current = onEvent;
   });
+
+  // Track the active (sessionId, clientId) pair so the disconnect beacon
+  // fires for the same client that was actually registered with the server,
+  // even if the atom values change before unload fires (e.g. account switch).
+  const activeSessionRef = useRef<{
+    sessionId: string;
+    clientId: string;
+  } | null>(null);
+
+  useEffect(() => {
+    activeSessionRef.current =
+      sessionId && clientId ? { sessionId, clientId } : null;
+  }, [sessionId, clientId]);
 
   useEffect(() => {
     if (!isClientInitialized || !sessionId) return;
@@ -123,6 +171,20 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
 
     openConnection();
 
+    // Send an explicit disconnect beacon when the tab is closing. `pagehide`
+    // is the modern, reliable event for this (also fires on mobile background
+    // transitions); `beforeunload` is a legacy fallback. The beacon tells the
+    // server to remove this client immediately rather than waiting for the
+    // 90s heartbeat grace period after the SSE stream drops.
+    const handleUnload = () => {
+      const active = activeSessionRef.current;
+      if (!active) return;
+      sendDisconnectBeacon(active.sessionId, active.clientId);
+    };
+
+    window.addEventListener("pagehide", handleUnload);
+    window.addEventListener("beforeunload", handleUnload);
+
     return () => {
       closedByCleanup = true;
       clearReconnectTimer();
@@ -133,6 +195,8 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
           eventSourceRef.current = null;
         }
       }
+      window.removeEventListener("pagehide", handleUnload);
+      window.removeEventListener("beforeunload", handleUnload);
     };
   }, [isClientInitialized, sessionId, clientId]);
 }

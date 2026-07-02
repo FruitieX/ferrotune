@@ -1538,7 +1538,12 @@ export class FerrotuneClient {
   ): Promise<{ success: boolean; sessionId: number }> {
     return this.request("/api/listening", {
       method: "POST",
-      body: JSON.stringify({ songId, durationSeconds, sessionId, skipped }),
+      body: JSON.stringify({
+        songId,
+        durationSeconds,
+        sessionId,
+        skipped,
+      }),
     });
   }
 
@@ -2258,6 +2263,40 @@ export class FerrotuneClient {
     if (deviceLabel) params.set("deviceLabel", deviceLabel);
     return this.buildAdminUrl(
       `/api/sessions/${encodeURIComponent(sessionId)}/events?${params.toString()}`,
+    );
+  }
+
+  /**
+   * Get the URL of the beacon endpoint used to explicitly disconnect a client
+   * (sent via `navigator.sendBeacon` on tab close). The URL carries the URL
+   * token, so the request authenticates without a Bearer header (which
+   * `sendBeacon` cannot reliably set).
+   */
+  getDisconnectClientBeaconUrl(sessionId: string, clientId: string): string {
+    const params = new URLSearchParams();
+    this.addUrlToken(params);
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
+    params.set("clientId", clientId);
+    return this.buildAdminUrl(
+      `/api/sessions/${encodeURIComponent(sessionId)}/clients/${encodeURIComponent(clientId)}?${params.toString()}`,
+    );
+  }
+
+  /**
+   * Explicitly disconnect a client from a session (server-side cleanup,
+   * bypasses the heartbeat grace period). Prefer `sendBeacon` with
+   * `getDisconnectClientBeaconUrl` for tab-close, since `fetch` may be
+   * cancelled during page unload.
+   */
+  async disconnectClient(
+    sessionId: string,
+    clientId: string,
+  ): Promise<SessionSuccessResponse> {
+    return this.request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/clients/${encodeURIComponent(clientId)}`,
+      { method: "DELETE" },
+      true, // Silent — best-effort cleanup
     );
   }
 
@@ -3137,7 +3176,9 @@ export class FerrotuneClient {
     folderId: string,
     targetParentId: string | null,
   ): Promise<PlaylistFolderResponse> {
-    return this.updatePlaylistFolder(folderId, { parentId: targetParentId });
+    return this.updatePlaylistFolder(folderId, {
+      parentId: targetParentId,
+    });
   }
 
   // === Playlist Folder Cover Art ===

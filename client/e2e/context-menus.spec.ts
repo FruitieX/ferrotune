@@ -139,9 +139,9 @@ test.describe("Context Menus", () => {
     // Pause playback so the short test fixtures don't end while we navigate
     // back to the song list and exercise the context menus.
     await playerBar.getByRole("button", { name: /^Pause$/ }).click();
-    await expect(
-      playerBar.getByRole("button", { name: /^Play$/ }),
-    ).toBeVisible({ timeout: 10000 });
+    await expect(playerBar.getByRole("button", { name: /^Play$/ })).toBeVisible(
+      { timeout: 10000 },
+    );
 
     await page.goto("/library/songs");
 
@@ -201,9 +201,9 @@ test.describe("Context Menus", () => {
     // Pause playback so the short (~3s) test fixture doesn't end during
     // the subsequent navigation and context-menu interactions.
     await playerBar.getByRole("button", { name: /^Pause$/ }).click();
-    await expect(
-      playerBar.getByRole("button", { name: /^Play$/ }),
-    ).toBeVisible({ timeout: 10000 });
+    await expect(playerBar.getByRole("button", { name: /^Play$/ })).toBeVisible(
+      { timeout: 10000 },
+    );
 
     await page.goto("/library/songs");
 
