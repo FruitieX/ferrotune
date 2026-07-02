@@ -216,11 +216,27 @@ fn query_param(parts: &Parts, key: &str) -> Option<String> {
 }
 
 fn url_token_scope_for_request(parts: &Parts) -> Option<&'static str> {
+    let path = parts.uri.path();
+
+    // The tab-close disconnect beacon is fired by `navigator.sendBeacon`
+    // during page unload and cannot easily set a Bearer header, so it is
+    // authenticated via URL token instead. It is the only non-GET endpoint
+    // that accepts a URL token.
+    if parts.method == Method::DELETE {
+        if path == "/api/sessions/{id}/clients/{client_id}"
+            || (path.starts_with("/api/sessions/")
+                && path.matches('/').count() >= 5
+                && path.contains("/clients/"))
+        {
+            return Some("all");
+        }
+        return None;
+    }
+
     if parts.method != Method::GET {
         return None;
     }
 
-    let path = parts.uri.path();
     if matches!(path, "/scan/progress" | "/api/scan/progress") || path.ends_with("/events") {
         return Some("events");
     }

@@ -407,6 +407,81 @@ struct ClientCleanupGuard {
     state: Arc<AppState>,
 }
 
+/// Detach a client from a session after its SSE stream is gone.
+///
+/// When `force` is false (the SSE-drop case), the client entry is kept alive
+/// while it has a fresh heartbeat, so a tab whose SSE was silently torn down by
+/// a proxy/browser but is still playing stays controllable remotely. The
+/// background sweep in `main.rs` reaps it once the heartbeat also goes stale.
+///
+/// When `force` is true (explicit disconnect beacon from a closing tab), the
+/// heartbeat grace period is skipped so the tab disappears from the
+/// connected-clients list immediately.
+///
+/// In both cases, if the removed client was the session owner, ownership is
+/// cleared and the change is broadcast. Broadcasts are only emitted when the
+/// client was actually removed, so a no-op request for an already-gone client
+/// doesn't trigger spurious refreshes.
+async fn detach_client(
+    state: &Arc<AppState>,
+    session_id: &str,
+    user_id: i64,
+    client_id: &str,
+    force: bool,
+) {
+    let removed = if force {
+        state
+            .session_manager
+            .force_remove_client(session_id, client_id)
+            .await
+    } else {
+        state
+            .session_manager
+            .unregister_client(session_id, client_id)
+            .await
+    };
+
+    if !removed {
+        return;
+    }
+
+    let owner_cleared = 'owner_clear: {
+        let session = match queries::get_session(&state.database, session_id, user_id).await {
+            Ok(Some(session)) => session,
+            _ => break 'owner_clear false,
+        };
+
+        if session.owner_client_id.as_deref() != Some(client_id) {
+            break 'owner_clear false;
+        }
+
+        queries::clear_session_owner(&state.database, session_id)
+            .await
+            .is_ok()
+    };
+
+    if owner_cleared {
+        state
+            .session_manager
+            .broadcast(
+                session_id,
+                SessionEvent::OwnerChanged {
+                    owner_client_id: None,
+                    owner_client_name: None,
+                    resume_playback: None,
+                    position_ms: None,
+                },
+            )
+            .await;
+    }
+
+    // Notify other clients that the client list changed
+    state
+        .session_manager
+        .broadcast(session_id, SessionEvent::ClientListChanged)
+        .await;
+}
+
 impl Drop for ClientCleanupGuard {
     fn drop(&mut self) {
         let session_id = self.session_id.clone();
@@ -415,63 +490,7 @@ impl Drop for ClientCleanupGuard {
         let state = self.state.clone();
         tokio::spawn(async move {
             if let Some(ref cid) = client_id {
-                let removed = state
-                    .session_manager
-                    .unregister_client(&session_id, cid)
-                    .await;
-
-                let disconnected_owner_disconnected = 'owner_lookup: {
-                    if !removed {
-                        break 'owner_lookup false;
-                    }
-
-                    let session =
-                        match queries::get_session(&state.database, &session_id, user_id).await {
-                            Ok(Some(session)) => session,
-                            _ => break 'owner_lookup false,
-                        };
-
-                    if session.owner_client_id.as_deref() != Some(cid.as_str()) {
-                        break 'owner_lookup false;
-                    }
-
-                    true
-                };
-
-                let owner_cleared = 'owner_clear: {
-                    if !disconnected_owner_disconnected {
-                        break 'owner_clear false;
-                    }
-                    if queries::clear_session_owner(&state.database, &session_id)
-                        .await
-                        .is_err()
-                    {
-                        break 'owner_clear false;
-                    }
-
-                    true
-                };
-
-                if owner_cleared {
-                    state
-                        .session_manager
-                        .broadcast(
-                            &session_id,
-                            SessionEvent::OwnerChanged {
-                                owner_client_id: None,
-                                owner_client_name: None,
-                                resume_playback: None,
-                                position_ms: None,
-                            },
-                        )
-                        .await;
-                }
-
-                // Notify other clients that the client list changed
-                state
-                    .session_manager
-                    .broadcast(&session_id, SessionEvent::ClientListChanged)
-                    .await;
+                detach_client(&state, &session_id, user_id, cid, false).await;
             }
         });
     }
@@ -712,6 +731,48 @@ pub async fn session_command(
     state.session_manager.broadcast(&session_id, event).await;
 
     Ok(Json(SessionSuccessResponse { success: true }))
+}
+
+/// DELETE /api/sessions/:id/clients/:client_id — Explicitly disconnect a client.
+///
+/// Sent by a closing tab via `navigator.sendBeacon` so its entry disappears
+/// from the connected-clients list immediately, rather than waiting for the
+/// heartbeat grace period (90s) to elapse after the SSE stream drops. The
+/// route also accepts the client id as a `clientId` query parameter for use
+/// by `sendBeacon` calls that cannot easily set path segments.
+///
+/// If the disconnected client was the session owner, ownership is cleared and
+/// an `OwnerChanged` event is broadcast.
+pub async fn disconnect_client(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path((session_id, path_client_id)): Path<(String, String)>,
+    Query(query): Query<DisconnectClientQuery>,
+) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
+    // Verify session belongs to user
+    queries::get_session(&state.database, &session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+
+    let path_client = if path_client_id.is_empty() {
+        None
+    } else {
+        Some(path_client_id)
+    };
+    let client_id = query.client_id.clone().or(path_client).ok_or_else(|| {
+        FerrotuneApiError(Error::InvalidRequest("clientId is required".to_string()))
+    })?;
+
+    detach_client(&state, &session_id, user.user_id, &client_id, true).await;
+
+    Ok(Json(SessionSuccessResponse { success: true }))
+}
+
+/// Query params for the disconnect-client endpoint.
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DisconnectClientQuery {
+    pub client_id: Option<String>,
 }
 
 #[cfg(test)]

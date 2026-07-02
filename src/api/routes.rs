@@ -292,6 +292,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/sessions/{id}/events", get(sessions::session_events))
         .route("/sessions/{id}/command", post(sessions::session_command))
+        .route(
+            "/sessions/{id}/clients/{client_id}",
+            delete(sessions::disconnect_client),
+        )
         // User management endpoints (admin only)
         .route("/users/me", get(users::get_current_user))
         .route("/users/shareable", get(users::list_shareable_users))

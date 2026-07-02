@@ -517,6 +517,25 @@ impl SessionManager {
     /// The background sweep in `main.rs` reaps it once the heartbeat also
     /// goes stale.
     pub async fn unregister_client(&self, session_id: &str, client_id: &str) -> bool {
+        self.unregister_client_impl(session_id, client_id, false)
+            .await
+    }
+
+    /// Forcefully remove a client from a session, ignoring the heartbeat grace
+    /// period.
+    ///
+    /// Used when a tab explicitly signals that it is closing (via the
+    /// `DELETE /api/sessions/:id/clients/:clientId` beacon). Returns true if the
+    /// client was present and has no remaining SSE streams. If the client still
+    /// has live SSE streams (e.g. cloned tabs sharing a `client_id`), the entry
+    /// is kept and false is returned — closing one tab should not evict a
+    /// still-connected sibling.
+    pub async fn force_remove_client(&self, session_id: &str, client_id: &str) -> bool {
+        self.unregister_client_impl(session_id, client_id, true)
+            .await
+    }
+
+    async fn unregister_client_impl(&self, session_id: &str, client_id: &str, force: bool) -> bool {
         let now = Instant::now();
         let grace = HEARTBEAT_GRACE;
         let mut sessions = self.sessions.write().await;
@@ -528,13 +547,16 @@ impl SessionManager {
                 }
                 // Last SSE stream is gone: keep the entry alive while the
                 // heartbeat is fresh, so the tab stays controllable remotely
-                // even if its SSE was silently dropped.
-                let heartbeat_alive = existing
-                    .last_heartbeat_at
-                    .is_some_and(|t| now.duration_since(t) < grace);
-                if heartbeat_alive {
-                    existing.connection_count = 0;
-                    return false;
+                // even if its SSE was silently dropped. A forceful removal
+                // (explicit disconnect beacon) skips this grace period.
+                if !force {
+                    let heartbeat_alive = existing
+                        .last_heartbeat_at
+                        .is_some_and(|t| now.duration_since(t) < grace);
+                    if heartbeat_alive {
+                        existing.connection_count = 0;
+                        return false;
+                    }
                 }
                 state.clients.remove(client_id);
                 return true;
@@ -719,6 +741,68 @@ mod tests {
 
         assert!(manager.is_client_connected("session-1", "client-1").await);
         assert_eq!(manager.get_clients("session-1").await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn force_remove_client_bypasses_heartbeat_grace() {
+        // A tab that closes itself sends an explicit disconnect beacon. The
+        // server must remove it from the connected-clients list immediately,
+        // even if the heartbeat would otherwise keep it alive for the grace
+        // period.
+        let manager = SessionManager::new();
+
+        manager
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-web",
+                ConnectedClientMetadata::default(),
+            )
+            .await;
+        // A fresh heartbeat would normally keep the entry alive after the
+        // SSE stream drops. Force-removing should bypass that.
+        assert!(
+            !manager
+                .record_heartbeat("session-1", "client-1", None)
+                .await
+        );
+
+        assert!(manager.force_remove_client("session-1", "client-1").await);
+        assert!(!manager.is_client_connected("session-1", "client-1").await);
+        assert!(manager.get_clients("session-1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn force_remove_client_keeps_refcounted_sibling() {
+        // Two SSE streams belonging to the same logical client_id (e.g.
+        // reconnect races) share a refcount. Closing one tab must not evict
+        // the other; the entry only disappears once the final stream is gone.
+        let manager = SessionManager::new();
+
+        manager
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-web",
+                ConnectedClientMetadata::default(),
+            )
+            .await;
+        manager
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-web",
+                ConnectedClientMetadata::default(),
+            )
+            .await;
+
+        assert!(!manager.force_remove_client("session-1", "client-1").await);
+        assert!(manager.is_client_connected("session-1", "client-1").await);
+
+        // The last stream disconnecting (now without heartbeat grace needed,
+        // since force removes the entry) finalizes the cleanup.
+        assert!(manager.force_remove_client("session-1", "client-1").await);
+        assert!(!manager.is_client_connected("session-1", "client-1").await);
     }
 }
 
