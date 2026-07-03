@@ -226,6 +226,27 @@ async function swipeQueueSheetClosed(page: Page, queueSheet: Locator) {
   }
 }
 
+async function swipeToastAway(page: Page) {
+  const toast = page.locator("[data-sonner-toast]").first();
+  await expect(toast).toBeVisible({ timeout: 10000 });
+
+  const box = await toast.boundingBox();
+  if (!box) {
+    throw new Error("Toast bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  const endX = startX + Math.max(120, box.width / 2);
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(endX, startY, { steps: 10 });
+  await page.mouse.up();
+
+  await expect(toast).not.toBeVisible({ timeout: 10000 });
+}
+
 async function swipePlayerBarFullscreenOpen(page: Page, playerBar: Locator) {
   const box = await playerBar.boundingBox();
   if (!box) {
@@ -772,6 +793,39 @@ test.describe("Mobile Tests", () => {
     ).toBeVisible();
   });
 
+  test("swiping up from playback progress does not open fullscreen", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+
+    const progress = playerBar.getByRole("slider", {
+      name: /playback progress/i,
+    });
+    await expect(progress).toBeVisible({ timeout: 10000 });
+
+    const box = await progress.boundingBox();
+    if (!box) {
+      throw new Error("Playback progress bounding box was not available");
+    }
+
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    const endY = Math.max(8, startY - 180);
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX, endY, { steps: 12 });
+    await page.mouse.up();
+
+    await expect(
+      page.locator('[data-fullscreen-player="true"]'),
+    ).not.toBeVisible();
+  });
+
   test("dragging player bar back down cancels fullscreen open", async ({
     authenticatedPage: page,
   }) => {
@@ -855,7 +909,7 @@ test.describe("Mobile Tests", () => {
     await expect(playerBar).toContainText("First Song", { timeout: 10000 });
   });
 
-  test("album art diagonal close releases fullscreen backdrop", async ({
+  test("album art horizontal-biased diagonal drag does not close fullscreen", async ({
     authenticatedPage: page,
   }) => {
     await playFirstSong(page);
@@ -875,14 +929,16 @@ test.describe("Mobile Tests", () => {
       fullscreenPlayer.getByTestId("fullscreen-album-art"),
     );
 
-    expect(releaseState.releaseSheetY).toBeLessThan(
-      releaseState.viewportHeight - 80,
-    );
-    expect(releaseState.releaseBackdropOpacity).toBeGreaterThan(0);
+    expect(releaseState.releaseSheetY).toBeLessThan(16);
+    expect(releaseState.releaseBackdropOpacity).toBeGreaterThan(0.9);
     expect(releaseState.releaseBackdropFilter).not.toBe("none");
 
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+    await waitForFullscreenPlayerSettled(fullscreenPlayer);
+    await fullscreenPlayer
+      .getByRole("button", { name: /close fullscreen player/i })
+      .tap();
     await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("fullscreen-backdrop")).not.toBeVisible();
 
     const searchNavLink = page
       .getByTestId("mobile-nav")
@@ -893,7 +949,7 @@ test.describe("Mobile Tests", () => {
     await expect(page).toHaveURL(/\/search/);
   });
 
-  test("album art side drag hands off to vertical sheet drag", async ({
+  test("album art horizontal lock prevents vertical sheet drift", async ({
     authenticatedPage: page,
   }) => {
     await playFirstSong(page);
@@ -913,20 +969,12 @@ test.describe("Mobile Tests", () => {
       fullscreenPlayer.getByTestId("fullscreen-album-art"),
     );
 
-    expect(positions.sheetDownY).toBeGreaterThan(positions.initialSheetY + 32);
-    expect(positions.sheetUpY).toBeLessThan(positions.sheetDownY - 24);
+    expect(positions.sheetDownY).toBeLessThan(positions.initialSheetY + 16);
+    expect(positions.sheetUpY).toBeLessThan(positions.initialSheetY + 16);
     const sideDelta = Math.abs(positions.artSideX - positions.initialArtX);
     const downDelta = Math.abs(positions.artDownX - positions.initialArtX);
-    const restDelta = Math.abs(positions.artRestX - positions.initialArtX);
-    const afterRestSideDelta = Math.abs(
-      positions.artAfterRestSideX - positions.initialArtX,
-    );
-    const upDelta = Math.abs(positions.artUpX - positions.initialArtX);
     expect(sideDelta).toBeGreaterThan(24);
     expect(downDelta).toBeLessThanOrEqual(sideDelta + 8);
-    expect(restDelta).toBeLessThan(8);
-    expect(afterRestSideDelta).toBeLessThan(8);
-    expect(upDelta).toBeLessThanOrEqual(sideDelta + 8);
 
     await expect
       .poll(
@@ -944,12 +992,10 @@ test.describe("Mobile Tests", () => {
 
     await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
     await waitForFullscreenPlayerSettled(fullscreenPlayer);
-    await swipeFullscreenDownFromAlbumArt(
-      page,
-      fullscreenPlayer.getByTestId("fullscreen-album-art"),
-    );
+    await fullscreenPlayer
+      .getByRole("button", { name: /close fullscreen player/i })
+      .tap();
     await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
-    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
   });
 
   test("album art horizontal swipe stops at adjacent track position", async ({
@@ -1033,6 +1079,39 @@ test.describe("Mobile Tests", () => {
     await closeButton.tap();
 
     await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test("first tap after toast swipe reaches mobile nav", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/albums");
+
+    const albumLink = page
+      .locator("a")
+      .filter({ hasText: /^Test Album/ })
+      .first();
+    await expect(albumLink).toBeVisible({ timeout: 10000 });
+    await albumLink.click();
+
+    await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+
+    const firstSongRow = page.locator('[data-testid="song-row"]').first();
+    await firstSongRow.click({ button: "right" });
+
+    const drawer = page.locator("[data-vaul-drawer]");
+    await expect(drawer).toBeVisible({ timeout: 5000 });
+
+    await page.getByRole("button", { name: /add to favorites/i }).click();
+    await expect(drawer).not.toBeVisible({ timeout: 10000 });
+
+    await swipeToastAway(page);
+
+    await page
+      .getByTestId("mobile-nav")
+      .getByRole("link", { name: /search/i })
+      .tap();
+    await expect(page).toHaveURL(/\/search/);
   });
 
   test("account switch keeps queue sheet hidden on mobile mount", async ({

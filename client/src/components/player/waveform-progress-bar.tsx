@@ -593,6 +593,7 @@ export function WaveformProgressBar({
     <div
       ref={containerRef}
       role="slider"
+      data-playback-progress-control="true"
       aria-label="Playback progress"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -611,6 +612,7 @@ export function WaveformProgressBar({
         height: `${waveformHeight}px`,
         zIndex: 10,
       }}
+      onPointerDown={(event) => event.stopPropagation()}
       onMouseDown={hasTrack ? handleMouseDown : undefined}
       onTouchStart={hasTrack ? handleTouchStart : undefined}
       onTouchEnd={hasTrack ? finishTouchInteraction : undefined}

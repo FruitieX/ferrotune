@@ -10,10 +10,17 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { watchNextTapAfterGesture } from "@/lib/utils/gesture";
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const activeSwipeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    maxDistance: number;
+  } | null>(null);
 
   // Sonner calls setPointerCapture on pointerDown for swipe-to-dismiss but never
   // calls releasePointerCapture. When a toast is removed from DOM during the swipe
@@ -24,19 +31,75 @@ const Toaster = ({ ...props }: ToasterProps) => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handlePointerUp = (e: PointerEvent) => {
-      if (e.target instanceof HTMLElement) {
+    const getToastElement = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return null;
+      return target.closest("[data-sonner-toast]");
+    };
+
+    const releaseToastPointerCapture = (e: PointerEvent) => {
+      const toast = getToastElement(e.target);
+      const targets = [e.target, toast];
+
+      for (const target of targets) {
+        if (!(target instanceof HTMLElement)) continue;
         try {
-          e.target.releasePointerCapture(e.pointerId);
+          target.releasePointerCapture(e.pointerId);
         } catch {
-          // Ignore if no capture was held
+          // Ignore if no capture was held.
         }
       }
     };
 
-    container.addEventListener("pointerup", handlePointerUp, true);
-    return () =>
-      container.removeEventListener("pointerup", handlePointerUp, true);
+    const handlePointerDown = (e: PointerEvent) => {
+      if (!getToastElement(e.target)) return;
+
+      activeSwipeRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        maxDistance: 0,
+      };
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const activeSwipe = activeSwipeRef.current;
+      if (!activeSwipe || activeSwipe.pointerId !== e.pointerId) return;
+
+      activeSwipe.maxDistance = Math.max(
+        activeSwipe.maxDistance,
+        Math.hypot(
+          e.clientX - activeSwipe.startX,
+          e.clientY - activeSwipe.startY,
+        ),
+      );
+    };
+
+    const finishPointerGesture = (e: PointerEvent) => {
+      releaseToastPointerCapture(e);
+
+      const activeSwipe = activeSwipeRef.current;
+      activeSwipeRef.current = null;
+      if (!activeSwipe || activeSwipe.pointerId !== e.pointerId) return;
+
+      if (activeSwipe.maxDistance >= 24) {
+        watchNextTapAfterGesture("toast-swipe-dismiss");
+      }
+    };
+
+    container.addEventListener("pointerdown", handlePointerDown, true);
+    container.addEventListener("pointermove", handlePointerMove, true);
+    container.addEventListener("pointerup", finishPointerGesture, true);
+    container.addEventListener("pointercancel", finishPointerGesture, true);
+    return () => {
+      container.removeEventListener("pointerdown", handlePointerDown, true);
+      container.removeEventListener("pointermove", handlePointerMove, true);
+      container.removeEventListener("pointerup", finishPointerGesture, true);
+      container.removeEventListener(
+        "pointercancel",
+        finishPointerGesture,
+        true,
+      );
+    };
   }, []);
 
   return (

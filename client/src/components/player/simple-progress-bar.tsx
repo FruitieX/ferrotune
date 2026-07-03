@@ -158,6 +158,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
     <div
       ref={containerRef}
       role="slider"
+      data-playback-progress-control="true"
       aria-label="Playback progress"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -176,6 +177,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
         zIndex: 100,
       }}
       onClick={hasTrack ? handleClick : undefined}
+      onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
       onFocus={hasTrack ? () => setIsFocused(true) : undefined}
       onBlur={() => setIsFocused(false)}

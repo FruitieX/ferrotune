@@ -6,6 +6,7 @@ import {
   useMotionValue,
   useTransform,
   animate,
+  useDragControls,
   type AnimationPlaybackControls,
   type PanInfo,
 } from "framer-motion";
@@ -27,12 +28,25 @@ import {
   Monitor,
   Smartphone,
 } from "lucide-react";
-import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { cn } from "@/lib/utils";
 import { hapticTap, hapticConfirm, hapticToggle } from "@/lib/utils/haptic";
 import {
+  claimGestureAxis,
+  getClaimedGestureAxis,
+  getDominantGestureAxis,
+  releaseGestureAxisSoon,
   releaseDragPointerCapture,
   stopMainScrollInertia,
+  stopScrollInertiaAfterGesture,
+  watchNextTapAfterGesture,
+  type GestureAxis,
 } from "@/lib/utils/gesture";
 import {
   cleanUpHistoryState,
@@ -218,6 +232,7 @@ export function FullscreenPlayer() {
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const isSmallScreen = useIsSmallScreen();
+  const sheetDragControls = useDragControls();
 
   // Track if we're in the middle of a gesture-based close animation
   // This is set to true when the user releases a drag that should close
@@ -269,6 +284,9 @@ export function FullscreenPlayer() {
   const albumArtCurrentDownwardDistanceRef = useRef(0);
   const albumArtVerticalCloseRef = useRef(false);
   const albumArtDragStartYRef = useRef(0);
+  const albumArtGestureAxisRef = useRef<GestureAxis | null>(null);
+  const sheetGestureAxisRef = useRef<GestureAxis | null>(null);
+  const sheetDragStartedDuringOpenRef = useRef(false);
 
   // Get adjacent tracks for album art swipe preview
   const prevTrack =
@@ -393,6 +411,7 @@ export function FullscreenPlayer() {
     albumArtDismissAnimationSettledRef.current = false;
     setAlbumArtDismissPreviewDirection(null);
     albumArtDragStartYRef.current = 0;
+    albumArtGestureAxisRef.current = null;
   };
 
   const getPointerClientY = (event: MouseEvent | TouchEvent | PointerEvent) => {
@@ -425,6 +444,7 @@ export function FullscreenPlayer() {
     setIsClosingViaGesture(false);
     setIsDraggingSheet(false);
     setIsSwipingAlbumArt(false);
+    stopScrollInertiaAfterGesture();
     requestAnimationFrame(() => {
       fullscreenOpenDragY.set(0);
       stopAlbumArtDismissAnimation();
@@ -459,12 +479,13 @@ export function FullscreenPlayer() {
 
   const closeWithGestureAnimation = () => {
     // If isOpen is still false we're dismissing during the opening gesture.
-    // Cancel the open spring so its onComplete never fires, then let the
-    // component settle back to the hidden offscreen state.
+    // Cancel the open spring so its onComplete never fires, then animate the
+    // gesture-owned sheet out from its current position.
     if (!isOpen) {
       cancelFullscreenOpen();
-      if (!closePendingRef.current) settleGestureClosed();
-      return;
+      isOpeningWithGestureRef.current = false;
+      openGestureWasActiveRef.current = false;
+      setIsOpeningWithGesture(false);
     }
 
     setIsClosedAnimationSettled(false);
@@ -527,6 +548,31 @@ export function FullscreenPlayer() {
       downwardDistance,
     );
 
+    const axis = getDominantGestureAxis(
+      info.offset.x,
+      downwardDistance,
+      albumArtGestureAxisRef.current,
+      { minDistance: 6, dominanceRatio: 1 },
+    );
+    albumArtGestureAxisRef.current = axis;
+
+    if (!axis) {
+      albumArtDragX.set(0);
+      dragY.set(0);
+      return;
+    }
+
+    if (axis === "horizontal") {
+      claimGestureAxis("horizontal");
+      albumArtVerticalCloseRef.current = false;
+      if (isDraggingSheet) setIsDraggingSheet(false);
+      dragY.set(0);
+      albumArtDragX.set(clampAlbumArtDragX(info.offset.x));
+      return;
+    }
+
+    claimGestureAxis("vertical");
+
     if (albumArtVerticalCloseRef.current) {
       if (albumArtDismissAnimationSettledRef.current) {
         albumArtDragX.set(0);
@@ -535,6 +581,7 @@ export function FullscreenPlayer() {
       return;
     }
 
+    albumArtDragX.set(0);
     if (downwardDistance > 0) {
       if (!isDraggingSheet) setIsDraggingSheet(true);
       dragY.set(downwardDistance);
@@ -553,8 +600,6 @@ export function FullscreenPlayer() {
       dragY.set(downwardDistance);
       return;
     }
-
-    albumArtDragX.set(clampAlbumArtDragX(info.offset.x));
   };
 
   const handleAlbumArtDragEnd = async (
@@ -565,17 +610,21 @@ export function FullscreenPlayer() {
     const verticalDistance = albumArtMaxVerticalDistanceRef.current;
     const currentDownwardDistance = albumArtCurrentDownwardDistanceRef.current;
     const horizontalDistance = albumArtMaxHorizontalDistanceRef.current;
+    const gestureAxis = albumArtGestureAxisRef.current;
     const shouldCloseFullscreen =
+      gestureAxis === "vertical" &&
       albumArtVerticalCloseRef.current &&
       (currentDownwardDistance > CLOSE_SWIPE_THRESHOLD ||
         (currentDownwardDistance > ALBUM_ART_VERTICAL_CANCEL_THRESHOLD &&
           info.velocity.y > CLOSE_VELOCITY_THRESHOLD));
 
-    if (albumArtVerticalCloseRef.current) {
+    if (gestureAxis === "vertical" || albumArtVerticalCloseRef.current) {
       setIsSwipingAlbumArt(false);
       resetAlbumArtGesture();
+      releaseGestureAxisSoon(gestureAxis ?? undefined);
 
       if (shouldCloseFullscreen) {
+        watchNextTapAfterGesture("album-art-swipe-close");
         closeWithGestureAnimation();
       } else {
         animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
@@ -587,7 +636,8 @@ export function FullscreenPlayer() {
       return;
     }
 
-    const wasPrimarilyHorizontal = horizontalDistance > verticalDistance;
+    const wasPrimarilyHorizontal =
+      gestureAxis === "horizontal" && horizontalDistance > verticalDistance;
     const currentDragX = clampAlbumArtDragX(albumArtDragX.get());
     const shouldGoNext =
       wasPrimarilyHorizontal &&
@@ -601,6 +651,7 @@ export function FullscreenPlayer() {
       prevTrack;
 
     if (shouldGoNext) {
+      watchNextTapAfterGesture("album-art-horizontal-swipe");
       const width = getAlbumArtSwipeDistance();
       await animate(albumArtDragX, -width, {
         type: "spring",
@@ -609,6 +660,7 @@ export function FullscreenPlayer() {
       });
       next();
     } else if (shouldGoPrev) {
+      watchNextTapAfterGesture("album-art-horizontal-swipe");
       const width = getAlbumArtSwipeDistance();
       await animate(albumArtDragX, width, {
         type: "spring",
@@ -626,6 +678,7 @@ export function FullscreenPlayer() {
     }
     setIsSwipingAlbumArt(false);
     resetAlbumArtGesture();
+    releaseGestureAxisSoon(gestureAxis ?? undefined);
   };
 
   useEffect(() => {
@@ -769,6 +822,34 @@ export function FullscreenPlayer() {
       });
     }
   }, [isOpen, isClosingViaGesture, dragY]);
+
+  useEffect(() => {
+    if (
+      isOpen ||
+      isOpeningWithGesture ||
+      isClosingViaGesture ||
+      isDraggingSheet
+    ) {
+      return;
+    }
+
+    const rafId = requestAnimationFrame(() => {
+      fullscreenOpenDragY.set(0);
+      dragY.set(0);
+      openGestureWasActiveRef.current = false;
+      isOpeningWithGestureRef.current = false;
+      setIsOpeningWithGesture(false);
+      setIsClosedAnimationSettled(true);
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [
+    isOpen,
+    isOpeningWithGesture,
+    isClosingViaGesture,
+    isDraggingSheet,
+    dragY,
+  ]);
 
   // Handle Escape key to close fullscreen
   // Only close if there are no higher-priority overlays that should handle Escape first
@@ -952,29 +1033,64 @@ export function FullscreenPlayer() {
     }
 
     const { offset, velocity } = info;
+    const sheetAxis =
+      sheetGestureAxisRef.current ??
+      getDominantGestureAxis(offset.x, Math.max(0, offset.y), null, {
+        minDistance: 6,
+        dominanceRatio: 1,
+      });
+
+    if (
+      getClaimedGestureAxis() === "horizontal" ||
+      sheetAxis === "horizontal"
+    ) {
+      const shouldKeepOpen = sheetDragStartedDuringOpenRef.current && !isOpen;
+      sheetDragStartedDuringOpenRef.current = false;
+      releaseDragPointerCapture(event, sheetRef.current);
+      stopScrollInertiaAfterGesture();
+      watchNextTapAfterGesture("fullscreen-horizontal-cancel");
+      dragY.set(0);
+      setIsDraggingSheet(false);
+      if (shouldKeepOpen) setIsOpen(true);
+      sheetGestureAxisRef.current = null;
+      releaseGestureAxisSoon("horizontal");
+      return;
+    }
+
     const shouldClose =
-      offset.y > CLOSE_SWIPE_THRESHOLD || velocity.y > CLOSE_VELOCITY_THRESHOLD;
+      sheetAxis === "vertical" &&
+      (offset.y > CLOSE_SWIPE_THRESHOLD ||
+        velocity.y > CLOSE_VELOCITY_THRESHOLD);
 
     if (shouldClose) {
+      sheetDragStartedDuringOpenRef.current = false;
       hapticConfirm();
       // On Android Tauri, the WebView's pointer capture can leak after a
       // fast swipe, causing the next tap to be routed to the sheet
       // instead of the element under the finger. Release the capture on
       // the drag container explicitly.
       releaseDragPointerCapture(event, sheetRef.current);
+      stopScrollInertiaAfterGesture();
+      watchNextTapAfterGesture("fullscreen-swipe-close");
       closeWithGestureAnimation();
     } else {
       // Snap back to origin
       releaseDragPointerCapture(event, sheetRef.current);
+      stopScrollInertiaAfterGesture();
       const generation = dragGenerationRef.current;
+      const shouldKeepOpen = sheetDragStartedDuringOpenRef.current && !isOpen;
+      sheetDragStartedDuringOpenRef.current = false;
       animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
         () => {
           if (dragGenerationRef.current === generation) {
+            if (shouldKeepOpen) setIsOpen(true);
             setIsDraggingSheet(false);
           }
         },
       );
     }
+    sheetGestureAxisRef.current = null;
+    releaseGestureAxisSoon(sheetAxis ?? undefined);
   };
 
   // Handler for drag start
@@ -982,6 +1098,26 @@ export function FullscreenPlayer() {
     // Stop any in-flight open/close animation so the drag takes over
     // immediately without fighting the animate prop.
     dragY.stop();
+    sheetGestureAxisRef.current = null;
+    const isOpeningGestureActive =
+      isOpeningWithGestureRef.current ||
+      (!isOpen && fullscreenOpenDragY.get() < 0);
+    sheetDragStartedDuringOpenRef.current = isOpeningGestureActive;
+    if (isOpeningGestureActive) {
+      const currentOpenY = Math.max(
+        0,
+        Math.min(
+          viewportHeight,
+          viewportHeight - Math.abs(fullscreenOpenDragY.get()),
+        ),
+      );
+      cancelFullscreenOpen();
+      isOpeningWithGestureRef.current = false;
+      openGestureWasActiveRef.current = false;
+      setIsOpeningWithGesture(false);
+      setIsClosedAnimationSettled(false);
+      dragY.set(currentOpenY);
+    }
     // Cancel inertial scrolling on the main page so the browser doesn't
     // swallow the next tap to stop the scroll.
     stopMainScrollInertia();
@@ -1000,6 +1136,47 @@ export function FullscreenPlayer() {
       }
     }
     setIsDraggingSheet(true);
+  };
+
+  const handleSheetDrag = (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    const axis = getDominantGestureAxis(
+      info.offset.x,
+      Math.max(0, info.offset.y),
+      sheetGestureAxisRef.current,
+      { minDistance: 6, dominanceRatio: 1 },
+    );
+    sheetGestureAxisRef.current = axis;
+
+    if (!axis) return;
+
+    if (getClaimedGestureAxis() === "horizontal" || axis === "horizontal") {
+      claimGestureAxis("horizontal");
+      dragY.set(0);
+      return;
+    }
+
+    claimGestureAxis("vertical");
+  };
+
+  const handleSheetPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isSmallScreen) return;
+    const isOpeningGestureActive =
+      isOpeningWithGestureRef.current ||
+      (!isOpen && fullscreenOpenDragY.get() < 0);
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        '[data-album-art-gesture="true"], [data-playback-progress-control="true"]',
+      ) &&
+      !isOpeningGestureActive
+    ) {
+      return;
+    }
+
+    sheetDragControls.start(event.nativeEvent);
   };
 
   const isEnded = playbackState === "ended";
@@ -1030,7 +1207,7 @@ export function FullscreenPlayer() {
     !isClosedAnimationSettled;
   const isInteractive =
     (isOpen || isOpeningWithGesture) && !isClosingViaGesture;
-  const shouldCaptureBackdropPointerEvents = isOverlayVisible;
+  const shouldCaptureBackdropPointerEvents = isInteractive;
   const sheetOpacity = isOverlayVisible ? 1 : 0;
   const sheetVisibility = isOverlayVisible ? "visible" : "hidden";
   const sheetPointerEvents = isInteractive ? "auto" : "none";
@@ -1120,11 +1297,15 @@ export function FullscreenPlayer() {
                 }
         }
         drag={isSmallScreen ? "y" : false}
+        dragControls={sheetDragControls}
+        dragListener={false}
         dragConstraints={{ top: 0, bottom: viewportHeight }}
         dragElastic={{ top: 0, bottom: 0 }}
         dragDirectionLock
         dragMomentum={false}
+        onPointerDown={handleSheetPointerDown}
         onDragStart={isSmallScreen ? handleDragStart : undefined}
+        onDrag={isSmallScreen ? handleSheetDrag : undefined}
         onDragEnd={isSmallScreen ? handleDragEnd : undefined}
         onAnimationComplete={handleContentAnimationComplete}
         data-fullscreen-player="true"
@@ -1280,9 +1461,13 @@ export function FullscreenPlayer() {
                   useGestureAnimation ? { duration: 0 } : { delay: 0.1 }
                 }
                 className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] max-h-full aspect-square"
+                data-album-art-gesture="true"
                 style={
                   isSmallScreen
-                    ? { x: albumArtDragCaptureX, touchAction: "pan-y" }
+                    ? {
+                        x: albumArtDragCaptureX,
+                        touchAction: useGestureAnimation ? "none" : "pan-y",
+                      }
                     : undefined
                 }
                 drag={

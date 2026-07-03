@@ -32,6 +32,8 @@ import { getQueueSourceHref } from "@/lib/utils/source-links";
 import {
   releaseDragPointerCapture,
   stopMainScrollInertia,
+  stopScrollInertiaAfterGesture,
+  watchNextTapAfterGesture,
 } from "@/lib/utils/gesture";
 import {
   cleanUpHistoryState,
@@ -330,6 +332,10 @@ export function MobileQueueSheet() {
       // captured the pointer during the drag. Explicitly releasing the
       // capture on the drag container drops the ghost tap.
       releaseDragPointerCapture(event, sheetRef.current);
+      stopScrollInertiaAfterGesture(() =>
+        queueDisplayRef.current?.stopScrollInertia(),
+      );
+      watchNextTapAfterGesture("queue-swipe-close");
       // Animate off-screen then close - use window width to ensure fully offscreen
       const targetX =
         typeof window !== "undefined" ? window.innerWidth : SHEET_WIDTH;
@@ -339,6 +345,9 @@ export function MobileQueueSheet() {
         ease: [0.32, 0.72, 0, 1],
       }).then(() => {
         if (dragGenerationRef.current !== generation) return;
+        stopScrollInertiaAfterGesture(() =>
+          queueDisplayRef.current?.stopScrollInertia(),
+        );
         requestAnimationFrame(() => {
           if (dragGenerationRef.current !== generation) return;
           setKeepGestureCloseRendered(false);
@@ -348,6 +357,9 @@ export function MobileQueueSheet() {
       // Snap back to origin — also release capture here in case the
       // browser leaked it on a slow swipe that ends in a cancel.
       releaseDragPointerCapture(event, sheetRef.current);
+      stopScrollInertiaAfterGesture(() =>
+        queueDisplayRef.current?.stopScrollInertia(),
+      );
       animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 }).then(
         () => {
           if (dragGenerationRef.current === generation) {

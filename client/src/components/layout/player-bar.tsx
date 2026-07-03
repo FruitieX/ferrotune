@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { usePathname } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
@@ -9,7 +15,6 @@ import {
   useTransform,
   animate,
   type AnimationPlaybackControls,
-  type PanInfo,
 } from "framer-motion";
 import Link from "next/link";
 import {
@@ -98,6 +103,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  claimGestureAxis,
+  getDominantGestureAxis,
+  releaseGestureAxisSoon,
+  watchNextTapAfterGesture,
+  type GestureAxis,
+} from "@/lib/utils/gesture";
+import { startFullscreenOpenAnimation } from "@/components/layout/swipeable-footer";
 
 // ============================================================================
 // Memoized Sub-Components
@@ -254,6 +267,13 @@ function SwipeableNowPlaying({
   const horizontalDismissAnimationRef =
     useRef<AnimationPlaybackControls | null>(null);
   const horizontalDismissAnimationSettledRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const pointerStartXRef = useRef(0);
+  const lastPointerRef = useRef<{ x: number; y: number; time: number } | null>(
+    null,
+  );
+  const velocityRef = useRef({ x: 0, y: 0 });
+  const removePointerListenersRef = useRef<(() => void) | null>(null);
   // Track vertical offset during drag to dampen horizontal movement
   const dragStartY = useRef(0);
   // Track whether drag has been "dismissed" (user swiped up far enough for fullscreen)
@@ -263,6 +283,7 @@ function SwipeableNowPlaying({
   // Track maximum vertical distance traveled during this drag gesture (for tap detection after fullscreen dismiss)
   const maxVerticalDistance = useRef(0);
   const currentUpwardOffset = useRef(0);
+  const gestureAxisRef = useRef<GestureAxis | null>(null);
 
   // Measure container width on mount and resize
   useEffect(() => {
@@ -421,53 +442,64 @@ function SwipeableNowPlaying({
     });
   };
 
+  const cleanupPointerListeners = () => {
+    removePointerListenersRef.current?.();
+    removePointerListenersRef.current = null;
+  };
+
   useEffect(() => {
     return () => {
       horizontalDismissAnimationRef.current?.stop();
       horizontalDismissAnimationRef.current = null;
+      cleanupPointerListeners();
     };
   }, []);
 
-  const handleDragStart = (event: MouseEvent | TouchEvent | PointerEvent) => {
+  const resetPointerGesture = () => {
     stopHorizontalDismissAnimation();
     dragCaptureX.set(0);
-    // Capture initial Y position to track upward movement
-    if ("touches" in event) {
-      dragStartY.current = event.touches[0].clientY;
-    } else {
-      dragStartY.current = event.clientY;
-    }
     // Reset state for new gesture
     isDragDismissed.current = false;
     horizontalDismissAnimationSettledRef.current = false;
     maxHorizontalDistance.current = 0;
     maxVerticalDistance.current = 0;
     currentUpwardOffset.current = 0;
+    gestureAxisRef.current = null;
+    velocityRef.current = { x: 0, y: 0 };
   };
 
-  const handleDrag = (
-    event: MouseEvent | TouchEvent | PointerEvent,
-    info: PanInfo,
-  ) => {
+  const handlePointerMove = (event: PointerEvent) => {
+    if (event.pointerId !== activePointerIdRef.current) return;
+
+    event.preventDefault();
     dragCaptureX.set(0);
+
+    const now = performance.now();
+    const lastPointer = lastPointerRef.current;
+    if (lastPointer) {
+      const elapsedMs = Math.max(1, now - lastPointer.time);
+      velocityRef.current = {
+        x: ((event.clientX - lastPointer.x) / elapsedMs) * 1000,
+        y: ((event.clientY - lastPointer.y) / elapsedMs) * 1000,
+      };
+    }
+    lastPointerRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      time: now,
+    };
+
+    const offsetX = event.clientX - pointerStartXRef.current;
 
     // Track maximum horizontal distance for tap detection
     maxHorizontalDistance.current = Math.max(
       maxHorizontalDistance.current,
-      Math.abs(info.offset.x),
+      Math.abs(offsetX),
     );
-
-    // Get current Y position
-    let currentY: number;
-    if ("touches" in event) {
-      currentY = event.touches[0].clientY;
-    } else {
-      currentY = event.clientY;
-    }
 
     // Only consider UPWARD movement (dragStartY - currentY > 0)
     // Downward movement should not affect horizontal drag
-    const upwardOffset = Math.max(0, dragStartY.current - currentY);
+    const upwardOffset = Math.max(0, dragStartY.current - event.clientY);
     currentUpwardOffset.current = upwardOffset;
 
     // Track max vertical distance for tap detection
@@ -476,48 +508,58 @@ function SwipeableNowPlaying({
       upwardOffset,
     );
 
+    const axis = getDominantGestureAxis(
+      offsetX,
+      upwardOffset,
+      gestureAxisRef.current,
+      { minDistance: 6, dominanceRatio: 1 },
+    );
+    gestureAxisRef.current = axis;
+
+    if (!axis) {
+      fullscreenOpenDragY.set(0);
+      dragX.set(0);
+      return;
+    }
+
+    if (axis === "horizontal") {
+      claimGestureAxis("horizontal");
+      fullscreenOpenDragY.set(0);
+      dragX.set(offsetX);
+      return;
+    }
+
+    claimGestureAxis("vertical");
+
+    dragX.set(0);
     // Update the shared fullscreenOpenDragY so the fullscreen player preview
     // follows the finger both upward and back down to zero.
     fullscreenOpenDragY.set(-upwardOffset);
 
-    // If drag was dismissed (user swiped up past threshold), keep at center
-    if (isDragDismissed.current) {
-      if (horizontalDismissAnimationSettledRef.current) {
-        dragX.set(0);
-      }
-      return;
-    }
-
     // Check if we've crossed the threshold to dismiss the horizontal drag
-    if (upwardOffset >= VERTICAL_DISMISS_THRESHOLD) {
+    if (
+      upwardOffset >= VERTICAL_DISMISS_THRESHOLD &&
+      !isDragDismissed.current
+    ) {
       // Dismiss the horizontal drag once and ignore further horizontal movement.
       isDragDismissed.current = true;
       animateHorizontalDragToRest();
       return;
     }
-
-    dragX.set(info.offset.x);
   };
 
-  const handleDragEnd = async (
-    _event: MouseEvent | TouchEvent | PointerEvent,
-    info: PanInfo,
-  ) => {
+  const finishPointerGesture = async () => {
     dragCaptureX.set(0);
-    const { velocity } = info;
+    const velocity = velocityRef.current;
+    const gestureAxis = gestureAxisRef.current;
     const shouldOpenFullscreen =
+      gestureAxis === "vertical" &&
       currentUpwardOffset.current >= VERTICAL_DISMISS_THRESHOLD &&
       velocity.y <= VELOCITY_THRESHOLD;
 
     if (isDragDismissed.current) {
       if (shouldOpenFullscreen) {
-        await animate(fullscreenOpenDragY, -window.innerHeight, {
-          type: "spring",
-          stiffness: 400,
-          damping: 35,
-        });
-        onOpenFullscreen();
-        fullscreenOpenDragY.set(0);
+        startFullscreenOpenAnimation(onOpenFullscreen);
         dragCaptureX.set(0);
       } else {
         await animate(fullscreenOpenDragY, 0, {
@@ -530,6 +572,8 @@ function SwipeableNowPlaying({
       currentUpwardOffset.current = 0;
       isDragDismissed.current = false;
       horizontalDismissAnimationSettledRef.current = false;
+      gestureAxisRef.current = null;
+      releaseGestureAxisSoon(gestureAxis ?? undefined);
       return;
     }
 
@@ -546,6 +590,7 @@ function SwipeableNowPlaying({
     // This prevents vertical swipes (to open/dismiss fullscreen) from
     // accidentally skipping tracks due to incidental horizontal velocity.
     const wasPrimarilyHorizontal =
+      gestureAxis === "horizontal" &&
       maxHorizontalDistance.current > maxVerticalDistance.current;
 
     // Only consider it a horizontal swipe if the movement is significant
@@ -559,6 +604,7 @@ function SwipeableNowPlaying({
       (currentDragX > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD);
 
     if (shouldGoNext && nextTrack) {
+      watchNextTapAfterGesture("now-playing-horizontal-swipe");
       // Animate current track off to the left, then change track
       setIsAnimating(true);
       await animate(dragX, -SWIPE_DISTANCE, {
@@ -574,6 +620,7 @@ function SwipeableNowPlaying({
       hapticConfirm();
       onNext();
     } else if (shouldGoPrev && prevTrack) {
+      watchNextTapAfterGesture("now-playing-horizontal-swipe");
       // Animate current track off to the right, then change track
       setIsAnimating(true);
       await animate(dragX, SWIPE_DISTANCE, {
@@ -597,6 +644,53 @@ function SwipeableNowPlaying({
       });
     }
     currentUpwardOffset.current = 0;
+    gestureAxisRef.current = null;
+    releaseGestureAxisSoon(gestureAxis ?? undefined);
+  };
+
+  const handlePointerUp = (event: PointerEvent) => {
+    if (event.pointerId !== activePointerIdRef.current) return;
+
+    cleanupPointerListeners();
+    activePointerIdRef.current = null;
+    void finishPointerGesture();
+  };
+
+  const handlePointerCancel = (event: PointerEvent) => {
+    if (event.pointerId !== activePointerIdRef.current) return;
+
+    cleanupPointerListeners();
+    activePointerIdRef.current = null;
+    dragX.set(0);
+    fullscreenOpenDragY.set(0);
+    currentUpwardOffset.current = 0;
+    gestureAxisRef.current = null;
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 && event.pointerType === "mouse") return;
+
+    cleanupPointerListeners();
+    resetPointerGesture();
+    activePointerIdRef.current = event.pointerId;
+    pointerStartXRef.current = event.clientX;
+    dragStartY.current = event.clientY;
+    lastPointerRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      time: performance.now(),
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    removePointerListenersRef.current = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
   };
 
   return (
@@ -670,12 +764,11 @@ function SwipeableNowPlaying({
         {/* Current track (main draggable element) */}
         <motion.button
           type="button"
-          onPointerDown={() => {
+          data-now-playing-gesture="true"
+          onPointerDown={(event) => {
             // Reset all gesture state at the start of any interaction
             // This ensures a fresh tap isn't blocked by stale values from previous gestures
-            maxHorizontalDistance.current = 0;
-            maxVerticalDistance.current = 0;
-            isDragDismissed.current = false;
+            handlePointerDown(event);
           }}
           onClick={() => {
             // Only open fullscreen if this was a tap, not a drag
@@ -690,18 +783,10 @@ function SwipeableNowPlaying({
             }
           }}
           className="flex flex-1 items-center gap-3 min-w-0 text-left relative z-10"
-          drag="x"
-          dragConstraints={{ left: 0, right: 0 }}
-          dragElastic={0}
-          dragMomentum={false}
-          onDragStart={handleDragStart}
-          onDrag={handleDrag}
-          onDragEnd={handleDragEnd}
           style={{
-            touchAction: "pan-y",
+            touchAction: "none",
             x: dragCaptureX,
           }}
-          whileDrag={{ scale: 0.98 }}
           transition={{ type: "spring", stiffness: 500, damping: 30 }}
         >
           <motion.div
