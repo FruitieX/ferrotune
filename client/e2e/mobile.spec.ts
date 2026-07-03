@@ -247,6 +247,22 @@ async function swipeToastAway(page: Page) {
   await expect(toast).not.toBeVisible({ timeout: 10000 });
 }
 
+async function swipeDrawerDown(page: Page, drawer: Locator) {
+  const box = await drawer.boundingBox();
+  if (!box) {
+    throw new Error("Drawer bounding box was not available");
+  }
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + 24;
+  const endY = Math.min(box.y + box.height - 8, startY + 260);
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, endY, { steps: 12 });
+  await page.mouse.up();
+}
+
 async function swipePlayerBarFullscreenOpen(page: Page, playerBar: Locator) {
   const box = await playerBar.boundingBox();
   if (!box) {
@@ -1106,6 +1122,37 @@ test.describe("Mobile Tests", () => {
     await expect(drawer).not.toBeVisible({ timeout: 10000 });
 
     await swipeToastAway(page);
+
+    await page
+      .getByTestId("mobile-nav")
+      .getByRole("link", { name: /search/i })
+      .tap();
+    await expect(page).toHaveURL(/\/search/);
+  });
+
+  test("first tap after context menu swipe reaches mobile nav", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/songs");
+
+    const moreOptionsButton = page.getByRole("button", {
+      name: /view options/i,
+    });
+    await moreOptionsButton.click();
+    await page.getByRole("button", { name: /^list$/i }).click();
+
+    const songRow = page
+      .locator('[data-testid="song-row"], [data-testid="media-row"]')
+      .first();
+    await expect(songRow).toBeVisible({ timeout: 10000 });
+
+    await songRow.click({ button: "right" });
+
+    const drawer = page.locator("[data-vaul-drawer]");
+    await expect(drawer).toBeVisible({ timeout: 5000 });
+
+    await swipeDrawerDown(page, drawer);
+    await expect(drawer).not.toBeVisible({ timeout: 10000 });
 
     await page
       .getByTestId("mobile-nav")
