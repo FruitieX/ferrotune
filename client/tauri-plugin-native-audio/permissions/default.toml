@@ -81,6 +81,11 @@ description = "Allows starting playback mode"
 commands.allow = ["start_playback"]
 
 [[permission]]
+identifier = "allow-start-offline-playback"
+description = "Allows starting playback from a locally materialized offline queue"
+commands.allow = ["start_offline_playback"]
+
+[[permission]]
 identifier = "allow-invalidate-queue"
 description = "Allows invalidating the native queue window"
 commands.allow = ["invalidate_queue"]
@@ -205,6 +210,7 @@ permissions = [
   "allow-init-session",
   "allow-update-settings",
   "allow-start-playback",
+  "allow-start-offline-playback",
   "allow-invalidate-queue",
   "allow-soft-invalidate-queue",
   "allow-toggle-shuffle",

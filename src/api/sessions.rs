@@ -409,10 +409,11 @@ struct ClientCleanupGuard {
 
 /// Detach a client from a session after its SSE stream is gone.
 ///
-/// When `force` is false (the SSE-drop case), the client entry is kept alive
-/// while it has a fresh heartbeat, so a tab whose SSE was silently torn down by
-/// a proxy/browser but is still playing stays controllable remotely. The
-/// background sweep in `main.rs` reaps it once the heartbeat also goes stale.
+/// When `force` is false (the SSE-drop case), only the current session owner is
+/// kept alive while it has a fresh heartbeat, so an audio-playing tab whose SSE
+/// was silently torn down by a proxy/browser stays controllable remotely. Plain
+/// follower tabs are removed immediately because their stale entries otherwise
+/// linger until the heartbeat grace period expires.
 ///
 /// When `force` is true (explicit disconnect beacon from a closing tab), the
 /// heartbeat grace period is skipped so the tab disappears from the
@@ -429,7 +430,17 @@ async fn detach_client(
     client_id: &str,
     force: bool,
 ) {
-    let removed = if force {
+    let session = queries::get_session(&state.database, session_id, user_id)
+        .await
+        .ok()
+        .flatten();
+    let is_owner = session
+        .as_ref()
+        .and_then(|session| session.owner_client_id.as_deref())
+        == Some(client_id);
+    let force_remove = force || !is_owner;
+
+    let removed = if force_remove {
         state
             .session_manager
             .force_remove_client(session_id, client_id)
@@ -445,19 +456,12 @@ async fn detach_client(
         return;
     }
 
-    let owner_cleared = 'owner_clear: {
-        let session = match queries::get_session(&state.database, session_id, user_id).await {
-            Ok(Some(session)) => session,
-            _ => break 'owner_clear false,
-        };
-
-        if session.owner_client_id.as_deref() != Some(client_id) {
-            break 'owner_clear false;
-        }
-
+    let owner_cleared = if is_owner {
         queries::clear_session_owner(&state.database, session_id)
             .await
             .is_ok()
+    } else {
+        false
     };
 
     if owner_cleared {

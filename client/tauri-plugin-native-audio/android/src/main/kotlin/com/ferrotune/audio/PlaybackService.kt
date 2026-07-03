@@ -186,6 +186,7 @@ class PlaybackService : MediaSessionService() {
     private var pausedForAudioOutputLoss = false
     // Offset of the first item in ExoPlayer's queue relative to the server queue
     private var queueOffset: Int = 0
+    private var isOfflinePlaybackQueue: Boolean = false
 
     // Volume saved during track transitions (muted to prevent old track audio bleed)
     private var transitionSavedVolume: Float? = null
@@ -433,6 +434,9 @@ class PlaybackService : MediaSessionService() {
     // Periodic position sync to server
     private val positionSyncRunnable = object : Runnable {
         override fun run() {
+            if (isOfflinePlaybackQueue) {
+                return
+            }
             if (nativeOwnsSession && isActive && player.isPlaying) {
                 syncPositionToServer()
                 // Also send heartbeat to keep the session alive (JS timer may
@@ -459,6 +463,7 @@ class PlaybackService : MediaSessionService() {
 
             val state = player.playbackState
             val intendsToPlay = nativeOwnsSession &&
+                !isOfflinePlaybackQueue &&
                 !pausedForAudioOutputLoss &&
                 player.mediaItemCount > 0 &&
                 // Let the dedicated error-retry path own recovery when it is active.
@@ -586,6 +591,22 @@ class PlaybackService : MediaSessionService() {
             streamOnlyCacheFactory
         }
 
+        @OptIn(UnstableApi::class)
+        val offlineCacheDataSourceFactory = downloadCache?.let {
+            CacheDataSource.Factory()
+                .setCache(it)
+                .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
+                .setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE)
+        }
+
+        val playbackDataSourceFactory = DataSource.Factory {
+            if (isOfflinePlaybackQueue && offlineCacheDataSourceFactory != null) {
+                offlineCacheDataSourceFactory.createDataSource()
+            } else {
+                cacheDataSourceFactory.createDataSource()
+            }
+        }
+
         // Re-point the artwork loader at the same chained cache so cover-art
         // requests for downloaded songs are served from disk instead of the
         // network. We keep the inner DefaultHttpDataSource.Factory intact so
@@ -654,7 +675,7 @@ class PlaybackService : MediaSessionService() {
 
         @OptIn(UnstableApi::class)
         val mediaSourceFactory = KnownDurationMediaSourceFactory(
-            DefaultMediaSourceFactory(cacheDataSourceFactory)
+            DefaultMediaSourceFactory(playbackDataSourceFactory)
         )
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
@@ -987,6 +1008,7 @@ class PlaybackService : MediaSessionService() {
         clearAudioOutputLossPause("explicit play()")
         if (player.mediaItemCount == 0 && apiClient.hasSessionConfig()) {
             Log.d(TAG, "play(): no media loaded, bootstrapping from server queue")
+            isOfflinePlaybackQueue = false
             handler.removeCallbacks(inactivityTimeoutRunnable)
             val generation = nextQueueLoadGeneration("play bootstrap")
             apiExecutor.execute {
@@ -1099,6 +1121,7 @@ class PlaybackService : MediaSessionService() {
         queueIndex = -1
         queueSourceType = null
         queueSourceId = null
+        isOfflinePlaybackQueue = false
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         handler.removeCallbacks(stallWatchdogRunnable)
@@ -1174,7 +1197,7 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "seek($positionMs) transcoding=${playbackSettings.transcodingEnabled}")
         clearPendingNetworkRetry("seek")
 
-        if (playbackSettings.transcodingEnabled && currentTrack != null) {
+        if (playbackSettings.transcodingEnabled && currentTrack != null && !isOfflinePlaybackQueue) {
             // Transcoded streams now support byte ranges, but user seeks are
             // time-based. Reload with timeOffset so the server starts the
             // encoded stream at the requested playback position.
@@ -1681,6 +1704,7 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "startPlayback(total=$totalCount, index=$currentIndex, " +
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
             "sourceType=$sourceType, sourceId=$sourceId)")
+        isOfflinePlaybackQueue = false
         NativeAudioLogger.info(
             TAG,
             "start_playback",
@@ -1787,6 +1811,83 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Start playback from a queue window supplied by the WebView.
+     * Used for offline playback: JS can materialize downloaded songs locally,
+     * while Kotlin still owns Media3 playback and cache resolution.
+     */
+    fun startOfflinePlayback(
+        response: GetQueueResponse,
+        playWhenReady: Boolean,
+        startPositionMs: Long = 0,
+        sessionId: String? = null,
+        sourceType: String? = null,
+        sourceId: String? = null,
+    ) {
+        Log.d(TAG, "startOfflinePlayback(total=${response.totalCount}, index=${response.currentIndex}, play=$playWhenReady)")
+        isOfflinePlaybackQueue = true
+        NativeAudioLogger.info(
+            TAG,
+            "start_offline_playback",
+            "Native startOfflinePlayback requested",
+            mapOf(
+                "totalCount" to response.totalCount,
+                "currentIndex" to response.currentIndex,
+                "playWhenReady" to playWhenReady,
+                "startPositionMs" to startPositionMs,
+                "sessionId" to sessionId,
+                "sourceType" to sourceType,
+                "sourceId" to sourceId,
+            ),
+        )
+        if (!apiClient.hasSessionConfig()) {
+            Log.w(TAG, "startOfflinePlayback ignored: session is not configured yet")
+            NativeAudioLogger.warn(TAG, "start_offline_playback_ignored", "startOfflinePlayback ignored: session is not configured yet")
+            return
+        }
+        if (sessionId != null) {
+            apiClient.updateSessionId(sessionId)
+        }
+        if (playWhenReady) {
+            nativeOwnsSession = true
+            sessionOwnerClientId = apiClient.getClientId()
+            sessionOwnerClientName = "ferrotune-mobile"
+            lastLocalOwnershipClaimElapsedRealtimeMs = SystemClock.elapsedRealtime()
+            handler.removeCallbacks(inactivityTimeoutRunnable)
+        }
+        clearPendingNetworkRetry("startOfflinePlayback")
+
+        if (playWhenReady) {
+            clearAudioOutputLossPause("startOfflinePlayback(playWhenReady=true)")
+        }
+
+        queueSourceType = sourceType ?: response.sourceType
+        queueSourceId = sourceId ?: response.sourceId
+        serverTotalCount = response.totalCount
+        serverQueueIndex = response.currentIndex
+        this.isShuffled = response.isShuffled
+        this.repeatMode = response.repeatMode
+        player.shuffleModeEnabled = false
+        player.repeatMode = exoRepeatMode(response.repeatMode)
+        isFetching = false
+        resetScrobbleState()
+
+        handler.removeCallbacks(inactivityTimeoutRunnable)
+        val generation = nextQueueLoadGeneration("startOfflinePlayback")
+        val playbackIntentGenerationAtStart = playbackIntentGeneration
+        handler.post {
+            if (!isQueueLoadGenerationCurrent(generation, "startOfflinePlayback")) return@post
+            handleQueueWindowResponse(
+                response,
+                response.currentIndex,
+                startPositionMs,
+                playWhenReady,
+                playbackIntentGenerationAtStart,
+            )
+            handler.removeCallbacks(positionSyncRunnable)
+        }
+    }
+
     private fun sessionIdentity(config: SessionConfig): String {
         return listOf(
             config.serverUrl,
@@ -1864,7 +1965,7 @@ class PlaybackService : MediaSessionService() {
         // queue restores need a playback-time seek. Use seek-by-reload:
         // rebuild the current track's URL with a timeOffset parameter so the
         // server sends audio starting from the right position.
-        if (startPositionMs > 0 && playbackSettings.transcodingEnabled && currentTrack != null) {
+        if (startPositionMs > 0 && playbackSettings.transcodingEnabled && currentTrack != null && !isOfflinePlaybackQueue) {
             val track = currentTrack!!
             val timeOffsetSeconds = startPositionMs / 1000
             val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
@@ -1905,6 +2006,7 @@ class PlaybackService : MediaSessionService() {
      */
     private fun maybePrefetchMore() {
         if (isFetching) return
+        if (isOfflinePlaybackQueue) return
         if (!isNetworkAvailable()) return
 
         val exoIndex = player.currentMediaItemIndex
@@ -2033,6 +2135,26 @@ class PlaybackService : MediaSessionService() {
 
         if (nextIndex >= serverTotalCount) {
             if (repeatMode == "all") {
+                if (isOfflinePlaybackQueue) {
+                    val exoIndex = exoIndexToServerPosition.indexOf(0)
+                    if (exoIndex >= 0) {
+                        serverQueueIndex = 0
+                        queueIndex = 0
+                        setCurrentTrack(queue.getOrNull(exoIndex))
+                        applyTrackReplayGain(currentTrack, exoIndex)
+                        resetScrobbleState()
+                        player.playWhenReady = continuePlayback
+                        player.seekTo(exoIndex, 0)
+                        if (PlaybackResumeLogic.requiresReprepareToResume(player.playbackState)) {
+                            player.prepare()
+                        }
+                        invalidateSessionExport()
+                        emitTrackChange()
+                        emitQueueStateChanged()
+                        emitProgressEvent()
+                    }
+                    return
+                }
                 // Wrap around, reshuffle if needed
                 Log.d(TAG, "Repeat-all wrap: back to 0, reshuffle=$isShuffled")
                 serverQueueIndex = 0
@@ -2124,6 +2246,27 @@ class PlaybackService : MediaSessionService() {
         val prevIndex = serverQueueIndex - 1
         if (prevIndex < 0) {
             if (repeatMode == "all") {
+                if (isOfflinePlaybackQueue) {
+                    val targetIndex = serverTotalCount - 1
+                    val exoIndex = exoIndexToServerPosition.indexOf(targetIndex)
+                    if (exoIndex >= 0) {
+                        serverQueueIndex = targetIndex
+                        queueIndex = targetIndex
+                        setCurrentTrack(queue.getOrNull(exoIndex))
+                        applyTrackReplayGain(currentTrack, exoIndex)
+                        resetScrobbleState()
+                        player.playWhenReady = continuePlayback
+                        player.seekTo(exoIndex, 0)
+                        if (PlaybackResumeLogic.requiresReprepareToResume(player.playbackState)) {
+                            player.prepare()
+                        }
+                        invalidateSessionExport()
+                        emitTrackChange()
+                        emitQueueStateChanged()
+                        emitProgressEvent()
+                    }
+                    return
+                }
                 serverQueueIndex = serverTotalCount - 1
                 resetScrobbleState()
                 val generation = nextQueueLoadGeneration("skip previous wrap")
@@ -2620,6 +2763,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun syncPositionToServer() {
+        if (isOfflinePlaybackQueue) return
         if (!nativeOwnsSession) return
         if (!isActive) return
         if (!isNetworkAvailable()) return
@@ -2638,6 +2782,7 @@ class PlaybackService : MediaSessionService() {
      * is_playing state without waiting for the JS heartbeat interval (30s).
      */
     private fun sendPlaybackStateHeartbeat(isPlaying: Boolean) {
+        if (isOfflinePlaybackQueue) return
         if (!nativeOwnsSession) return
         if (!isNetworkAvailable()) return
         val track = currentTrack
@@ -2875,9 +3020,11 @@ class PlaybackService : MediaSessionService() {
     ) {
         // Evict any partially cached data so the reload fetches fresh bytes
         // instead of replaying truncated data from a broken connection.
-        evictCachedStreamForCurrentItem()
+        if (!isOfflinePlaybackQueue) {
+            evictCachedStreamForCurrentItem()
+        }
         val currentIndex = player.currentMediaItemIndex
-        if (playbackSettings.transcodingEnabled) {
+        if (playbackSettings.transcodingEnabled && !isOfflinePlaybackQueue) {
             val timeOffsetSeconds = positionMs / 1000
             seekTimeOffsetMs = positionMs
             lastKnownGoodPositionMs = positionMs
@@ -3104,6 +3251,7 @@ class PlaybackService : MediaSessionService() {
         newPosition: Player.PositionInfo,
         reason: Int,
     ): Boolean {
+        if (isOfflinePlaybackQueue) return false
         if (!playbackSettings.transcodingEnabled) return false
         if (reason != Player.DISCONTINUITY_REASON_INTERNAL) return false
         if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) return false
@@ -3256,6 +3404,38 @@ class PlaybackService : MediaSessionService() {
         }
         if (serverTotalCount == 0) {
             Log.d(TAG, "playAtIndex: bootstrapping without known serverTotalCount")
+        }
+
+        if (isOfflinePlaybackQueue) {
+            val exoIndex = exoIndexToServerPosition.indexOf(index)
+            if (exoIndex < 0) {
+                Log.w(TAG, "playAtIndex: offline index $index is not loaded")
+                return
+            }
+
+            nativeOwnsSession = true
+            sessionOwnerClientId = apiClient.getClientId()
+            sessionOwnerClientName = "ferrotune-mobile"
+            lastLocalOwnershipClaimElapsedRealtimeMs = SystemClock.elapsedRealtime()
+            handler.removeCallbacks(positionSyncRunnable)
+            handler.removeCallbacks(inactivityTimeoutRunnable)
+            seekTimeOffsetMs = 0
+            serverQueueIndex = index
+            queueIndex = index
+            setCurrentTrack(queue.getOrNull(exoIndex))
+            applyTrackReplayGain(currentTrack, exoIndex)
+            resetScrobbleState()
+            player.playWhenReady = true
+            player.seekTo(exoIndex, 0)
+            if (PlaybackResumeLogic.requiresReprepareToResume(player.playbackState)) {
+                Log.d(TAG, "playAtIndex: re-preparing offline player from state=${playbackStateName(player.playbackState)}")
+                player.prepare()
+            }
+            invalidateSessionExport()
+            emitTrackChange()
+            emitQueueStateChanged()
+            emitProgressEvent()
+            return
         }
 
         claimNativeSessionOwnership("playAtIndex", 0, index)
@@ -3986,7 +4166,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun preloadNotificationArtwork(track: TrackInfo?) {
         val coverArtUrl = track?.coverArtUrl
-        if (track == null || coverArtUrl.isNullOrBlank()) {
+        if (track == null || coverArtUrl.isNullOrBlank() || isOfflinePlaybackQueue) {
             notificationArtworkLoadGeneration += 1
             notificationArtworkLoadingKey = null
             notificationArtworkData = null
@@ -4180,7 +4360,7 @@ class PlaybackService : MediaSessionService() {
 
         if (artwork?.contentUri != null) {
             metadataBuilder.setArtworkUri(artwork.contentUri)
-        } else if (track.coverArtUrl != null) {
+        } else if (track.coverArtUrl != null && !isOfflinePlaybackQueue) {
             metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
         }
 
@@ -4229,10 +4409,16 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun createMediaItem(track: TrackInfo, streamUrl: String = track.url): MediaItem {
-        return MediaItem.Builder()
+        val builder = MediaItem.Builder()
             .setMediaId(track.id)
             .setUri(Uri.parse(streamUrl))
             .setMediaMetadata(createTrackMetadata(track))
+
+        if (isOfflinePlaybackQueue) {
+            builder.setCustomCacheKey("audio:${track.id}")
+        }
+
+        return builder
             .build()
     }
 

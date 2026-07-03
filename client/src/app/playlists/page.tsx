@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, Suspense } from "react";
-import { useAtom, useSetAtom } from "jotai";
+import { useEffect, useState, Suspense } from "react";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -29,6 +29,9 @@ import {
   Check,
   MoreHorizontal,
   Pencil,
+  WifiOff,
+  Grid,
+  List,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -37,6 +40,7 @@ import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { usePlaylistSelection } from "@/lib/hooks/use-playlist-selection";
 import { startQueueAtom } from "@/lib/store/server-queue";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 import {
   playlistsViewModeAtom,
   playlistsSortAtom,
@@ -100,6 +104,19 @@ import {
 import { cn } from "@/lib/utils";
 import type { Playlist } from "@/lib/api/types";
 import type { SmartPlaylistInfo } from "@/lib/api/generated/SmartPlaylistInfo";
+import {
+  getOfflinePlaylistMembershipCache,
+  type OfflinePlaylistMembershipCache,
+} from "@/lib/offline/playlist-membership";
+
+type OfflinePlaylist = OfflinePlaylistMembershipCache["playlists"][string];
+type StartQueue = (params: {
+  sourceType: "playlist";
+  sourceId: string;
+  sourceName: string;
+  startIndex: number;
+  shuffle: boolean;
+}) => void;
 
 function PlaylistsPageContent() {
   const { isReady, isLoading: authLoading } = useAuth({
@@ -120,6 +137,11 @@ function PlaylistsPageContent() {
   const [activeDragPlaylist, setActiveDragPlaylist] = useState<Playlist | null>(
     null,
   );
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
+  const [offlineMembershipCache, setOfflineMembershipCache] =
+    useState<OfflinePlaylistMembershipCache | null>(null);
+  const [isLoadingOfflinePlaylists, setIsLoadingOfflinePlaylists] =
+    useState(false);
 
   // Current folder path from URL
   const currentPath = searchParams.get("folder") || "";
@@ -149,6 +171,27 @@ function PlaylistsPageContent() {
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
+  useEffect(() => {
+    if (!isOfflineMode) return;
+    let cancelled = false;
+    setIsLoadingOfflinePlaylists(true);
+    getOfflinePlaylistMembershipCache()
+      .then((cache) => {
+        if (!cancelled) setOfflineMembershipCache(cache);
+      })
+      .catch((error) => {
+        console.warn("[playlists] failed to load offline playlists", error);
+        if (!cancelled) setOfflineMembershipCache(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingOfflinePlaylists(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOfflineMode]);
+
   // Fetch playlist folders with structure from API
   const { data: playlistFoldersData, isLoading } = useQuery({
     queryKey: ["playlistFolders"],
@@ -157,7 +200,7 @@ function PlaylistsPageContent() {
       if (!client) throw new Error("Not connected");
       return client.getPlaylistFoldersWithStructure();
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
   });
 
   // Also fetch legacy playlists for compatibility (used by move mutation, etc.)
@@ -185,7 +228,7 @@ function PlaylistsPageContent() {
       const response = await client.getSmartPlaylists();
       return response.smartPlaylists ?? [];
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
   });
 
   // Mutation to move playlist to a folder using the new folder API
@@ -599,6 +642,24 @@ function PlaylistsPageContent() {
     );
   }
 
+  if (isOfflineMode) {
+    const offlinePlaylists = Object.values(
+      offlineMembershipCache?.playlists ?? {},
+    ).sort((a, b) => a.name.localeCompare(b.name));
+
+    return (
+      <OfflinePlaylistsView
+        playlists={offlinePlaylists}
+        isLoading={isLoadingOfflinePlaylists}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        columnVisibility={columnVisibility}
+        startQueue={startQueue}
+        syncedAt={offlineMembershipCache?.syncedAt ?? null}
+      />
+    );
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -994,6 +1055,196 @@ function PlaylistsPageContent() {
         )}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+function OfflinePlaylistsView({
+  playlists,
+  isLoading,
+  viewMode,
+  setViewMode,
+  columnVisibility,
+  startQueue,
+  syncedAt,
+}: {
+  playlists: OfflinePlaylist[];
+  isLoading: boolean;
+  viewMode: "grid" | "list";
+  setViewMode: (viewMode: "grid" | "list") => void;
+  columnVisibility: {
+    showIndex: boolean;
+    songCount: boolean;
+    duration: boolean;
+    owner: boolean;
+    created: boolean;
+  };
+  startQueue: StartQueue;
+  syncedAt: number | null;
+}) {
+  const playPlaylist = (playlist: OfflinePlaylist, shuffle = false) => {
+    startQueue({
+      sourceType: "playlist",
+      sourceId: playlist.id,
+      sourceName: playlist.name,
+      startIndex: 0,
+      shuffle,
+    });
+  };
+
+  return (
+    <div className="min-h-dvh">
+      <DetailHeader
+        icon={ListMusic}
+        iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+        gradientColor="rgba(16,185,129,0.2)"
+        label="Downloads"
+        title="Downloaded Playlists"
+        isLoading={isLoading}
+        metadata={
+          !isLoading && (
+            <span className="flex flex-wrap items-center gap-2">
+              <WifiOff className="h-4 w-4" />
+              <span>{formatCount(playlists.length, "playlist")}</span>
+              {syncedAt && (
+                <>
+                  <span>•</span>
+                  <span>
+                    Synced {formatDate(new Date(syncedAt).toISOString())}
+                  </span>
+                </>
+              )}
+            </span>
+          )
+        }
+      />
+
+      <ActionBar
+        toolbar={
+          <div className="flex items-center gap-1">
+            <Button
+              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              size="icon"
+              aria-label="Grid view"
+              onClick={() => setViewMode("grid")}
+            >
+              <Grid className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={viewMode === "list" ? "secondary" : "ghost"}
+              size="icon"
+              aria-label="List view"
+              onClick={() => setViewMode("list")}
+            >
+              <List className="w-4 h-4" />
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="px-4 lg:px-6 py-4 select-none">
+        {isLoading ? (
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }).map((_, index) => (
+                <MediaCardSkeleton key={index} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {Array.from({ length: 10 }).map((_, index) => (
+                <MediaRowSkeleton key={index} showRightContent />
+              ))}
+            </div>
+          )
+        ) : playlists.length > 0 ? (
+          viewMode === "grid" ? (
+            <VirtualizedGrid
+              items={playlists}
+              renderItem={(playlist) => (
+                <OfflinePlaylistGridCard
+                  playlist={playlist}
+                  onPlay={() => playPlaylist(playlist)}
+                />
+              )}
+              renderSkeleton={() => <MediaCardSkeleton />}
+              getItemKey={(playlist) => playlist.id}
+            />
+          ) : (
+            <VirtualizedList
+              items={playlists}
+              renderItem={(playlist, index) => (
+                <OfflinePlaylistListRow
+                  playlist={playlist}
+                  index={index}
+                  showIndex={columnVisibility.showIndex}
+                  onPlay={() => playPlaylist(playlist)}
+                />
+              )}
+              renderSkeleton={() => <MediaRowSkeleton showRightContent />}
+              getItemKey={(playlist) => playlist.id}
+              estimateItemHeight={56}
+            />
+          )
+        ) : (
+          <EmptyState
+            icon={ListMusic}
+            title="No downloaded playlists"
+            description="Use Settings > Downloads > Refresh playlists while online to make downloaded playlist metadata available offline."
+          />
+        )}
+      </div>
+      <div className="h-24" />
+    </div>
+  );
+}
+
+function OfflinePlaylistGridCard({
+  playlist,
+  onPlay,
+}: {
+  playlist: OfflinePlaylist;
+  onPlay: () => void;
+}) {
+  return (
+    <MediaCard
+      title={playlist.name}
+      titleIcon={<ListMusic className="w-4 h-4 shrink-0 text-emerald-500" />}
+      subtitleContent={
+        <span className="flex items-center gap-1">
+          {formatCount(playlist.entries.length, "downloaded song")} •{" "}
+          <Clock className="w-3 h-3" /> {formatDuration(playlist.duration)}
+        </span>
+      }
+      href={`/playlists/details?id=${playlist.id}`}
+      coverType="playlist"
+      colorSeed={playlist.name}
+      onPlay={onPlay}
+    />
+  );
+}
+
+function OfflinePlaylistListRow({
+  playlist,
+  index,
+  showIndex,
+  onPlay,
+}: {
+  playlist: OfflinePlaylist;
+  index: number;
+  showIndex?: boolean;
+  onPlay: () => void;
+}) {
+  return (
+    <MediaRow
+      title={playlist.name}
+      titleIcon={<ListMusic className="w-4 h-4 shrink-0 text-emerald-500" />}
+      subtitle={`${formatCount(playlist.entries.length, "downloaded song")} • ${formatDuration(playlist.duration)}`}
+      href={`/playlists/details?id=${playlist.id}`}
+      coverType="playlist"
+      colorSeed={playlist.name}
+      index={showIndex ? index : undefined}
+      onPlay={onPlay}
+    />
   );
 }
 

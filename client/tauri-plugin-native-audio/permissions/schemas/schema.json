@@ -571,6 +571,18 @@
           "markdownDescription": "Denies the soft_invalidate_queue command without any pre-configured scope."
         },
         {
+          "description": "Enables the start_offline_playback command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-offline-playback",
+          "markdownDescription": "Enables the start_offline_playback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_offline_playback command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-offline-playback",
+          "markdownDescription": "Denies the start_offline_playback command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_playback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-playback",
@@ -655,10 +667,10 @@
           "markdownDescription": "Denies the update_starred_state command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`\n- `allow-enqueue-download`\n- `allow-remove-download`\n- `allow-remove-all-downloads`\n- `allow-pause-downloads`\n- `allow-resume-downloads`\n- `allow-get-downloads`\n- `allow-set-download-wifi-only`",
+          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-start-offline-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`\n- `allow-enqueue-download`\n- `allow-remove-download`\n- `allow-remove-all-downloads`\n- `allow-pause-downloads`\n- `allow-resume-downloads`\n- `allow-get-downloads`\n- `allow-set-download-wifi-only`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`\n- `allow-enqueue-download`\n- `allow-remove-download`\n- `allow-remove-all-downloads`\n- `allow-pause-downloads`\n- `allow-resume-downloads`\n- `allow-get-downloads`\n- `allow-set-download-wifi-only`"
+          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-playback`\n- `allow-start-offline-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`\n- `allow-get-cast-state`\n- `allow-request-cast-session`\n- `allow-stop-cast-session`\n- `allow-load-cast-media`\n- `allow-play-cast-media`\n- `allow-pause-cast-media`\n- `allow-stop-cast-media`\n- `allow-seek-cast-media`\n- `allow-set-cast-volume`\n- `allow-get-cast-media-status`\n- `allow-enqueue-download`\n- `allow-remove-download`\n- `allow-remove-all-downloads`\n- `allow-pause-downloads`\n- `allow-resume-downloads`\n- `allow-get-downloads`\n- `allow-set-download-wifi-only`"
         },
         {
           "description": "Allows starting or resuming audio playback",
@@ -755,6 +767,12 @@
           "type": "string",
           "const": "allow-start-playback",
           "markdownDescription": "Allows starting playback mode"
+        },
+        {
+          "description": "Allows starting playback from a locally materialized offline queue",
+          "type": "string",
+          "const": "allow-start-offline-playback",
+          "markdownDescription": "Allows starting playback from a locally materialized offline queue"
         },
         {
           "description": "Allows invalidating the native queue window",

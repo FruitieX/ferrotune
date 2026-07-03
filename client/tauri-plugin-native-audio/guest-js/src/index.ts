@@ -7,6 +7,7 @@ import type {
   DownloadStateEventPayload,
   GetDownloadsResponse,
   LoadCastMediaParams,
+  OfflineQueueResponse,
   PlaybackState,
 } from "./types";
 
@@ -186,6 +187,29 @@ export async function startPlayback(params: {
 }
 
 /**
+ * Start playback from a JS-materialized queue without fetching the server queue.
+ * Used for Android offline playback where the server is unreachable but Media3
+ * already has completed downloads in its cache.
+ */
+export async function startOfflinePlayback(params: {
+  response: OfflineQueueResponse;
+  playWhenReady: boolean;
+  startPositionMs: number;
+  sessionId?: string;
+  sourceType?: string;
+  sourceId?: string;
+}): Promise<void> {
+  await invoke("plugin:native-audio|start_offline_playback", {
+    response: params.response,
+    playWhenReady: params.playWhenReady,
+    startPositionMs: params.startPositionMs,
+    sessionId: params.sessionId,
+    sourceType: params.sourceType,
+    sourceId: params.sourceId,
+  });
+}
+
+/**
  * Invalidate the queue window and refetch from server.
  * Call after reordering, adding, or removing tracks.
  *
@@ -339,7 +363,7 @@ export async function getDownloads(): Promise<DownloadInfo[]> {
 }
 
 /**
- * Toggle Wi-Fi-only downloads. When enabled (default), downloads won't
+ * Toggle Wi-Fi-only downloads. When enabled, downloads won't
  * progress over metered connections and will be auto-resumed once an
  * unmetered network is available.
  */

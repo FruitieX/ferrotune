@@ -28,11 +28,12 @@ export const downloadBitrateAtom = atomWithServerStorage<number>(
 
 /**
  * When true, downloads won't progress over metered connections. Defaults
- * to true — most users don't want to download large media on cellular data.
+ * to false because Android often reports emulator and VPN-backed Wi-Fi as
+ * metered, which makes new downloads appear to do nothing.
  */
 export const downloadWifiOnlyAtom = atomWithServerStorage<boolean>(
   "downloadWifiOnly",
-  true,
+  false,
 );
 
 /**

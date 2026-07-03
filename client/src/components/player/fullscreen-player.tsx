@@ -54,6 +54,7 @@ import {
   toggleShuffleAtom,
   queueWindowAtom,
 } from "@/lib/store/server-queue";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 import {
   effectivePlaybackStateAtom,
   currentTimeAtom,
@@ -209,6 +210,7 @@ export function FullscreenPlayer() {
   const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
   const followerSessionName = useAtomValue(followerSessionNameAtom);
   const followerClientName = useAtomValue(followerSessionClientNameAtom);
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   // Refs to the draggable fullscreen sheet and backdrop so we can
   // release pointer capture and disable pointer events synchronously
@@ -278,10 +280,14 @@ export function FullscreenPlayer() {
     )?.song ?? null;
 
   const prevCoverArtUrl = prevTrack?.coverArt
-    ? getClient()?.getCoverArtUrl(prevTrack.coverArt, 500)
+    ? isOfflineMode
+      ? undefined
+      : getClient()?.getCoverArtUrl(prevTrack.coverArt, 500)
     : undefined;
   const nextCoverArtUrl = nextTrack?.coverArt
-    ? getClient()?.getCoverArtUrl(nextTrack.coverArt, 500)
+    ? isOfflineMode
+      ? undefined
+      : getClient()?.getCoverArtUrl(nextTrack.coverArt, 500)
     : undefined;
 
   // Album art swipe transforms
@@ -873,7 +879,9 @@ export function FullscreenPlayer() {
 
   // Get cover art URL
   const coverArtUrl = currentTrack?.coverArt
-    ? getClient()?.getCoverArtUrl(currentTrack.coverArt, 500)
+    ? isOfflineMode
+      ? undefined
+      : getClient()?.getCoverArtUrl(currentTrack.coverArt, 500)
     : undefined;
 
   const handleProgressChange = (value: number[]) => {
@@ -1242,6 +1250,7 @@ export function FullscreenPlayer() {
                   >
                     <CoverImage
                       src={prevCoverArtUrl}
+                      inlineData={prevTrack.coverArtData}
                       alt={prevTrack.album ?? prevTrack.title}
                       colorSeed={prevTrack.album ?? undefined}
                       type="song"
@@ -1290,6 +1299,7 @@ export function FullscreenPlayer() {
                 >
                   <CoverImage
                     src={coverArtUrl}
+                    inlineData={currentTrack.coverArtData}
                     alt={currentTrack.album ?? currentTrack.title}
                     colorSeed={currentTrack.album ?? undefined}
                     type="song"
@@ -1315,6 +1325,7 @@ export function FullscreenPlayer() {
                   >
                     <CoverImage
                       src={nextCoverArtUrl}
+                      inlineData={nextTrack.coverArtData}
                       alt={nextTrack.album ?? nextTrack.title}
                       colorSeed={nextTrack.album ?? undefined}
                       type="song"

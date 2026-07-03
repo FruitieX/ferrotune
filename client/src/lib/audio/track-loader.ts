@@ -14,6 +14,7 @@ import {
   nativeUpdateSettings,
   nativeUpdateStarredState,
   nativeStartPlayback,
+  nativeStartOfflinePlayback,
   nativeInvalidateQueue,
 } from "@/lib/audio/native-engine";
 import { pendingPlaybackPositionMs } from "@/lib/store/server-queue";
@@ -56,6 +57,7 @@ import { getNativeStreamOptions } from "./engine-types";
 import { getStarredItemKey } from "@/lib/store/starred";
 import type { Song } from "@/lib/api/types";
 import type { ServerQueueState } from "@/lib/store/server-queue";
+import type { QueueWindow } from "@/lib/api/generated";
 import type { FerrotuneClient } from "@/lib/api/client";
 import type { PlaybackState, ReplayGainMode } from "@/lib/store/player";
 
@@ -79,6 +81,11 @@ interface TrackLoadParams {
   replayGainMode: ReplayGainMode;
   replayGainOffset: number;
   queueState: ServerQueueState | null;
+  queueWindow?: QueueWindow | null;
+}
+
+function isOfflineQueue(state: ServerQueueState | null): boolean {
+  return state?.source?.filters?.offline === true;
 }
 
 /** Atom setters needed directly (not via settersRef). */
@@ -117,6 +124,7 @@ export function loadTrackNative(
   _client: FerrotuneClient,
 ): boolean {
   const { currentSong, trackChangeSignal, isRestoringQueue } = params;
+  const offlineQueue = isOfflineQueue(params.queueState);
 
   console.log(
     "[Audio] Native audio effect triggered, currentSong:",
@@ -142,7 +150,10 @@ export function loadTrackNative(
   }
 
   const sessionIdAtStart = refs.stateRef.current.currentSessionId;
-  if (!sessionIdAtStart || !refs.stateRef.current.serverConnection) {
+  if (
+    (!sessionIdAtStart && !offlineQueue) ||
+    !refs.stateRef.current.serverConnection
+  ) {
     console.warn(
       "[NativeAudio] Skipping native load until session credentials are ready",
     );
@@ -274,6 +285,44 @@ export function loadTrackNative(
     // invalidate so Kotlin refetches with new stream URLs
     if (transcodingChanged && !signalChanged) {
       await nativeInvalidateQueue();
+      return;
+    }
+
+    if (offlineQueue) {
+      const offlineWindow =
+        params.queueWindow ?? refs.stateRef.current.queueWindow;
+      if (!offlineWindow || offlineWindow.songs.length === 0) {
+        console.warn("[NativeAudio] Offline queue is missing its local window");
+        return;
+      }
+
+      await nativeStartOfflinePlayback({
+        response: {
+          totalCount: qs.totalCount,
+          currentIndex: qs.currentIndex,
+          positionMs: qs.positionMs,
+          isShuffled: qs.isShuffled,
+          repeatMode: qs.repeatMode,
+          source: {
+            type: qs.source?.type ?? null,
+            id: qs.source?.id ?? null,
+          },
+          window: offlineWindow,
+        },
+        playWhenReady: shouldPlay,
+        startPositionMs: qs.positionMs,
+        sessionId: refs.stateRef.current.currentSessionId ?? undefined,
+        sourceType: qs.source?.type,
+        sourceId: qs.source?.id ?? undefined,
+      });
+      if (!loadStillCurrent()) return;
+
+      setCurrentLoadedTrackId(currentSong.id);
+      const isStarred =
+        refs.stateRef.current.starredItems.get(
+          getStarredItemKey("song", currentSong.id),
+        ) ?? !!currentSong.starred;
+      await nativeUpdateStarredState(isStarred);
       return;
     }
 

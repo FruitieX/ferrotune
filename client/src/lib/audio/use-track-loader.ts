@@ -26,6 +26,7 @@ import {
   currentSongAtom,
   isRestoringQueueAtom,
   trackChangeSignalAtom,
+  queueWindowAtom,
 } from "@/lib/store/server-queue";
 import {
   effectiveSessionIdAtom,
@@ -76,7 +77,9 @@ export function useTrackLoader({
   const replayGainMode = useAtomValue(replayGainModeAtom);
   const replayGainOffset = useAtomValue(replayGainOffsetAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
+  const queueWindow = useAtomValue(queueWindowAtom);
   const isNativePlatform = hasNativeAudio() || usingNativeAudio;
+  const isOfflineQueue = queueState?.source?.filters?.offline === true;
 
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   // Also reload when transcoding settings change
@@ -84,7 +87,7 @@ export function useTrackLoader({
     // Don't load audio when remote-controlling another session
     if (isRemoteControlling) return;
     if (!isClientInitialized) return;
-    if (isNativePlatform && !currentSessionId) return;
+    if (isNativePlatform && !currentSessionId && !isOfflineQueue) return;
 
     // Restored native queues are handled by the dedicated preload effect below.
     // That path waits for the native engine/session and materializes the queue
@@ -108,6 +111,7 @@ export function useTrackLoader({
             replayGainMode,
             replayGainOffset,
             queueState,
+            queueWindow,
           },
           { lastProcessedSignalRef, lastStreamUrlRef, stateRef, settersRef },
           {
@@ -130,6 +134,7 @@ export function useTrackLoader({
             replayGainMode,
             replayGainOffset,
             queueState,
+            queueWindow,
           },
           { lastProcessedSignalRef, lastStreamUrlRef, stateRef, settersRef },
           {
@@ -178,6 +183,8 @@ export function useTrackLoader({
     isRestoringQueue,
     isRemoteControlling,
     queueState,
+    queueWindow,
+    isOfflineQueue,
     transcodingEnabled,
     transcodingBitrate,
     setPlaybackState,
@@ -209,6 +216,7 @@ export function useTrackLoader({
         replayGainMode,
         replayGainOffset,
         queueState,
+        queueWindow,
       },
       { lastProcessedSignalRef, lastStreamUrlRef, stateRef, settersRef },
       {
@@ -229,6 +237,7 @@ export function useTrackLoader({
     isRestoringQueue,
     isRemoteControlling,
     queueState,
+    queueWindow,
     transcodingEnabled,
     transcodingBitrate,
     replayGainMode,

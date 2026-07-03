@@ -23,15 +23,17 @@ import {
 } from "tauri-plugin-native-audio-api";
 import { isTauriMobile } from "@/lib/tauri";
 import { cacheGet, cacheSet, cacheDelByPrefix } from "@/lib/cache-store";
+import { clearOfflinePlaylistMembership } from "@/lib/offline/playlist-membership";
 import type { SongDownloadState, DownloadStatus } from "@/lib/store/downloads";
 import {
   setDownloadStateMapAtom,
+  downloadStateMapAtom,
   downloadsPausedAtom,
   setDownloadedContainersAtom,
   downloadedContainersAtom,
 } from "@/lib/store/downloads";
 import type { Song } from "@/lib/api/types";
-import { getDefaultStore } from "jotai";
+import type { Store } from "jotai/vanilla/store";
 
 const DOWNLOADED_SONGS_KEY = "offline:downloader:songs";
 const CONTAINER_PREFIX = "offline:downloaded-container:";
@@ -44,7 +46,7 @@ interface PersistedDownloadState {
 }
 
 let unsubscribeNative: (() => void) | null = null;
-let initialized = false;
+let activeStore: Store | null = null;
 
 function statusFromNative(s: DownloadInfo["status"]): DownloadStatus {
   switch (s) {
@@ -75,12 +77,34 @@ function downloadInfoToState(info: DownloadInfo): SongDownloadState {
   };
 }
 
-function applySnapshot(downloads: DownloadInfo[], paused: boolean) {
-  const store = getDefaultStore();
+function replaceSnapshot(
+  store: Store,
+  downloads: DownloadInfo[],
+  paused: boolean,
+) {
   const next = new Map<string, SongDownloadState>();
   for (const d of downloads) {
     if (d.kind !== "audio") continue;
     next.set(d.songId, downloadInfoToState(d));
+  }
+  store.set(setDownloadStateMapAtom, next);
+  store.set(downloadsPausedAtom, paused);
+}
+
+function applyDownloadUpdates(
+  store: Store,
+  downloads: DownloadInfo[],
+  paused: boolean,
+) {
+  const next = new Map(store.get(downloadStateMapAtom));
+  for (const d of downloads) {
+    if (d.kind !== "audio") continue;
+    const state = downloadInfoToState(d);
+    if (state.status === "removing") {
+      next.delete(d.songId);
+    } else {
+      next.set(d.songId, state);
+    }
   }
   store.set(setDownloadStateMapAtom, next);
   store.set(downloadsPausedAtom, paused);
@@ -91,7 +115,7 @@ function applySnapshot(downloads: DownloadInfo[], paused: boolean) {
  * the persisted IndexedDB store into a reactive atom so menu UI can render
  * "Downloaded" vs "Download" without an async lookup on every render.
  */
-async function rehydrateContainerIndex(): Promise<void> {
+async function rehydrateContainerIndex(store: Store): Promise<void> {
   try {
     const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
     const containers = state?.containers ?? {};
@@ -99,7 +123,7 @@ async function rehydrateContainerIndex(): Promise<void> {
     for (const [containerId, songIds] of Object.entries(containers)) {
       next.set(containerId, songIds);
     }
-    getDefaultStore().set(setDownloadedContainersAtom, next);
+    store.set(setDownloadedContainersAtom, next);
   } catch (err) {
     console.warn("[downloads] failed to rehydrate container index", err);
   }
@@ -113,7 +137,9 @@ async function rehydrateContainerIndex(): Promise<void> {
  * any subscribers (menus) re-render immediately.
  */
 function syncContainerAtom(mutate: (map: Map<string, string[]>) => void): void {
-  const store = getDefaultStore();
+  const store = activeStore;
+  if (!store) return;
+
   const prev = store.get(downloadedContainersAtom);
   const next = new Map(prev);
   mutate(next);
@@ -126,33 +152,35 @@ function syncContainerAtom(mutate: (map: Map<string, string[]>) => void): void {
  *
  * On non-Tauri platforms this is a no-op and the store stays empty.
  */
-export async function initDownloadManager(): Promise<void> {
-  if (initialized) return;
-  initialized = true;
+export async function initDownloadManager(store: Store): Promise<void> {
+  activeStore = store;
 
   if (!isTauriMobile()) return;
 
   // 1) Subscribe to native download-state-changed events
-  try {
-    unsubscribeNative = onDownloadStateChanged(
-      (payload: DownloadStateEventPayload) => {
-        applySnapshot(payload.downloads, payload.paused);
-      },
-    );
-  } catch (err) {
-    console.warn("[downloads] failed to subscribe to native events", err);
+  if (!unsubscribeNative) {
+    try {
+      unsubscribeNative = onDownloadStateChanged(
+        (payload: DownloadStateEventPayload) => {
+          if (!activeStore) return;
+          applyDownloadUpdates(activeStore, payload.downloads, payload.paused);
+        },
+      );
+    } catch (err) {
+      console.warn("[downloads] failed to subscribe to native events", err);
+    }
   }
 
   // 2) Rehydrate the persisted downloaded-songs map from IndexedDB
   await persistServerStateSubscription();
-  await rehydrateContainerIndex();
+  await rehydrateContainerIndex(store);
 
   // 3) Ask the native side for an initial snapshot (covers the
   //    relaunch-with-pending-downloads case where the DownloadManager
   //    already has downloads)
   try {
     const snapshot = await getDownloads();
-    applySnapshot(snapshot, false);
+    replaceSnapshot(store, snapshot, false);
   } catch (err) {
     console.warn("[downloads] failed to fetch initial snapshot", err);
   }
@@ -306,6 +334,7 @@ export async function getDownloadedContainers(): Promise<
 /** Clear all persisted downloaded songs + containers. */
 export async function clearDownloadedMetadata(): Promise<void> {
   await cacheDelByPrefix("offline:downloaded-container:");
+  await clearOfflinePlaylistMembership();
   await cacheSet(
     DOWNLOADED_SONGS_KEY,
     { songs: {}, containers: {} },
@@ -322,14 +351,15 @@ export async function clearDownloadedMetadata(): Promise<void> {
 export function teardownDownloadManager() {
   unsubscribeNative?.();
   unsubscribeNative = null;
-  initialized = false;
   // Reset the store atom to empty so state from the previous account
   // doesn't leak (downloads are device-shared via content-key canonicalization
   // but the Jotai state map is account-scoped for cache invalidation).
-  const store = getDefaultStore();
-  store.set(setDownloadStateMapAtom, new Map());
-  store.set(setDownloadedContainersAtom, new Map());
-  store.set(downloadsPausedAtom, false);
+  if (activeStore) {
+    activeStore.set(setDownloadStateMapAtom, new Map());
+    activeStore.set(setDownloadedContainersAtom, new Map());
+    activeStore.set(downloadsPausedAtom, false);
+  }
+  activeStore = null;
 }
 
 // Re-export CONTAINER_PREFIX for any consumer that interacts with the

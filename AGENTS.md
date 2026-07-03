@@ -340,6 +340,13 @@ Server-backed UI preferences such as Home tiles and sections use `atomWithServer
 |--------|---------|---------------|
 | `current-position.ts` | Source-aware now-playing matching for virtualized collection views | `queueSourceMatchesView()`, `getCurrentQueuePositionMatch()` |
 
+### Frontend Offline Helpers (`client/src/lib/offline/`)
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| `download-manager.ts` | Native download state subscription plus persisted downloaded song/container metadata | `initDownloadManager()`, `getDownloadedSongs()`, `getDownloadedContainers()` |
+| `playlist-membership.ts` | Account-scoped IndexedDB cache for visible playlist membership of downloaded song IDs, used only for true offline playback/materialization | `syncOfflinePlaylistMembership()`, `getOfflinePlaylistMembershipForPlaylist()` |
+
 ---
 
 ## Common Tasks

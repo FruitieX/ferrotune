@@ -30,6 +30,7 @@ import {
   Cast,
   Monitor,
   Smartphone,
+  WifiOff,
 } from "lucide-react";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,7 @@ import {
   progressBarStyleAtom,
 } from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 import { useStarred } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
@@ -112,6 +114,7 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
   const isSmallScreen = useIsSmallScreen();
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const { next, previousForce } = useAudioEngine();
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
 
   // Use global starred state
   const { isStarred, toggleStar } = useStarred(
@@ -121,7 +124,9 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
 
   // Get cover art URL
   const coverArtUrl = track?.coverArt
-    ? getClient()?.getCoverArtUrl(track.coverArt, 96)
+    ? isOfflineMode
+      ? null
+      : getClient()?.getCoverArtUrl(track.coverArt, 96)
     : null;
 
   if (!track || isEnded) {
@@ -1205,8 +1210,23 @@ function CastButton() {
 
 /** Follower session indicator - shows when listening on another device */
 function FollowerIndicator() {
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
   const sessionName = useAtomValue(followerSessionNameAtom);
   const clientName = useAtomValue(followerSessionClientNameAtom);
+
+  if (isOfflineMode) {
+    return (
+      <div className="pointer-events-none relative z-110 flex w-full items-center justify-center bg-amber-500/10 pt-2 pb-0.5 text-amber-600 dark:text-amber-400 text-xs">
+        <div className="flex max-w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-2">
+          <WifiOff className="w-3 h-3 shrink-0" />
+          <span className="truncate">
+            Offline mode: playing downloaded music
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   if (!sessionName) return null;
 
   const Icon = isCastClientName(clientName)

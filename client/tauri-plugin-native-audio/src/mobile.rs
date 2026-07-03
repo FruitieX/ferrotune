@@ -162,6 +162,31 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
+    /// Start playback from a queue response supplied by JS instead of refetching from server.
+    pub fn start_offline_playback(
+        &self,
+        response: Value,
+        play_when_ready: bool,
+        start_position_ms: u64,
+        session_id: Option<String>,
+        source_type: Option<String>,
+        source_id: Option<String>,
+    ) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "startOfflinePlayback",
+                serde_json::json!({
+                    "response": response,
+                    "playWhenReady": play_when_ready,
+                    "startPositionMs": start_position_ms,
+                    "sessionId": session_id,
+                    "sourceType": source_type,
+                    "sourceId": source_id,
+                }),
+            )
+            .map_err(Into::into)
+    }
+
     /// Invalidate queue window and refetch from server
     pub fn invalidate_queue(&self, play_when_ready: Option<bool>) -> Result<()> {
         self.0

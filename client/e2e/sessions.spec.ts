@@ -8,7 +8,7 @@
  * - Session switching basics
  */
 
-import { expect, Page, BrowserContext } from "@playwright/test";
+import { expect, Page, BrowserContext, Locator } from "@playwright/test";
 import {
   test,
   waitForPlayerReady,
@@ -666,6 +666,25 @@ async function pauseCurrentPlayback(page: Page): Promise<void> {
   await expect(playBtn).toBeVisible({ timeout: 10000 });
 }
 
+async function waitForFullscreenPlayerSettled(
+  fullscreenPlayer: Locator,
+): Promise<void> {
+  const closeButton = fullscreenPlayer.getByRole("button", {
+    name: /close fullscreen player/i,
+  });
+
+  await expect(closeButton).toBeVisible({ timeout: 10000 });
+  await expect
+    .poll(
+      async () => {
+        const box = await fullscreenPlayer.boundingBox();
+        return Math.abs(box?.y ?? Number.POSITIVE_INFINITY);
+      },
+      { timeout: 10000 },
+    )
+    .toBeLessThan(8);
+}
+
 async function playFirstSongAndPause(page: Page): Promise<void> {
   await playFirstAlbumSong(page);
   await waitForPlayerReady(page);
@@ -1003,6 +1022,7 @@ test.describe.serial("Multi-Session Playback", () => {
 
       const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
       await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+      await waitForFullscreenPlayerSettled(fullscreenPlayer);
       const sessionButton = fullscreenPlayer.getByRole("button", {
         name: /playing on chromecast/i,
       });

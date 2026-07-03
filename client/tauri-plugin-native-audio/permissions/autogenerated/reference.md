@@ -608,6 +608,32 @@ Denies the soft_invalidate_queue command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-start-offline-playback`
+
+</td>
+<td>
+
+Enables the start_offline_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-start-offline-playback`
+
+</td>
+<td>
+
+Denies the start_offline_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-start-playback`
 
 </td>
@@ -1004,6 +1030,19 @@ Allows updating playback settings
 <td>
 
 Allows starting playback mode
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-start-offline-playback`
+
+</td>
+<td>
+
+Allows starting playback from a locally materialized offline queue
 
 </td>
 </tr>

@@ -18,7 +18,10 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { usePlaylistSparsePagination } from "@/lib/hooks/use-playlist-sparse-pagination";
+import {
+  usePlaylistSparsePagination,
+  type PlaylistMetadata,
+} from "@/lib/hooks/use-playlist-sparse-pagination";
 import {
   applySearchTermsToQueueAtom,
   playlistViewModeAtom,
@@ -30,6 +33,7 @@ import {
   serverQueueStateAtom,
   currentSourceEntryIdAtom,
 } from "@/lib/store/server-queue";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -92,6 +96,8 @@ import {
 } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { queueTextFilter } from "@/lib/queue/source-filters";
+import { getDownloadedSongs } from "@/lib/offline/download-manager";
+import { getOfflinePlaylistMembershipForPlaylist } from "@/lib/offline/playlist-membership";
 import type { Song } from "@/lib/api/types";
 import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
 import type { MissingEntryDataResponse } from "@/lib/api/generated/MissingEntryDataResponse";
@@ -128,6 +134,7 @@ function PlaylistDetailContent() {
   const queueState = useAtomValue(serverQueueStateAtom);
   const currentSourceEntryId = useAtomValue(currentSourceEntryIdAtom);
   const applySearchTermsToQueue = useAtomValue(applySearchTermsToQueueAtom);
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
   const queryClient = useQueryClient();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -172,10 +179,27 @@ function PlaylistDetailContent() {
   >(null);
   const debouncedFilter = useDebounce(filter, 300);
   const isMounted = useIsMounted();
+  const [offlineEntries, setOfflineEntries] = useState<PlaylistSongEntry[]>([]);
+  const [offlinePlaylist, setOfflinePlaylist] =
+    useState<PlaylistMetadata | null>(null);
+  const [isLoadingOfflinePlaylist, setIsLoadingOfflinePlaylist] =
+    useState(false);
 
   // View settings
   const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
+  const effectiveSortConfig = isOfflineMode
+    ? ({ field: "custom", direction: "asc" } as const)
+    : sortConfig;
+  const handleSortConfigChange = (nextSortConfig: typeof sortConfig) => {
+    if (isOfflineMode) {
+      toast.info(
+        "Offline playlists use custom order until the server is reachable.",
+      );
+      return;
+    }
+    setSortConfig(nextSortConfig);
+  };
   const [columnVisibility, setColumnVisibility] = useAtom(
     playlistColumnVisibilityAtom,
   );
@@ -189,17 +213,17 @@ function PlaylistDetailContent() {
 
   // Fetch playlist songs with sparse pagination
   const {
-    entries: allEntries,
-    metadata: playlist,
-    isLoading,
-    ensureRange,
-    refresh: refreshPlaylistData,
+    entries: onlineEntries,
+    metadata: onlinePlaylist,
+    isLoading: isOnlineLoading,
+    ensureRange: onlineEnsureRange,
+    refresh: refreshOnlinePlaylistData,
   } = usePlaylistSparsePagination({
     queryKey: [
       "playlistSongs",
       playlistId,
-      sortConfig.field,
-      sortConfig.direction,
+      effectiveSortConfig.field,
+      effectiveSortConfig.direction,
       debouncedFilter,
       viewMode,
     ],
@@ -210,14 +234,92 @@ function PlaylistDetailContent() {
       return client.getPlaylistSongs(playlistId!, {
         offset,
         count: PAGE_SIZE,
-        sort: sortConfig.field,
-        sortDir: sortConfig.direction,
+        sort: effectiveSortConfig.field,
+        sortDir: effectiveSortConfig.direction,
         filter: debouncedFilter.trim() || undefined,
         inlineImages: viewMode === "grid" ? "medium" : "small",
       });
     },
-    enabled: isReady && !!playlistId,
+    enabled: isReady && !!playlistId && !isOfflineMode,
   });
+
+  useEffect(() => {
+    if (!isOfflineMode || !playlistId) return;
+
+    let cancelled = false;
+    setIsLoadingOfflinePlaylist(true);
+
+    Promise.all([
+      getOfflinePlaylistMembershipForPlaylist(playlistId),
+      getDownloadedSongs(),
+    ])
+      .then(([playlistMembership, songsById]) => {
+        if (cancelled) return;
+        if (!playlistMembership) {
+          setOfflinePlaylist(null);
+          setOfflineEntries([]);
+          return;
+        }
+
+        const entries = playlistMembership.entries
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map<PlaylistSongEntry>((entry, index) => ({
+            entryId: `${playlistMembership.id}:${entry.position}:${entry.songId}`,
+            position: entry.position,
+            entryType: "song",
+            addedToPlaylist: null,
+            songIndex: index,
+            song: songsById[entry.songId] ?? null,
+            missing: null,
+          }))
+          .filter((entry) => entry.song);
+
+        setOfflineEntries(entries);
+        setOfflinePlaylist({
+          id: playlistMembership.id,
+          name: playlistMembership.name,
+          comment: null,
+          owner: playlistMembership.owner ?? "",
+          public: false,
+          totalEntries: entries.length,
+          matchedCount: entries.length,
+          missingCount: 0,
+          duration: entries.reduce(
+            (sum, entry) => sum + (entry.song?.duration ?? 0),
+            0,
+          ),
+          filteredCount: entries.length,
+          created: playlistMembership.changed,
+          changed: playlistMembership.changed,
+          coverArt: playlistMembership.coverArt,
+          sharedWithMe: playlistMembership.sharedWithMe,
+          canEdit: false,
+        });
+      })
+      .catch((error) => {
+        console.warn("[playlist] failed to load offline playlist", error);
+        if (!cancelled) {
+          setOfflinePlaylist(null);
+          setOfflineEntries([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingOfflinePlaylist(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOfflineMode, playlistId]);
+
+  const allEntries = isOfflineMode ? offlineEntries : onlineEntries;
+  const playlist = isOfflineMode ? offlinePlaylist : onlinePlaylist;
+  const isLoading = isOfflineMode ? isLoadingOfflinePlaylist : isOnlineLoading;
+  const ensureRange = isOfflineMode ? undefined : onlineEnsureRange;
+  const refreshPlaylistData = isOfflineMode
+    ? () => {}
+    : refreshOnlinePlaylistData;
 
   const syncPlaylistAfterMutation = async (includePlaylistLists = true) => {
     refreshPlaylistData();
@@ -284,8 +386,8 @@ function PlaylistDetailContent() {
   const totalDuration = playlist?.duration ?? 0;
 
   // Sharing permissions
-  const isOwner = !playlist?.sharedWithMe;
-  const canModify = isOwner || (playlist?.canEdit ?? false);
+  const isOwner = !isOfflineMode && !playlist?.sharedWithMe;
+  const canModify = !isOfflineMode && (isOwner || (playlist?.canEdit ?? false));
 
   // Get the cover URL
   const coverUrl = usePlaylistCoverUrl(
@@ -559,10 +661,10 @@ function PlaylistDetailContent() {
     name: playlist?.name ?? "Playlist",
     filters: queueFilter,
     sort:
-      sortConfig.field !== "custom"
+      effectiveSortConfig.field !== "custom"
         ? {
-            field: sortConfig.field,
-            direction: sortConfig.direction,
+            field: effectiveSortConfig.field,
+            direction: effectiveSortConfig.direction,
           }
         : undefined,
   };
@@ -607,8 +709,11 @@ function PlaylistDetailContent() {
 
       // Compare sort (only if not in custom order)
       const currentSort =
-        sortConfig.field !== "custom"
-          ? { field: sortConfig.field, direction: sortConfig.direction }
+        effectiveSortConfig.field !== "custom"
+          ? {
+              field: effectiveSortConfig.field,
+              direction: effectiveSortConfig.direction,
+            }
           : undefined;
       const sortMatch =
         (currentSort === undefined &&
@@ -838,12 +943,13 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         shuffle: false,
+        offlineSongIds: displaySongs.map((s) => s.id),
         filters: queueFilter,
         sort:
-          sortConfig.field !== "custom"
+          effectiveSortConfig.field !== "custom"
             ? {
-                field: sortConfig.field,
-                direction: sortConfig.direction,
+                field: effectiveSortConfig.field,
+                direction: effectiveSortConfig.direction,
               }
             : undefined,
       });
@@ -857,12 +963,13 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         shuffle: true,
+        offlineSongIds: displaySongs.map((s) => s.id),
         filters: queueFilter,
         sort:
-          sortConfig.field !== "custom"
+          effectiveSortConfig.field !== "custom"
             ? {
-                field: sortConfig.field,
-                direction: sortConfig.direction,
+                field: effectiveSortConfig.field,
+                direction: effectiveSortConfig.direction,
               }
             : undefined,
       });
@@ -995,8 +1102,8 @@ function PlaylistDetailContent() {
             filter={filter}
             onFilterChange={setFilter}
             filterPlaceholder="Filter playlist..."
-            sortConfig={sortConfig}
-            onSortChange={setSortConfig}
+            sortConfig={effectiveSortConfig}
+            onSortChange={handleSortConfigChange}
             columnVisibility={columnVisibility}
             onColumnVisibilityChange={setColumnVisibility}
             viewMode={viewMode}
@@ -1025,8 +1132,8 @@ function PlaylistDetailContent() {
             onDeletePlaylist={
               isOwner ? () => setDeleteDialogOpen(true) : undefined
             }
-            sortConfig={sortConfig}
-            onSortChange={setSortConfig}
+            sortConfig={effectiveSortConfig}
+            onSortChange={handleSortConfigChange}
             showCustomSort
             showAddedToPlaylist
             viewMode={viewMode}
@@ -1036,45 +1143,49 @@ function PlaylistDetailContent() {
           />
         }
       >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <MoreHorizontal className="w-5 h-5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {canModify && (
-              <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
-                <Pencil className="w-4 h-4 mr-2" />
-                Edit Playlist
-              </DropdownMenuItem>
-            )}
-            {canModify && (
-              <DropdownMenuItem onClick={() => setAddSongDialogOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Song
-              </DropdownMenuItem>
-            )}
-            {canModify && hasMissingEntries && (
-              <DropdownMenuItem onClick={() => setMassResolveDialogOpen(true)}>
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Resolve Missing Entries
-              </DropdownMenuItem>
-            )}
-            {isOwner && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-destructive"
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete Playlist
+        {!isOfflineMode && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <MoreHorizontal className="w-5 h-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canModify && (
+                <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit Playlist
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              )}
+              {canModify && (
+                <DropdownMenuItem onClick={() => setAddSongDialogOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Song
+                </DropdownMenuItem>
+              )}
+              {canModify && hasMissingEntries && (
+                <DropdownMenuItem
+                  onClick={() => setMassResolveDialogOpen(true)}
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Resolve Missing Entries
+                </DropdownMenuItem>
+              )}
+              {isOwner && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => setDeleteDialogOpen(true)}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Playlist
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </ActionBar>
 
       {/* Track list */}
@@ -1128,7 +1239,7 @@ function PlaylistDetailContent() {
                         canModify ? handleRemoveMissingEntry : undefined
                       }
                       showMoveToPosition={
-                        canModify && sortConfig.field === "custom"
+                        canModify && effectiveSortConfig.field === "custom"
                       }
                       onMoveToPosition={
                         canModify ? handleMissingMoveToPosition : undefined
@@ -1145,6 +1256,16 @@ function PlaylistDetailContent() {
                     index={songItem.position}
                     inlineImagesRequested
                     queueSource={playlistQueueSource}
+                    href={
+                      isOfflineMode
+                        ? `/playlists/details?id=${playlistId}`
+                        : undefined
+                    }
+                    artistHref={
+                      isOfflineMode
+                        ? `/playlists/details?id=${playlistId}`
+                        : undefined
+                    }
                     isSelected={isSelected(songItem.song.id)}
                     isSelectionMode={totalSelectedCount > 0}
                     onSelect={handleSongSelect}
@@ -1158,7 +1279,7 @@ function PlaylistDetailContent() {
                         : undefined
                     }
                     showMoveToPosition={
-                      canModify && sortConfig.field === "custom"
+                      canModify && effectiveSortConfig.field === "custom"
                     }
                     onMoveToPosition={
                       canModify ? handleSongMoveToPosition : undefined
@@ -1183,8 +1304,8 @@ function PlaylistDetailContent() {
               <SongListHeader
                 columnVisibility={columnVisibility}
                 showCover
-                sortConfig={sortConfig}
-                onSortChange={setSortConfig}
+                sortConfig={effectiveSortConfig}
+                onSortChange={handleSortConfigChange}
               />
               <VirtualizedList
                 items={displayItems}
@@ -1219,7 +1340,7 @@ function PlaylistDetailContent() {
                           canModify ? handleRemoveMissingEntry : undefined
                         }
                         showMoveToPosition={
-                          canModify && sortConfig.field === "custom"
+                          canModify && effectiveSortConfig.field === "custom"
                         }
                         onMoveToPosition={
                           canModify ? handleMissingMoveToPosition : undefined
@@ -1258,6 +1379,7 @@ function PlaylistDetailContent() {
                       showFormat={columnVisibility.format}
                       showRating={columnVisibility.rating}
                       queueSource={playlistQueueSource}
+                      disableLibraryLinks={isOfflineMode}
                       isSelected={isSelected(songItem.song.id)}
                       isSelectionMode={totalSelectedCount > 0}
                       onSelect={handleSongSelect}
@@ -1275,7 +1397,7 @@ function PlaylistDetailContent() {
                           : undefined
                       }
                       showMoveToPosition={
-                        canModify && sortConfig.field === "custom"
+                        canModify && effectiveSortConfig.field === "custom"
                       }
                       onMoveToPosition={
                         canModify ? handleSongMoveToPosition : undefined

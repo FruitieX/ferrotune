@@ -58,11 +58,14 @@ export function createNativeCallbacks({
   stateRef,
   settersRef,
 }: NativeCallbackDeps): NativeAudioCallbacks {
-  const hasCurrentSessionQueue = () =>
-    !!stateRef.current.currentSessionId && !!stateRef.current.queueState;
+  const isOfflineQueue = () =>
+    stateRef.current.queueState?.source?.filters?.offline === true;
+  const hasCurrentPlayableQueue = () =>
+    !!stateRef.current.queueState &&
+    (!!stateRef.current.currentSessionId || isOfflineQueue());
 
   const onStateChange = (state: PlaybackState) => {
-    if (!hasCurrentSessionQueue()) {
+    if (!hasCurrentPlayableQueue()) {
       return;
     }
 
@@ -111,7 +114,7 @@ export function createNativeCallbacks({
     duration: number,
     buffered: number,
   ) => {
-    if (!hasCurrentSessionQueue()) {
+    if (!hasCurrentPlayableQueue()) {
       return;
     }
 
@@ -139,7 +142,7 @@ export function createNativeCallbacks({
     trackId?: string,
     details?: NativePlaybackErrorDetails,
   ) => {
-    if (!hasCurrentSessionQueue()) {
+    if (!hasCurrentPlayableQueue()) {
       return;
     }
 
@@ -181,7 +184,7 @@ export function createNativeCallbacks({
 
     const sessionId = stateRef.current.currentSessionId;
     const queueState = stateRef.current.queueState;
-    if (!sessionId || !queueState) {
+    if (!queueState || (!sessionId && !isOfflineQueue())) {
       console.log(
         "[NativeAudio] Ignoring track-change without an active session queue",
       );
@@ -227,9 +230,11 @@ export function createNativeCallbacks({
       settersRef.current.setDuration(entry.song.duration || 0);
     }
 
-    // Fetch updated queue window for UI (Kotlin handles server position sync)
+    // Fetch updated queue window for online queues only. Offline queues are
+    // already fully materialized in IndexedDB; fetching here can fail or
+    // replace the local offline window with stale server state.
     const client = getClient();
-    if (client) {
+    if (client && sessionId && !isOfflineQueue()) {
       client
         .getQueueCurrentWindow(20, "small", sessionId)
         .then((response) => {
@@ -330,6 +335,10 @@ export function createNativeCallbacks({
           },
         );
       }
+    }
+
+    if (isOfflineQueue()) {
+      return;
     }
 
     const client = getClient();

@@ -828,6 +828,43 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
+    fun startOfflinePlayback(invoke: Invoke) {
+        scope.launch {
+            try {
+                val root = JSONObject(invoke.getRawArgs())
+                val response = parseOfflineQueueResponse(root)
+                val playWhenReady = root.optBoolean("playWhenReady", true)
+                val startPositionMs = root.optLong("startPositionMs", response.positionMs)
+                val sessionId = nullableString(root, "sessionId")
+                val sourceType = nullableString(root, "sourceType") ?: response.sourceType
+                val sourceId = nullableString(root, "sourceId") ?: response.sourceId
+                Log.d(
+                    TAG,
+                    "startOfflinePlayback() command received: total=${response.totalCount}, index=${response.currentIndex}, play=$playWhenReady"
+                )
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "startOfflinePlayback() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.startOfflinePlayback(
+                    response = response.copy(sourceType = sourceType, sourceId = sourceId),
+                    playWhenReady = playWhenReady,
+                    startPositionMs = startPositionMs,
+                    sessionId = sessionId,
+                    sourceType = sourceType,
+                    sourceId = sourceId,
+                )
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in startOfflinePlayback()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
     fun invalidateQueue(invoke: Invoke) {
         val args = invoke.parseArgs(InvalidateQueueArgs::class.java)
         scope.launch {
@@ -1016,6 +1053,64 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             Log.e(TAG, "Error in getCastMediaStatus()", e)
             invoke.reject(e.message)
         }
+    }
+
+    private fun parseOfflineQueueResponse(root: JSONObject): GetQueueResponse {
+        val responseJson = root.getJSONObject("response")
+        val windowJson = responseJson.getJSONObject("window")
+        val songsArray = windowJson.getJSONArray("songs")
+        val songs = mutableListOf<QueueWindowEntry>()
+
+        for (i in 0 until songsArray.length()) {
+            val entry = songsArray.getJSONObject(i)
+            songs.add(
+                QueueWindowEntry(
+                    entryId = entry.getString("entryId"),
+                    position = entry.getInt("position"),
+                    song = parseOfflineQueueSong(entry.getJSONObject("song")),
+                )
+            )
+        }
+
+        val sourceJson = responseJson.optJSONObject("source")
+        return GetQueueResponse(
+            sourceType = nullableString(root, "sourceType")
+                ?: sourceJson?.let { nullableString(it, "type") },
+            sourceId = nullableString(root, "sourceId")
+                ?: sourceJson?.let { nullableString(it, "id") },
+            totalCount = responseJson.getInt("totalCount"),
+            currentIndex = responseJson.getInt("currentIndex"),
+            positionMs = responseJson.optLong("positionMs", 0),
+            isShuffled = responseJson.optBoolean("isShuffled", false),
+            repeatMode = responseJson.optString("repeatMode", "off"),
+            window = QueueWindow(
+                offset = windowJson.optInt("offset", 0),
+                songs = songs,
+            ),
+        )
+    }
+
+    private fun parseOfflineQueueSong(json: JSONObject): QueueSong {
+        return QueueSong(
+            id = json.getString("id"),
+            title = nullableString(json, "title") ?: "Unknown",
+            artist = nullableString(json, "artist") ?: "Unknown Artist",
+            album = nullableString(json, "album") ?: "Unknown Album",
+            coverArt = nullableString(json, "coverArt"),
+            duration = json.optInt("duration", 0),
+            computedReplayGainTrackGain = nullableFloat(json, "computedReplayGainTrackGain"),
+            originalReplayGainTrackGain = nullableFloat(json, "originalReplayGainTrackGain"),
+        )
+    }
+
+    private fun nullableString(json: JSONObject, key: String): String? {
+        if (!json.has(key) || json.isNull(key)) return null
+        return json.optString(key).takeIf { it.isNotBlank() }
+    }
+
+    private fun nullableFloat(json: JSONObject, key: String): Float? {
+        if (!json.has(key) || json.isNull(key)) return null
+        return json.optDouble(key).toFloat()
     }
 
     // === Offline download commands ===

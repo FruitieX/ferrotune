@@ -974,6 +974,13 @@ pub struct SongPlaylistRow {
     pub playlist_name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PlaylistSongMembershipRecord {
+    pub playlist_id: String,
+    pub song_id: String,
+    pub position: i64,
+}
+
 pub async fn list_owner_playlists_containing_songs(
     database: &Database,
     owner_id: i64,
@@ -1010,6 +1017,63 @@ pub async fn list_owner_playlists_containing_songs(
             })
         })
         .collect())
+}
+
+/// Playlist membership rows for a bounded set of visible playlists and songs.
+///
+/// Callers pass already access-filtered playlist IDs. The song ID list is
+/// chunked so a device with many offline downloads does not hit SQLite's bind
+/// parameter limit.
+pub async fn list_playlist_song_memberships(
+    database: &Database,
+    playlist_ids: &[String],
+    song_ids: &[String],
+) -> Result<Vec<PlaylistSongMembershipRecord>> {
+    use entity::playlist_songs::Column as PS;
+
+    if playlist_ids.is_empty() || song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    const CHUNK_SIZE: usize = 500;
+    let mut records = Vec::new();
+
+    for playlist_chunk in playlist_ids.chunks(CHUNK_SIZE) {
+        for song_chunk in song_ids.chunks(CHUNK_SIZE) {
+            let rows: Vec<(String, Option<String>, i64)> = entity::playlist_songs::Entity::find()
+                .select_only()
+                .column(PS::PlaylistId)
+                .column(PS::SongId)
+                .column(PS::Position)
+                .filter(PS::PlaylistId.is_in(playlist_chunk.iter().cloned()))
+                .filter(PS::SongId.is_in(song_chunk.iter().cloned()))
+                .filter(PS::SongId.is_not_null())
+                .order_by_asc(PS::PlaylistId)
+                .order_by_asc(PS::Position)
+                .into_tuple()
+                .all(database.conn())
+                .await?;
+
+            records.extend(
+                rows.into_iter()
+                    .filter_map(|(playlist_id, song_id, position)| {
+                        song_id.map(|song_id| PlaylistSongMembershipRecord {
+                            playlist_id,
+                            song_id,
+                            position,
+                        })
+                    }),
+            );
+        }
+    }
+
+    records.sort_by(|a, b| {
+        a.playlist_id
+            .cmp(&b.playlist_id)
+            .then(a.position.cmp(&b.position))
+    });
+
+    Ok(records)
 }
 
 /// Recently-played regular playlist row (owner or shared).

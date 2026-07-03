@@ -348,6 +348,8 @@ export const startQueueAtom = atom(
       sort?: { field: string; direction: string };
       /** Explicit song IDs for history or custom queues */
       songIds?: string[];
+      /** Client-known song IDs used only for offline queue materialization. */
+      offlineSongIds?: string[];
     },
   ) => {
     // Offline bypass: if the device is offline, short-circuit the server-side
@@ -356,7 +358,7 @@ export const startQueueAtom = atom(
     // downloaded container (album/artist/playlist); otherwise it surfaces an
     // offline-appropriate error toast and returns `true` so the caller doesn't
     // attempt the network call.
-    if (await materializeOfflineQueueIfPossible(params)) {
+    if (await materializeOfflineQueueIfPossible(params, get, set)) {
       return;
     }
 
@@ -1073,6 +1075,25 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
 export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   const state = get(serverQueueStateAtom);
   if (!state || index < 0 || index >= state.totalCount) return;
+
+  if (state.source?.filters?.offline === true && hasNativeAudio()) {
+    set(isQueueOperationPendingAtom, true);
+    set(isRestoringQueueAtom, false);
+    try {
+      set(serverQueueStateAtom, {
+        ...state,
+        currentIndex: index,
+        positionMs: 0,
+      });
+      await nativePlayAtIndex(index);
+    } catch (error) {
+      console.error("Failed to play offline queue index (native):", error);
+      toast.error("Couldn't start downloaded playback");
+    } finally {
+      set(isQueueOperationPendingAtom, false);
+    }
+    return;
+  }
 
   const client = getClient();
   if (!client) return;

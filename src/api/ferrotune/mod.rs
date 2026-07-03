@@ -35,6 +35,7 @@
 //! - `DELETE /api/playlist-folders/:id` - Delete a playlist folder
 //! - `PATCH /api/playlists/:id/move` - Move a playlist to a folder
 //! - `PUT /api/playlists/:id/reorder` - Reorder songs in a playlist
+//! - `POST /api/playlists/membership` - Sync visible playlist membership for a set of song IDs
 //!
 //! ## Song Management Endpoints
 //!
@@ -322,6 +323,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/playlists", post(playlists::import_playlist))
         .route(
+            "/playlists/membership",
+            post(playlists::get_playlist_memberships_for_songs),
+        )
+        .route(
             "/playlists/{id}",
             get(playlists::get_playlist_songs)
                 .put(playlists::update_playlist)
@@ -449,6 +454,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/sessions/{id}/events", get(sessions::session_events))
         .route("/sessions/{id}/command", post(sessions::session_command))
+        .route(
+            "/sessions/{id}/clients/{client_id}",
+            delete(sessions::disconnect_client).post(sessions::disconnect_client),
+        )
         // User management endpoints (admin only)
         .route("/users/me", get(users::get_current_user))
         .route("/users/shareable", get(users::list_shareable_users))

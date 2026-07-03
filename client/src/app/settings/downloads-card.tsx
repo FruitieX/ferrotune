@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
+  ChevronRight,
   Download,
   Pause,
   Play,
@@ -253,8 +255,12 @@ function DownloadsCardInner() {
           )}
         </div>
 
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
+        <Link
+          to="/settings/downloads"
+          className="flex items-center justify-between gap-4 rounded-lg -mx-2 px-2 py-2 transition-colors hover:bg-muted/50 active:bg-muted/70"
+          onClick={() => hapticSelection()}
+        >
+          <div className="space-y-1 min-w-0">
             <label className="flex items-center gap-2 font-medium">
               <HardDrive className="w-4 h-4" />
               Storage
@@ -265,10 +271,11 @@ function DownloadsCardInner() {
                 : "No downloads yet"}
             </p>
           </div>
-          <span className="text-sm text-muted-foreground tabular-nums">
-            {formatFileSize(totalBytes)}
-          </span>
-        </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground tabular-nums">
+            <span>{formatFileSize(totalBytes)}</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+        </Link>
 
         <Separator />
 

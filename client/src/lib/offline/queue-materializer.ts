@@ -12,7 +12,7 @@
  * don't have the song list cached locally and can't reach the server.
  */
 
-import { getDefaultStore } from "jotai";
+import type { Getter, Setter } from "jotai/vanilla";
 import { toast } from "sonner";
 import type {
   QueueSourceInfo,
@@ -31,10 +31,10 @@ import {
 import {
   isOfflineModeAtom,
   downloadedContainersAtom,
+  downloadedSongsAtom,
 } from "@/lib/store/downloads";
 import { getDownloadedSongs } from "@/lib/offline/download-manager";
-import { hasNativeAudio } from "@/lib/tauri";
-import { nativeInvalidateQueue } from "@/lib/audio/native-engine";
+import { getOfflinePlaylistMembershipForPlaylist } from "@/lib/offline/playlist-membership";
 
 /**
  * Map a (sourceType, sourceId) pair to a container index key.
@@ -67,52 +67,91 @@ export function containerKeyForSource(
  * `queueWindowAtom`, increments `trackChangeSignalAtom` (or involes the
  * native-side full-queue reload), and shows a toast.
  */
-export async function materializeOfflineQueueIfPossible(params: {
-  sourceType: string;
-  sourceId?: string | null;
-  sourceName?: string | null;
-  startIndex?: number;
-  startSongId?: string;
-  shuffle?: boolean;
-}): Promise<boolean> {
-  const store = getDefaultStore();
-  if (!store.get(isOfflineModeAtom)) return false;
+export async function materializeOfflineQueueIfPossible(
+  params: {
+    sourceType: string;
+    sourceId?: string | null;
+    sourceName?: string | null;
+    startIndex?: number;
+    startSongId?: string;
+    shuffle?: boolean;
+    songIds?: string[];
+    filters?: Record<string, unknown>;
+    sort?: { field: string; direction: string };
+    offlineSongIds?: string[];
+  },
+  get: Getter,
+  set: Setter,
+): Promise<boolean> {
+  if (!get(isOfflineModeAtom)) return false;
 
   const containerKey = containerKeyForSource(
     params.sourceType,
     params.sourceId,
   );
-  if (!containerKey) {
-    toast.error(
-      "You're offline — only downloaded albums, artists, and playlists are playable.",
-    );
-    return true;
-  }
-
-  const songIds = store.get(downloadedContainersAtom).get(containerKey);
-  if (!songIds || songIds.length === 0) {
-    toast.error(
-      "This album hasn't been downloaded — you can't play it offline.",
-    );
-    return true;
-  }
-
-  // Build the queue synchronously from the persisted IndexedDB song metadata.
   const songsById = await getDownloadedSongs();
+  const downloadedIds = get(downloadedSongsAtom);
+  const containers = get(downloadedContainersAtom);
+  const explicitSongIds = params.songIds ?? [];
+  const offlineSongIds = params.offlineSongIds ?? [];
+  const containerSongIds = containerKey
+    ? containers.get(containerKey)
+    : undefined;
+  let sourceSongIds: string[] = [];
+  let offlineSourceName: string | null = null;
+
+  if (offlineSongIds.length > 0) {
+    sourceSongIds = offlineSongIds;
+  } else if (explicitSongIds.length > 0) {
+    sourceSongIds = explicitSongIds;
+  } else if (containerSongIds && containerSongIds.length > 0) {
+    sourceSongIds = containerSongIds;
+  } else if (params.sourceType === "playlist" && params.sourceId) {
+    const playlist = await getOfflinePlaylistMembershipForPlaylist(
+      params.sourceId,
+    );
+    if (playlist) {
+      offlineSourceName = playlist.name;
+      sourceSongIds = playlist.entries
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((entry) => entry.songId);
+    }
+  } else if (params.sourceType === "album" && params.sourceId) {
+    sourceSongIds = Object.values(songsById)
+      .filter((song) => song.albumId === params.sourceId)
+      .map((song) => song.id);
+  } else if (params.sourceType === "artist" && params.sourceId) {
+    sourceSongIds = Object.values(songsById)
+      .filter((song) => song.artistId === params.sourceId)
+      .map((song) => song.id);
+  }
+
+  if (sourceSongIds.length === 0) {
+    toast.error(offlineUnavailableMessage(params.sourceType));
+    return true;
+  }
+
   const songs: Song[] = [];
-  for (const id of songIds) {
+  for (const id of sourceSongIds) {
+    if (!downloadedIds.has(id)) continue;
     const song = songsById[id];
     if (song) songs.push(song);
   }
   if (songs.length === 0) {
-    toast.error("No downloaded songs found for this album.");
+    toast.error(offlineUnavailableMessage(params.sourceType));
     return true;
   }
 
-  const startIndex = Math.min(
-    Math.max(params.startIndex ?? 0, 0),
-    songs.length - 1,
-  );
+  const requestedStartId =
+    params.startSongId ?? sourceSongIds[params.startIndex ?? 0];
+  const startIndexFromSongId = requestedStartId
+    ? songs.findIndex((song) => song.id === requestedStartId)
+    : -1;
+  const startIndex =
+    startIndexFromSongId >= 0
+      ? startIndexFromSongId
+      : Math.min(Math.max(params.startIndex ?? 0, 0), songs.length - 1);
 
   // Apply shuffle if requested (Fisher-Yates — stable enough for the offline
   // case, serverside shuffling isn't reachable).
@@ -144,19 +183,19 @@ export async function materializeOfflineQueueIfPossible(params: {
   const source: QueueSourceInfo = {
     type: params.sourceType,
     id: params.sourceId ?? null,
-    name: params.sourceName ?? null,
-    filters: null,
-    sort: null,
+    name: params.sourceName ?? offlineSourceName,
+    filters: { ...(params.filters ?? {}), offline: true },
+    sort: params.sort ?? null,
     instanceId: crypto.randomUUID(),
   };
 
   const REPEAT_OFF: RepeatMode = "off";
 
-  store.set(isQueueOperationPendingAtom, true);
-  store.set(isRestoringQueueAtom, false);
+  set(isQueueOperationPendingAtom, true);
+  set(isRestoringQueueAtom, false);
 
   try {
-    store.set(serverQueueStateAtom, {
+    set(serverQueueStateAtom, {
       totalCount: ordered.length,
       currentIndex: startIndex,
       positionMs: 0,
@@ -164,22 +203,28 @@ export async function materializeOfflineQueueIfPossible(params: {
       repeatMode: REPEAT_OFF,
       source,
     });
-    store.set(queueWindowAtom, queueWindow);
-
-    if (hasNativeAudio()) {
-      void nativeInvalidateQueue(true).catch((err) => {
-        console.error("[offline] nativeInvalidateQueue failed", err);
-      });
-    } else {
-      store.set(trackChangeSignalAtom, store.get(trackChangeSignalAtom) + 1);
-    }
+    set(queueWindowAtom, queueWindow);
+    set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
     return true;
   } catch (err) {
     console.error("[offline] materializeOfflineQueue failed", err);
     toast.error("Couldn't start offline playback");
     return true;
   } finally {
-    store.set(isQueueOperationPendingAtom, false);
+    set(isQueueOperationPendingAtom, false);
+  }
+}
+
+function offlineUnavailableMessage(sourceType: string): string {
+  switch (sourceType) {
+    case "album":
+      return "No downloaded songs found for this album.";
+    case "artist":
+      return "No downloaded songs found for this artist.";
+    case "playlist":
+      return "No downloaded songs found for this playlist. Refresh offline playlist metadata while online if this looks wrong.";
+    default:
+      return "You're offline — only downloaded songs are playable.";
   }
 }
 

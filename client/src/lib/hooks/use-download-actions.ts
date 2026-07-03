@@ -44,6 +44,8 @@ export interface DownloadActions {
   downloadSong: (song: Song) => Promise<void>;
   /** Cancel a queued download or remove a completed one. */
   removeSongDownload: (songId: string) => Promise<void>;
+  /** Cancel or remove several song downloads with one user-facing result. */
+  removeSongDownloads: (songIds: string[]) => Promise<boolean>;
   /** Enqueue every song in an album (one-shot snapshot). */
   downloadAlbum: (albumId: string) => Promise<void>;
   /** Enqueue every song across all of an artist's albums. */
@@ -65,6 +67,8 @@ export interface DownloadActions {
   /** Remove every downloaded song + clear the persisted offline metadata. */
   clearAllDownloads: () => Promise<void>;
 }
+
+let lastPropagatedWifiOnly: boolean | null = null;
 
 function unsupportedToast(): boolean {
   toast.error("Downloads are only available in the Ferrotune Android app.");
@@ -100,6 +104,27 @@ export function useDownloadActions(): DownloadActions {
     }
   }
 
+  async function removeSongs(
+    songIds: string[],
+    successMessage: string,
+  ): Promise<boolean> {
+    if (!isTauriMobile()) return false;
+    const uniqueIds = Array.from(new Set(songIds));
+    if (uniqueIds.length === 0) return true;
+
+    try {
+      await Promise.all(uniqueIds.map((id) => removeDownload(id)));
+      await Promise.all(uniqueIds.map((id) => removeDownloadedSong(id)));
+      hapticDestructive();
+      toast.success(successMessage);
+      return true;
+    } catch (err) {
+      console.error("[downloads] removeDownload failed", err);
+      toast.error(`Failed to remove: ${err}`);
+      return false;
+    }
+  }
+
   return {
     isDownloaded: (songId) => downloaded.has(songId),
     getDownloadState: (songId) => deriveDownloadState(stateMap, songId),
@@ -111,16 +136,13 @@ export function useDownloadActions(): DownloadActions {
       }
     },
     removeSongDownload: async (songId) => {
-      if (!isTauriMobile()) return;
-      try {
-        await removeDownload(songId);
-        await removeDownloadedSong(songId);
-        hapticDestructive();
-        toast.success("Removed offline copy");
-      } catch (err) {
-        console.error("[downloads] removeDownload failed", err);
-        toast.error(`Failed to remove: ${err}`);
-      }
+      await removeSongs([songId], "Removed offline copy");
+    },
+    removeSongDownloads: async (songIds) => {
+      return removeSongs(
+        songIds,
+        `Removed ${songIds.length} offline cop${songIds.length === 1 ? "y" : "ies"}`,
+      );
     },
     downloadAlbum: async (albumId) => {
       if (!isTauriMobile()) return;
@@ -262,9 +284,12 @@ export function useDownloadActions(): DownloadActions {
  */
 export async function propagateWifiOnlyToNative(wifiOnly: boolean) {
   if (!isTauriMobile()) return;
+  if (lastPropagatedWifiOnly === wifiOnly) return;
+  lastPropagatedWifiOnly = wifiOnly;
   try {
     await setDownloadWifiOnly(wifiOnly);
   } catch (err) {
+    lastPropagatedWifiOnly = null;
     console.warn("[downloads] setDownloadWifiOnly failed", err);
   }
 }

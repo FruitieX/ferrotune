@@ -2146,6 +2146,52 @@ pub struct SongPlaylistsResponse {
     pub playlists_by_song: std::collections::HashMap<String, Vec<PlaylistContainingSong>>,
 }
 
+/// Request for offline playlist membership sync.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistMembershipRequest {
+    /// Downloaded song IDs to check against visible playlists.
+    pub song_ids: Vec<String>,
+}
+
+/// A downloaded song's position in a playlist.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistMembershipEntry {
+    pub song_id: String,
+    #[ts(type = "number")]
+    pub position: i64,
+}
+
+/// A visible playlist containing at least one requested song.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistMembershipPlaylist {
+    pub id: String,
+    pub name: String,
+    pub owner: Option<String>,
+    #[ts(type = "number")]
+    pub song_count: i64,
+    #[ts(type = "number")]
+    pub duration: i64,
+    pub changed: String,
+    pub cover_art: Option<String>,
+    pub shared_with_me: bool,
+    pub can_edit: bool,
+    pub entries: Vec<PlaylistMembershipEntry>,
+}
+
+/// Response for offline playlist membership sync.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistMembershipResponse {
+    pub playlists: Vec<PlaylistMembershipPlaylist>,
+}
+
 /// Get playlists that contain the specified songs
 pub async fn get_playlists_for_songs(
     State(state): State<Arc<AppState>>,
@@ -2185,6 +2231,76 @@ pub async fn get_playlists_for_songs(
     }
 
     Ok(Json(SongPlaylistsResponse { playlists_by_song }))
+}
+
+/// Sync visible playlist membership for songs that already exist on-device.
+///
+/// This is intentionally keyed by downloaded song IDs instead of crawling all
+/// playlists. Mobile clients persist the compact response and only consult it
+/// when the app is truly offline.
+pub async fn get_playlist_memberships_for_songs(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Json(request): Json<PlaylistMembershipRequest>,
+) -> FerrotuneApiResult<Json<PlaylistMembershipResponse>> {
+    use std::collections::HashMap;
+
+    let mut song_ids = request.song_ids;
+    song_ids.retain(|id| !id.is_empty());
+    song_ids.sort();
+    song_ids.dedup();
+
+    if song_ids.is_empty() {
+        return Ok(Json(PlaylistMembershipResponse { playlists: vec![] }));
+    }
+
+    let visible_playlists =
+        playlists_repo::list_visible_playlists_for_user(&state.database, user.user_id).await?;
+    let playlist_ids = visible_playlists
+        .iter()
+        .map(|playlist| playlist.id.clone())
+        .collect::<Vec<_>>();
+
+    if playlist_ids.is_empty() {
+        return Ok(Json(PlaylistMembershipResponse { playlists: vec![] }));
+    }
+
+    let memberships =
+        playlists_repo::list_playlist_song_memberships(&state.database, &playlist_ids, &song_ids)
+            .await?;
+
+    let mut entries_by_playlist: HashMap<String, Vec<PlaylistMembershipEntry>> = HashMap::new();
+    for membership in memberships {
+        entries_by_playlist
+            .entry(membership.playlist_id)
+            .or_default()
+            .push(PlaylistMembershipEntry {
+                song_id: membership.song_id,
+                position: membership.position,
+            });
+    }
+
+    let playlists = visible_playlists
+        .into_iter()
+        .filter_map(|playlist| {
+            let mut entries = entries_by_playlist.remove(&playlist.id)?;
+            entries.sort_by_key(|entry| entry.position);
+            Some(PlaylistMembershipPlaylist {
+                cover_art: (playlist.song_count > 0).then(|| playlist.id.clone()),
+                changed: format_datetime_iso(playlist.updated_at.with_timezone(&Utc)),
+                owner: playlist.owner_name,
+                song_count: playlist.song_count,
+                duration: playlist.duration,
+                shared_with_me: playlist.shared_with_me,
+                can_edit: playlist.can_edit,
+                id: playlist.id,
+                name: playlist.name,
+                entries,
+            })
+        })
+        .collect();
+
+    Ok(Json(PlaylistMembershipResponse { playlists }))
 }
 
 /// A recently played playlist (regular or smart).

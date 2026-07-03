@@ -24,6 +24,7 @@ import {
   ListMusic,
   Heart,
   History,
+  WifiOff,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +43,8 @@ import {
 } from "@/lib/store/auth";
 import { FerrotuneClient, getClient, initializeClient } from "@/lib/api/client";
 import { homeSectionsAtom, homeTilesAtom } from "@/lib/store/ui";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
+import { getSortedDownloadedSongs } from "@/lib/offline/downloaded-songs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -850,9 +853,13 @@ export default function HomePage() {
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const homeTiles = useAtomValue(homeTilesAtom);
   const homeSections = useAtomValue(homeSectionsAtom);
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
   const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
   const [searchQuery, setSearchQuery] = useState("");
+  const [offlineDownloadedSongs, setOfflineDownloadedSongs] = useState<Song[]>(
+    [],
+  );
   const isSmallScreen = useIsSmallScreen();
   const currentAccountKey = connection
     ? accountKey(connection)
@@ -913,6 +920,26 @@ export default function HomePage() {
     typeof window !== "undefined"
       ? getPageSize(window.innerWidth, itemWidth, itemGap)
       : 15;
+  const shouldFetchOnlineHome = isReady && !isOfflineMode;
+
+  useEffect(() => {
+    if (!isOfflineMode) return;
+
+    let cancelled = false;
+    getSortedDownloadedSongs()
+      .then((songs) => {
+        if (cancelled) return;
+        setOfflineDownloadedSongs(songs);
+      })
+      .catch((error) => {
+        console.warn("[home] failed to load downloaded songs", error);
+        if (!cancelled) setOfflineDownloadedSongs([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOfflineMode]);
 
   // Navigate to search when user starts typing
   const handleSearchFocus = () => {
@@ -1136,7 +1163,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("recentlyAdded"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("recentlyAdded"),
   });
 
   const {
@@ -1195,7 +1222,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("discover"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("discover"),
   });
 
   const {
@@ -1252,7 +1279,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("mostPlayedRecently"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("mostPlayedRecently"),
   });
 
   // --- Forgotten Favorites: songs played a lot long ago but not recently ---
@@ -1308,7 +1335,7 @@ export default function HomePage() {
       const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("forgottenFavorites"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("forgottenFavorites"),
   });
 
   // --- Continue Listening: unified endpoint with albums + playlists ---
@@ -1350,7 +1377,7 @@ export default function HomePage() {
       const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("continueListening"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("continueListening"),
   });
 
   const {
@@ -1392,7 +1419,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("topAlbums"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("topAlbums"),
   });
 
   const {
@@ -1433,7 +1460,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("recentAlbums"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("recentAlbums"),
   });
 
   // --- Similar Tracks: discovery based on listening history ---
@@ -1484,7 +1511,7 @@ export default function HomePage() {
       }
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
-    enabled: isReady && isSectionEnabled("similarTracks"),
+    enabled: shouldFetchOnlineHome && isSectionEnabled("similarTracks"),
   });
 
   const stickyRandomData = useStickyHomeSection(
@@ -2102,13 +2129,79 @@ export default function HomePage() {
 
       {/* Content */}
       <div className="py-4 sm:py-6 space-y-4 sm:space-y-6">
-        <HomeQuickTiles
-          tiles={homeTiles}
-          homeSections={normalizedHomeSections}
-          onQueueAction={handleHomeTileQueueAction}
-          onAccountAction={handleHomeTileAccountAction}
-        />
-        {enabledHomeSections.map(renderHomeSection)}
+        {isOfflineMode ? (
+          <section className="space-y-2 sm:space-y-4">
+            <div className="mx-3 sm:mx-4 lg:mx-6 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+              <div className="flex items-center gap-2 font-medium">
+                <WifiOff className="h-4 w-4" />
+                Offline mode
+              </div>
+              <p className="mt-1 text-xs opacity-80">
+                Home is limited to songs saved on this device until the server
+                is reachable.
+              </p>
+            </div>
+            <SectionHeader
+              title="Downloaded Songs"
+              icon={ListMusic}
+              hasItems={offlineDownloadedSongs.length > 0}
+              isLoading={false}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "other",
+                  sourceName: "Downloaded Songs",
+                  songIds: offlineDownloadedSongs.map((song) => song.id),
+                  startIndex: 0,
+                  shuffle: false,
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "other",
+                  sourceName: "Downloaded Songs",
+                  songIds: offlineDownloadedSongs.map((song) => song.id),
+                  startIndex: 0,
+                  shuffle: true,
+                })
+              }
+              viewAllHref="/downloads/songs"
+            />
+            <VirtualizedHorizontalScroll<Song>
+              items={offlineDownloadedSongs}
+              totalCount={offlineDownloadedSongs.length}
+              isLoading={false}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              renderItem={(song, index) => (
+                <SongCard
+                  song={song}
+                  index={index}
+                  songIndex={index}
+                  queueSongs={offlineDownloadedSongs}
+                  queueSource={{ type: "other", name: "Downloaded Songs" }}
+                  href="/downloads/songs"
+                  artistHref="/downloads/songs"
+                  inlineImagesRequested
+                  className="ring-0"
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+              emptyMessage="No downloaded songs on this device"
+            />
+          </section>
+        ) : (
+          <>
+            <HomeQuickTiles
+              tiles={homeTiles}
+              homeSections={normalizedHomeSections}
+              onQueueAction={handleHomeTileQueueAction}
+              onAccountAction={handleHomeTileAccountAction}
+            />
+            {enabledHomeSections.map(renderHomeSection)}
+          </>
+        )}
       </div>
     </div>
   );

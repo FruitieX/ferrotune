@@ -36,6 +36,41 @@ export interface TrackInfo {
  */
 export type QueueItem = TrackInfo;
 
+export interface OfflineQueueSong {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string | null;
+  coverArt?: string | null;
+  duration: number;
+  computedReplayGainTrackGain?: number | null;
+  originalReplayGainTrackGain?: number | null;
+}
+
+export interface OfflineQueueWindowEntry {
+  entryId: string;
+  position: number;
+  song: OfflineQueueSong;
+}
+
+export interface OfflineQueueWindow {
+  offset: number;
+  songs: OfflineQueueWindowEntry[];
+}
+
+export interface OfflineQueueResponse {
+  totalCount: number;
+  currentIndex: number;
+  positionMs: number;
+  isShuffled: boolean;
+  repeatMode: string;
+  source?: {
+    type?: string | null;
+    id?: string | null;
+  } | null;
+  window: OfflineQueueWindow;
+}
+
 /**
  * Full playback state
  */

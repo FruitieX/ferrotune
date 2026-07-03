@@ -3,11 +3,14 @@
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { isOfflineModeAtom } from "@/lib/store/downloads";
-import { getClient } from "@/lib/api/client";
+import { getClient, initializeClient } from "@/lib/api/client";
+import { serverConnectionAtom } from "@/lib/store/auth";
+import { isTauriMobile } from "@/lib/tauri";
 
 const PING_INTERVAL_ONLINE_MS = 60_000;
 const PING_INTERVAL_WHEN_OFFLINE_MS = 15_000;
 const PING_PROBE_TIMEOUT_MS = 5_000;
+const INITIAL_PING_PROBE_TIMEOUT_MS = 1_500;
 /**
  * Number of consecutive ping failures required before we flip offline while
  * `navigator.onLine` still reports true. Avoids transient single-ping blips
@@ -36,6 +39,7 @@ const MIN_OFFLINE_DURATION_FOR_RECOVERY_MS = 3_000;
  */
 export function useOfflineMode(): void {
   const [isOffline, setIsOffline] = useAtom(isOfflineModeAtom);
+  const connection = useAtomValue(serverConnectionAtom);
   const isOfflineRef = useRef(isOffline);
   isOfflineRef.current = isOffline;
   const probingRef = useRef(false);
@@ -45,22 +49,32 @@ export function useOfflineMode(): void {
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
 
-    async function probe(): Promise<void> {
+    async function probe(options: { initial?: boolean } = {}): Promise<void> {
       if (cancelled || probingRef.current) return;
       probingRef.current = true;
+      const controller = new AbortController();
+      const aggressiveInitialProbe = options.initial && isTauriMobile();
       try {
-        const client = getClient();
+        const client =
+          getClient() ?? (connection ? initializeClient(connection) : null);
         if (!client) return;
-        const result = await withTimeout(client.ping(), PING_PROBE_TIMEOUT_MS);
+        const result = await withTimeout(
+          client.ping({ signal: controller.signal }),
+          aggressiveInitialProbe
+            ? INITIAL_PING_PROBE_TIMEOUT_MS
+            : PING_PROBE_TIMEOUT_MS,
+          controller,
+        );
         if (cancelled) return;
         if (result) {
           consecutiveFailuresRef.current = 0;
           if (isOfflineRef.current) setIsOffline(false);
         } else {
           consecutiveFailuresRef.current += 1;
+          const threshold = aggressiveInitialProbe ? 1 : PING_FAILURE_THRESHOLD;
           if (
             !isOfflineRef.current &&
-            consecutiveFailuresRef.current >= PING_FAILURE_THRESHOLD
+            consecutiveFailuresRef.current >= threshold
           ) {
             setIsOffline(true);
           }
@@ -68,9 +82,10 @@ export function useOfflineMode(): void {
       } catch (err) {
         if (cancelled) return;
         consecutiveFailuresRef.current += 1;
+        const threshold = aggressiveInitialProbe ? 1 : PING_FAILURE_THRESHOLD;
         if (
           !isOfflineRef.current &&
-          consecutiveFailuresRef.current >= PING_FAILURE_THRESHOLD
+          consecutiveFailuresRef.current >= threshold
         ) {
           setIsOffline(true);
         }
@@ -101,7 +116,7 @@ export function useOfflineMode(): void {
       handleOffline();
     }
 
-    void probe();
+    void probe({ initial: true });
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
@@ -119,15 +134,19 @@ export function useOfflineMode(): void {
       window.removeEventListener("online", handleOnline);
       if (interval) clearInterval(interval);
     };
-  }, [setIsOffline]);
+  }, [connection, setIsOffline]);
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  controller?: AbortController,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`Timed out after ${ms}ms`)),
-      ms,
-    );
+    const timer = setTimeout(() => {
+      controller?.abort();
+      reject(new Error(`Timed out after ${ms}ms`));
+    }, ms);
     promise.then(
       (val) => {
         clearTimeout(timer);

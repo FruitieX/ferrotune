@@ -172,6 +172,32 @@ HTTP 200
 [Asserts]
 jsonpath "$.playlistsBySong" exists
 
+# Sync playlist membership for downloaded/offline song IDs
+POST {{base_url}}/api/playlists/membership
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "songIds": ["{{song_id}}", "{{song_id}}", "missing-song-id"]
+}
+HTTP 200
+[Asserts]
+jsonpath "$.playlists" isCollection
+jsonpath "$.playlists[?(@.id == '{{playlist_id}}')]" count == 1
+jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].name" nth 0 == "Test Playlist"
+jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].entries[*].songId" includes "{{song_id}}"
+jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].entries[*].position" includes 0
+
+# Empty membership sync is valid and returns no playlists
+POST {{base_url}}/api/playlists/membership
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "songIds": []
+}
+HTTP 200
+[Asserts]
+jsonpath "$.playlists" count == 0
+
 # ============================================================================
 # Playlist Entry Management (Move, Reorder, Match)
 # ============================================================================

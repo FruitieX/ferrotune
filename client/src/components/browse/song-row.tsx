@@ -187,6 +187,7 @@ interface SongRowProps {
   isHighlighted?: boolean;
   /** Disc number to show as a header above this row (for multi-disc albums) */
   discHeader?: number;
+  disableLibraryLinks?: boolean;
   className?: string;
 }
 
@@ -227,6 +228,7 @@ export function SongRow({
   inlineImagesRequested = false,
   isHighlighted = false,
   discHeader,
+  disableLibraryLinks = false,
   className,
 }: SongRowProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -330,27 +332,33 @@ export function SongRow({
   // Build subtitle with clickable links
   const subtitle = (
     <div className="flex items-center gap-1 text-xs text-muted-foreground truncate">
-      {showArtist && (
-        <Link
-          href={`/library/artists/details?id=${song.artistId}`}
-          prefetch={false}
-          className="hover:underline hover:text-foreground shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {song.artist}
-        </Link>
-      )}
+      {showArtist &&
+        (disableLibraryLinks ? (
+          <span className="shrink-0">{song.artist}</span>
+        ) : (
+          <Link
+            href={`/library/artists/details?id=${song.artistId}`}
+            prefetch={false}
+            className="hover:underline hover:text-foreground shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {song.artist}
+          </Link>
+        ))}
       {showArtist && showAlbum && <span className="shrink-0">•</span>}
-      {showAlbum && (
-        <Link
-          href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
-          prefetch={false}
-          className="hover:underline hover:text-foreground truncate"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {song.album}
-        </Link>
-      )}
+      {showAlbum &&
+        (disableLibraryLinks ? (
+          <span className="truncate">{song.album}</span>
+        ) : (
+          <Link
+            href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
+            prefetch={false}
+            className="hover:underline hover:text-foreground truncate"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {song.album}
+          </Link>
+        ))}
     </div>
   );
 
@@ -626,6 +634,8 @@ interface SongCardProps {
   isCurrentQueuePosition?: boolean;
   /** When true, inline images were requested from the server - skip separate cover art fetch if coverArtData is missing */
   inlineImagesRequested?: boolean;
+  href?: string;
+  artistHref?: string;
   className?: string;
 }
 
@@ -650,6 +660,8 @@ export function SongCard({
   onUnmatch,
   isCurrentQueuePosition,
   inlineImagesRequested = false,
+  href,
+  artistHref,
   className,
 }: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -724,7 +736,7 @@ export function SongCard({
   const subtitleContent = (
     <>
       <Link
-        href={`/library/artists/details?id=${song.artistId}`}
+        href={artistHref ?? `/library/artists/details?id=${song.artistId}`}
         prefetch={false}
         className="hover:underline hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
@@ -758,7 +770,9 @@ export function SongCard({
       title={song.title}
       titleIcon={defaultSongIcon}
       subtitleContent={subtitleContent}
-      href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
+      href={
+        href ?? `/library/albums/details?id=${song.albumId}&songId=${song.id}`
+      }
       colorSeed={song.album ?? undefined}
       coverType="song"
       onPlay={handlePlay}

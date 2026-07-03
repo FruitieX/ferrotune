@@ -38,7 +38,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
   const nativeSessionInitKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isNativePlatform || !serverConnection || !currentSessionId) {
+    if (!isNativePlatform || !serverConnection) {
       return;
     }
 
@@ -48,7 +48,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
       serverConnection.username ?? "",
       serverConnection.sessionToken ?? "",
       serverConnection.sessionExpiresAt ?? "",
-      currentSessionId,
+      currentSessionId ?? "",
       clientId ?? "",
     ].join("\u0000");
 
@@ -80,7 +80,7 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
         username: serverConnection.username ?? "",
         sessionToken: serverConnection.sessionToken,
         sessionExpiresAt: serverConnection.sessionExpiresAt,
-        sessionId: currentSessionId,
+        sessionId: currentSessionId ?? undefined,
         clientId: clientId || undefined,
       });
       if (!isCurrentInit()) return;

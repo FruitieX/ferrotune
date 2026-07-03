@@ -37,6 +37,7 @@ import {
   ArrowDown,
   Pencil,
   Download as DownloadIcon,
+  WifiOff,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -58,6 +59,7 @@ import {
   type ReplayGainMode,
   type SeekMode,
 } from "@/lib/store/player";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 
 import { getClient } from "@/lib/api/client";
 import {
@@ -178,6 +180,7 @@ export default function SettingsPage() {
   const [savedAccounts] = useAtom(savedAccountsAtom);
   const [homeTiles, setHomeTiles] = useAtom(homeTilesAtom);
   const [homeSections, setHomeSections] = useAtom(homeSectionsAtom);
+  const [isOfflineMode] = useAtom(isOfflineModeAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [progressTimeLabelVisibility, setProgressTimeLabelVisibility] = useAtom(
     progressTimeLabelVisibilityAtom,
@@ -219,7 +222,7 @@ export default function SettingsPage() {
       if (!client) throw new Error("Not connected");
       return client.getStats();
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
     staleTime: 60000, // Cache for 1 minute
   });
 
@@ -230,7 +233,7 @@ export default function SettingsPage() {
       if (!client) throw new Error("Not connected");
       return client.getPlaylistFoldersWithStructure();
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
   });
 
   const { data: smartPlaylists } = useQuery({
@@ -241,7 +244,7 @@ export default function SettingsPage() {
       const response = await client.getSmartPlaylists();
       return response.smartPlaylists ?? [];
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
   });
 
   const playlistChoices = [
@@ -546,6 +549,48 @@ export default function SettingsPage() {
         <div className="px-4 lg:px-6 py-6 space-y-6">
           <Skeleton className="h-50 w-full" />
           <Skeleton className="h-50 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isOfflineMode) {
+    return (
+      <div className="min-h-dvh">
+        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
+          <div className="px-4 pb-4 pt-safe-4 lg:px-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3"
+            >
+              <div className="w-12 h-12 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <WifiOff className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">Settings</h1>
+                <p className="text-sm text-muted-foreground">
+                  Offline mode is active
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        </header>
+
+        <div className="px-4 lg:px-6 py-6 pb-24 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <WifiOff className="w-5 h-5" />
+                Offline settings
+              </CardTitle>
+              <CardDescription>
+                Server-backed statistics and activity are hidden until the
+                server is reachable.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          <DownloadsSettingsCard />
         </div>
       </div>
     );

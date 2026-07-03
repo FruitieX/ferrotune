@@ -165,6 +165,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/playlists", post(playlists::import_playlist))
         .route(
+            "/playlists/membership",
+            post(playlists::get_playlist_memberships_for_songs),
+        )
+        .route(
             "/playlists/{id}",
             get(playlists::get_playlist_songs)
                 .put(playlists::update_playlist)
@@ -294,7 +298,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/sessions/{id}/command", post(sessions::session_command))
         .route(
             "/sessions/{id}/clients/{client_id}",
-            delete(sessions::disconnect_client),
+            delete(sessions::disconnect_client).post(sessions::disconnect_client),
         )
         // User management endpoints (admin only)
         .route("/users/me", get(users::get_current_user))

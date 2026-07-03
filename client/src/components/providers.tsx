@@ -97,6 +97,7 @@ function SelectionClearer() {
 // Component that initializes the audio engine and media session
 function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   const isCacheRestored = useAtomValue(isCacheRestoredAtom);
+  useOfflineLifecycle(); // Toggles isOfflineModeAtom + online-transition recovery
   useAudioEngineInit();
   useMediaSession();
   useKeyboardShortcuts();
@@ -110,7 +111,6 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useAppResumeRefresh(); // Invalidate queries after Android resume
   useCastInit(); // Initialize Chromecast SDK
   useQueueCacheSync(isCacheRestored); // Sync queue state ↔ React Query cache
-  useOfflineLifecycle(); // Toggles isOfflineModeAtom + online-transition recovery
   return (
     <>
       <SessionEventHandler />
@@ -319,7 +319,7 @@ function AccountScopedQueryProvider({
         const { initDownloadManager } =
           await import("@/lib/offline/download-manager");
         if (cancelled) return;
-        await initDownloadManager();
+        await initDownloadManager(jotaiStore);
       } catch (err) {
         console.warn("[providers] download manager init failed", err);
       }
@@ -327,7 +327,7 @@ function AccountScopedQueryProvider({
     return () => {
       cancelled = true;
     };
-  }, [currentKey]);
+  }, [currentKey, jotaiStore]);
 
   // One-time cleanup of the legacy unified cache key
   useEffect(() => {

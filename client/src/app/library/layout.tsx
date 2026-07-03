@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
   Filter,
   Check,
+  WifiOff,
 } from "lucide-react";
 import {
   albumViewModeAtom,
@@ -76,6 +77,7 @@ import {
   DrawerMenuLabel,
 } from "@/components/shared/drawer-menu";
 import { cn } from "@/lib/utils";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 
 const tabs = [
   { href: "/library/albums", icon: Disc, label: "Albums" },
@@ -199,9 +201,12 @@ export default function LibraryLayout({
   const setShuffleExcludesLoading = useSetAtom(shuffleExcludesLoadingAtom);
   const setDisabledSongs = useSetAtom(disabledSongsAtom);
   const setDisabledSongsLoading = useSetAtom(disabledSongsLoadingAtom);
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
 
   // Load shuffle excludes on mount
   useEffect(() => {
+    if (isOfflineMode) return;
+
     const loadShuffleExcludes = async () => {
       const client = getClient();
       if (!client) return;
@@ -218,10 +223,12 @@ export default function LibraryLayout({
     };
 
     loadShuffleExcludes();
-  }, [setShuffleExcludes, setShuffleExcludesLoading]);
+  }, [isOfflineMode, setShuffleExcludes, setShuffleExcludesLoading]);
 
   // Load disabled songs on mount
   useEffect(() => {
+    if (isOfflineMode) return;
+
     const loadDisabledSongs = async () => {
       const client = getClient();
       if (!client) return;
@@ -238,7 +245,7 @@ export default function LibraryLayout({
     };
 
     loadDisabledSongs();
-  }, [setDisabledSongs, setDisabledSongsLoading]);
+  }, [isOfflineMode, setDisabledSongs, setDisabledSongsLoading]);
 
   // Measure sticky header height and set CSS variable for child sticky elements
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
@@ -282,6 +289,33 @@ export default function LibraryLayout({
     : isArtistsTab
       ? ("artists" as const)
       : ("songs" as const);
+
+  if (isOfflineMode) {
+    return (
+      <div className="min-h-dvh">
+        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-lg">
+          <div className="flex items-center justify-between gap-4 px-4 pb-3 pt-safe-3 lg:px-6">
+            <h1 className="text-2xl font-bold shrink-0">Library</h1>
+          </div>
+        </header>
+        <div className="flex min-h-[50vh] items-center justify-center px-4">
+          <div className="max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <WifiOff className="h-6 w-6" />
+            </div>
+            <h2 className="text-lg font-semibold">Library is offline</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Server-backed library browsing is hidden while offline. Use
+              downloaded music until the server is reachable.
+            </p>
+            <Button asChild className="mt-4">
+              <Link href="/settings/downloads">View downloads</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");

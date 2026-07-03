@@ -67,6 +67,8 @@ import type { ImportPlaylistResponse } from "./generated/ImportPlaylistResponse"
 import type { BrowseFilesystemResponse } from "./generated/BrowseFilesystemResponse";
 import type { ValidatePathResponse } from "./generated/ValidatePathResponse";
 import type { PlaylistSongsResponse } from "./generated/PlaylistSongsResponse";
+import type { PlaylistMembershipRequest } from "./generated/PlaylistMembershipRequest";
+import type { PlaylistMembershipResponse } from "./generated/PlaylistMembershipResponse";
 import type { ScanDetails } from "./generated/ScanDetails";
 import type { SongMatchListResponse } from "./generated/SongMatchListResponse";
 import type { MatchTracksRequest } from "./generated/MatchTracksRequest";
@@ -444,8 +446,10 @@ export class FerrotuneClient {
   }
 
   // System endpoints
-  async ping(): Promise<PingResponse> {
-    return this.request<PingResponse>("/api/ping");
+  async ping(options: { signal?: AbortSignal } = {}): Promise<PingResponse> {
+    return this.request<PingResponse>("/api/ping", {
+      signal: options.signal,
+    });
   }
 
   async completeSetup(): Promise<SetupStatusResponse> {
@@ -1528,6 +1532,16 @@ export class FerrotuneClient {
       options ?? {},
     );
     return this.request(endpoint);
+  }
+
+  async syncPlaylistMembership(
+    songIds: string[],
+  ): Promise<PlaylistMembershipResponse> {
+    const body: PlaylistMembershipRequest = { songIds };
+    return this.request("/api/playlists/membership", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   }
 
   // Listening statistics (Admin API)

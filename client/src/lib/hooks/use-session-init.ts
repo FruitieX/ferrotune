@@ -398,6 +398,34 @@ export function useSessionInit() {
     };
   }, [isClientInitialized, serverConnection]);
 
-  // Client deregistration on tab close is handled automatically by the SSE
-  // connection's CleanupGuard on the server side (fires when EventSource closes).
+  // Explicitly disconnect on tab close. SSE cleanup intentionally keeps fresh
+  // heartbeat clients alive for a grace period, so a closing tab must send the
+  // force-disconnect beacon to disappear from other clients immediately.
+  useEffect(() => {
+    if (!effectiveSessionId || !clientId || !isClientInitialized) return;
+
+    const sendDisconnectBeacon = () => {
+      const client = getClient();
+      if (!client) return;
+
+      const url = client.getDisconnectClientBeaconUrl(
+        effectiveSessionId,
+        clientId,
+      );
+
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([], { type: "text/plain" }));
+        return;
+      }
+
+      if (typeof fetch !== "undefined") {
+        void fetch(url, { method: "POST", keepalive: true }).catch(() => {});
+      }
+    };
+
+    window.addEventListener("pagehide", sendDisconnectBeacon);
+    return () => {
+      window.removeEventListener("pagehide", sendDisconnectBeacon);
+    };
+  }, [effectiveSessionId, clientId, isClientInitialized]);
 }

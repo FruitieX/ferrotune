@@ -23,6 +23,7 @@
     "native-audio:allow-init-session",
     "native-audio:allow-update-settings",
     "native-audio:allow-start-playback",
+    "native-audio:allow-start-offline-playback",
     "native-audio:allow-invalidate-queue",
     "native-audio:allow-soft-invalidate-queue",
     "native-audio:allow-toggle-shuffle",

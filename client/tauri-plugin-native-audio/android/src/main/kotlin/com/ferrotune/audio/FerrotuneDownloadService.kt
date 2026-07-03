@@ -1,9 +1,12 @@
 package com.ferrotune.audio
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -40,6 +43,15 @@ class FerrotuneDownloadService : DownloadService(
     override fun onCreate() {
         DownloadManagerHolder.initialize(applicationContext)
         super.onCreate()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureTypedForeground()
+        val result = super.onStartCommand(intent, flags, startId)
+        // Media3 may call startForeground while processing the command. Re-apply
+        // the type after super so the platform's final service type is dataSync.
+        ensureTypedForeground()
+        return result
     }
 
     @OptIn(UnstableApi::class)
@@ -96,7 +108,23 @@ class FerrotuneDownloadService : DownloadService(
         nm.createNotificationChannel(channel)
     }
 
+    @SuppressLint("InlinedApi")
+    private fun ensureTypedForeground() {
+        ensureChannel()
+        val notification = getForegroundNotification(mutableListOf(), /* notMetRequirements = */ 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
     companion object {
+        private const val TAG = "FerrotuneDownloadService"
         const val NOTIFICATION_ID = 2001
         const val CHANNEL_ID = "ferrotune-downloads"
     }
@@ -165,7 +193,7 @@ object DownloadManagerHolder {
     private val apiClient = FerrotuneApiClient()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val lastEmitMs = ConcurrentHashMap<String, Long>()
-    private var wifiOnly: Boolean = true
+    private var wifiOnly: Boolean = false
 
     @Synchronized
     fun initialize(context: Context) {
@@ -234,6 +262,7 @@ object DownloadManagerHolder {
     fun setWifiOnly(wifiOnly: Boolean) {
         this.wifiOnly = wifiOnly
         managerRef?.setRequirements(buildRequirements())
+        Log.d(TAG, "Download network requirements updated; wifiOnly=$wifiOnly")
     }
 
     private fun buildRequirements(): Requirements {
@@ -257,6 +286,10 @@ object DownloadManagerHolder {
             .setCustomCacheKey(contentId)
             .setMimeType("audio/ogg")
             .build()
+        Log.d(
+            TAG,
+            "Enqueueing download; contentId=$contentId format=$format maxBitRate=$maxBitRate wifiOnly=$wifiOnly",
+        )
         DownloadService.sendAddDownload(
             context,
             FerrotuneDownloadService::class.java,
@@ -320,12 +353,34 @@ object DownloadManagerHolder {
 
     fun snapshot(): List<DownloadInfo> {
         val mgr = managerRef ?: return emptyList()
-        return mgr.currentDownloads.map { it.toDownloadInfo() }
+        return try {
+            mgr.downloadIndex.getDownloads(
+                Download.STATE_QUEUED,
+                Download.STATE_STOPPED,
+                Download.STATE_DOWNLOADING,
+                Download.STATE_COMPLETED,
+                Download.STATE_FAILED,
+                Download.STATE_REMOVING,
+                Download.STATE_RESTARTING,
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) add(cursor.download.toDownloadInfo())
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read persistent download snapshot", e)
+            mgr.currentDownloads.map { it.toDownloadInfo() }
+        }
     }
 
     fun snapshot(contentId: String): DownloadInfo? {
         val mgr = managerRef ?: return null
-        return mgr.currentDownloads.firstOrNull { it.request.id == contentId }?.toDownloadInfo()
+        return try {
+            mgr.downloadIndex.getDownload(contentId)?.toDownloadInfo()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read persistent download snapshot for $contentId", e)
+            mgr.currentDownloads.firstOrNull { it.request.id == contentId }?.toDownloadInfo()
+        }
     }
 
     private object DownloadStateBroadcaster : DownloadManager.Listener {
@@ -334,6 +389,14 @@ object DownloadManagerHolder {
             download: Download,
             finalException: java.lang.Exception?,
         ) {
+            Log.d(
+                TAG,
+                "Download changed; id=${download.request.id} state=${download.state} " +
+                    "stopReason=${download.stopReason} failureReason=${download.failureReason} " +
+                    "bytes=${download.bytesDownloaded}/${download.contentLength} " +
+                    "notMet=${mgr.notMetRequirements}",
+                finalException,
+            )
             broadcast(listOf(download))
             if (download.state == Download.STATE_COMPLETED) {
                 evictStreamCacheForDownload(download)
@@ -354,6 +417,7 @@ object DownloadManagerHolder {
             requirements: Requirements,
             notMetRequirements: Int,
         ) {
+            Log.d(TAG, "Download requirements changed; requirements=$requirements notMet=$notMetRequirements")
             broadcast(emptyList(), forceNotMetRequirements = notMetRequirements)
         }
     }
@@ -387,6 +451,10 @@ object DownloadManagerHolder {
             notMetRequirements = notMet,
         )
         val jsObj = payload.toJSObject()
+        Log.d(
+            TAG,
+            "Emitting download event to JS; downloads=${info.joinToString { "${it.contentId}:${it.status}:${it.bytesDownloaded}/${it.bytesTotal}" }} paused=$paused notMet=$notMet",
+        )
         mainHandler.post { emitter(AudioEvents.DOWNLOAD_STATE_CHANGED, jsObj) }
     }
 

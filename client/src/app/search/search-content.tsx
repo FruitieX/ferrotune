@@ -13,6 +13,7 @@ import {
   ListMusic,
   Clock,
   Trash2,
+  WifiOff,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -26,6 +27,7 @@ import {
   clearSearchHistoryAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { isOfflineModeAtom } from "@/lib/store/downloads";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -82,6 +84,7 @@ export function SearchPageContent() {
   const startQueue = useSetAtom(startQueueAtom);
   const [advancedFilters, setAdvancedFilters] = useAtom(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+  const isOfflineMode = useAtomValue(isOfflineModeAtom);
   const searchHistory = useAtomValue(searchHistoryAtom);
   const addSearchHistory = useSetAtom(addSearchHistoryAtom);
   const clearSearchHistory = useSetAtom(clearSearchHistoryAtom);
@@ -166,7 +169,7 @@ export function SearchPageContent() {
       });
       return response.searchResult3;
     },
-    enabled: isReady && isSearchActive,
+    enabled: isReady && isSearchActive && !isOfflineMode,
     refetchOnMount: "always",
   });
 
@@ -179,7 +182,7 @@ export function SearchPageContent() {
       const response = await client.getPlaylists();
       return response.playlists?.playlist ?? [];
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
     staleTime: 60000,
   });
 
@@ -192,7 +195,7 @@ export function SearchPageContent() {
       const response = await client.getGenres();
       return response.genres?.genre ?? [];
     },
-    enabled: isReady,
+    enabled: isReady && !isOfflineMode,
     staleTime: 60000,
   });
 
@@ -332,7 +335,9 @@ export function SearchPageContent() {
 
       {/* Content */}
       <div className="p-4 lg:p-6">
-        {!isSearchActive && !debouncedQuery ? (
+        {isOfflineMode ? (
+          <OfflineSearchUnavailable />
+        ) : !isSearchActive && !debouncedQuery ? (
           searchHistory.length > 0 ? (
             <SearchHistory
               history={searchHistory}
@@ -618,6 +623,27 @@ function NoResults({ query }: { query: string }) {
       <h2 className="text-xl font-semibold mb-2">No results found</h2>
       <p className="text-muted-foreground">
         No results found for &quot;{query}&quot;
+      </p>
+    </div>
+  );
+}
+
+function OfflineSearchUnavailable() {
+  return (
+    <div className="py-20 text-center">
+      <motion.div
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ type: "spring" }}
+        className="w-24 h-24 mx-auto mb-6 rounded-full bg-amber-500/10 flex items-center justify-center"
+      >
+        <WifiOff className="w-10 h-10 text-amber-600 dark:text-amber-400" />
+      </motion.div>
+      <h2 className="text-xl font-semibold mb-2">
+        Search is unavailable offline
+      </h2>
+      <p className="text-muted-foreground">
+        Search needs the server. Use Downloads while offline.
       </p>
     </div>
   );

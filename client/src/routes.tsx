@@ -41,6 +41,10 @@ const SongRadioPage = lazy(() => import("@/app/radio/song/page"));
 const ReviewPage = lazy(() => import("@/app/review/page"));
 const SearchPage = lazy(() => import("@/app/search/page"));
 const SettingsPage = lazy(() => import("@/app/settings/page"));
+const DownloadedSongsSettingsPage = lazy(
+  () => import("@/app/settings/downloads/page"),
+);
+const DownloadedSongsPage = lazy(() => import("@/app/downloads/songs/page"));
 const SetupLayout = lazy(() => import("@/app/setup/layout"));
 const SetupPage = lazy(() => import("@/app/setup/page"));
 const TaggerPage = lazy(() => import("@/app/tagger/page"));
@@ -94,6 +98,11 @@ export function AppRouter() {
           <Route path="review" element={<ReviewPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="settings/downloads"
+            element={<DownloadedSongsSettingsPage />}
+          />
+          <Route path="downloads/songs" element={<DownloadedSongsPage />} />
           <Route
             path="setup"
             element={

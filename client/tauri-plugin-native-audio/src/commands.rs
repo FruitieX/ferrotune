@@ -342,6 +342,45 @@ pub async fn start_playback<R: Runtime>(
     }
 }
 
+/// Start playback from a JS-materialized queue without refetching the server queue.
+#[command]
+pub async fn start_offline_playback<R: Runtime>(
+    app: AppHandle<R>,
+    response: Value,
+    play_when_ready: bool,
+    start_position_ms: Option<u64>,
+    session_id: Option<String>,
+    source_type: Option<String>,
+    source_id: Option<String>,
+) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().start_offline_playback(
+            response,
+            play_when_ready,
+            start_position_ms.unwrap_or(0),
+            session_id,
+            source_type,
+            source_id,
+        )
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (
+            app,
+            response,
+            play_when_ready,
+            start_position_ms,
+            session_id,
+            source_type,
+            source_id,
+        );
+        log::warn!("start_offline_playback() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
 /// Invalidate the queue window and refetch from server
 #[command]
 pub async fn invalidate_queue<R: Runtime>(

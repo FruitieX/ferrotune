@@ -15,6 +15,7 @@
 import { isTauriMobile } from "@/lib/tauri";
 import type { PlaybackState as AppPlaybackState } from "@/lib/store/player";
 import { nativeAudioReady, nativeSessionReady } from "@/lib/audio/engine-state";
+import type { QueueWindow } from "@/lib/api/generated";
 
 // Types from the native plugin
 interface NativeTrackInfo {
@@ -585,6 +586,49 @@ export async function nativeStartPlayback(params: {
     console.log("[NativeAudio] nativeStartPlayback() SUCCEEDED");
   } catch (err) {
     console.error("[NativeAudio] nativeStartPlayback() FAILED:", String(err));
+    throw err;
+  }
+}
+
+/**
+ * Start playback from a JS-materialized queue. This is used for offline queues
+ * where Kotlin cannot fetch `/api/queue/current-window` from the server.
+ */
+export async function nativeStartOfflinePlayback(params: {
+  response: {
+    totalCount: number;
+    currentIndex: number;
+    positionMs: number;
+    isShuffled: boolean;
+    repeatMode: string;
+    source?: {
+      type?: string | null;
+      id?: string | null;
+    } | null;
+    window: QueueWindow;
+  };
+  playWhenReady: boolean;
+  startPositionMs: number;
+  sessionId?: string;
+  sourceType?: string;
+  sourceId?: string;
+}): Promise<void> {
+  console.log("[NativeAudio] nativeStartOfflinePlayback() called", {
+    totalCount: params.response.totalCount,
+    currentIndex: params.response.currentIndex,
+    playWhenReady: params.playWhenReady,
+  });
+  try {
+    await waitForNativeStop();
+    await waitForNativeSession();
+    const api = await getNativeApi();
+    await api.startOfflinePlayback(params);
+    console.log("[NativeAudio] nativeStartOfflinePlayback() SUCCEEDED");
+  } catch (err) {
+    console.error(
+      "[NativeAudio] nativeStartOfflinePlayback() FAILED:",
+      String(err),
+    );
     throw err;
   }
 }
