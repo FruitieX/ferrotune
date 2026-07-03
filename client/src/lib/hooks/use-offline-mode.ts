@@ -47,7 +47,23 @@ export function useOfflineMode(): void {
 
   useEffect(() => {
     let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function setOfflineMode(next: boolean) {
+      isOfflineRef.current = next;
+      setIsOffline(next);
+    }
+
+    function scheduleNextProbe() {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        () => void probe().finally(scheduleNextProbe),
+        isOfflineRef.current
+          ? PING_INTERVAL_WHEN_OFFLINE_MS
+          : PING_INTERVAL_ONLINE_MS,
+      );
+    }
 
     async function probe(options: { initial?: boolean } = {}): Promise<void> {
       if (cancelled || probingRef.current) return;
@@ -68,7 +84,7 @@ export function useOfflineMode(): void {
         if (cancelled) return;
         if (result) {
           consecutiveFailuresRef.current = 0;
-          if (isOfflineRef.current) setIsOffline(false);
+          if (isOfflineRef.current) setOfflineMode(false);
         } else {
           consecutiveFailuresRef.current += 1;
           const threshold = aggressiveInitialProbe ? 1 : PING_FAILURE_THRESHOLD;
@@ -76,7 +92,7 @@ export function useOfflineMode(): void {
             !isOfflineRef.current &&
             consecutiveFailuresRef.current >= threshold
           ) {
-            setIsOffline(true);
+            setOfflineMode(true);
           }
         }
       } catch (err) {
@@ -87,7 +103,7 @@ export function useOfflineMode(): void {
           !isOfflineRef.current &&
           consecutiveFailuresRef.current >= threshold
         ) {
-          setIsOffline(true);
+          setOfflineMode(true);
         }
         if (consecutiveFailuresRef.current === 1) {
           console.warn("[offline] ping failed (transient)", err);
@@ -100,11 +116,17 @@ export function useOfflineMode(): void {
     function handleOffline() {
       // Authoritative — flip immediately.
       consecutiveFailuresRef.current = PING_FAILURE_THRESHOLD;
-      setIsOffline(true);
+      setOfflineMode(true);
     }
 
     function handleOnline() {
       // Browser says we're back; probe to confirm the server is reachable.
+      consecutiveFailuresRef.current = 0;
+      void probe();
+    }
+
+    function handleVisibilityOrFocus() {
+      if (document.visibilityState === "hidden") return;
       void probe();
     }
 
@@ -120,19 +142,18 @@ export function useOfflineMode(): void {
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
 
-    interval = setInterval(
-      () => void probe(),
-      isOfflineRef.current
-        ? PING_INTERVAL_WHEN_OFFLINE_MS
-        : PING_INTERVAL_ONLINE_MS,
-    );
+    scheduleNextProbe();
 
     return () => {
       cancelled = true;
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
-      if (interval) clearInterval(interval);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      if (timer) clearTimeout(timer);
     };
   }, [connection, setIsOffline]);
 }

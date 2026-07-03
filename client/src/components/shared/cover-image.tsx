@@ -203,9 +203,12 @@ export function CoverImage({
     !showPlaceholderWhileLoading &&
     isVisible;
 
-  // For inline data, convert to data URL
+  // For inline data, convert raw base64 to a data URL. Older offline cache
+  // entries may already be full data URLs, so accept both forms.
   const imageSrc = hasInlineData
-    ? `data:image/jpeg;base64,${inlineData}`
+    ? inlineData.startsWith("data:")
+      ? inlineData
+      : `data:image/jpeg;base64,${inlineData}`
     : src || "";
   // Inline data is immediately "loaded"
   const isImageLoaded = hasInlineData || isLoaded;

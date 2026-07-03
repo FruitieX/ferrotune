@@ -30,10 +30,16 @@ import {
 import {
   persistDownloadedSong,
   persistDownloadedContainer,
+  getDownloadedSongs,
   removeDownloadedSong,
   removeDownloadedContainer,
   clearDownloadedMetadata,
 } from "@/lib/offline/download-manager";
+import { syncOfflinePlaylistMembership } from "@/lib/offline/playlist-membership";
+import {
+  prefetchOfflineWaveform,
+  withHighQualityOfflineCover,
+} from "@/lib/offline/download-assets";
 
 export interface DownloadActions {
   /** True if the song has been fully downloaded to the device. */
@@ -95,7 +101,9 @@ export function useDownloadActions(): DownloadActions {
     try {
       const maxBitRate = format === "opus" ? bitrate : 0;
       await enqueueDownload(song.id, format, maxBitRate);
-      await persistDownloadedSong(song);
+      const enrichedSong = await withHighQualityOfflineCover(song);
+      await persistDownloadedSong(enrichedSong);
+      void prefetchOfflineWaveform(song.id);
       return true;
     } catch (err) {
       console.error("[downloads] enqueueDownload failed", err);
@@ -226,6 +234,7 @@ export function useDownloadActions(): DownloadActions {
           `playlist:${playlistId}`,
           songs.map((s) => s.id),
         );
+        await refreshOfflinePlaylistMembership();
         hapticConfirm();
         toast.success(
           `Queued ${ok} song${ok === 1 ? "" : "s"} from the playlist for download`,
@@ -276,6 +285,20 @@ export function useDownloadActions(): DownloadActions {
       }
     },
   };
+}
+
+async function refreshOfflinePlaylistMembership() {
+  try {
+    const songsById = await getDownloadedSongs();
+    const songIds = Object.keys(songsById);
+    if (songIds.length === 0) return;
+    await syncOfflinePlaylistMembership(songIds);
+  } catch (err) {
+    console.warn(
+      "[downloads] failed to refresh offline playlist metadata",
+      err,
+    );
+  }
 }
 
 /**

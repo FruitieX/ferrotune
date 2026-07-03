@@ -289,6 +289,12 @@ export function FullscreenPlayer() {
       ? undefined
       : getClient()?.getCoverArtUrl(nextTrack.coverArt, 500)
     : undefined;
+  const prevCoverInlineData = prevCoverArtUrl
+    ? undefined
+    : prevTrack?.coverArtData;
+  const nextCoverInlineData = nextCoverArtUrl
+    ? undefined
+    : nextTrack?.coverArtData;
 
   // Album art swipe transforms
   const SWIPE_THRESHOLD = 50;
@@ -883,6 +889,9 @@ export function FullscreenPlayer() {
       ? undefined
       : getClient()?.getCoverArtUrl(currentTrack.coverArt, 500)
     : undefined;
+  const coverArtInlineData = coverArtUrl
+    ? undefined
+    : currentTrack?.coverArtData;
 
   const handleProgressChange = (value: number[]) => {
     setLocalProgress(value[0]);
@@ -1250,7 +1259,7 @@ export function FullscreenPlayer() {
                   >
                     <CoverImage
                       src={prevCoverArtUrl}
-                      inlineData={prevTrack.coverArtData}
+                      inlineData={prevCoverInlineData}
                       alt={prevTrack.album ?? prevTrack.title}
                       colorSeed={prevTrack.album ?? undefined}
                       type="song"
@@ -1299,7 +1308,7 @@ export function FullscreenPlayer() {
                 >
                   <CoverImage
                     src={coverArtUrl}
-                    inlineData={currentTrack.coverArtData}
+                    inlineData={coverArtInlineData}
                     alt={currentTrack.album ?? currentTrack.title}
                     colorSeed={currentTrack.album ?? undefined}
                     type="song"
@@ -1325,7 +1334,7 @@ export function FullscreenPlayer() {
                   >
                     <CoverImage
                       src={nextCoverArtUrl}
-                      inlineData={nextTrack.coverArtData}
+                      inlineData={nextCoverInlineData}
                       alt={nextTrack.album ?? nextTrack.title}
                       colorSeed={nextTrack.album ?? undefined}
                       type="song"

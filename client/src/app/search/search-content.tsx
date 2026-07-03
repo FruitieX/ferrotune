@@ -28,6 +28,7 @@ import {
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { isOfflineModeAtom } from "@/lib/store/downloads";
+import { getSortedDownloadedSongs } from "@/lib/offline/downloaded-songs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -46,7 +47,7 @@ import {
   ActiveFilterBadges,
 } from "@/components/shared/advanced-filter-dialog";
 import { formatDuration, formatCount } from "@/lib/utils/format";
-import type { Album, Artist, Playlist } from "@/lib/api/types";
+import type { Album, Artist, Playlist, Song } from "@/lib/api/types";
 import type { AdvancedFilters } from "@/lib/store/ui";
 
 /** Filters that are only applicable to songs (not albums/artists) */
@@ -199,6 +200,14 @@ export function SearchPageContent() {
     staleTime: 60000,
   });
 
+  const { data: downloadedSongs = [], isLoading: isLoadingDownloadedSongs } =
+    useQuery({
+      queryKey: ["offline-search-downloaded-songs"],
+      queryFn: getSortedDownloadedSongs,
+      enabled: isReady && isOfflineMode,
+      staleTime: 30_000,
+    });
+
   // Filter playlists based on search query
   const filteredPlaylists =
     playlists?.filter(
@@ -214,6 +223,11 @@ export function SearchPageContent() {
         debouncedQuery.length >= 2 &&
         genre.value.toLowerCase().includes(debouncedQuery.toLowerCase()),
     ) ?? [];
+
+  const offlineResults = isOfflineMode
+    ? filterDownloadedSongs(downloadedSongs, debouncedQuery)
+    : [];
+  const offlineSearchActive = debouncedQuery.length >= 2;
 
   const handlePlayAlbum = (album: Album) => {
     startQueue({
@@ -320,11 +334,11 @@ export function SearchPageContent() {
                   );
                 })()}
             </div>
-            <AdvancedFilterDialog className="h-10 w-10" />
+            {!isOfflineMode && <AdvancedFilterDialog className="h-10 w-10" />}
           </div>
         </div>
         {/* Active filter badges */}
-        {hasActiveFilters && (
+        {!isOfflineMode && hasActiveFilters && (
           <div className="px-4 lg:px-6 pb-2">
             <div className="max-w-xl mx-auto">
               <ActiveFilterBadges />
@@ -336,7 +350,38 @@ export function SearchPageContent() {
       {/* Content */}
       <div className="p-4 lg:p-6">
         {isOfflineMode ? (
-          <OfflineSearchUnavailable />
+          !offlineSearchActive ? (
+            query.length > 0 ? (
+              <div className="py-20 text-center text-muted-foreground">
+                Type at least 2 characters to search downloaded songs
+              </div>
+            ) : searchHistory.length > 0 ? (
+              <SearchHistory
+                history={searchHistory}
+                onSelect={(q) => {
+                  setQuery(q);
+                  inputRef.current?.focus();
+                }}
+                onClear={clearSearchHistory}
+              />
+            ) : (
+              <OfflineSearchEmpty />
+            )
+          ) : isLoadingDownloadedSongs ? (
+            <div className="space-y-1">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <SongRowSkeleton key={index} showCover showIndex />
+              ))}
+            </div>
+          ) : offlineResults.length > 0 ? (
+            <OfflineSongResults
+              songs={offlineResults}
+              query={debouncedQuery}
+              allDownloadedSongs={downloadedSongs}
+            />
+          ) : (
+            <NoResults query={debouncedQuery} />
+          )
         ) : !isSearchActive && !debouncedQuery ? (
           searchHistory.length > 0 ? (
             <SearchHistory
@@ -550,6 +595,61 @@ export function SearchPageContent() {
   );
 }
 
+function filterDownloadedSongs(songs: Song[], query: string): Song[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length < 2) return [];
+
+  return songs.filter((song) =>
+    [song.title, song.artist, song.album]
+      .filter((value): value is string => !!value)
+      .some((value) => value.toLowerCase().includes(normalized)),
+  );
+}
+
+function OfflineSongResults({
+  songs,
+  query,
+  allDownloadedSongs,
+}: {
+  songs: Song[];
+  query: string;
+  allDownloadedSongs: Song[];
+}) {
+  const searchQueueSource = {
+    type: "other" as QueueSourceType,
+    name: `Downloaded Search: ${query}`,
+  };
+
+  return (
+    <section>
+      <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+        <WifiOff className="h-4 w-4" />
+        <span>
+          Searching {allDownloadedSongs.length} downloaded song
+          {allDownloadedSongs.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <VirtualizedList
+        items={songs}
+        renderItem={(song, index) => (
+          <SongRow
+            song={song}
+            index={index}
+            showCover
+            inlineImagesRequested
+            queueSongs={songs}
+            queueSource={searchQueueSource}
+            disableLibraryLinks
+          />
+        )}
+        renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+        getItemKey={(song) => song.id}
+        estimateItemHeight={56}
+      />
+    </section>
+  );
+}
+
 function SearchHistory({
   history,
   onSelect,
@@ -628,7 +728,7 @@ function NoResults({ query }: { query: string }) {
   );
 }
 
-function OfflineSearchUnavailable() {
+function OfflineSearchEmpty() {
   return (
     <div className="py-20 text-center">
       <motion.div
@@ -639,11 +739,9 @@ function OfflineSearchUnavailable() {
       >
         <WifiOff className="w-10 h-10 text-amber-600 dark:text-amber-400" />
       </motion.div>
-      <h2 className="text-xl font-semibold mb-2">
-        Search is unavailable offline
-      </h2>
+      <h2 className="text-xl font-semibold mb-2">Search downloaded songs</h2>
       <p className="text-muted-foreground">
-        Search needs the server. Use Downloads while offline.
+        Offline search matches downloaded song title, artist, and album.
       </p>
     </div>
   );

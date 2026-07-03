@@ -24,6 +24,7 @@ import {
 import { isTauriMobile } from "@/lib/tauri";
 import { cacheGet, cacheSet, cacheDelByPrefix } from "@/lib/cache-store";
 import { clearOfflinePlaylistMembership } from "@/lib/offline/playlist-membership";
+import { OFFLINE_WAVEFORM_PREFIX } from "@/lib/offline/download-assets";
 import type { SongDownloadState, DownloadStatus } from "@/lib/store/downloads";
 import {
   setDownloadStateMapAtom,
@@ -334,6 +335,7 @@ export async function getDownloadedContainers(): Promise<
 /** Clear all persisted downloaded songs + containers. */
 export async function clearDownloadedMetadata(): Promise<void> {
   await cacheDelByPrefix("offline:downloaded-container:");
+  await cacheDelByPrefix(OFFLINE_WAVEFORM_PREFIX);
   await clearOfflinePlaylistMembership();
   await cacheSet(
     DOWNLOADED_SONGS_KEY,
