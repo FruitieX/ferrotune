@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -22,6 +23,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AdPlaybackState
@@ -219,8 +221,7 @@ class PlaybackService : MediaSessionService() {
     private var artworkLoaderDataSourceFactory: DataSource.Factory? = null
     private data class NotificationArtworkData(
         val trackId: String,
-        val coverArtUrl: String,
-        val requestUrl: String,
+        val artworkKey: String,
         val bitmap: Bitmap,
         val contentUri: Uri?,
         val wearFallbackArtworkData: ByteArray?,
@@ -4165,15 +4166,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun preloadNotificationArtwork(track: TrackInfo?) {
-        val coverArtUrl = track?.coverArtUrl
-        if (track == null || coverArtUrl.isNullOrBlank() || isOfflinePlaybackQueue) {
+        if (track == null) {
             notificationArtworkLoadGeneration += 1
             notificationArtworkLoadingKey = null
             notificationArtworkData = null
             return
         }
 
-        val requestUrl = buildCoverArtRequestUrl(track, NOTIFICATION_ARTWORK_MAX_DIMENSION_PX) ?: run {
+        val artworkKey = notificationArtworkKey(track) ?: run {
             notificationArtworkLoadGeneration += 1
             notificationArtworkLoadingKey = null
             notificationArtworkData = null
@@ -4183,13 +4183,12 @@ class PlaybackService : MediaSessionService() {
         val existingArtwork = notificationArtworkData
         if (existingArtwork != null &&
             existingArtwork.trackId == track.id &&
-            existingArtwork.coverArtUrl == coverArtUrl &&
-            existingArtwork.requestUrl == requestUrl
+            existingArtwork.artworkKey == artworkKey
         ) {
             return
         }
 
-        val loadingKey = "${track.id}\n$requestUrl"
+        val loadingKey = "${track.id}\n$artworkKey"
         if (notificationArtworkLoadingKey == loadingKey) return
 
         notificationArtworkLoadGeneration += 1
@@ -4198,23 +4197,26 @@ class PlaybackService : MediaSessionService() {
         notificationArtworkData = null
 
         apiExecutor.execute {
-            val bitmap = fetchNotificationArtworkBitmap(requestUrl, track.id)
+            val bitmap = if (isOfflinePlaybackQueue) {
+                decodeInlineNotificationArtworkBitmap(track.coverArtData, track.id)
+            } else {
+                fetchNotificationArtworkBitmap(artworkKey, track.id)
+            }
             val preparedArtwork = bitmap?.let {
-                prepareNotificationArtwork(track.id, requestUrl, it)
+                prepareNotificationArtwork(track.id, artworkKey, it)
             }
             handler.post {
                 if (generation != notificationArtworkLoadGeneration) return@post
                 notificationArtworkLoadingKey = null
 
-                if (currentTrack?.id != track.id || currentTrack?.coverArtUrl != coverArtUrl) {
+                if (currentTrack?.id != track.id || notificationArtworkKey(currentTrack) != artworkKey) {
                     return@post
                 }
 
                 notificationArtworkData = bitmap?.let {
                     NotificationArtworkData(
                         track.id,
-                        coverArtUrl,
-                        requestUrl,
+                        artworkKey,
                         it,
                         preparedArtwork?.contentUri,
                         preparedArtwork?.wearFallbackArtworkData,
@@ -4229,6 +4231,15 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun notificationArtworkKey(track: TrackInfo?): String? {
+        if (track == null) return null
+        if (isOfflinePlaybackQueue) {
+            val coverArtData = track.coverArtData?.takeIf { it.isNotBlank() } ?: return null
+            return "inline:${track.id}:${coverArtData.length}:${coverArtData.hashCode()}"
+        }
+        return buildCoverArtRequestUrl(track, NOTIFICATION_ARTWORK_MAX_DIMENSION_PX)
+    }
+
     private fun fetchNotificationArtworkBitmap(requestUrl: String, trackId: String): Bitmap? {
         val loader = notificationBitmapLoader ?: return null
         return try {
@@ -4239,10 +4250,22 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun decodeInlineNotificationArtworkBitmap(coverArtData: String?, trackId: String): Bitmap? {
+        val encoded = coverArtData?.takeIf { it.isNotBlank() } ?: return null
+        return try {
+            val payload = encoded.substringAfter(',', encoded)
+            val bytes = Base64.decode(payload, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (exception: Exception) {
+            Log.w(TAG, "notification inline artwork decode failed: track=$trackId", exception)
+            null
+        }
+    }
+
     private fun notificationArtworkBitmapFor(track: TrackInfo?): Bitmap? {
         if (track == null) return null
         val artwork = notificationArtworkData ?: return null
-        return if (artwork.trackId == track.id && artwork.coverArtUrl == track.coverArtUrl) {
+        return if (artwork.trackId == track.id && artwork.artworkKey == notificationArtworkKey(track)) {
             artwork.bitmap
         } else {
             null
@@ -4251,7 +4274,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun notificationArtworkFor(track: TrackInfo): NotificationArtworkData? {
         val artwork = notificationArtworkData ?: return null
-        return if (artwork.trackId == track.id && artwork.coverArtUrl == track.coverArtUrl) {
+        return if (artwork.trackId == track.id && artwork.artworkKey == notificationArtworkKey(track)) {
             artwork
         } else {
             null

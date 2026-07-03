@@ -13,6 +13,7 @@ data class TrackInfo(
     val artist: String,
     val album: String,
     val coverArtUrl: String?,
+    val coverArtData: String? = null,
     val durationMs: Long,
     val replayGainDb: Float? = null
 ) {

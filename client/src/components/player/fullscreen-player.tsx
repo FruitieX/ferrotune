@@ -242,7 +242,8 @@ export function FullscreenPlayer() {
   const [isClosedAnimationSettled, setIsClosedAnimationSettled] =
     useState(true);
 
-  const { togglePlayPause, seek, next, previous } = useAudioEngine();
+  const { togglePlayPause, seek, next, previous, previousForce } =
+    useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
     currentTrack?.id ?? "",
     !!currentTrack?.starred,
@@ -614,7 +615,7 @@ export function FullscreenPlayer() {
         stiffness: 500,
         damping: 40,
       });
-      previous();
+      previousForce();
     } else {
       animateAlbumArtToRest();
     }

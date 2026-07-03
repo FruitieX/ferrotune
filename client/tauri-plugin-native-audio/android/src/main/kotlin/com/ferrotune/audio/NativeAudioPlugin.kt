@@ -1097,6 +1097,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             artist = nullableString(json, "artist") ?: "Unknown Artist",
             album = nullableString(json, "album") ?: "Unknown Album",
             coverArt = nullableString(json, "coverArt"),
+            coverArtData = nullableString(json, "coverArtData"),
             duration = json.optInt("duration", 0),
             computedReplayGainTrackGain = nullableFloat(json, "computedReplayGainTrackGain"),
             originalReplayGainTrackGain = nullableFloat(json, "originalReplayGainTrackGain"),

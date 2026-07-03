@@ -47,6 +47,7 @@ data class QueueSong(
     val artist: String,
     val album: String,
     val coverArt: String?,
+    val coverArtData: String?,
     val duration: Int,
     val computedReplayGainTrackGain: Float?,
     val originalReplayGainTrackGain: Float?,
@@ -651,6 +652,7 @@ class FerrotuneApiClient {
             artist = json.optString("artist", "Unknown Artist"),
             album = json.optString("album", "Unknown Album"),
             coverArt = json.optString("coverArt").ifEmpty { null },
+            coverArtData = json.optString("coverArtData").ifEmpty { null },
             duration = json.optInt("duration", 0),
             computedReplayGainTrackGain = if (json.has("computedReplayGainTrackGain") && !json.isNull("computedReplayGainTrackGain"))
                 json.getDouble("computedReplayGainTrackGain").toFloat() else null,
@@ -671,6 +673,7 @@ class FerrotuneApiClient {
             artist = song.artist,
             album = song.album,
             coverArtUrl = song.coverArt?.let { buildCoverArtUrl(it) },
+            coverArtData = song.coverArtData,
             durationMs = song.duration.toLong() * 1000,
             replayGainDb = replayGainDb,
         )
