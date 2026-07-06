@@ -23,9 +23,7 @@ import {
 } from "tauri-plugin-native-audio-api";
 import { isTauriMobile } from "@/lib/tauri";
 import {
-  cacheGet,
   cacheGetShared,
-  cacheSet,
   cacheSetShared,
   cacheDelByPrefix,
   cacheDelByPrefixShared,
@@ -60,36 +58,17 @@ function emptyPersistedState(): PersistedDownloadState {
   return { songs: {}, containers: {} };
 }
 
-function mergePersistedStates(
-  accountState: PersistedDownloadState | undefined,
-  sharedState: PersistedDownloadState | undefined,
-): PersistedDownloadState {
-  return {
-    songs: {
-      ...(accountState?.songs ?? {}),
-      ...(sharedState?.songs ?? {}),
-    },
-    containers: {
-      ...(accountState?.containers ?? {}),
-      ...(sharedState?.containers ?? {}),
-    },
-  };
-}
-
 async function readDownloadedMetadata(): Promise<PersistedDownloadState> {
-  const [accountState, sharedState] = await Promise.all([
-    cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY),
-    cacheGetShared<PersistedDownloadState>(DOWNLOADED_SONGS_KEY),
-  ]);
-
-  return mergePersistedStates(accountState, sharedState);
+  return (
+    (await cacheGetShared<PersistedDownloadState>(DOWNLOADED_SONGS_KEY)) ??
+    emptyPersistedState()
+  );
 }
 
 async function writeDownloadedMetadata(
   state: PersistedDownloadState,
 ): Promise<void> {
   await cacheSetShared(DOWNLOADED_SONGS_KEY, state, { pinned: true });
-  await cacheSet(DOWNLOADED_SONGS_KEY, state, { pinned: true });
 }
 
 function statusFromNative(s: DownloadInfo["status"]): DownloadStatus {
