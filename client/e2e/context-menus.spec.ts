@@ -62,6 +62,39 @@ test.describe("Context Menus", () => {
     await expect(page.getByTestId("player-bar")).toBeVisible();
   });
 
+  test("song detail rows copy values to the clipboard", async ({
+    authenticatedPage: page,
+  }) => {
+    const appOrigin = new URL(page.url()).origin;
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: appOrigin,
+      });
+    await page.goto("/library/songs");
+
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+
+    const songRow = page
+      .locator('[data-testid="song-row"]')
+      .filter({ hasText: "First Song" })
+      .first();
+    const contextMenu = await openContextMenu(page, songRow);
+    await contextMenu.getByRole("menuitem", { name: /view details/i }).click();
+
+    await expect(
+      page.getByRole("dialog", { name: /track details/i }),
+    ).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("detail-row-Artist").click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe("Test Artist");
+  });
+
   test("album card context menu can play and shuffle", async ({
     authenticatedPage: page,
   }) => {

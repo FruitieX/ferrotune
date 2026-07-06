@@ -6,7 +6,8 @@
  * - Sparse pagination page data (evictable via LRU)
  *
  * Enforces a total size cap (default 100 MB) across all entries.
- * Per-account isolation via key prefix.
+ * Most entries use per-account isolation via key prefix; device-level entries
+ * can opt into the explicit shared prefix.
  */
 
 import { createStore, get, set, del, keys, entries } from "idb-keyval";
@@ -29,6 +30,8 @@ let currentAccountPrefix = "";
 
 let cacheInitVersion = 0;
 
+const SHARED_CACHE_PREFIX = "shared:";
+
 /** Dedicated IndexedDB store (separate from idb-keyval default) */
 const cacheIdbStore = createStore("ferrotune-cache", "cache-store");
 
@@ -47,7 +50,12 @@ export async function cacheInit(accountKey: string): Promise<void> {
     const allEntries = await entries(cacheIdbStore);
     for (const [key, value] of allEntries) {
       const keyStr = key as string;
-      if (!keyStr.startsWith(accountPrefix)) continue;
+      if (
+        !keyStr.startsWith(accountPrefix) &&
+        !keyStr.startsWith(SHARED_CACHE_PREFIX)
+      ) {
+        continue;
+      }
 
       const serialized =
         typeof value === "string" ? value : JSON.stringify(value);
@@ -70,7 +78,10 @@ export async function cacheInit(accountKey: string): Promise<void> {
   }
 
   for (const [key, meta] of metaMap) {
-    if (key.startsWith(accountPrefix) && !nextMetaMap.has(key)) {
+    if (
+      (key.startsWith(accountPrefix) || key.startsWith(SHARED_CACHE_PREFIX)) &&
+      !nextMetaMap.has(key)
+    ) {
       nextMetaMap.set(key, meta);
     }
   }
@@ -119,6 +130,10 @@ function scopedKeyForAccount(accountKey: string, key: string): string {
   return `${accountKey}:${key}`;
 }
 
+function sharedKey(key: string): string {
+  return `${SHARED_CACHE_PREFIX}${key}`;
+}
+
 export interface CacheSetOptions {
   /** If true, entry is never evicted by LRU (use for React Query blob). */
   pinned?: boolean;
@@ -135,6 +150,10 @@ export async function cacheGetForAccount<T>(
   key: string,
 ): Promise<T | undefined> {
   return cacheGetByFullKey<T>(scopedKeyForAccount(accountKey, key));
+}
+
+export async function cacheGetShared<T>(key: string): Promise<T | undefined> {
+  return cacheGetByFullKey<T>(sharedKey(key));
 }
 
 async function cacheGetByFullKey<T>(fullKey: string): Promise<T | undefined> {
@@ -170,6 +189,14 @@ export async function cacheSetForAccount<T>(
   options?: CacheSetOptions,
 ): Promise<void> {
   await cacheSetByFullKey(scopedKeyForAccount(accountKey, key), value, options);
+}
+
+export async function cacheSetShared<T>(
+  key: string,
+  value: T,
+  options?: CacheSetOptions,
+): Promise<void> {
+  await cacheSetByFullKey(sharedKey(key), value, options);
 }
 
 async function cacheSetByFullKey<T>(
@@ -233,6 +260,10 @@ export async function cacheDelByPrefixForAccount(
   prefix: string,
 ): Promise<void> {
   await cacheDelByFullKeyPrefix(scopedKeyForAccount(accountKey, prefix));
+}
+
+export async function cacheDelByPrefixShared(prefix: string): Promise<void> {
+  await cacheDelByFullKeyPrefix(sharedKey(prefix));
 }
 
 async function cacheDelByFullKeyPrefix(fullPrefix: string): Promise<void> {

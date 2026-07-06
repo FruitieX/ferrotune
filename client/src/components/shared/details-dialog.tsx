@@ -110,21 +110,30 @@ function DetailRow({
   icon: Icon,
   label,
   value,
-  copyable = false,
+  copyable = true,
+  copyValue,
 }: {
   icon: React.ElementType;
   label: string;
   value: React.ReactNode;
   copyable?: boolean;
+  copyValue?: string | number;
 }) {
   const [copied, setCopied] = useState(false);
 
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") return null;
+
+  const resolvedCopyValue =
+    copyValue ??
+    (typeof value === "string" || typeof value === "number"
+      ? value
+      : undefined);
+  const canCopy = copyable && resolvedCopyValue !== undefined;
 
   const handleCopy = async () => {
-    if (typeof value !== "string" && typeof value !== "number") return;
+    if (!canCopy) return;
     try {
-      await navigator.clipboard.writeText(String(value));
+      await navigator.clipboard.writeText(String(resolvedCopyValue));
       setCopied(true);
       toast.success("Copied to clipboard");
       setTimeout(() => setCopied(false), 2000);
@@ -133,11 +142,23 @@ function DetailRow({
     }
   };
 
-  const canCopy =
-    copyable && (typeof value === "string" || typeof value === "number");
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!canCopy) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    void handleCopy();
+  };
 
   return (
-    <div className="flex items-start gap-3 py-2 group">
+    <div
+      className={`flex items-start gap-3 rounded-md py-2 group ${canCopy ? "cursor-copy px-2 -mx-2 transition-colors hover:bg-muted/50 active:bg-muted" : ""}`}
+      role={canCopy ? "button" : undefined}
+      tabIndex={canCopy ? 0 : undefined}
+      aria-label={canCopy ? `Copy ${label}` : undefined}
+      data-testid={canCopy ? `detail-row-${label}` : undefined}
+      onClick={canCopy ? () => void handleCopy() : undefined}
+      onKeyDown={handleKeyDown}
+    >
       <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1 overflow-hidden">
         <p className="text-xs text-muted-foreground">{label}</p>
@@ -146,18 +167,16 @@ function DetailRow({
             {value}
           </p>
           {canCopy && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={handleCopy}
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+              aria-hidden="true"
             >
               {copied ? (
                 <Check className="w-3 h-3 text-green-500" />
               ) : (
                 <Copy className="w-3 h-3" />
               )}
-            </Button>
+            </span>
           )}
         </div>
       </div>
@@ -359,6 +378,7 @@ function SongDetails({
             <DetailRow
               icon={Star}
               label="Rating"
+              copyValue={`${fullSong.userRating}/5`}
               value={
                 <span className="flex items-center gap-0.5">
                   {Array.from({ length: fullSong.userRating }).map((_, i) => (
@@ -608,6 +628,7 @@ function AlbumDetails({ album }: { album: Album }) {
             <DetailRow
               icon={Star}
               label="Rating"
+              copyValue={`${album.userRating}/5`}
               value={
                 <span className="flex items-center gap-0.5">
                   {Array.from({ length: album.userRating }).map((_, i) => (
@@ -712,6 +733,7 @@ function ArtistDetails({ artist }: { artist: Artist }) {
             <DetailRow
               icon={Star}
               label="Rating"
+              copyValue={`${artist.userRating}/5`}
               value={
                 <span className="flex items-center gap-0.5">
                   {Array.from({ length: artist.userRating }).map((_, i) => (

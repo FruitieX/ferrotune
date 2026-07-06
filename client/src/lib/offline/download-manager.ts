@@ -3,9 +3,9 @@
  * (emitted by FerrotuneDownloadService via the ferrotune:native-audio-event
  * CustomEvent channel) and mirrors them into the Jotai store.
  *
- * Also persists downloaded song metadata + container membership to the
- * per-account IndexedDB cache store so the offline UI (queue filtering,
- * downloaded library views) survives relaunch.
+ * Also persists downloaded song metadata + container membership to a
+ * device-shared IndexedDB cache store so the offline UI (queue filtering,
+ * downloaded library views) survives relaunch and account switches.
  *
  * The native side is the single source of truth for download state and
  * byte-level progress. This module only translates native events into JS
@@ -22,7 +22,14 @@ import {
   getDownloads,
 } from "tauri-plugin-native-audio-api";
 import { isTauriMobile } from "@/lib/tauri";
-import { cacheGet, cacheSet, cacheDelByPrefix } from "@/lib/cache-store";
+import {
+  cacheGet,
+  cacheGetShared,
+  cacheSet,
+  cacheSetShared,
+  cacheDelByPrefix,
+  cacheDelByPrefixShared,
+} from "@/lib/cache-store";
 import { clearOfflinePlaylistMembership } from "@/lib/offline/playlist-membership";
 import { OFFLINE_WAVEFORM_PREFIX } from "@/lib/offline/download-assets";
 import type { SongDownloadState, DownloadStatus } from "@/lib/store/downloads";
@@ -48,6 +55,42 @@ interface PersistedDownloadState {
 
 let unsubscribeNative: (() => void) | null = null;
 let activeStore: Store | null = null;
+
+function emptyPersistedState(): PersistedDownloadState {
+  return { songs: {}, containers: {} };
+}
+
+function mergePersistedStates(
+  accountState: PersistedDownloadState | undefined,
+  sharedState: PersistedDownloadState | undefined,
+): PersistedDownloadState {
+  return {
+    songs: {
+      ...(accountState?.songs ?? {}),
+      ...(sharedState?.songs ?? {}),
+    },
+    containers: {
+      ...(accountState?.containers ?? {}),
+      ...(sharedState?.containers ?? {}),
+    },
+  };
+}
+
+async function readDownloadedMetadata(): Promise<PersistedDownloadState> {
+  const [accountState, sharedState] = await Promise.all([
+    cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY),
+    cacheGetShared<PersistedDownloadState>(DOWNLOADED_SONGS_KEY),
+  ]);
+
+  return mergePersistedStates(accountState, sharedState);
+}
+
+async function writeDownloadedMetadata(
+  state: PersistedDownloadState,
+): Promise<void> {
+  await cacheSetShared(DOWNLOADED_SONGS_KEY, state, { pinned: true });
+  await cacheSet(DOWNLOADED_SONGS_KEY, state, { pinned: true });
+}
 
 function statusFromNative(s: DownloadInfo["status"]): DownloadStatus {
   switch (s) {
@@ -118,8 +161,8 @@ function applyDownloadUpdates(
  */
 async function rehydrateContainerIndex(store: Store): Promise<void> {
   try {
-    const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
-    const containers = state?.containers ?? {};
+    const state = await readDownloadedMetadata();
+    const containers = state.containers;
     const next = new Map<string, string[]>();
     for (const [containerId, songIds] of Object.entries(containers)) {
       next.set(containerId, songIds);
@@ -195,8 +238,8 @@ export async function initDownloadManager(store: Store): Promise<void> {
  */
 async function persistServerStateSubscription(): Promise<void> {
   try {
-    const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
-    if (state?.songs) {
+    const state = await readDownloadedMetadata();
+    if (state.songs) {
       // Note: the per-song download state from the native snapshot (above)
       // takes precedence; we don't rehydrate the per-song status from
       // IndexedDB because the DownloadManager is the source of truth.
@@ -217,14 +260,9 @@ async function persistServerStateSubscription(): Promise<void> {
  */
 export async function persistDownloadedSong(song: Song): Promise<void> {
   try {
-    const state = (await cacheGet<PersistedDownloadState>(
-      DOWNLOADED_SONGS_KEY,
-    )) ?? {
-      songs: {},
-      containers: {},
-    };
+    const state = await readDownloadedMetadata();
     state.songs[song.id] = song;
-    await cacheSet(DOWNLOADED_SONGS_KEY, state, { pinned: true });
+    await writeDownloadedMetadata(state);
   } catch (err) {
     console.warn("[downloads] failed to persist song", song.id, err);
   }
@@ -236,8 +274,8 @@ export async function persistDownloadedSong(song: Song): Promise<void> {
  */
 export async function removeDownloadedSong(songId: string): Promise<void> {
   try {
-    const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
-    if (!state?.songs) return;
+    const state = await readDownloadedMetadata();
+    if (!state.songs) return;
     if (!(songId in state.songs)) return;
     delete state.songs[songId];
     // Drop the song from any container membership it was in
@@ -249,7 +287,7 @@ export async function removeDownloadedSong(songId: string): Promise<void> {
         state.containers[containerId] = next;
       }
     }
-    await cacheSet(DOWNLOADED_SONGS_KEY, state, { pinned: true });
+    await writeDownloadedMetadata(state);
     syncContainerAtom((map) => {
       for (const [containerId, songIds] of map) {
         const filtered = songIds.filter((id) => id !== songId);
@@ -278,14 +316,9 @@ export async function persistDownloadedContainer(
   songIds: string[],
 ): Promise<void> {
   try {
-    const state = (await cacheGet<PersistedDownloadState>(
-      DOWNLOADED_SONGS_KEY,
-    )) ?? {
-      songs: {},
-      containers: {},
-    };
+    const state = await readDownloadedMetadata();
     state.containers[containerId] = songIds;
-    await cacheSet(DOWNLOADED_SONGS_KEY, state, { pinned: true });
+    await writeDownloadedMetadata(state);
     syncContainerAtom((map) => {
       map.set(containerId, songIds);
     });
@@ -298,10 +331,10 @@ export async function removeDownloadedContainer(
   containerId: string,
 ): Promise<void> {
   try {
-    const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
-    if (!state?.containers) return;
+    const state = await readDownloadedMetadata();
+    if (!state.containers) return;
     delete state.containers[containerId];
-    await cacheSet(DOWNLOADED_SONGS_KEY, state, { pinned: true });
+    await writeDownloadedMetadata(state);
     syncContainerAtom((map) => {
       map.delete(containerId);
     });
@@ -313,8 +346,8 @@ export async function removeDownloadedContainer(
 /** Read the persisted downloaded-songs map for offline rendering. */
 export async function getDownloadedSongs(): Promise<Record<string, Song>> {
   try {
-    const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
-    return state?.songs ?? {};
+    const state = await readDownloadedMetadata();
+    return state.songs;
   } catch {
     return {};
   }
@@ -325,8 +358,8 @@ export async function getDownloadedContainers(): Promise<
   Record<string, string[]>
 > {
   try {
-    const state = await cacheGet<PersistedDownloadState>(DOWNLOADED_SONGS_KEY);
-    return state?.containers ?? {};
+    const state = await readDownloadedMetadata();
+    return state.containers;
   } catch {
     return {};
   }
@@ -335,15 +368,11 @@ export async function getDownloadedContainers(): Promise<
 /** Clear all persisted downloaded songs + containers. */
 export async function clearDownloadedMetadata(): Promise<void> {
   await cacheDelByPrefix("offline:downloaded-container:");
+  await cacheDelByPrefixShared("offline:downloaded-container:");
   await cacheDelByPrefix(OFFLINE_WAVEFORM_PREFIX);
+  await cacheDelByPrefixShared(OFFLINE_WAVEFORM_PREFIX);
   await clearOfflinePlaylistMembership();
-  await cacheSet(
-    DOWNLOADED_SONGS_KEY,
-    { songs: {}, containers: {} },
-    {
-      pinned: true,
-    },
-  );
+  await writeDownloadedMetadata(emptyPersistedState());
   syncContainerAtom((map) => {
     map.clear();
   });
