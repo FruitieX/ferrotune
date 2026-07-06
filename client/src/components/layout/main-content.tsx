@@ -2,12 +2,15 @@
 
 import { useEffect } from "react";
 import { useAtomValue } from "jotai";
+import { useLocation } from "react-router-dom";
 import {
   queuePanelOpenAtom,
   sidebarCollapsedAtom,
   sidebarWidthAtom,
 } from "@/lib/store/ui";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
+import { clearAllScrollPositions } from "@/lib/hooks/use-scroll-restoration";
+import { clearAllVirtualizedScrollPositions } from "@/lib/hooks/use-virtualized-scroll-restoration";
 
 const QUEUE_SIDEBAR_WIDTH = 360;
 const COLLAPSED_SIDEBAR_WIDTH = 72;
@@ -24,10 +27,16 @@ interface MainContentProps {
  * to prevent layout flash. This component updates them when state changes.
  */
 export function MainContent({ children }: MainContentProps) {
+  const location = useLocation();
   const hydrated = useHydrated();
   const sidebarCollapsed = useAtomValue(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const queueOpen = useAtomValue(queuePanelOpenAtom);
+  const preventScrollReset =
+    typeof location.state === "object" &&
+    location.state !== null &&
+    "preventScrollReset" in location.state &&
+    Boolean(location.state.preventScrollReset);
 
   // Update CSS variables when state changes (after hydration)
   useEffect(() => {
@@ -47,6 +56,16 @@ export function MainContent({ children }: MainContentProps) {
       `${leftWidth}px`,
     );
   }, [hydrated, queueOpen, sidebarCollapsed, sidebarWidth]);
+
+  useEffect(() => {
+    if (preventScrollReset) return;
+
+    clearAllScrollPositions();
+    clearAllVirtualizedScrollPositions();
+
+    const container = document.getElementById("main-scroll-container");
+    container?.scrollTo({ top: 0, left: 0 });
+  }, [location.key, preventScrollReset]);
 
   // CSS variables are set by the init script in layout.tsx head
   // so we can use them directly in className without worrying about flash

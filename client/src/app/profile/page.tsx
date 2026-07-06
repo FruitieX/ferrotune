@@ -198,7 +198,7 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      <div className="px-4 lg:px-6 pb-24 space-y-6">
+      <div className="px-4 lg:px-6 py-6 pb-24 space-y-6">
         {/* Account Info */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -264,8 +264,8 @@ export default function ProfilePage() {
           transition={{ delay: 0.2 }}
         >
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div className="flex-1">
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 flex-1">
                 <CardTitle className="flex items-center gap-2">
                   <Headphones className="w-5 h-5" />
                   Listening Activity
@@ -274,43 +274,52 @@ export default function ProfilePage() {
                   Your music listening statistics
                 </CardDescription>
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" className="gap-2">
-                    <Upload className="w-4 h-4" />
-                    Import
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => setImportPlayCountsDialogOpen(true)}
-                  >
-                    <FileSpreadsheet className="w-4 h-4 mr-2" />
-                    Import Play Counts
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setImportFavoritesDialogOpen(true)}
-                  >
-                    <Heart className="w-4 h-4 mr-2" />
-                    Import Favorites
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Link href="/history/manage">
-                <Button size="sm" variant="outline" className="gap-2">
-                  <History className="w-4 h-4" />
-                  Manage
-                </Button>
-              </Link>
-              <Link href="/review">
-                <Button
-                  size="sm"
-                  className="gap-2 bg-primary hover:bg-primary/80"
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="min-w-fit flex-1 gap-2 sm:flex-none"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Import
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => setImportPlayCountsDialogOpen(true)}
+                    >
+                      <FileSpreadsheet className="w-4 h-4 mr-2" />
+                      Import Play Counts
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setImportFavoritesDialogOpen(true)}
+                    >
+                      <Heart className="w-4 h-4 mr-2" />
+                      Import Favorites
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Link
+                  href="/history/manage"
+                  className="min-w-fit flex-1 sm:flex-none"
                 >
-                  <TrendingUp className="w-4 h-4" />
-                  Your Review
-                </Button>
-              </Link>
+                  <Button size="sm" variant="outline" className="w-full gap-2">
+                    <History className="w-4 h-4" />
+                    Manage
+                  </Button>
+                </Link>
+                <Link href="/review" className="min-w-fit flex-1 sm:flex-none">
+                  <Button
+                    size="sm"
+                    className="w-full gap-2 bg-primary hover:bg-primary/80"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    Your Review
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
             <CardContent>
               {listeningStatsLoading ? (

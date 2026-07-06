@@ -21,14 +21,18 @@ export function useRouter() {
 
   return {
     push(href: RouteHref, options?: NavigateOptions) {
+      const preventScrollReset = options?.scroll === false;
       navigate(toRoute(href), {
-        preventScrollReset: options?.scroll === false,
+        preventScrollReset,
+        state: preventScrollReset ? { preventScrollReset } : undefined,
       });
     },
     replace(href: RouteHref, options?: NavigateOptions) {
+      const preventScrollReset = options?.scroll === false;
       navigate(toRoute(href), {
         replace: true,
-        preventScrollReset: options?.scroll === false,
+        preventScrollReset,
+        state: preventScrollReset ? { preventScrollReset } : undefined,
       });
     },
     back() {
