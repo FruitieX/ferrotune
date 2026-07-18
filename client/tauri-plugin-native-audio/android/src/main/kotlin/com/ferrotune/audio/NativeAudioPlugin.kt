@@ -12,16 +12,12 @@ import android.util.Log
 import android.webkit.WebView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 // Argument classes for command parameter parsing
 @InvokeArg
@@ -185,8 +182,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var controllerFuture: ListenableFuture<MediaController>? = null
-    private var mediaController: MediaController? = null
+    private val pluginInstanceId = UUID.randomUUID().toString()
     private var playbackService: PlaybackService? = null
     private var serviceBound = false
     private var webViewRef: WebView? = null
@@ -196,21 +192,27 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private var safeAreaTop: Float = 0f
     private var safeAreaBottom: Float = 0f
     @Volatile private var webViewInForeground: Boolean = true
+    @Volatile private var cleanedUp: Boolean = false
+    private val bridgeOwnerToken = Any()
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            if (cleanedUp) {
+                Log.w(TAG, "Ignoring PlaybackService connection after plugin cleanup")
+                return
+            }
             Log.d(TAG, "PlaybackService connected")
             NativeAudioLogger.debug(TAG, "service_connected", "PlaybackService connected")
             val connectedService = (service as PlaybackService.LocalBinder).getService()
             playbackService = connectedService
-            connectedService.setEventEmitter { event, data ->
+            connectedService.setEventEmitter(bridgeOwnerToken) { event, data ->
                 triggerEvent(event, data)
             }
             // Mirror the same event channel into the offline DownloadManager
             // singleton so download state changes flow to JS over the
             // existing native-audio event bridge.
             DownloadManagerHolder.initialize(activity.applicationContext)
-            DownloadManagerHolder.setEventEmitter { event, data ->
+            DownloadManagerHolder.setEventEmitter(bridgeOwnerToken) { event, data ->
                 triggerEvent(event, data)
             }
             lastSessionConfig?.let { config ->
@@ -234,7 +236,12 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         super.load(webView)
         NativeAudioLogger.initialize(activity.applicationContext)
         Log.d(TAG, "NativeAudioPlugin loaded")
-        NativeAudioLogger.debug(TAG, "plugin_loaded", "NativeAudioPlugin loaded")
+        NativeAudioLogger.debug(
+            TAG,
+            "plugin_loaded",
+            "NativeAudioPlugin loaded",
+            mapOf("pluginInstanceId" to pluginInstanceId),
+        )
         webViewRef = webView
         // Allow mixed content: the WebView loads from https://tauri.localhost but
         // API requests go to the user's server over plain HTTP. Without this,
@@ -252,11 +259,10 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         // resume-from-previous-session downloads can start as soon as the
         // session token is pushed via initSession.
         DownloadManagerHolder.initialize(activity.applicationContext)
-        DownloadManagerHolder.setEventEmitter { event, data ->
+        DownloadManagerHolder.setEventEmitter(bridgeOwnerToken) { event, data ->
             triggerEvent(event, data)
         }
         bindPlaybackService()
-        connectToMediaSession()
 
         // Re-apply safe area insets after the page loads.
         // The initial injection from onApplyWindowInsetsListener fires before
@@ -353,16 +359,26 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         refreshWebView(dispatchResumeEvent = false)
     }
 
-    // Note: Plugin base class doesn't have onDestroy hook
-    // Cleanup is handled when activity/service lifecycle ends
-    fun cleanup() {
+    override fun onDestroy() {
+        cleanup()
+        super.onDestroy()
+    }
+
+    private fun cleanup() {
+        if (cleanedUp) return
+        cleanedUp = true
         Log.d(TAG, "NativeAudioPlugin cleanup")
-        NativeAudioLogger.debug(TAG, "plugin_cleanup", "NativeAudioPlugin cleanup")
+        NativeAudioLogger.debug(
+            TAG,
+            "plugin_cleanup",
+            "NativeAudioPlugin cleanup",
+            mapOf("pluginInstanceId" to pluginInstanceId),
+        )
         scope.cancel()
         nativeCastManager?.release()
         nativeCastManager = null
-        DownloadManagerHolder.setEventEmitter(null)
-        releaseMediaController()
+        DownloadManagerHolder.clearEventEmitter(bridgeOwnerToken)
+        webViewRef = null
         unbindPlaybackService()
     }
 
@@ -370,39 +386,33 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         val intent = Intent(activity, PlaybackService::class.java)
         activity.startService(intent)
         if (!serviceBound) {
-            activity.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-            serviceBound = true
+            serviceBound = activity.bindService(
+                intent,
+                serviceConnection,
+                Context.BIND_AUTO_CREATE,
+            )
+            if (!serviceBound) {
+                Log.e(TAG, "PlaybackService bind request was rejected")
+                NativeAudioLogger.error(
+                    TAG,
+                    "service_bind_rejected",
+                    "PlaybackService bind request was rejected",
+                )
+            }
         }
     }
 
     private fun unbindPlaybackService() {
+        playbackService?.clearEventEmitter(bridgeOwnerToken)
+        playbackService = null
         if (serviceBound) {
-            activity.unbindService(serviceConnection)
             serviceBound = false
-        }
-    }
-
-    private fun connectToMediaSession() {
-        val sessionToken = SessionToken(
-            activity,
-            ComponentName(activity, PlaybackService::class.java)
-        )
-
-        controllerFuture = MediaController.Builder(activity, sessionToken).buildAsync()
-        controllerFuture?.addListener({
             try {
-                mediaController = controllerFuture?.get()
-                Log.d(TAG, "MediaController connected")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to connect to MediaController", e)
+                activity.unbindService(serviceConnection)
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "PlaybackService was already unbound", error)
             }
-        }, MoreExecutors.directExecutor())
-    }
-
-    private fun releaseMediaController() {
-        controllerFuture?.let { MediaController.releaseFuture(it) }
-        controllerFuture = null
-        mediaController = null
+        }
     }
 
     /**

@@ -347,6 +347,14 @@ Server-backed UI preferences such as Home tiles and sections use `atomWithServer
 | `download-manager.ts` | Native download state subscription plus persisted downloaded song/container metadata | `initDownloadManager()`, `getDownloadedSongs()`, `getDownloadedContainers()` |
 | `playlist-membership.ts` | Account-scoped IndexedDB cache for visible playlist membership of downloaded song IDs, used only for true offline playback/materialization | `syncOfflinePlaylistMembership()`, `getOfflinePlaylistMembershipForPlaylist()` |
 
+### Android Native Audio Lifecycle Helpers (`client/tauri-plugin-native-audio/android/`)
+
+| Helper | Purpose |
+|--------|---------|
+| `OwnedCallback.kt` | Owner-token callback slot for Activity/WebView bridges whose stale teardown must not clear a replacement binding. |
+| `SseConnectionGeneration.kt` | Generation guard that discards callbacks from superseded native SSE connections. |
+| `PlaybackStallMonitor.kt` | Pure watchdog state machine for playback progress, backward-seek re-baselining, recovery, and skip escalation. |
+
 ---
 
 ## Common Tasks

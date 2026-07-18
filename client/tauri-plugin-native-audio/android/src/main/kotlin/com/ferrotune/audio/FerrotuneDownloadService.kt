@@ -187,7 +187,7 @@ object DownloadManagerHolder {
     @Volatile private var managerRef: DownloadManager? = null
     @Volatile private var downloadCacheRef: SimpleCache? = null
     @Volatile private var httpFactoryRef: DefaultHttpDataSource.Factory? = null
-    @Volatile private var eventEmitter: ((String, JSObject) -> Unit)? = null
+    private val eventEmitter = OwnedCallback<String, JSObject>()
     @Volatile private var streamCacheRef: SimpleCache? = null
 
     private val apiClient = FerrotuneApiClient()
@@ -241,8 +241,12 @@ object DownloadManagerHolder {
 
     fun cacheKeyFactory(): CacheKeyFactory = FerrotuneCacheKeyFactory()
 
-    fun setEventEmitter(emitter: ((String, JSObject) -> Unit)?) {
-        eventEmitter = emitter
+    fun setEventEmitter(owner: Any, emitter: (String, JSObject) -> Unit) {
+        eventEmitter.set(owner, emitter)
+    }
+
+    fun clearEventEmitter(owner: Any) {
+        eventEmitter.clear(owner)
     }
 
     fun setStreamCache(streamCache: SimpleCache?) {
@@ -427,7 +431,6 @@ object DownloadManagerHolder {
         forcePaused: Boolean? = null,
         forceNotMetRequirements: Int? = null,
     ) {
-        val emitter = eventEmitter ?: return
         val mgr = managerRef ?: return
         val now = System.currentTimeMillis()
         val paused = forcePaused ?: mgr.downloadsPaused
@@ -455,7 +458,7 @@ object DownloadManagerHolder {
             TAG,
             "Emitting download event to JS; downloads=${info.joinToString { "${it.contentId}:${it.status}:${it.bytesDownloaded}/${it.bytesTotal}" }} paused=$paused notMet=$notMet",
         )
-        mainHandler.post { emitter(AudioEvents.DOWNLOAD_STATE_CHANGED, jsObj) }
+        mainHandler.post { eventEmitter.emit(AudioEvents.DOWNLOAD_STATE_CHANGED, jsObj) }
     }
 
     private fun evictStreamCacheForDownload(download: Download) {

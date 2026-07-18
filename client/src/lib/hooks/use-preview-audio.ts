@@ -1,8 +1,8 @@
 /**
  * Preview Audio Hook
  *
- * A standalone audio preview system that doesn't interfere with the main playback.
- * Creates its own audio element and manages preview state independently.
+ * A standalone audio preview system. It pauses the main playback engine and
+ * enforces one active preview element before starting preview audio.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -10,11 +10,27 @@ import { useAtomValue } from "jotai";
 import { getClient } from "@/lib/api/client";
 import {
   audioElementAtom,
-  playbackStateAtom,
   effectiveVolumeAtom,
   volumeAtom,
 } from "@/lib/store/player";
 import { linearToLogVolume } from "@/lib/audio/volume";
+import { nativePause } from "@/lib/audio/native-engine";
+import { hasNativeAudio } from "@/lib/tauri";
+
+let activePreviewAudio: HTMLAudioElement | null = null;
+
+function claimPreviewAudio(audio: HTMLAudioElement): void {
+  if (activePreviewAudio && activePreviewAudio !== audio) {
+    activePreviewAudio.pause();
+  }
+  activePreviewAudio = audio;
+}
+
+function releasePreviewAudio(audio: HTMLAudioElement): void {
+  if (activePreviewAudio === audio) {
+    activePreviewAudio = null;
+  }
+}
 
 interface UsePreviewAudioReturn {
   // State
@@ -39,7 +55,6 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
 
   // Access main player to pause it when starting preview
   const mainAudioElement = useAtomValue(audioElementAtom);
-  const mainPlaybackState = useAtomValue(playbackStateAtom);
   const mainEffectiveVolume = useAtomValue(effectiveVolumeAtom);
   const mainLinearVolume = useAtomValue(volumeAtom);
 
@@ -50,6 +65,27 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
   const [volume, setVolumeState] = useState(() =>
     Math.round(mainLinearVolume * 100),
   );
+
+  const pauseMainPlayer = async (): Promise<void> => {
+    if (hasNativeAudio()) {
+      await nativePause();
+    } else {
+      mainAudioElement?.pause();
+    }
+  };
+
+  const startPreviewPlayback = (audio: HTMLAudioElement) => {
+    claimPreviewAudio(audio);
+    void pauseMainPlayer()
+      .then(() => {
+        // A different hook instance may have claimed preview playback while
+        // the native pause command was in flight.
+        if (activePreviewAudio === audio) {
+          return audio.play();
+        }
+      })
+      .catch(console.error);
+  };
 
   // Sync initial volume to audio element when it's created
   useEffect(() => {
@@ -97,6 +133,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
 
     return () => {
       audio.pause();
+      releasePreviewAudio(audio);
       audio.src = "";
       audio.removeEventListener("timeupdate", handleTimeUpdate);
       audio.removeEventListener("play", handlePlay);
@@ -114,14 +151,12 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     const client = getClient();
     if (!audio || !client) return;
 
-    // Pause main player if playing
-    if (mainPlaybackState === "playing" && mainAudioElement) {
-      mainAudioElement.pause();
-    }
+    claimPreviewAudio(audio);
+    void pauseMainPlayer().catch(console.error);
 
     // If same song, just resume
     if (currentSongIdRef.current === songId && audio.src) {
-      audio.play().catch(console.error);
+      startPreviewPlayback(audio);
       return;
     }
 
@@ -139,7 +174,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
         audio.currentTime = seekTime;
         setProgress(startPosition);
       }
-      audio.play().catch(console.error);
+      startPreviewPlayback(audio);
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
 
@@ -152,14 +187,12 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     const audio = audioRef.current;
     if (!audio) return;
 
-    // Pause main player if playing
-    if (mainPlaybackState === "playing" && mainAudioElement) {
-      mainAudioElement.pause();
-    }
+    claimPreviewAudio(audio);
+    void pauseMainPlayer().catch(console.error);
 
     // If same id, just resume
     if (currentSongIdRef.current === id && audio.src) {
-      audio.play().catch(console.error);
+      startPreviewPlayback(audio);
       return;
     }
 
@@ -175,7 +208,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
         audio.currentTime = seekTime;
         setProgress(startPosition);
       }
-      audio.play().catch(console.error);
+      startPreviewPlayback(audio);
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
 
@@ -194,7 +227,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.play().catch(console.error);
+      startPreviewPlayback(audio);
     }
   };
 
@@ -212,6 +245,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     if (!audio) return;
 
     audio.pause();
+    releasePreviewAudio(audio);
     audio.currentTime = 0;
     currentSongIdRef.current = null;
     setProgress(0);

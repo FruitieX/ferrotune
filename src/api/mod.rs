@@ -517,6 +517,17 @@ impl SessionManager {
     /// The background sweep in `main.rs` reaps it once the heartbeat also
     /// goes stale.
     pub async fn unregister_client(&self, session_id: &str, client_id: &str) -> bool {
+        self.unregister_client_impl(session_id, client_id, true)
+            .await
+    }
+
+    /// Unregister one SSE transport without heartbeat grace.
+    ///
+    /// Followers do not need heartbeat grace after their final stream drops,
+    /// but Android can have both WebView and native-service streams for the
+    /// same logical client. Reference counting must still keep the logical
+    /// client until both transports are gone.
+    pub async fn unregister_client_without_grace(&self, session_id: &str, client_id: &str) -> bool {
         self.unregister_client_impl(session_id, client_id, false)
             .await
     }
@@ -524,18 +535,24 @@ impl SessionManager {
     /// Forcefully remove a client from a session, ignoring the heartbeat grace
     /// period.
     ///
-    /// Used when a tab explicitly signals that it is closing (via the
-    /// `DELETE /api/sessions/:id/clients/:clientId` beacon). Returns true if the
-    /// client was present and has no remaining SSE streams. If the client still
-    /// has live SSE streams (e.g. cloned tabs sharing a `client_id`), the entry
-    /// is kept and false is returned — closing one tab should not evict a
-    /// still-connected sibling.
+    /// Used when a logical client explicitly signals that it is closing (via
+    /// the `DELETE /api/sessions/:id/clients/:clientId` endpoint). A client ID
+    /// identifies one browser tab or one mobile app installation, so teardown
+    /// removes the entire logical client regardless of how many reconnecting
+    /// SSE transports are currently reference-counted beneath it.
     pub async fn force_remove_client(&self, session_id: &str, client_id: &str) -> bool {
-        self.unregister_client_impl(session_id, client_id, true)
-            .await
+        let mut sessions = self.sessions.write().await;
+        sessions
+            .get_mut(session_id)
+            .is_some_and(|state| state.clients.remove(client_id).is_some())
     }
 
-    async fn unregister_client_impl(&self, session_id: &str, client_id: &str, force: bool) -> bool {
+    async fn unregister_client_impl(
+        &self,
+        session_id: &str,
+        client_id: &str,
+        preserve_heartbeat: bool,
+    ) -> bool {
         let now = Instant::now();
         let grace = HEARTBEAT_GRACE;
         let mut sessions = self.sessions.write().await;
@@ -547,9 +564,9 @@ impl SessionManager {
                 }
                 // Last SSE stream is gone: keep the entry alive while the
                 // heartbeat is fresh, so the tab stays controllable remotely
-                // even if its SSE was silently dropped. A forceful removal
-                // (explicit disconnect beacon) skips this grace period.
-                if !force {
+                // even if its SSE was silently dropped. Followers use the
+                // no-grace variant, but still get the refcount behavior above.
+                if preserve_heartbeat {
                     let heartbeat_alive = existing
                         .last_heartbeat_at
                         .is_some_and(|t| now.duration_since(t) < grace);
@@ -773,10 +790,57 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn force_remove_client_keeps_refcounted_sibling() {
-        // Two SSE streams belonging to the same logical client_id (e.g.
-        // reconnect races) share a refcount. Closing one tab must not evict
-        // the other; the entry only disappears once the final stream is gone.
+    async fn unregister_without_grace_still_refcounts_android_streams() {
+        let manager = SessionManager::new();
+
+        for _ in 0..2 {
+            manager
+                .register_client(
+                    "session-1",
+                    "mobile-client",
+                    "ferrotune-mobile",
+                    ConnectedClientMetadata::default(),
+                )
+                .await;
+        }
+        assert!(
+            !manager
+                .record_heartbeat("session-1", "mobile-client", None)
+                .await
+        );
+
+        // The WebView stream can disappear while the native-service stream is
+        // still live, even when this device is a follower.
+        assert!(
+            !manager
+                .unregister_client_without_grace("session-1", "mobile-client")
+                .await
+        );
+        assert!(
+            manager
+                .is_client_connected("session-1", "mobile-client")
+                .await
+        );
+
+        // No heartbeat grace is applied once the final transport is gone.
+        assert!(
+            manager
+                .unregister_client_without_grace("session-1", "mobile-client")
+                .await
+        );
+        assert!(
+            !manager
+                .is_client_connected("session-1", "mobile-client")
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn force_remove_client_removes_all_refcounted_transports() {
+        // Reconnect overlap can temporarily leave multiple SSE transports for
+        // one logical tab/device. An explicit logical-client teardown must be
+        // idempotent and remove all of them at once; their later cleanup guards
+        // must not resurrect or double-remove the entry.
         let manager = SessionManager::new();
 
         manager
@@ -796,13 +860,9 @@ mod tests {
             )
             .await;
 
-        assert!(!manager.force_remove_client("session-1", "client-1").await);
-        assert!(manager.is_client_connected("session-1", "client-1").await);
-
-        // The last stream disconnecting (now without heartbeat grace needed,
-        // since force removes the entry) finalizes the cleanup.
         assert!(manager.force_remove_client("session-1", "client-1").await);
         assert!(!manager.is_client_connected("session-1", "client-1").await);
+        assert!(!manager.force_remove_client("session-1", "client-1").await);
     }
 }
 

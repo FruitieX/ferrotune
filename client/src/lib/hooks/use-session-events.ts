@@ -5,6 +5,7 @@ import { useAtomValue } from "jotai";
 import { getClient, getClientName } from "@/lib/api/client";
 import { effectiveSessionIdAtom, clientIdAtom } from "@/lib/store/session";
 import { isClientInitializedAtom } from "@/lib/store/auth";
+import { hasNativeAudio } from "@/lib/tauri";
 
 export interface SessionEvent {
   type:
@@ -49,6 +50,11 @@ const RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
  */
 function sendDisconnectBeacon(sessionId: string, clientId: string): void {
   if (typeof window === "undefined") return;
+  // Android's PlaybackService has a second SSE stream under this same logical
+  // client id. Removing the client when only the WebView goes away would also
+  // evict the still-playing native service and clear its session ownership.
+  // The service disconnects itself when it actually stops.
+  if (hasNativeAudio()) return;
   const client = getClient();
   if (!client) return;
 
@@ -171,12 +177,16 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
 
     openConnection();
 
+    let disconnectSent = false;
+
     // Send an explicit disconnect beacon when the tab is closing. `pagehide`
     // is the modern, reliable event for this (also fires on mobile background
     // transitions); `beforeunload` is a legacy fallback. The beacon tells the
     // server to remove this client immediately rather than waiting for the
     // 90s heartbeat grace period after the SSE stream drops.
     const handleUnload = () => {
+      if (disconnectSent) return;
+      disconnectSent = true;
       const active = activeSessionRef.current;
       if (!active) return;
       sendDisconnectBeacon(active.sessionId, active.clientId);

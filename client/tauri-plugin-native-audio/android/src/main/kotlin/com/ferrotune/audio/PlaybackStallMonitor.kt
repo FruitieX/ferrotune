@@ -76,6 +76,18 @@ internal class PlaybackStallMonitor(
             return Action.NONE
         }
 
+        // A backwards seek/restart on the same song is also real progress from
+        // the watchdog's point of view. The media id does not change when the
+        // user presses Previous to restart a song (or seeks backwards), so
+        // retaining the old high-water mark would make valid playback below
+        // that position look frozen and trigger a false recovery reload.
+        val movedBackwards =
+            lastProgressPositionMs - positionMs >= positionEpsilonMs
+        if (movedBackwards) {
+            baselineTo(currentTrackKey, nowMs, positionMs, bufferedPositionMs)
+            return Action.NONE
+        }
+
         val advanced =
             positionMs - lastProgressPositionMs >= positionEpsilonMs ||
                 bufferedPositionMs - lastProgressBufferedMs >= positionEpsilonMs

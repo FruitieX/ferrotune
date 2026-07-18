@@ -79,6 +79,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.pow
@@ -169,6 +170,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val binder = LocalBinder()
+    private val serviceInstanceId = UUID.randomUUID().toString()
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private var sessionPlayer: ForwardingSimpleBasePlayer? = null
@@ -179,7 +181,7 @@ class PlaybackService : MediaSessionService() {
     // Background executor for API calls (no main thread blocking)
     private val apiExecutor = Executors.newSingleThreadExecutor()
 
-    private var eventEmitter: ((String, JSObject) -> Unit)? = null
+    private val eventEmitter = OwnedCallback<String, JSObject>()
     private var currentTrack: TrackInfo? = null
     private var queue: List<TrackInfo> = emptyList()
     private var queueIndex: Int = -1
@@ -290,6 +292,7 @@ class PlaybackService : MediaSessionService() {
     // SSE remote control
     private var sseConnected = false
     private var sseReconnectRunnable: Runnable? = null
+    private val sseListenerGeneration = SseConnectionGeneration()
     private val SSE_RECONNECT_DELAY_MS = 3000L
     private val OWNERSHIP_CLAIM_GRACE_MS = 10_000L
     // Whether native playback is currently allowed to own and mutate the
@@ -510,7 +513,12 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         NativeAudioLogger.initialize(applicationContext)
         Log.d(TAG, "PlaybackService created")
-        NativeAudioLogger.info(TAG, "service_created", "PlaybackService created")
+        NativeAudioLogger.info(
+            TAG,
+            "service_created",
+            "PlaybackService created",
+            mapOf("serviceInstanceId" to serviceInstanceId),
+        )
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // Set up clipping detection callback (posts to main thread for event emission)
@@ -901,7 +909,7 @@ class PlaybackService : MediaSessionService() {
                             isCurrentTrackStarred = !previousStarred
                             updateMediaButtonPreferences()
                             invalidateSessionExport()
-                            eventEmitter?.invoke(AudioEvents.TOGGLE_STAR, JSObject().apply {
+                            eventEmitter.emit(AudioEvents.TOGGLE_STAR, JSObject().apply {
                                 put("trackId", trackId)
                                 put("isStarred", previousStarred)
                             })
@@ -921,6 +929,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        val finalSessionConfig = apiClient.getSessionConfigSnapshot()
         Log.d(TAG, "PlaybackService destroyed")
         logPlaybackDiagnostic(
             DiagnosticLevel.INFO,
@@ -936,6 +945,7 @@ class PlaybackService : MediaSessionService() {
         stallMonitor.reset()
         clearPendingNetworkRetry("service destroy")
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
+        sseListenerGeneration.advance()
         apiClient.disconnectSSE()
         // Explicitly disconnect this client so the server removes it from the
         // connected-clients list immediately, instead of waiting for the
@@ -947,7 +957,7 @@ class PlaybackService : MediaSessionService() {
         try {
             Thread {
                 try {
-                    apiClient.disconnectClient()
+                    apiClient.disconnectClient(finalSessionConfig)
                 } catch (e: Exception) {
                     Log.w(TAG, "disconnectClient failed during service destroy", e)
                 }
@@ -966,8 +976,12 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    fun setEventEmitter(emitter: (String, JSObject) -> Unit) {
-        eventEmitter = emitter
+    fun setEventEmitter(owner: Any, emitter: (String, JSObject) -> Unit) {
+        eventEmitter.set(owner, emitter)
+    }
+
+    fun clearEventEmitter(owner: Any) {
+        eventEmitter.clear(owner)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -1142,6 +1156,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun resetSessionBoundary(reason: String, clearConfig: Boolean) {
+        val previousConfig = apiClient.getSessionConfigSnapshot()
         Log.d(TAG, "resetSessionBoundary: $reason")
         NativeAudioLogger.info(
             TAG,
@@ -1164,7 +1179,9 @@ class PlaybackService : MediaSessionService() {
         sseConnected = false
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
         sseReconnectRunnable = null
+        sseListenerGeneration.advance()
         apiClient.disconnectSSE()
+        disconnectSessionClient(previousConfig, reason)
         if (clearConfig) {
             apiClient.clearSessionConfig()
             activeSessionIdentity = null
@@ -1240,6 +1257,7 @@ class PlaybackService : MediaSessionService() {
      */
     @OptIn(UnstableApi::class)
     fun initSession(config: SessionConfig) {
+        val previousConfig = apiClient.getSessionConfigSnapshot()
         val sessionIdentity = sessionIdentity(config)
         if (activeSessionIdentity != null && activeSessionIdentity != sessionIdentity) {
             Log.d(TAG, "initSession: session identity changed; clearing loaded media")
@@ -1248,6 +1266,7 @@ class PlaybackService : MediaSessionService() {
             nextQueueLoadGeneration("initSession")
         }
         activeSessionIdentity = sessionIdentity
+        val shouldReconnectSSE = previousConfig != config || !apiClient.isSSEActive()
         apiClient.setSessionConfig(config)
         // Set auth headers on Media3 HTTP data sources so streaming and
         // notification artwork use headers instead of URL query params.
@@ -1275,8 +1294,12 @@ class PlaybackService : MediaSessionService() {
                 "hasAuthorization" to authHeaders.containsKey("Authorization"),
             ),
         )
-        // Connect SSE for remote control if session ID is available
-        connectSessionSSE()
+        // Keep an existing healthy/connecting stream when Activity recreation
+        // merely re-applies the same immutable config. Cancelling it here used
+        // to produce a stale onDisconnected callback and competing reconnect.
+        if (shouldReconnectSSE) {
+            connectSessionSSE()
+        }
     }
 
     /**
@@ -1285,21 +1308,36 @@ class PlaybackService : MediaSessionService() {
      * VolumeChange, ClientListChanged, and OwnerChanged events.
      */
     private fun connectSessionSSE() {
+        sseReconnectRunnable?.let { handler.removeCallbacks(it) }
+        sseReconnectRunnable = null
+        val generation = sseListenerGeneration.advance()
         apiClient.connectSSE(object : SessionEventListener {
             override fun onConnected() {
-                sseConnected = true
-                Log.d(TAG, "SSE remote control connected")
-                NativeAudioLogger.info(TAG, "sse_connected", "SSE remote control connected")
+                if (!sseListenerGeneration.isCurrent(generation)) return
+                handler.post {
+                    if (!sseListenerGeneration.isCurrent(generation)) return@post
+                    sseReconnectRunnable?.let { handler.removeCallbacks(it) }
+                    sseReconnectRunnable = null
+                    sseConnected = true
+                    Log.d(TAG, "SSE remote control connected")
+                    NativeAudioLogger.info(TAG, "sse_connected", "SSE remote control connected")
+                }
             }
 
             override fun onEvent(event: SessionEvent) {
-                handler.post { handleSessionEvent(event) }
+                if (!sseListenerGeneration.isCurrent(generation)) return
+                handler.post {
+                    if (!sseListenerGeneration.isCurrent(generation)) return@post
+                    handleSessionEvent(event)
+                }
             }
 
             override fun onDisconnected() {
+                if (!sseListenerGeneration.isCurrent(generation)) return
                 // Must post to main thread — isActive accesses player which
                 // requires main-thread access, but this callback runs on OkHttp thread
                 handler.post {
+                    if (!sseListenerGeneration.isCurrent(generation)) return@post
                     sseConnected = false
                     NativeAudioLogger.warn(
                         TAG,
@@ -1311,14 +1349,43 @@ class PlaybackService : MediaSessionService() {
                             "hasSessionConfig" to apiClient.hasSessionConfig(),
                         ),
                     )
-                    // Auto-reconnect after delay if playback is active
-                    if (nativeOwnsSession && isActive && apiClient.hasSessionConfig()) {
+                    // The owner must remain reachable even while paused or
+                    // before media is loaded; otherwise a web client cannot
+                    // send the remote Play command that makes it active.
+                    if (
+                        shouldReconnectSessionSse(
+                            nativeOwnsSession,
+                            apiClient.hasSessionConfig(),
+                        )
+                    ) {
+                        sseReconnectRunnable?.let { handler.removeCallbacks(it) }
                         sseReconnectRunnable = Runnable { connectSessionSSE() }
                         handler.postDelayed(sseReconnectRunnable!!, SSE_RECONNECT_DELAY_MS)
                     }
                 }
             }
         })
+    }
+
+    private fun disconnectSessionClient(config: SessionConfig?, reason: String) {
+        if (config?.sessionId == null || config.clientId == null) return
+        NativeAudioLogger.info(
+            TAG,
+            "disconnect_previous_session_client",
+            "Disconnecting superseded native session client",
+            mapOf(
+                "reason" to reason,
+                "sessionId" to config.sessionId,
+                "clientId" to config.clientId,
+            ),
+        )
+        try {
+            apiExecutor.execute {
+                apiClient.disconnectClient(config)
+            }
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Could not schedule previous session client disconnect", error)
+        }
     }
 
     private fun handleSessionEvent(event: SessionEvent) {
@@ -2516,7 +2583,7 @@ class PlaybackService : MediaSessionService() {
         if (emitQueueState) {
             emitQueueStateChanged()
         }
-        eventEmitter?.invoke(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
+        eventEmitter.emit(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
             put("mode", mode)
         })
     }
@@ -2757,7 +2824,7 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             // Notify JS so UI can update play counts
-            eventEmitter?.invoke(AudioEvents.SCROBBLE, JSObject().apply {
+            eventEmitter.emit(AudioEvents.SCROBBLE, JSObject().apply {
                 put("trackId", songId)
             })
         }
@@ -3639,6 +3706,7 @@ class PlaybackService : MediaSessionService() {
         val trackDurationMs = currentTrack?.durationMs?.takeIf { it > 0 }
 
         fields["playerInitialized"] = playerInitialized
+        fields["serviceInstanceId"] = serviceInstanceId
         fields["currentTrackId"] = currentTrack?.id
         fields["currentTrackDurationMs"] = trackDurationMs
         fields["queueIndex"] = serverQueueIndex
@@ -4457,7 +4525,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun emitStateChange() {
         val state = getState()
-        eventEmitter?.invoke(AudioEvents.STATE_CHANGE, JSObject().apply {
+        eventEmitter.emit(AudioEvents.STATE_CHANGE, JSObject().apply {
             put("state", state.toJSObject())
         })
     }
@@ -4467,7 +4535,7 @@ class PlaybackService : MediaSessionService() {
         val duration = currentTrack?.durationMs ?: player.duration.let { if (it == C.TIME_UNSET) 0 else it }
         val buffered = player.bufferedPosition
 
-        eventEmitter?.invoke(AudioEvents.PROGRESS, JSObject().apply {
+        eventEmitter.emit(AudioEvents.PROGRESS, JSObject().apply {
             put("positionMs", rawPosition + seekTimeOffsetMs)
             put("durationMs", duration)
             put("bufferedMs", buffered + seekTimeOffsetMs)
@@ -4475,7 +4543,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun emitTrackChange() {
-        eventEmitter?.invoke(AudioEvents.TRACK_CHANGE, JSObject().apply {
+        eventEmitter.emit(AudioEvents.TRACK_CHANGE, JSObject().apply {
             put("track", currentTrack?.toJSObject())
             put("queueIndex", queueIndex)
         })
@@ -4505,7 +4573,7 @@ class PlaybackService : MediaSessionService() {
                 "maxNetworkRetries" to MAX_NETWORK_RETRIES,
             ),
         )
-        eventEmitter?.invoke(AudioEvents.ERROR, JSObject().apply {
+        eventEmitter.emit(AudioEvents.ERROR, JSObject().apply {
             put("message", message)
             if (trackId != null) {
                 put("trackId", trackId)
@@ -4524,7 +4592,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun emitQueueStateChanged() {
-        eventEmitter?.invoke(AudioEvents.QUEUE_STATE_CHANGED, JSObject().apply {
+        eventEmitter.emit(AudioEvents.QUEUE_STATE_CHANGED, JSObject().apply {
             put("totalCount", serverTotalCount)
             put("currentIndex", serverQueueIndex)
             put("isShuffled", isShuffled)
@@ -4533,7 +4601,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun emitClippingEvent(peakOverDb: Float) {
-        eventEmitter?.invoke(AudioEvents.CLIPPING, JSObject().apply {
+        eventEmitter.emit(AudioEvents.CLIPPING, JSObject().apply {
             put("peakOverDb", peakOverDb.toDouble())
             put("timestamp", System.currentTimeMillis())
         })

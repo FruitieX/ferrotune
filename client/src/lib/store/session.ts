@@ -3,9 +3,11 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { ClientResponse } from "@/lib/api/generated/ClientResponse";
+import { isTauriMobile } from "@/lib/tauri";
 import { accountKey, serverConnectionAtom } from "./auth";
 
 const CLIENT_ID_STORAGE_KEY = "ferrotune-client-id";
+const MOBILE_CLIENT_ID_STORAGE_KEY = "ferrotune-mobile-client-id";
 const CLIENT_TAB_INSTANCE_STORAGE_KEY = "ferrotune-client-tab-instance-id";
 const ACTIVE_CLIENT_TAB_STORAGE_PREFIX = "ferrotune-active-client-tab:";
 const ACTIVE_CLIENT_TAB_REFRESH_MS = 5_000;
@@ -43,6 +45,35 @@ function readSessionString(key: string): string | null {
 
 function writeSessionString(key: string, value: string): void {
   window.sessionStorage.setItem(key, JSON.stringify(value));
+}
+
+function getOrCreateMobileClientId(): string {
+  if (typeof window === "undefined") return "";
+
+  let clientId = parseStoredString(
+    window.localStorage.getItem(MOBILE_CLIENT_ID_STORAGE_KEY),
+  );
+  if (!clientId) {
+    clientId = crypto.randomUUID();
+    window.localStorage.setItem(
+      MOBILE_CLIENT_ID_STORAGE_KEY,
+      JSON.stringify(clientId),
+    );
+  }
+
+  // Keep the existing sessionStorage mirror because session and queue code
+  // reads this key directly in a few browser-only integration paths. The
+  // durable source of truth on mobile is localStorage so a WebView/process
+  // recreation rejoins the same logical device client instead of registering
+  // a second "ferrotune-mobile" entry.
+  writeSessionString(CLIENT_ID_STORAGE_KEY, clientId);
+  return clientId;
+}
+
+function getOrCreateClientId(): string {
+  return isTauriMobile()
+    ? getOrCreateMobileClientId()
+    : getOrCreateTabClientId();
 }
 
 function parseActiveClientTabMarker(
@@ -240,15 +271,26 @@ export const isAudioOwnerAtom = atomWithStorage<boolean>(
 );
 
 /**
- * Unique client ID for this tab. Generated once and stored in sessionStorage.
+ * Unique playback client ID. Browser tabs use a per-tab sessionStorage ID;
+ * the single mobile WebView uses an install-scoped localStorage ID so an
+ * Activity/process recreation rejoins the existing native playback client.
  */
 export const clientIdAtom = atomWithStorage<string>(
   CLIENT_ID_STORAGE_KEY,
   "",
   typeof window !== "undefined"
     ? {
-        getItem: () => getOrCreateTabClientId(),
+        getItem: () => getOrCreateClientId(),
         setItem: (key, value) => {
+          if (isTauriMobile()) {
+            localStorage.setItem(
+              MOBILE_CLIENT_ID_STORAGE_KEY,
+              JSON.stringify(value),
+            );
+            sessionStorage.setItem(key, JSON.stringify(value));
+            return;
+          }
+
           const tabInstanceId =
             readSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY) ??
             crypto.randomUUID();
@@ -257,6 +299,12 @@ export const clientIdAtom = atomWithStorage<string>(
           markActiveClientTab(tabInstanceId, value);
         },
         removeItem: (key) => {
+          if (isTauriMobile()) {
+            localStorage.removeItem(MOBILE_CLIENT_ID_STORAGE_KEY);
+            sessionStorage.removeItem(key);
+            return;
+          }
+
           clearActiveClientTabMarker();
           sessionStorage.removeItem(key);
           sessionStorage.removeItem(CLIENT_TAB_INSTANCE_STORAGE_KEY);

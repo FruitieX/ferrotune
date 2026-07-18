@@ -13,6 +13,7 @@ import okhttp3.sse.EventSources
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.TimeUnit
 
 /**
@@ -144,6 +145,8 @@ class FerrotuneApiClient {
 
     fun hasSessionConfig(): Boolean = sessionConfig != null
 
+    fun getSessionConfigSnapshot(): SessionConfig? = sessionConfig
+
     fun getClientId(): String? = sessionConfig?.clientId
 
     fun updateSessionId(sessionId: String) {
@@ -269,8 +272,10 @@ class FerrotuneApiClient {
     /**
     * Add auth headers for JSON API calls.
      */
-    private fun addAuthHeaders(requestBuilder: Request.Builder) {
-        val config = getConfig()
+    private fun addAuthHeaders(
+        requestBuilder: Request.Builder,
+        config: SessionConfig = getConfig(),
+    ) {
         if (config.sessionToken != null) {
             requestBuilder.addHeader("Authorization", "Bearer ${config.sessionToken}")
         }
@@ -279,8 +284,11 @@ class FerrotuneApiClient {
     /**
     * Build a URL for API calls.
      */
-    private fun buildApiUrl(path: String, queryParams: Map<String, String> = emptyMap()): String {
-        val config = getConfig()
+    private fun buildApiUrl(
+        path: String,
+        queryParams: Map<String, String> = emptyMap(),
+        config: SessionConfig = getConfig(),
+    ): String {
         val uriBuilder = Uri.parse("${config.serverUrl}$path").buildUpon()
         queryParams.forEach { (k, v) -> uriBuilder.appendQueryParameter(k, v) }
         return uriBuilder.build().toString()
@@ -493,19 +501,21 @@ class FerrotuneApiClient {
      *
      * Best-effort fire-and-forget during service teardown.
      */
-    fun disconnectClient() {
-        val config = sessionConfig ?: return
+    fun disconnectClient(config: SessionConfig? = sessionConfig) {
+        config ?: return
         val sessionId = config.sessionId ?: return
         val clientId = config.clientId ?: return
-        val encodedClientId = java.net.URLEncoder.encode(clientId, "UTF-8")
+        val encodedSessionId = Uri.encode(sessionId)
+        val encodedClientId = Uri.encode(clientId)
         val url = buildApiUrl(
-            "/api/sessions/$sessionId/clients/$encodedClientId",
+            "/api/sessions/$encodedSessionId/clients/$encodedClientId",
             mapOf("clientId" to clientId),
+            config,
         )
         val request = Request.Builder()
             .url(url)
             .delete()
-            .also { addAuthHeaders(it) }
+            .also { addAuthHeaders(it, config) }
             .build()
         try {
             httpClient.newCall(request).execute().use { response ->
@@ -519,6 +529,16 @@ class FerrotuneApiClient {
                             "sessionId" to sessionId,
                             "clientId" to clientId,
                             "httpStatus" to response.code,
+                        ),
+                    )
+                } else {
+                    NativeAudioLogger.info(
+                        TAG,
+                        "disconnect_client_succeeded",
+                        "Session client disconnected",
+                        mapOf(
+                            "sessionId" to sessionId,
+                            "clientId" to clientId,
                         ),
                     )
                 }
@@ -705,7 +725,11 @@ class FerrotuneApiClient {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    @Volatile
     private var currentEventSource: EventSource? = null
+    private val sseConnectionGeneration = SseConnectionGeneration()
+
+    fun isSSEActive(): Boolean = currentEventSource != null
 
     /**
      * Connect to the SSE stream for the configured session.
@@ -720,7 +744,14 @@ class FerrotuneApiClient {
             return
         }
 
-        disconnectSSE()
+        // Invalidate the previous listener before cancelling it. OkHttp reports
+        // cancellation through onFailure/onClosed; without a generation gate,
+        // that stale callback can mark the replacement disconnected and start
+        // another competing reconnect loop.
+        val generation = sseConnectionGeneration.advance()
+        val previousEventSource = currentEventSource
+        currentEventSource = null
+        previousEventSource?.cancel()
 
         var sseUrl = buildApiUrl("/api/sessions/$sessionId/events")
         // Append clientId and clientName as query params for client registration
@@ -733,8 +764,10 @@ class FerrotuneApiClient {
         val request = Request.Builder().url(sseUrl).get().also { addAuthHeaders(it) }.build()
 
         val factory = EventSources.createFactory(sseClient)
+        val disconnectDelivered = AtomicBoolean(false)
         currentEventSource = factory.newEventSource(request, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
+                if (!sseConnectionGeneration.isCurrent(generation)) return
                 Log.d(TAG, "SSE connected for session $sessionId")
                 NativeAudioLogger.info(
                     TAG,
@@ -746,6 +779,7 @@ class FerrotuneApiClient {
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                if (!sseConnectionGeneration.isCurrent(generation)) return
                 if (data == "keep-alive" || data.isBlank()) return
                 try {
                     val event = parseSessionEvent(JSONObject(data))
@@ -765,6 +799,13 @@ class FerrotuneApiClient {
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                if (
+                    !sseConnectionGeneration.isCurrent(generation) ||
+                    !disconnectDelivered.compareAndSet(false, true)
+                ) return
+                if (currentEventSource === eventSource) {
+                    currentEventSource = null
+                }
                 Log.w(TAG, "SSE disconnected (code=${response?.code})", t)
                 NativeAudioLogger.warn(
                     TAG,
@@ -777,6 +818,13 @@ class FerrotuneApiClient {
             }
 
             override fun onClosed(eventSource: EventSource) {
+                if (
+                    !sseConnectionGeneration.isCurrent(generation) ||
+                    !disconnectDelivered.compareAndSet(false, true)
+                ) return
+                if (currentEventSource === eventSource) {
+                    currentEventSource = null
+                }
                 Log.d(TAG, "SSE closed for session $sessionId")
                 NativeAudioLogger.info(TAG, "sse_closed", "SSE closed", mapOf("sessionId" to sessionId))
                 listener.onDisconnected()
@@ -785,8 +833,10 @@ class FerrotuneApiClient {
     }
 
     fun disconnectSSE() {
-        currentEventSource?.cancel()
+        sseConnectionGeneration.advance()
+        val eventSource = currentEventSource
         currentEventSource = null
+        eventSource?.cancel()
     }
 
     private fun parseSessionEvent(json: JSONObject): SessionEvent? {

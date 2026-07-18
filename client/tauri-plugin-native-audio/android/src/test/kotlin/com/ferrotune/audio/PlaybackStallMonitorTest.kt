@@ -113,6 +113,56 @@ class PlaybackStallMonitorTest {
     }
 
     @Test
+    fun rebaselinesWhenSameTrackSeeksBackwards() {
+        val monitor = monitor()
+        monitor.evaluate(
+            0,
+            "track-a",
+            intendsToPlay = true,
+            positionMs = 30_000,
+            bufferedPositionMs = 60_000,
+        )
+
+        // This mirrors Previous restarting the currently playing song. The
+        // media id stays the same, but the position and buffer return to zero.
+        // Even though the old baseline is past the stall threshold, this is a
+        // new valid playback baseline rather than a silent stall.
+        assertEquals(
+            PlaybackStallMonitor.Action.NONE,
+            monitor.evaluate(
+                16_000,
+                "track-a",
+                intendsToPlay = true,
+                positionMs = 0,
+                bufferedPositionMs = 0,
+            ),
+        )
+        assertEquals(
+            PlaybackStallMonitor.Action.NONE,
+            monitor.evaluate(
+                20_000,
+                "track-a",
+                intendsToPlay = true,
+                positionMs = 4_000,
+                bufferedPositionMs = 8_000,
+            ),
+        )
+
+        // A genuine freeze after the backwards seek is still recovered from
+        // the new baseline.
+        assertEquals(
+            PlaybackStallMonitor.Action.RECOVER,
+            monitor.evaluate(
+                36_000,
+                "track-a",
+                intendsToPlay = true,
+                positionMs = 4_000,
+                bufferedPositionMs = 8_000,
+            ),
+        )
+    }
+
+    @Test
     fun pausedPlaybackNeverStalls() {
         val monitor = monitor()
         monitor.evaluate(0, "track-a", intendsToPlay = true, positionMs = 5_000, bufferedPositionMs = 5_300)

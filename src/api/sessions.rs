@@ -438,17 +438,20 @@ async fn detach_client(
         .as_ref()
         .and_then(|session| session.owner_client_id.as_deref())
         == Some(client_id);
-    let force_remove = force || !is_owner;
-
-    let removed = if force_remove {
+    let removed = if force {
         state
             .session_manager
             .force_remove_client(session_id, client_id)
             .await
-    } else {
+    } else if is_owner {
         state
             .session_manager
             .unregister_client(session_id, client_id)
+            .await
+    } else {
+        state
+            .session_manager
+            .unregister_client_without_grace(session_id, client_id)
             .await
     };
 

@@ -59,25 +59,30 @@ export function useAudioInit({
 
       // Initialize native audio with callbacks.
       // Store the promise so the track-loading effect can await readiness.
-      setNativeAudioReady(
-        initNativeAudioEngine(callbacks)
-          .then(() => {
-            console.log(
-              "[NativeAudio] initNativeAudioEngine completed successfully",
-            );
-          })
-          .catch((error) => {
-            console.error("[Audio] Failed to initialize native audio:", error);
-            // Fall back to web audio
-            setUsingNativeAudio(false);
-            setNativeAudioReady(null);
-            const fallbackAudio = getGlobalAudio();
-            const fallbackAudio1 = audioElements[1];
-            if (fallbackAudio && fallbackAudio1) {
-              initializeWebAudio(fallbackAudio, fallbackAudio1);
-            }
-          }),
-      );
+      const nativeReady = initNativeAudioEngine(callbacks);
+      void nativeReady
+        .then(() => {
+          console.log(
+            "[NativeAudio] initNativeAudioEngine completed successfully",
+          );
+        })
+        .catch((error) => {
+          console.error("[Audio] Failed to initialize native audio:", error);
+          // Never start the browser engine inside a Tauri mobile process.
+          // The Android service may already be playing from the background;
+          // falling back here would create an independent HTMLAudioElement
+          // player that can compete with ExoPlayer for output/audio focus.
+          settersRef.current.setPlaybackError({
+            message: `Native audio initialization failed: ${String(error)}`,
+            category: "unknown",
+            timestamp: Date.now(),
+          });
+          settersRef.current.setPlaybackState("error");
+        });
+      // Keep the original promise so concurrent session/track initialization
+      // also observes the rejection and cannot issue commands through a bridge
+      // whose listener setup failed.
+      setNativeAudioReady(nativeReady);
 
       // Create the session-ready promise now so the track-loader can await it.
       // Resolved later by useNativeSessionInit once API credentials are configured.

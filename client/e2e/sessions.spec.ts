@@ -830,6 +830,106 @@ test.describe.serial("Multi-Session Playback", () => {
       .toBe(true);
   });
 
+  test("mobile WebView recreation keeps one device client identity", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      let nextCallbackId = 1;
+      const callbacks = new Map<number, (...args: unknown[]) => unknown>();
+
+      Object.defineProperty(navigator, "maxTouchPoints", {
+        configurable: true,
+        get: () => 1,
+      });
+      Object.defineProperty(window, "ontouchstart", {
+        configurable: true,
+        value: null,
+      });
+
+      // Minimal Tauri bridge used by the app during this browser-level mobile
+      // lifecycle test. Native commands are no-ops; only get-style commands
+      // need representative response shapes.
+      Object.assign(window, {
+        __TAURI_INTERNALS__: {
+          invoke: async (command: string) => {
+            if (command.endsWith("|get_state")) {
+              return {
+                status: "Idle",
+                positionMs: 0,
+                durationMs: 0,
+                volume: 1,
+                muted: false,
+                queueIndex: -1,
+                queueLength: 0,
+              };
+            }
+            if (command.endsWith("|get_safe_area_insets")) {
+              return { top: 0, bottom: 0 };
+            }
+            if (command.endsWith("|get_downloads")) {
+              return { downloads: [] };
+            }
+            if (command.endsWith("|get_cast_state")) {
+              return { available: false, connected: false };
+            }
+            if (command.endsWith("|get_cast_media_status")) {
+              return null;
+            }
+            return null;
+          },
+          transformCallback: (
+            callback: (...args: unknown[]) => unknown,
+          ): number => {
+            const id = nextCallbackId++;
+            callbacks.set(id, callback);
+            return id;
+          },
+          unregisterCallback: (id: number) => callbacks.delete(id),
+          convertFileSrc: (path: string) => path,
+        },
+      });
+    });
+
+    await page.evaluate(() => {
+      localStorage.removeItem("ferrotune-mobile-client-id");
+      sessionStorage.removeItem("ferrotune-client-id");
+      sessionStorage.removeItem("ferrotune-client-tab-instance-id");
+    });
+
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          JSON.parse(
+            localStorage.getItem("ferrotune-mobile-client-id") || "null",
+          ),
+        ),
+      )
+      .not.toBeNull();
+    const firstMobileClientId = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("ferrotune-mobile-client-id") || "null"),
+    );
+
+    // Simulate Android discarding and recreating the WebView. sessionStorage
+    // is gone, while application localStorage survives.
+    await page.evaluate(() => {
+      sessionStorage.removeItem("ferrotune-client-id");
+      sessionStorage.removeItem("ferrotune-client-tab-instance-id");
+    });
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    const durableClientId = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("ferrotune-mobile-client-id") || "null"),
+    );
+    const sessionClientId = await getStoredClientId(page);
+    expect(durableClientId).toBe(firstMobileClientId);
+    expect(sessionClientId).toBe(firstMobileClientId);
+  });
+
   test("new tab cloned from an owner gets its own client and updates both session lists", async ({
     authenticatedPage: ownerPage,
   }) => {

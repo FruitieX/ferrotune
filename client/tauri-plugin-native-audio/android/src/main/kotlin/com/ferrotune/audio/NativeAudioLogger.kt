@@ -20,6 +20,13 @@ object NativeAudioLogger {
     private const val MAX_LOG_FILE_BYTES = 2L * 1024L * 1024L
     private const val MAX_LOG_FILE_COUNT = 5
     private const val REDACTED = "[REDACTED]"
+    private val processStartedAtElapsedRealtimeMs = try {
+        android.os.Process.getStartElapsedRealtime()
+    } catch (_: RuntimeException) {
+        // Local JVM unit tests use Android's non-runtime stubs. Diagnostics are
+        // still fully populated on-device (minSdk 24 supports this API).
+        -1L
+    }
 
     private val timestampFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
@@ -127,6 +134,8 @@ object NativeAudioLogger {
         return JSONObject().apply {
             put("timestamp", timestamp())
             put("elapsedRealtimeMs", SystemClock.elapsedRealtime())
+            put("processId", android.os.Process.myPid())
+            put("processStartedAtElapsedRealtimeMs", processStartedAtElapsedRealtimeMs)
             put("level", level)
             put("tag", sanitizeForDiagnostics(tag))
             put("event", sanitizeForDiagnostics(event))
@@ -259,6 +268,8 @@ object NativeAudioLogger {
             }
             val manifest = JSONObject().apply {
                 put("createdAt", timestamp())
+                put("processId", android.os.Process.myPid())
+                put("processStartedAtElapsedRealtimeMs", processStartedAtElapsedRealtimeMs)
                 put("packageName", packageName)
                 put("storageKind", storageKind)
                 put("directory", directory.absolutePath)
