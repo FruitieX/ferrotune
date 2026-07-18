@@ -921,6 +921,22 @@ class PlaybackService : MediaSessionService() {
             })
             .build()
 
+        // The Activity used to create a MediaController solely as a side effect
+        // of registering this session with MediaSessionService. Playback must
+        // not depend on an Activity-owned controller: without any controller,
+        // Media3 does not manage the notification or promote this service to a
+        // foreground media-playback service. Register our single session
+        // directly so notification/background playback survives Activity and
+        // WebView teardown without introducing another playback owner.
+        addSession(mediaSession)
+        Log.d(TAG, "Media session registered with PlaybackService")
+        NativeAudioLogger.info(
+            TAG,
+            "media_session_registered",
+            "Media session registered for notification and foreground playback",
+            mapOf("serviceInstanceId" to serviceInstanceId),
+        )
+
         updateMediaButtonPreferences()
     }
 
@@ -1007,8 +1023,11 @@ class PlaybackService : MediaSessionService() {
 
         // Keep the service foreground while playback is intended, including
         // buffering and ended-but-advancing states where isPlaying is false.
-        val keepForeground = startInForegroundRequired ||
-            (player.playWhenReady && player.mediaItemCount > 0)
+        val keepForeground = PlaybackNotificationLifecycle.shouldKeepServiceForeground(
+            startInForegroundRequired = startInForegroundRequired,
+            playWhenReady = player.playWhenReady,
+            mediaItemCount = player.mediaItemCount,
+        )
         super.onUpdateNotification(session, keepForeground)
     }
 
