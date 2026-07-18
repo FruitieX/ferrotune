@@ -123,6 +123,28 @@ fn album_select() -> sea_orm::Select<entity::albums::Entity> {
         .join(JoinType::InnerJoin, entity::albums::Relation::Artists.def())
 }
 
+fn order_artist_albums(
+    query: sea_orm::Select<entity::albums::Entity>,
+    backend: sea_orm::DbBackend,
+) -> sea_orm::Select<entity::albums::Entity> {
+    query
+        .order_by(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Year)),
+            Order::Desc,
+        )
+        .order_by(
+            case_insensitive_order(
+                backend,
+                (entity::albums::Entity, entity::albums::Column::Name),
+            ),
+            Order::Asc,
+        )
+        .order_by(
+            Expr::col((entity::albums::Entity, entity::albums::Column::Id)),
+            Order::Asc,
+        )
+}
+
 fn nullable_bigint_expr(database: &Database) -> SimpleExpr {
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => Expr::value(Value::BigInt(None)),
@@ -789,13 +811,7 @@ pub async fn page_albums_by_artist_for_user(
         .filter(entity::albums::Column::ArtistId.eq(artist_id))
         .filter(entity::albums::Column::Id.is_in(album_ids));
     let total = query.clone().count(database.conn()).await? as i64;
-    let albums = query
-        .order_by_desc(entity::albums::Column::Year)
-        .order_by(
-            case_insensitive_order(database.sea_backend(), entity::albums::Column::Name),
-            Order::Asc,
-        )
-        .order_by_asc(entity::albums::Column::Id)
+    let albums = order_artist_albums(query, database.sea_backend())
         .offset(offset)
         .limit(limit)
         .into_model::<Album>()
@@ -1442,10 +1458,22 @@ pub async fn list_user_songs_by_path_prefix(
 #[cfg(test)]
 mod tests {
     use super::{
-        page_directory_folders, page_directory_songs, DirectoryPageOptions, DirectorySort,
+        album_select, order_artist_albums, page_directory_folders, page_directory_songs,
+        DirectoryPageOptions, DirectorySort,
     };
     use crate::db::{entity, Database};
-    use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set, DbBackend, EntityTrait, QueryTrait};
+
+    #[test]
+    fn postgres_artist_album_order_qualifies_joined_columns() {
+        let sql = order_artist_albums(album_select(), DbBackend::Postgres)
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert!(sql.contains(r#"ORDER BY "albums"."year" DESC"#), "{sql}");
+        assert!(sql.contains(r#"LOWER("albums"."name") ASC"#), "{sql}");
+        assert!(sql.contains(r#""albums"."id" ASC"#), "{sql}");
+    }
 
     async fn directory_database() -> Database {
         let database = Database::new_sqlite_in_memory()
