@@ -28,6 +28,64 @@ import { setDocumentVisibility } from "./page-visibility";
 // Helpers
 // ---------------------------------------------------------------------------
 
+interface MockNativePlaybackState {
+  status: "Idle" | "Buffering" | "Playing" | "Paused" | "Ended" | "Error";
+  positionMs: number;
+  durationMs: number;
+  volume: number;
+  muted: boolean;
+  queueIndex: number;
+  queueLength: number;
+}
+
+async function installMockTauriBridge(
+  page: Page,
+  playbackState: MockNativePlaybackState,
+): Promise<void> {
+  await page.addInitScript((initialPlaybackState) => {
+    let nextCallbackId = 1;
+    const callbacks = new Map<number, (...args: unknown[]) => unknown>();
+
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      get: () => 1,
+    });
+    Object.defineProperty(window, "ontouchstart", {
+      configurable: true,
+      value: null,
+    });
+
+    // Minimal Tauri bridge for browser-level Android lifecycle coverage.
+    // Mutation commands are no-ops; reads return representative shapes.
+    Object.assign(window, {
+      __FERROTUNE_NATIVE_AUDIO__: true,
+      __TAURI_INTERNALS__: {
+        invoke: async (command: string) => {
+          if (command.endsWith("|get_state")) return initialPlaybackState;
+          if (command.endsWith("|get_safe_area_insets")) {
+            return { top: 0, bottom: 0 };
+          }
+          if (command.endsWith("|get_downloads")) return { downloads: [] };
+          if (command.endsWith("|get_cast_state")) {
+            return { available: false, connected: false };
+          }
+          if (command.endsWith("|get_cast_media_status")) return null;
+          return null;
+        },
+        transformCallback: (
+          callback: (...args: unknown[]) => unknown,
+        ): number => {
+          const id = nextCallbackId++;
+          callbacks.set(id, callback);
+          return id;
+        },
+        unregisterCallback: (id: number) => callbacks.delete(id),
+        convertFileSrc: (path: string) => path,
+      },
+    });
+  }, playbackState);
+}
+
 /**
  * Create a second authenticated browser context + page pointing at the same
  * Ferrotune server.  Returns the fully-logged-in page.
@@ -834,61 +892,14 @@ test.describe.serial("Multi-Session Playback", () => {
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.addInitScript(() => {
-      let nextCallbackId = 1;
-      const callbacks = new Map<number, (...args: unknown[]) => unknown>();
-
-      Object.defineProperty(navigator, "maxTouchPoints", {
-        configurable: true,
-        get: () => 1,
-      });
-      Object.defineProperty(window, "ontouchstart", {
-        configurable: true,
-        value: null,
-      });
-
-      // Minimal Tauri bridge used by the app during this browser-level mobile
-      // lifecycle test. Native commands are no-ops; only get-style commands
-      // need representative response shapes.
-      Object.assign(window, {
-        __TAURI_INTERNALS__: {
-          invoke: async (command: string) => {
-            if (command.endsWith("|get_state")) {
-              return {
-                status: "Idle",
-                positionMs: 0,
-                durationMs: 0,
-                volume: 1,
-                muted: false,
-                queueIndex: -1,
-                queueLength: 0,
-              };
-            }
-            if (command.endsWith("|get_safe_area_insets")) {
-              return { top: 0, bottom: 0 };
-            }
-            if (command.endsWith("|get_downloads")) {
-              return { downloads: [] };
-            }
-            if (command.endsWith("|get_cast_state")) {
-              return { available: false, connected: false };
-            }
-            if (command.endsWith("|get_cast_media_status")) {
-              return null;
-            }
-            return null;
-          },
-          transformCallback: (
-            callback: (...args: unknown[]) => unknown,
-          ): number => {
-            const id = nextCallbackId++;
-            callbacks.set(id, callback);
-            return id;
-          },
-          unregisterCallback: (id: number) => callbacks.delete(id),
-          convertFileSrc: (path: string) => path,
-        },
-      });
+    await installMockTauriBridge(page, {
+      status: "Idle",
+      positionMs: 0,
+      durationMs: 0,
+      volume: 1,
+      muted: false,
+      queueIndex: -1,
+      queueLength: 0,
     });
 
     await page.evaluate(() => {
@@ -928,6 +939,84 @@ test.describe.serial("Multi-Session Playback", () => {
     const sessionClientId = await getStoredClientId(page);
     expect(durableClientId).toBe(firstMobileClientId);
     expect(sessionClientId).toBe(firstMobileClientId);
+  });
+
+  test("initial native track event preserves restored paused progress", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await playFirstSongAndPause(page);
+    await installMockTauriBridge(page, {
+      status: "Paused",
+      positionMs: 0,
+      durationMs: 3_000,
+      volume: 1,
+      muted: false,
+      queueIndex: 0,
+      queueLength: 3,
+    });
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForAuthenticatedHome(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    const progress = playerBar.getByRole("slider", {
+      name: "Playback progress",
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            typeof (
+              window as typeof window & { __ferrotuneNativeAudio?: unknown }
+            ).__ferrotuneNativeAudio === "function",
+        ),
+      )
+      .toBe(true);
+    await page.evaluate(() => {
+      type NativeCallbackWindow = typeof window & {
+        __ferrotuneNativeAudio?: (
+          event: string,
+          data: Record<string, unknown>,
+        ) => void;
+      };
+      const callback = (window as NativeCallbackWindow).__ferrotuneNativeAudio;
+      if (!callback)
+        throw new Error("Native audio callback was not registered");
+      callback("progress", {
+        positionMs: 1_800,
+        durationMs: 3_000,
+        bufferedMs: 0,
+      });
+      callback("state-change", { state: { status: "Paused" } });
+    });
+    await expect
+      .poll(async () => Number(await progress.getAttribute("aria-valuenow")))
+      .toBeGreaterThan(40);
+
+    await page.evaluate(() => {
+      type NativeCallbackWindow = typeof window & {
+        __ferrotuneNativeAudio?: (
+          event: string,
+          data: Record<string, unknown>,
+        ) => void;
+      };
+      (window as NativeCallbackWindow).__ferrotuneNativeAudio?.(
+        "track-change",
+        { queueIndex: 0 },
+      );
+    });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+
+    expect(
+      Number(await progress.getAttribute("aria-valuenow")),
+    ).toBeGreaterThan(40);
   });
 
   test("new tab cloned from an owner gets its own client and updates both session lists", async ({

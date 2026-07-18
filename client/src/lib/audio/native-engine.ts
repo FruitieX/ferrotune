@@ -89,7 +89,12 @@ function mapNativeStatusToAppState(
  */
 export interface NativeAudioCallbacks {
   onStateChange: (state: AppPlaybackState) => void;
-  onProgress: (currentTime: number, duration: number, buffered: number) => void;
+  onProgress: (
+    currentTime: number,
+    duration: number,
+    buffered: number,
+    context?: { isInitialSnapshot: boolean },
+  ) => void;
   onError: (
     message: string,
     trackId?: string,
@@ -322,6 +327,7 @@ export async function initNativeAudioEngine(
           currentState.positionMs / 1000,
           currentState.durationMs / 1000,
           0,
+          { isInitialSnapshot: true },
         );
       }
     } catch (syncError) {

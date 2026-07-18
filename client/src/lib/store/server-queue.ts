@@ -47,7 +47,13 @@ import {
   selfTakeoverPending,
   waitForSessionReady,
 } from "./session";
-import { playbackStateAtom, type PlaybackState } from "./player";
+import {
+  bufferedAtom,
+  currentTimeAtom,
+  durationAtom,
+  playbackStateAtom,
+  type PlaybackState,
+} from "./player";
 
 // Module-level signal: position in milliseconds to seek to when starting
 // playback (e.g. after session takeover). Read and consumed by the audio
@@ -117,6 +123,17 @@ function getWindowSongIdAtPosition(
   return (
     window.songs.find((entry) => entry.position === position)?.song.id ?? null
   );
+}
+
+function restoreQueueTimeline(set: Setter, response: GetQueueResponse): void {
+  const positionMs = Number(response.positionMs);
+  const currentEntry = response.window.songs.find(
+    (entry) => entry.position === response.currentIndex,
+  );
+
+  set(currentTimeAtom, Number.isFinite(positionMs) ? positionMs / 1000 : 0);
+  set(durationAtom, currentEntry?.song.duration ?? 0);
+  set(bufferedAtom, 0);
 }
 
 function canRefreshQueueWithoutRestart(
@@ -564,6 +581,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       });
 
       set(queueWindowAtom, response.window);
+      restoreQueueTimeline(set, response);
     }
   } catch (error) {
     // Network error or other failure
@@ -612,6 +630,7 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
         source: response.source,
       });
       set(queueWindowAtom, response.window);
+      restoreQueueTimeline(set, response);
       pendingPlaybackPositionMs.value = Number(response.positionMs);
       set(isRestoringQueueAtom, true);
       set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);

@@ -113,22 +113,29 @@ export function createNativeCallbacks({
     currentTime: number,
     duration: number,
     buffered: number,
+    context?: { isInitialSnapshot: boolean },
   ) => {
-    if (!hasCurrentPlayableQueue()) {
-      return;
-    }
-
+    // The initial native snapshot can arrive before the server queue hydrates.
+    // Preserve its timeline values so a restored paused track renders its
+    // played segment immediately once the queue supplies the track metadata.
     settersRef.current.setCurrentTime(currentTime);
     settersRef.current.setDuration(duration);
     settersRef.current.setBuffered(buffered);
 
+    if (!hasCurrentPlayableQueue()) {
+      return;
+    }
+
     // Progress events only fire when the player is actually playing.
+    // The explicit startup snapshot is the exception: it may describe a
+    // paused player and must not turn that state into playing.
     // If we're stuck in a stale state due to a missed or transient state
     // change (e.g. during queue sync ExoPlayer may briefly report PAUSED),
     // auto-correct to "playing". The only states where progress should NOT
     // imply playing are "ended" (queue finished) and "error" (broken).
     const currentState = stateRef.current.playbackState;
     if (
+      !context?.isInitialSnapshot &&
       currentState !== "playing" &&
       currentState !== "ended" &&
       currentState !== "error"
@@ -215,14 +222,25 @@ export function createNativeCallbacks({
       setCurrentLoadedTrackId(track.id);
     }
 
-    // Reset scrobble state for new track
+    const restoredPositionMs = Number(queueState.positionMs);
+    const queuePositionMs = Number.isFinite(restoredPositionMs)
+      ? Math.max(0, restoredPositionMs)
+      : 0;
+    const isCurrentQueueEntry = queueState.currentIndex === queueIndex;
+    const positionMs = isCurrentQueueEntry ? queuePositionMs : 0;
+
+    // A native queue emits track-change while initially materializing its
+    // current item. That is not a timeline transition, so leave the restored
+    // native/server time untouched. A genuinely different entry starts at zero.
     settersRef.current.setHasScrobbled(false);
-    settersRef.current.setCurrentTime(0);
+    if (!isCurrentQueueEntry) {
+      settersRef.current.setCurrentTime(0);
+    }
 
     // Update server queue state (currentIndex). Kotlin handles the
     // actual server position update, so JS just updates local state.
     settersRef.current.setServerQueueState((prev) =>
-      prev ? { ...prev, currentIndex: queueIndex, positionMs: 0 } : prev,
+      prev ? { ...prev, currentIndex: queueIndex, positionMs } : prev,
     );
 
     // Find the song in the queue window for duration info
