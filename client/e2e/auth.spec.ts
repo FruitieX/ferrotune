@@ -38,6 +38,94 @@ async function persistedQueryBlobIncludes(
   }, expectedText);
 }
 
+async function rewritePlaylistFoldersCacheAsPreviousContract(
+  page: Page,
+): Promise<number> {
+  return page.evaluate(async () => {
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null;
+
+    return await new Promise<number>((resolve, reject) => {
+      const openRequest = indexedDB.open("ferrotune-cache");
+
+      openRequest.onerror = () => reject(openRequest.error);
+      openRequest.onsuccess = () => {
+        const db = openRequest.result;
+        const transaction = db.transaction("cache-store", "readwrite");
+        const store = transaction.objectStore("cache-store");
+        const cursorRequest = store.openCursor();
+        let rewrittenPlaylists = 0;
+
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+
+          let parsed: unknown;
+          try {
+            parsed =
+              typeof cursor.value === "string"
+                ? JSON.parse(cursor.value)
+                : undefined;
+          } catch {
+            cursor.continue();
+            return;
+          }
+
+          let rewrittenInBlob = 0;
+          if (isRecord(parsed)) {
+            const clientState = parsed.clientState;
+            if (isRecord(clientState) && Array.isArray(clientState.queries)) {
+              for (const query of clientState.queries) {
+                if (
+                  !isRecord(query) ||
+                  !Array.isArray(query.queryKey) ||
+                  query.queryKey[0] !== "playlistFolders" ||
+                  !isRecord(query.state) ||
+                  !isRecord(query.state.data) ||
+                  !Array.isArray(query.state.data.playlists)
+                ) {
+                  continue;
+                }
+
+                for (const playlist of query.state.data.playlists) {
+                  if (!isRecord(playlist)) continue;
+                  const changed = playlist.changed;
+                  delete playlist.changed;
+                  if (typeof changed === "string") {
+                    playlist.updatedAt = changed;
+                  }
+                  rewrittenInBlob += 1;
+                }
+              }
+            }
+          }
+
+          if (rewrittenInBlob === 0 || !isRecord(parsed)) {
+            cursor.continue();
+            return;
+          }
+
+          parsed.buster = "";
+          rewrittenPlaylists += rewrittenInBlob;
+          const updateRequest = cursor.update(JSON.stringify(parsed));
+          updateRequest.onerror = () => reject(updateRequest.error);
+          updateRequest.onsuccess = () => cursor.continue();
+        };
+
+        transaction.oncomplete = () => {
+          db.close();
+          resolve(rewrittenPlaylists);
+        };
+        transaction.onerror = () => {
+          db.close();
+          reject(transaction.error);
+        };
+      };
+    });
+  });
+}
+
 async function storedConnectionSessionExpiresAt(
   page: Page,
 ): Promise<string | null> {
@@ -170,6 +258,59 @@ test.describe("Authentication", () => {
     await expect(
       page.getByText(/recently added|random|welcome/i),
     ).toBeVisible();
+  });
+
+  test("discards persisted queries from an incompatible API contract", async ({
+    page,
+    server,
+  }) => {
+    await login(page, {
+      serverUrl: server.url,
+      username: server.username,
+      password: server.password,
+    });
+
+    const playlistNames = [
+      `Previous Contract A ${Date.now()}`,
+      `Previous Contract B ${Date.now()}`,
+    ];
+    for (const name of playlistNames) {
+      const response = await page.request.post(
+        `${server.url}/api/playlists/import`,
+        {
+          headers: {
+            Authorization: `Basic ${Buffer.from(
+              `${server.username}:${server.password}`,
+            ).toString("base64")}`,
+          },
+          data: {
+            name,
+            comment: null,
+            entries: [],
+            sources: [],
+            folderId: null,
+          },
+        },
+      );
+      expect(response.ok()).toBe(true);
+    }
+
+    await page.goto("/playlists");
+    await expect(page.getByText(playlistNames[0]).first()).toBeVisible();
+    await expect
+      .poll(() => persistedQueryBlobIncludes(page, playlistNames[1]))
+      .toBe(true);
+
+    expect(
+      await rewritePlaylistFoldersCacheAsPreviousContract(page),
+    ).toBeGreaterThanOrEqual(2);
+
+    await page.goto("/library/songs");
+
+    await expect(page.getByText("First Song").first()).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Something went wrong" }),
+    ).toHaveCount(0);
   });
 
   test("refreshes stale local session expiry before redirecting", async ({

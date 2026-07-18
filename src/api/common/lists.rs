@@ -3,7 +3,6 @@ use crate::api::common::models::{AlbumResponse, SongPlayStats, SongResponse};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::inline_thumbnails::{get_album_thumbnails_base64, get_song_thumbnails_base64};
-use crate::api::smart_playlists::get_smart_playlist_songs_by_id;
 use crate::db::models::ItemType;
 use crate::db::repo::lists as lists_repo;
 use crate::thumbnails::ThumbnailSize;
@@ -680,21 +679,58 @@ pub async fn get_forgotten_favorites_song_models(
     seed: Option<i64>,
     view_options: ListViewOptions<'_>,
 ) -> crate::error::Result<(Vec<crate::db::models::Song>, i64, i64)> {
-    let size = size.max(0) as usize;
-    let offset = offset.max(0) as usize;
+    use crate::db::repo::lists::ForgottenFavoriteSort;
+
+    let size = size.clamp(0, 500) as u64;
+    let offset = offset.max(0) as u64;
     let actual_seed =
         seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
-
     let cutoff = chrono::Utc::now() - chrono::Duration::days(not_played_since_days);
-    let mut summaries =
-        lists_repo::list_forgotten_favorite_song_summaries(database, user_id, min_plays, cutoff)
-            .await?;
-    let mut total = summaries.len() as i64;
-    let should_post_process = has_text_filter(view_options.filter) || view_options.sort.is_some();
-
-    let mut rng = StdRng::seed_from_u64(actual_seed as u64);
-    summaries.shuffle(&mut rng);
-
+    let sort = match view_options.sort {
+        None | Some("custom" | "recommended") => {
+            let seed_bits = actual_seed as u64;
+            let mixed = seed_bits
+                .rotate_left(29)
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            ForgottenFavoriteSort::Seeded(
+                uuid::Uuid::from_u128(((seed_bits as u128) << 64) | mixed as u128).to_string(),
+            )
+        }
+        Some("name" | "title") => ForgottenFavoriteSort::Name,
+        Some("artist") => ForgottenFavoriteSort::Artist,
+        Some("album") => ForgottenFavoriteSort::Album,
+        Some("year") => ForgottenFavoriteSort::Year,
+        Some("duration") => ForgottenFavoriteSort::Duration,
+        Some("dateAdded" | "created") => ForgottenFavoriteSort::DateAdded,
+        Some("playCount") => ForgottenFavoriteSort::PlayCount,
+        Some("lastPlayed") => ForgottenFavoriteSort::LastPlayed,
+        Some(value) => {
+            return Err(crate::error::Error::InvalidRequest(format!(
+                "unsupported forgotten-favorites sort field: {value}"
+            )))
+        }
+    };
+    let descending = match view_options.sort_dir.unwrap_or("asc") {
+        "asc" => false,
+        "desc" => true,
+        value => {
+            return Err(crate::error::Error::InvalidRequest(format!(
+                "unsupported forgotten-favorites sort direction: {value}"
+            )))
+        }
+    };
+    let (summaries, total) = lists_repo::page_forgotten_favorite_song_summaries(
+        database,
+        user_id,
+        min_plays,
+        cutoff,
+        view_options.filter,
+        sort,
+        descending,
+        offset,
+        size,
+    )
+    .await?;
     if summaries.is_empty() {
         return Ok((Vec::new(), total, actual_seed));
     }
@@ -709,24 +745,10 @@ pub async fn get_forgotten_favorites_song_models(
         })
         .collect();
 
-    let ids: Vec<String> = if should_post_process {
-        summaries
-            .iter()
-            .map(|summary| summary.song_id.clone())
-            .collect()
-    } else {
-        summaries
-            .iter()
-            .skip(offset)
-            .take(size)
-            .map(|summary| summary.song_id.clone())
-            .collect()
-    };
-
-    if ids.is_empty() {
-        return Ok((Vec::new(), total, actual_seed));
-    }
-
+    let ids = summaries
+        .iter()
+        .map(|summary| summary.song_id.clone())
+        .collect::<Vec<_>>();
     let mut songs =
         crate::db::repo::browse::get_songs_by_ids_for_user(database, &ids, user_id).await?;
     for song in &mut songs {
@@ -734,19 +756,6 @@ pub async fn get_forgotten_favorites_song_models(
             song.play_count = (*play_count > 0).then_some(*play_count);
             song.last_played = *last_played;
         }
-    }
-
-    if should_post_process {
-        use crate::api::common::sorting::filter_and_sort_songs;
-
-        songs = filter_and_sort_songs(
-            songs,
-            view_options.filter,
-            view_options.sort,
-            view_options.sort_dir,
-        );
-        total = songs.len() as i64;
-        songs = songs.into_iter().skip(offset).take(size).collect();
     }
 
     Ok((songs, total, actual_seed))
@@ -799,18 +808,16 @@ pub async fn get_forgotten_favorites_logic(
 
     let mut song_responses = Vec::with_capacity(songs.len());
     for song in songs {
-        let album = if let Some(album_id) = &song.album_id {
-            crate::db::repo::browse::get_album_by_id(database, album_id).await?
-        } else {
-            None
+        let play_stats = SongPlayStats {
+            play_count: song.play_count,
+            last_played: song.last_played.map(format_datetime_iso_ms),
         };
-        let play_stats = get_song_play_stats(database, user_id, &song.id).await?;
         let starred = starred_map.get(&song.id).cloned();
         let user_rating = ratings_map.get(&song.id).copied();
         let cover_art_data = thumbnails.get(&song.id).cloned();
         song_responses.push(song_to_response_with_stats(
             song,
-            album.as_ref(),
+            None,
             starred,
             user_rating,
             Some(play_stats),
@@ -862,10 +869,10 @@ pub struct ContinueListeningPlaylist {
     pub name: String,
     /// "playlist" or "smartPlaylist"
     pub playlist_type: String,
-    #[ts(type = "number")]
-    pub song_count: i64,
-    #[ts(type = "number")]
-    pub duration: i64,
+    #[ts(type = "number | null")]
+    pub song_count: Option<i64>,
+    #[ts(type = "number | null")]
+    pub duration: Option<i64>,
     pub cover_art: Option<String>,
 }
 
@@ -890,62 +897,6 @@ pub struct ContinueListeningResult {
 pub struct ContinueListeningSourceRef {
     pub source_type: String,
     pub source_id: String,
-}
-
-fn continue_listening_entry_name(entry: &ContinueListeningEntry) -> &str {
-    entry
-        .album
-        .as_ref()
-        .map(|album| album.name.as_str())
-        .or_else(|| {
-            entry
-                .playlist
-                .as_ref()
-                .map(|playlist| playlist.name.as_str())
-        })
-        .or_else(|| entry.source.as_ref().map(|source| source.name.as_str()))
-        .unwrap_or("")
-}
-
-fn continue_listening_entry_matches_filter(entry: &ContinueListeningEntry, filter: &str) -> bool {
-    let query = filter.to_lowercase();
-    continue_listening_entry_name(entry)
-        .to_lowercase()
-        .contains(&query)
-        || entry
-            .album
-            .as_ref()
-            .is_some_and(|album| album.artist.to_lowercase().contains(&query))
-}
-
-fn filter_and_sort_continue_listening_entries(
-    mut entries: Vec<ContinueListeningEntry>,
-    filter: Option<&str>,
-    sort: Option<&str>,
-    sort_dir: Option<&str>,
-) -> Vec<ContinueListeningEntry> {
-    if let Some(filter) = filter.filter(|value| !value.trim().is_empty()) {
-        entries.retain(|entry| continue_listening_entry_matches_filter(entry, filter));
-    }
-
-    let field = sort.unwrap_or("lastPlayed");
-    let descending = sort_dir.unwrap_or("desc") == "desc";
-    entries.sort_by(|left, right| {
-        let cmp = match field {
-            "name" | "title" => continue_listening_entry_name(left)
-                .to_lowercase()
-                .cmp(&continue_listening_entry_name(right).to_lowercase()),
-            _ => left.last_played.cmp(&right.last_played),
-        };
-
-        if descending {
-            cmp.reverse()
-        } else {
-            cmp
-        }
-    });
-
-    entries
 }
 
 async fn get_continue_listening_source_rows(
@@ -1038,23 +989,22 @@ pub async fn get_continue_listening_logic(
 ) -> crate::error::Result<ContinueListeningResult> {
     let size = size.min(500);
     let total = count_continue_listening_sources(database, user_id).await?;
-    let should_post_process = has_text_filter(view_options.filter)
+    if has_text_filter(view_options.filter)
         || !(view_options.sort.is_none()
             || matches_sort(
                 view_options.sort,
                 view_options.sort_dir,
                 "lastPlayed",
                 "desc",
-            ));
-    let source_size = if should_post_process {
-        total.max(size)
-    } else {
-        size
-    };
-    let source_offset = if should_post_process { 0 } else { offset };
+            ))
+    {
+        return Err(crate::error::Error::InvalidRequest(
+            "continue-listening currently supports only lastPlayed descending without a text filter"
+                .to_string(),
+        ));
+    }
 
-    let sources =
-        get_continue_listening_source_rows(database, user_id, source_size, source_offset).await?;
+    let sources = get_continue_listening_source_rows(database, user_id, size, offset).await?;
 
     if sources.is_empty() {
         return Ok(ContinueListeningResult {
@@ -1136,8 +1086,8 @@ pub async fn get_continue_listening_logic(
                             id,
                             name: row.name,
                             playlist_type: "playlist".to_string(),
-                            song_count: row.song_count,
-                            duration: row.duration,
+                            song_count: Some(row.song_count),
+                            duration: Some(row.duration),
                         },
                     )
                 })
@@ -1151,26 +1101,22 @@ pub async fn get_continue_listening_logic(
         if !smart_playlist_ids.is_empty() {
             let rows =
                 lists_repo::list_smart_playlist_named_ids(database, &smart_playlist_ids).await?;
-            let mut map = std::collections::HashMap::with_capacity(rows.len());
-            for row in rows {
-                let id = row.id;
-                let songs =
-                    get_smart_playlist_songs_by_id(database, &id, user_id, None, None, None)
-                        .await?;
-                let duration = songs.iter().map(|song| song.duration).sum();
-                map.insert(
-                    id.clone(),
-                    ContinueListeningPlaylist {
-                        id: id.clone(),
-                        name: row.name,
-                        playlist_type: "smartPlaylist".to_string(),
-                        song_count: songs.len() as i64,
-                        duration,
-                        cover_art: Some(format!("sp-{}", id)),
-                    },
-                );
-            }
-            map
+            rows.into_iter()
+                .map(|row| {
+                    let id = row.id;
+                    (
+                        id.clone(),
+                        ContinueListeningPlaylist {
+                            id: id.clone(),
+                            name: row.name,
+                            playlist_type: "smartPlaylist".to_string(),
+                            song_count: None,
+                            duration: None,
+                            cover_art: Some(format!("sp-{id}")),
+                        },
+                    )
+                })
+                .collect()
         } else {
             std::collections::HashMap::new()
         };
@@ -1206,7 +1152,7 @@ pub async fn get_continue_listening_logic(
         .collect();
 
     // Step 8: Assemble entries in source order (already sorted by last_played DESC)
-    let mut entries: Vec<ContinueListeningEntry> = sources
+    let entries: Vec<ContinueListeningEntry> = sources
         .into_iter()
         .filter_map(|source| {
             let source_type = source.source_type;
@@ -1279,24 +1225,6 @@ pub async fn get_continue_listening_logic(
             }
         })
         .collect();
-
-    let total = if should_post_process {
-        entries = filter_and_sort_continue_listening_entries(
-            entries,
-            view_options.filter,
-            view_options.sort,
-            view_options.sort_dir,
-        );
-        let total = entries.len() as i64;
-        entries = entries
-            .into_iter()
-            .skip(offset.max(0) as usize)
-            .take(size.max(0) as usize)
-            .collect();
-        total
-    } else {
-        total
-    };
 
     Ok(ContinueListeningResult { entries, total })
 }

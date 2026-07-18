@@ -125,32 +125,26 @@ export function AddToPlaylistDialog({
   }
 
   // Check for duplicates before adding
-  const checkDuplicates = async (playlistId: string, playlistName: string) => {
-    const client = getClient();
-    if (!client) return null;
+  const checkDuplicates = (playlistId: string, playlistName: string) => {
+    const duplicateIds = idsToAdd.filter((songId) =>
+      containingPlaylists?.playlistsBySong[songId]?.some(
+        (playlist) => playlist.playlistId === playlistId,
+      ),
+    );
+    const duplicateIdSet = new Set(duplicateIds);
+    const nonDuplicateIds = idsToAdd.filter(
+      (songId) => !duplicateIdSet.has(songId),
+    );
 
-    try {
-      const playlistResponse = await client.getPlaylist(playlistId);
-      const existingSongIds = new Set(
-        playlistResponse.playlist.entry?.map((s) => s.id) ?? [],
-      );
-
-      const duplicateIds = idsToAdd.filter((id) => existingSongIds.has(id));
-      const nonDuplicateIds = idsToAdd.filter((id) => !existingSongIds.has(id));
-
-      if (duplicateIds.length > 0) {
-        return {
-          playlistId,
-          playlistName,
-          duplicateCount: duplicateIds.length,
-          nonDuplicateIds,
-        };
-      }
-      return null;
-    } catch (error) {
-      console.error("Failed to check for duplicates:", error);
-      return null;
+    if (duplicateIds.length > 0) {
+      return {
+        playlistId,
+        playlistName,
+        duplicateCount: duplicateIds.length,
+        nonDuplicateIds,
+      };
     }
+    return null;
   };
 
   // Add to existing playlist mutation
@@ -206,14 +200,12 @@ export function AddToPlaylistDialog({
     mutationFn: async (name: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      // Create playlist first
       const response = await client.createPlaylist({ name });
-      // Then add songs
       await client.updatePlaylist({
-        playlistId: response.playlist.id,
+        playlistId: response.playlistId,
         songIdToAdd: idsToAdd,
       });
-      return response.playlist;
+      return { id: response.playlistId, name };
     },
     onSuccess: (playlist) => {
       toast.success(`Created "${playlist.name}" and added ${displayText}`);
@@ -243,7 +235,7 @@ export function AddToPlaylistDialog({
       if (aContains && !bContains) return -1;
       if (!aContains && bContains) return 1;
       // Otherwise sort by most recently updated
-      return b.updatedAt.localeCompare(a.updatedAt);
+      return b.changed.localeCompare(a.changed);
     });
 
   const handleAddToPlaylist = async (

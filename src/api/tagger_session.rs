@@ -86,6 +86,7 @@ pub struct TaggerSessionResponse {
     /// Whether to show computed path
     pub show_computed_path: bool,
     /// Column widths
+    #[ts(type = "Record<string, number>")]
     pub column_widths: HashMap<String, i64>,
     /// File column width
     #[ts(type = "number")]
@@ -116,6 +117,7 @@ pub struct UpdateTaggerSessionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_computed_path: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "Record<string, number> | null")]
     pub column_widths: Option<HashMap<String, i64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | undefined")]
@@ -261,6 +263,7 @@ pub struct SavePendingEditsRequest {
     #[serde(default)]
     pub path_overrides: HashMap<String, String>,
     /// Target music folder ID for staged files (required if saving staged files)
+    #[ts(type = "number | null")]
     pub target_music_folder_id: Option<i64>,
 }
 

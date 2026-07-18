@@ -88,21 +88,7 @@ export function buildFolderTreeFromApi(
 
   // Add playlists to their folders
   for (const apiPlaylist of playlists) {
-    // Convert to full Playlist type, preserving sharing info
-    const playlist: Playlist & { sharedWithMe: boolean; canEdit: boolean } = {
-      id: apiPlaylist.id,
-      name: apiPlaylist.name,
-      comment: null,
-      owner: apiPlaylist.owner ?? "admin",
-      public: false,
-      songCount: apiPlaylist.songCount,
-      duration: apiPlaylist.duration,
-      created: new Date().toISOString(),
-      changed: new Date().toISOString(),
-      coverArt: null,
-      sharedWithMe: apiPlaylist.sharedWithMe,
-      canEdit: apiPlaylist.canEdit,
-    };
+    const playlist: Playlist = apiPlaylist;
 
     if (apiPlaylist.folderId) {
       const folder = folderMap.get(apiPlaylist.folderId);

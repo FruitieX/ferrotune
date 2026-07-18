@@ -38,8 +38,9 @@ use ts_rs::TS;
 // ============================================================================
 
 /// Request to start a new queue from a source
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct StartQueueRequest {
     /// Playback session ID (required for multi-session support)
     pub session_id: Option<String>,
@@ -51,6 +52,7 @@ pub struct StartQueueRequest {
     pub source_name: Option<String>,
     /// Index of the song to start playing (0-based, in the original order)
     #[serde(default)]
+    #[ts(type = "number")]
     pub start_index: usize,
     /// ID of the song the client intends to play (for verification against index)
     /// If the song at start_index doesn't match this ID, the server will find the
@@ -64,12 +66,17 @@ pub struct StartQueueRequest {
     #[serde(default)]
     pub repeat_mode: Option<String>,
     /// Optional filters to apply (JSON object)
+    #[ts(type = "Record<string, unknown> | null")]
     pub filters: Option<serde_json::Value>,
     /// Optional sort criteria (JSON object)
+    #[ts(type = "Record<string, unknown> | null")]
     pub sort: Option<serde_json::Value>,
     /// Optional explicit song IDs (for search results, history, or custom queues)
     /// When provided, these songs are used instead of materializing from source_type
     pub song_ids: Option<Vec<String>>,
+    /// Multiple sources to concatenate. The first occurrence of each song wins.
+    #[serde(default)]
+    pub sources: Vec<QueueSourceRequest>,
     /// Whether to include inline cover art thumbnails (small or medium)
     pub inline_images: Option<String>,
     /// Client ID of the requesting client (used for auto-claiming ownership)
@@ -82,6 +89,15 @@ pub struct StartQueueRequest {
     /// (e.g., starting song radio for the currently playing song).
     #[serde(default)]
     pub keep_playing: bool,
+}
+
+/// A queue source used by batch collection actions.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct QueueSourceRequest {
+    pub source_type: String,
+    pub source_id: Option<String>,
 }
 
 /// Response after starting a queue
@@ -244,8 +260,9 @@ pub struct CurrentWindowParams {
 }
 
 /// Request to add songs to the queue
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AddToQueueRequest {
     /// Playback session ID
     pub session_id: Option<String>,
@@ -253,6 +270,7 @@ pub struct AddToQueueRequest {
     #[serde(default)]
     pub song_ids: Vec<String>,
     /// Position in display order: "next" (after current), "end", or a number
+    #[ts(type = "\"next\" | \"end\" | number")]
     pub position: AddPosition,
     /// Client-provided current index in display order (shuffled space if shuffled)
     /// to avoid stale DB values from delayed heartbeats.
@@ -261,6 +279,9 @@ pub struct AddToQueueRequest {
     pub source_type: Option<String>,
     /// Source ID for materialization (e.g., directory ID)
     pub source_id: Option<String>,
+    /// Multiple sources to concatenate. The first occurrence of each song wins.
+    #[serde(default)]
+    pub sources: Vec<QueueSourceRequest>,
 }
 
 /// Position for adding songs
@@ -509,6 +530,8 @@ pub async fn start_queue(
             )));
         }
         repo::browse::get_songs_by_ids_for_user(&state.database, song_ids, user.user_id).await?
+    } else if !request.sources.is_empty() {
+        materialize_queue_sources(&state.database, user.user_id, &request.sources).await?
     } else if source_type == QueueSourceType::Playlist {
         // For playlists, use the position-aware function to handle missing entries
         let playlist_id = request
@@ -774,7 +797,6 @@ pub async fn start_queue(
             QueueSourceType::Library
                 | QueueSourceType::Search
                 | QueueSourceType::Genre
-                | QueueSourceType::Favorites
                 | QueueSourceType::ForgottenFavorites
                 | QueueSourceType::Directory
                 | QueueSourceType::DirectoryFlat
@@ -1190,6 +1212,12 @@ pub async fn add_to_queue(
     // Get song IDs either from explicit list or from source materialization
     let song_ids: Vec<String> = if !request.song_ids.is_empty() {
         request.song_ids
+    } else if !request.sources.is_empty() {
+        materialize_queue_sources(&state.database, user.user_id, &request.sources)
+            .await?
+            .into_iter()
+            .map(|song| song.id)
+            .collect()
     } else if let (Some(source_type_str), Some(source_id)) =
         (&request.source_type, &request.source_id)
     {
@@ -2189,7 +2217,7 @@ async fn materialize_similar_tracks_queue_songs(
 }
 
 /// Materialize songs from a queue source
-async fn materialize_queue_songs(
+pub(crate) async fn materialize_queue_songs(
     database: &crate::db::Database,
     user_id: i64,
     source_type: QueueSourceType,
@@ -2504,6 +2532,41 @@ async fn materialize_queue_songs(
     }
 }
 
+/// Materialize several collection sources in request order, keeping the first
+/// occurrence of each song ID. This gives bulk actions deterministic ordering
+/// without sending complete collection DTOs through the browser.
+pub(crate) async fn materialize_queue_sources(
+    database: &crate::db::Database,
+    user_id: i64,
+    sources: &[QueueSourceRequest],
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let mut seen = std::collections::HashSet::new();
+    let mut songs = Vec::new();
+
+    for source in sources {
+        let source_type: QueueSourceType = source.source_type.parse().map_err(|_| {
+            Error::InvalidRequest(format!("Invalid source type: {}", source.source_type))
+        })?;
+        let source_songs = materialize_queue_songs(
+            database,
+            user_id,
+            source_type,
+            source.source_id.as_deref(),
+            None,
+            None,
+        )
+        .await?;
+
+        for song in source_songs {
+            if seen.insert(song.id.clone()) {
+                songs.push(song);
+            }
+        }
+    }
+
+    Ok(songs)
+}
+
 /// Build SearchParams from JSON filter and sort objects
 fn build_search_params_from_json(
     filters: Option<&serde_json::Value>,
@@ -2698,33 +2761,10 @@ pub async fn materialize_lazy_queue_page(
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok());
 
-    // For shuffled queues, we need the full list + shuffle indices
-    // This is a fallback - ideally we'd use a deterministic permutation
     if queue.is_shuffled {
-        // Materialize all songs and apply shuffle
-        let all_songs = materialize_queue_songs(
-            database,
-            user_id,
-            source_type,
-            queue.source_id.as_deref(),
-            filters.as_ref(),
-            sort.as_ref(),
-        )
-        .await?;
-
-        // Apply shuffle indices if available
-        if let Some(indices) = queue.shuffle_indices() {
-            let shuffled: Vec<crate::db::models::Song> = indices
-                .iter()
-                .skip(offset)
-                .take(limit)
-                .filter_map(|&idx| all_songs.get(idx).cloned())
-                .collect();
-            return Ok(shuffled);
-        }
-
-        // No shuffle indices, return unshuffled
-        return Ok(all_songs.into_iter().skip(offset).take(limit).collect());
+        return Err(
+            Error::Internal("shuffled queues must store explicit song IDs".to_string()).into(),
+        );
     }
 
     if matches!(source_type, QueueSourceType::ForgottenFavorites) {
@@ -2757,7 +2797,6 @@ pub async fn materialize_lazy_queue_page(
         QueueSourceType::Library
             | QueueSourceType::Search
             | QueueSourceType::Genre
-            | QueueSourceType::Favorites
             | QueueSourceType::Directory
             | QueueSourceType::DirectoryFlat
     ) {
@@ -2777,19 +2816,11 @@ pub async fn materialize_lazy_queue_page(
         }
     }
 
-    // Fallback: materialize all songs and slice. This path is used for sources
-    // that don't yet support server-side pagination.
-    let all_songs = materialize_queue_songs(
-        database,
-        user_id,
-        source_type,
-        queue.source_id.as_deref(),
-        filters.as_ref(),
-        sort.as_ref(),
-    )
-    .await?;
-
-    Ok(all_songs.into_iter().skip(offset).take(limit).collect())
+    Err(Error::Internal(format!(
+        "lazy pagination is not implemented for source type {}",
+        source_type.as_str()
+    ))
+    .into())
 }
 
 /// Materialize a single page of a lazy queue using source-native pagination.
@@ -2846,24 +2877,41 @@ async fn materialize_lazy_queue_page_paginated(
             )
             .await?
         }
-        QueueSourceType::Favorites => {
-            // Favorites are filtered/sorted in memory; we still load all but
-            // this is acceptable because the favorites list is bounded by the
-            // user's starred songs. For very large libraries this can be
-            // revisited to push filtering/sorting to the database.
-            return Ok(None);
-        }
         QueueSourceType::Directory => {
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
-            let all = queries::get_songs_by_directory(database, dir_id, user_id).await?;
-            return Ok(Some(all.into_iter().skip(offset).take(limit).collect()));
+            return Ok(Some(
+                queries::get_songs_by_directory_page(
+                    database,
+                    dir_id,
+                    user_id,
+                    false,
+                    text_filter,
+                    _sort_field.as_deref(),
+                    _sort_dir.as_deref(),
+                    offset,
+                    limit,
+                )
+                .await?,
+            ));
         }
         QueueSourceType::DirectoryFlat => {
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
-            let all = queries::get_songs_by_directory_flat(database, dir_id, user_id).await?;
-            return Ok(Some(all.into_iter().skip(offset).take(limit).collect()));
+            return Ok(Some(
+                queries::get_songs_by_directory_page(
+                    database,
+                    dir_id,
+                    user_id,
+                    true,
+                    text_filter,
+                    _sort_field.as_deref(),
+                    _sort_dir.as_deref(),
+                    offset,
+                    limit,
+                )
+                .await?,
+            ));
         }
         _ => return Ok(None),
     };
@@ -2946,9 +2994,6 @@ pub async fn get_lazy_queue_count(
             _ => "*",
         };
 
-        // For directory sources, the directory materialization functions don't
-        // currently support a server-side count, so count the full materialized
-        // set. Library/search/genre can use the fast COUNT query.
         if matches!(
             source_type,
             QueueSourceType::Library | QueueSourceType::Search | QueueSourceType::Genre
@@ -2963,20 +3008,32 @@ pub async fn get_lazy_queue_count(
             .map(|c| c as usize)
             .map_err(FerrotuneApiError::from);
         }
+        if matches!(
+            source_type,
+            QueueSourceType::Directory | QueueSourceType::DirectoryFlat
+        ) {
+            let source_id = queue
+                .source_id
+                .as_deref()
+                .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
+            return queries::count_songs_by_directory(
+                database,
+                source_id,
+                user_id,
+                source_type == QueueSourceType::DirectoryFlat,
+                text_filter,
+            )
+            .await
+            .map(|count| count as usize)
+            .map_err(FerrotuneApiError::from);
+        }
     }
 
-    // Fallback: materialize all songs and count.
-    let songs = materialize_queue_songs(
-        database,
-        user_id,
-        source_type,
-        queue.source_id.as_deref(),
-        filters.as_ref(),
-        sort.as_ref(),
-    )
-    .await?;
-
-    Ok(songs.len())
+    Err(Error::Internal(format!(
+        "lazy counting is not implemented for source type {}",
+        source_type.as_str()
+    ))
+    .into())
 }
 
 /// Generate shuffle indices that keep played tracks in order and only shuffle upcoming tracks.

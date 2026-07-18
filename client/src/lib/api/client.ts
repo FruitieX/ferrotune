@@ -15,8 +15,6 @@ import type {
   SongsByGenreParams,
   SearchResponse,
   StarredResponse,
-  PlaylistsResponse,
-  PlaylistWithSongsResponse,
   PlayHistoryResponse,
   AlbumListParams,
   SearchParams,
@@ -53,7 +51,6 @@ import type {
   AuthMeResponse,
   AuthSessionRefreshResponse,
   AuthUrlTokenResponse,
-  PlaylistResponse,
   ForgottenFavoritesResponse,
   MostPlayedRecentlyResponse,
 } from "./types";
@@ -129,6 +126,12 @@ import type { ClientListResponse } from "./generated/ClientListResponse";
 import type { SessionSuccessResponse } from "./generated/SessionSuccessResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
+import type { SourceSongIdsResponse } from "./generated/SourceSongIdsResponse";
+import type { DownloadManifestResponse } from "./generated/DownloadManifestResponse";
+import type { CollectionSongsParams } from "./generated/CollectionSongsParams";
+import type { CollectionSongsResponse } from "./generated/CollectionSongsResponse";
+import type { ArtistAlbumsParams } from "./generated/ArtistAlbumsParams";
+import type { ArtistAlbumsResponse } from "./generated/ArtistAlbumsResponse";
 import type { ShareableUsersResponse } from "./generated/ShareableUsersResponse";
 import type { PlaylistSharesResponse } from "./generated/PlaylistSharesResponse";
 import type { ShareEntry } from "./generated/ShareEntry";
@@ -147,7 +150,6 @@ import type { HomePageResponse } from "./generated/HomePageResponse";
 import type { DiscoveryResponse } from "./generated/DiscoveryResponse";
 import type { HomeContinueListeningSection } from "./generated/HomeContinueListeningSection";
 import type { FerrotuneSimilarSongsResponse } from "./generated/FerrotuneSimilarSongsResponse";
-import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
 type PingResponse = Record<string, never>;
@@ -172,15 +174,10 @@ const CLIENT_NAME = "ferrotune-web";
  * "ferrotune-mobile" for Tauri mobile apps, "ferrotune-web" otherwise.
  */
 export function getClientName(): string {
-  // Dynamic import would be async; use the same detection as isTauri()
-  if (
-    typeof window !== "undefined" &&
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__TAURI_INTERNALS__
-  ) {
-    return "ferrotune-mobile";
-  }
-  return CLIENT_NAME;
+  if (typeof window === "undefined") return CLIENT_NAME;
+
+  const usesNativeAudio = window.__FERROTUNE_NATIVE_AUDIO__ === true;
+  return usesNativeAudio ? "ferrotune-mobile" : CLIENT_NAME;
 }
 
 /**
@@ -468,28 +465,49 @@ export class FerrotuneClient {
     return this.request<ArtistsResponse>(endpoint);
   }
 
-  async getArtist(
-    id: string,
-    options?: { sort?: string; sortDir?: string; filter?: string },
-  ): Promise<ArtistDetailResponse> {
-    const endpoint = buildEndpoint(`/api/artists/${encodeURIComponent(id)}`, {
-      sort: options?.sort,
-      sortDir: options?.sortDir,
-      filter: options?.filter,
-    });
-    return this.request<ArtistDetailResponse>(endpoint);
+  async getArtist(id: string): Promise<ArtistDetailResponse> {
+    return this.request<ArtistDetailResponse>(
+      `/api/artists/${encodeURIComponent(id)}`,
+    );
   }
 
-  async getAlbum(
+  async getArtistSongs(
     id: string,
-    options?: { sort?: string; sortDir?: string; filter?: string },
-  ): Promise<AlbumDetailResponse> {
-    const endpoint = buildEndpoint(`/api/albums/${encodeURIComponent(id)}`, {
-      sort: options?.sort,
-      sortDir: options?.sortDir,
-      filter: options?.filter,
-    });
-    return this.request<AlbumDetailResponse>(endpoint);
+    params: CollectionSongsParams,
+  ): Promise<CollectionSongsResponse> {
+    const endpoint = buildEndpoint(
+      `/api/artists/${encodeURIComponent(id)}/songs`,
+      params,
+    );
+    return this.request<CollectionSongsResponse>(endpoint);
+  }
+
+  async getArtistAlbums(
+    id: string,
+    params: ArtistAlbumsParams,
+  ): Promise<ArtistAlbumsResponse> {
+    const endpoint = buildEndpoint(
+      `/api/artists/${encodeURIComponent(id)}/albums`,
+      params,
+    );
+    return this.request<ArtistAlbumsResponse>(endpoint);
+  }
+
+  async getAlbum(id: string): Promise<AlbumDetailResponse> {
+    return this.request<AlbumDetailResponse>(
+      `/api/albums/${encodeURIComponent(id)}`,
+    );
+  }
+
+  async getAlbumSongs(
+    id: string,
+    params: CollectionSongsParams,
+  ): Promise<CollectionSongsResponse> {
+    const endpoint = buildEndpoint(
+      `/api/albums/${encodeURIComponent(id)}/songs`,
+      params,
+    );
+    return this.request<CollectionSongsResponse>(endpoint);
   }
 
   async getSong(id: string): Promise<SongDetailResponse> {
@@ -804,33 +822,6 @@ export class FerrotuneClient {
   }
 
   // Playlist endpoints
-  async getPlaylists(): Promise<PlaylistsResponse> {
-    const res = await this.request<PlaylistFoldersResponse>(
-      "/api/playlist-folders",
-    );
-
-    const mapToPlaylist = (p: PlaylistInFolder): PlaylistResponse => ({
-      id: p.id,
-      name: p.name,
-      comment: null,
-      owner: "admin", // default
-      public: false,
-      songCount: p.songCount || 0,
-      duration: p.duration || 0,
-      created: new Date().toISOString(),
-      changed: new Date().toISOString(),
-      coverArt: null,
-    });
-
-    const allPlaylists = (res.playlists || []).map(mapToPlaylist);
-
-    return {
-      playlists: {
-        playlist: allPlaylists,
-      },
-    } as unknown as PlaylistsResponse;
-  }
-
   /**
    * Get playlist folders with their full structure for tree display.
    * Returns both folder entities and playlists with their folder references.
@@ -839,50 +830,12 @@ export class FerrotuneClient {
     return this.request<PlaylistFoldersResponse>("/api/playlist-folders");
   }
 
-  async getPlaylist(
-    id: string,
-    options?: {
-      sort?: string;
-      sortDir?: string;
-      filter?: string;
-      offset?: number;
-      count?: number;
-    },
-  ): Promise<PlaylistWithSongsResponse> {
-    const endpoint = buildEndpoint(`/api/playlists/${encodeURIComponent(id)}`, {
-      ...options,
-      inlineImages: "small",
-    });
-
-    const res = await this.request<PlaylistSongsResponse>(endpoint);
-
-    // Adapt to PlaylistWithSongsResponse
-    // Extract songs from entries
-    // Filter out missing entries for compatibility with old clients expecting pure songs
-    const songs = res.entries.filter((e) => e.song).map((e) => e.song!);
-
-    return {
-      playlist: {
-        id: res.id,
-        name: res.name,
-        comment: res.comment,
-        owner: res.owner,
-        public: res.public,
-        songCount: res.filteredCount, // Use filtered count as effectively returned count
-        duration: res.duration,
-        created: res.created,
-        changed: res.changed,
-        coverArt: res.coverArt,
-        entry: songs,
-      },
-    } as unknown as PlaylistWithSongsResponse;
-  }
-
   async createPlaylist(params: {
     name: string;
     songId?: string[];
     folderId?: string | null;
-  }): Promise<PlaylistWithSongsResponse> {
+    sources?: Array<{ sourceType: string; sourceId?: string }>;
+  }): Promise<ImportPlaylistResponse> {
     // Map songId[] to entries
     const entries = params.songId?.map((id) => ({ songId: id })) || [];
 
@@ -892,12 +845,12 @@ export class FerrotuneClient {
       body: JSON.stringify({
         name: params.name,
         entries,
+        sources: params.sources ?? [],
         folderId: params.folderId ?? undefined,
       }),
     });
 
-    // Fetch the created playlist to return full details expected by caller
-    return this.getPlaylist(res.playlistId);
+    return res;
   }
 
   async updatePlaylist(params: {
@@ -1368,6 +1321,24 @@ export class FerrotuneClient {
     return this.request<SongIdsResponse>(endpoint);
   }
 
+  async getSourceSongIds(
+    sources: Array<{ sourceType: string; sourceId?: string }>,
+  ): Promise<SourceSongIdsResponse> {
+    return this.request("/api/sources/song-ids", {
+      method: "POST",
+      body: JSON.stringify({ sources }),
+    });
+  }
+
+  async getDownloadManifest(
+    sources: Array<{ sourceType: string; sourceId?: string }>,
+  ): Promise<DownloadManifestResponse> {
+    return this.request("/api/downloads/manifest", {
+      method: "POST",
+      body: JSON.stringify({ sources }),
+    });
+  }
+
   // Tag management endpoints (Admin API)
   async getSongTags(id: string): Promise<GetTagsResponse> {
     return this.request(`/api/songs/${encodeURIComponent(id)}/tags`);
@@ -1745,6 +1716,8 @@ export class FerrotuneClient {
     sort?: Record<string, unknown>;
     /** Explicit song IDs to use instead of materializing from source */
     songIds?: string[];
+    /** Multiple collection sources to concatenate server-side. */
+    sources?: Array<{ sourceType: string; sourceId?: string }>;
     /** Request inline cover art thumbnails */
     inlineImages?: "small" | "medium";
     /** Playback session ID for multi-session support */
@@ -1809,6 +1782,7 @@ export class FerrotuneClient {
     currentIndex?: number;
     sourceType?: string;
     sourceId?: string;
+    sources?: Array<{ sourceType: string; sourceId?: string }>;
     sessionId?: string;
   }): Promise<QueueSuccessResponse> {
     return this.request("/api/queue/add", {
@@ -1819,6 +1793,7 @@ export class FerrotuneClient {
         currentIndex: params.currentIndex,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        sources: params.sources,
         sessionId: params.sessionId,
       }),
     });

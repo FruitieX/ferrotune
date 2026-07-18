@@ -13,7 +13,7 @@ use crate::error::{Error, FerrotuneApiResult};
 use async_walkdir::WalkDir;
 use axum::{
     body::Bytes,
-    extract::{Multipart, Path, Query, State},
+    extract::{Multipart, Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
@@ -51,7 +51,9 @@ pub struct StagedFilesResponse {
 pub struct StagedFile {
     pub id: String,
     pub original_filename: String,
+    #[ts(type = "number")]
     pub file_size: i64,
+    #[ts(type = "number | null")]
     pub duration_ms: Option<i64>,
     pub tags: Vec<TagEntry>,
     pub uploaded_at: String,
@@ -100,13 +102,16 @@ pub struct TaggerTrack {
     pub is_staged: bool,
     pub file_path: String,
     pub file_format: String,
+    #[ts(type = "number")]
     pub file_size: i64,
+    #[ts(type = "number | null")]
     pub duration_ms: Option<i64>,
     pub tags: Vec<TagEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art_id: Option<String>,
     /// Music folder ID (None for staged files)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub music_folder_id: Option<i64>,
     /// Music folder path (None for staged files)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,7 +123,6 @@ pub struct TaggerTrack {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct BatchGetTagsRequest {
-    #[serde(deserialize_with = "crate::api::query::string_or_seq")]
     pub song_ids: Vec<String>,
 }
 
@@ -203,6 +207,7 @@ pub struct StagedFileSave {
     /// Relative path within music folder
     pub target_path: String,
     /// Music folder ID to save to
+    #[ts(type = "number")]
     pub music_folder_id: i64,
 }
 
@@ -259,6 +264,7 @@ pub struct RenameEntry {
     pub new_path: String,
     /// Target music folder ID (required for staged files, optional for library files)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub target_music_folder_id: Option<i64>,
 }
 
@@ -601,6 +607,7 @@ pub async fn list_staged_files(
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct OrphanedFilesResponse {
     /// Number of orphaned files found
+    #[ts(type = "number")]
     pub count: i64,
     /// Orphaned file IDs (staged filenames that are not in the session)
     pub file_ids: Vec<String>,
@@ -987,7 +994,7 @@ pub async fn stage_library_tracks(
 pub async fn batch_get_tags(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Query(request): Query<BatchGetTagsRequest>,
+    crate::api::query::QsQuery(request): crate::api::query::QsQuery<BatchGetTagsRequest>,
 ) -> FerrotuneApiResult<Json<BatchGetTagsResponse>> {
     let mut results = Vec::new();
 

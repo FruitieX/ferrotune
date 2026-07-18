@@ -4,11 +4,11 @@ import type { TagEntry } from "./TagEntry";
 /**
  * A track in the tagger (either staged or from library)
  */
-export type TaggerTrack = { id: string, isStaged: boolean, filePath: string, fileFormat: string, fileSize: bigint, durationMs: bigint | null, tags: Array<TagEntry>, coverArtId: string | null, 
+export type TaggerTrack = { id: string, isStaged: boolean, filePath: string, fileFormat: string, fileSize: number, durationMs: number | null, tags: Array<TagEntry>, coverArtId: string | null, 
 /**
  * Music folder ID (None for staged files)
  */
-musicFolderId: bigint | null, 
+musicFolderId: number | null, 
 /**
  * Music folder path (None for staged files)
  */

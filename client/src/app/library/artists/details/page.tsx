@@ -3,8 +3,11 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Heart, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -49,6 +52,7 @@ import { cn } from "@/lib/utils";
 import type { Album } from "@/lib/api/types";
 
 function ArtistDetailContent() {
+  const pageSize = 100;
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
   const router = useRouter();
@@ -78,29 +82,60 @@ function ArtistDetailContent() {
     }
   }, [id, isMounted, authLoading, router]);
 
-  // Fetch artist data with server-side sort/filter for songs
-  const { data: artistData, isLoading } = useQuery({
+  const { data: artistData, isLoading: isArtistLoading } = useQuery({
+    queryKey: ["artist", id],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getArtist(id!);
+      return response.artist;
+    },
+    enabled: isReady && !!id,
+  });
+
+  const songsQuery = useInfiniteQuery({
     queryKey: [
-      "artist",
+      "artist-songs",
       id,
       sortConfig.field,
       sortConfig.direction,
       debouncedFilter,
     ],
-    queryFn: async () => {
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getArtist(id!, {
-        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir:
-          sortConfig.field !== "custom" ? sortConfig.direction : undefined,
-        filter: debouncedFilter.trim() || undefined,
+      return client.getArtistSongs(id!, {
+        offset: pageParam,
+        count: pageSize,
+        sort: sortConfig.field === "custom" ? "name" : sortConfig.field,
+        sortDir: sortConfig.direction,
+        filter: debouncedFilter.trim() || null,
       });
-      return response.artist;
+    },
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.songs.length;
+      return nextOffset < lastPage.total ? nextOffset : undefined;
     },
     enabled: isReady && !!id,
-    // Keep previous data while fetching new sort/filter results
-    placeholderData: (previousData) => previousData,
+  });
+
+  const albumsQuery = useInfiniteQuery({
+    queryKey: ["artist-albums", id],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getArtistAlbums(id!, {
+        offset: pageParam,
+        count: pageSize,
+      });
+    },
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.albums.length;
+      return nextOffset < lastPage.total ? nextOffset : undefined;
+    },
+    enabled: isReady && !!id,
   });
 
   // Use artist star hook - manages the starred state and handles API calls
@@ -117,8 +152,14 @@ function ArtistDetailContent() {
     queryClient.invalidateQueries({ queryKey: ["artist", id] });
   };
 
-  // Songs come directly from server response - already sorted and filtered
-  const displaySongs = artistData?.song ?? [];
+  const displaySongs =
+    songsQuery.data?.pages.flatMap((page) => page.songs) ?? [];
+  const displayAlbums =
+    albumsQuery.data?.pages.flatMap((page) => page.albums) ?? [];
+  const totalSongs =
+    songsQuery.data?.pages[0]?.total ?? artistData?.songCount ?? 0;
+  const totalAlbums =
+    albumsQuery.data?.pages[0]?.total ?? artistData?.albumCount ?? 0;
 
   // Queue source for artist songs - server materializes with same sort/filter
   const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
@@ -239,7 +280,7 @@ function ArtistDetailContent() {
         useBlurredBackground
         label="Artist"
         title={artistData?.name || "Artist"}
-        isLoading={isLoading}
+        isLoading={isArtistLoading}
         subtitle={formatCount(artistData?.albumCount ?? 0, "album")}
       />
 
@@ -247,7 +288,7 @@ function ArtistDetailContent() {
       <ActionBar
         onPlayAll={handlePlayAll}
         onShuffle={handleShuffle}
-        disablePlay={isLoading || displaySongs.length === 0}
+        disablePlay={songsQuery.isLoading || totalSongs === 0}
       >
         <Button
           variant="ghost"
@@ -277,36 +318,28 @@ function ArtistDetailContent() {
       {/* Albums section */}
       <div className="p-4 lg:p-6 mt-2">
         <h2 className="text-xl font-bold mb-6">Albums</h2>
-        {isLoading ? (
+        {albumsQuery.isLoading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <AlbumCardSkeleton key={i} />
             ))}
           </div>
-        ) : artistData?.album && artistData.album.length > 0 ? (
-          <motion.div
-            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: { transition: { staggerChildren: 0.05 } },
+        ) : displayAlbums.length > 0 ? (
+          <VirtualizedGrid
+            items={displayAlbums}
+            renderItem={(album) => (
+              <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
+            )}
+            renderSkeleton={() => <AlbumCardSkeleton />}
+            getItemKey={(album) => album.id}
+            totalCount={totalAlbums}
+            hasNextPage={albumsQuery.hasNextPage}
+            isFetchingNextPage={albumsQuery.isFetchingNextPage}
+            fetchNextPage={() => {
+              void albumsQuery.fetchNextPage();
             }}
-          >
-            {artistData.album.map((album) => (
-              <motion.div
-                key={album.id}
-                variants={{
-                  hidden: { opacity: 0, y: 20 },
-                  visible: { opacity: 1, y: 0 },
-                }}
-              >
-                <AlbumCard
-                  album={album}
-                  onPlay={() => handlePlayAlbum(album)}
-                />
-              </motion.div>
-            ))}
-          </motion.div>
+            autoScrollMargin
+          />
         ) : (
           <div className="py-20 text-center text-muted-foreground">
             No albums found
@@ -352,7 +385,7 @@ function ArtistDetailContent() {
             />
           </div>
         </div>
-        {isLoading ? (
+        {songsQuery.isLoading ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -383,6 +416,12 @@ function ArtistDetailContent() {
                 )}
                 renderSkeleton={() => <SongCardSkeleton />}
                 getItemKey={(song) => song.id}
+                totalCount={totalSongs}
+                hasNextPage={songsQuery.hasNextPage}
+                isFetchingNextPage={songsQuery.isFetchingNextPage}
+                fetchNextPage={() => {
+                  void songsQuery.fetchNextPage();
+                }}
                 autoScrollMargin
               />
             ) : (
@@ -427,6 +466,12 @@ function ArtistDetailContent() {
                   )}
                   getItemKey={(song) => song.id}
                   estimateItemHeight={56}
+                  totalCount={totalSongs}
+                  hasNextPage={songsQuery.hasNextPage}
+                  isFetchingNextPage={songsQuery.isFetchingNextPage}
+                  fetchNextPage={() => {
+                    void songsQuery.fetchNextPage();
+                  }}
                   autoScrollMargin
                 />
               </>

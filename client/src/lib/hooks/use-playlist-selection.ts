@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useItemSelection } from "./use-track-selection";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
-import type { Playlist, Song } from "@/lib/api/types";
+import type { Playlist } from "@/lib/api/types";
 
 /**
  * Playlist-specific selection hook.
@@ -33,84 +33,68 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     return getSelectedItems() as Playlist[];
   };
 
-  // Fetch all songs from selected playlists
-  const fetchPlaylistSongs = async (): Promise<Song[]> => {
-    const client = getClient();
-    if (!client) return [];
-
-    const selected = getSelectedPlaylists();
-    if (selected.length === 0) return [];
-
-    try {
-      const allSongs: Song[] = [];
-      for (const playlist of selected) {
-        const response = await client.getPlaylist(playlist.id);
-        if (response.playlist.entry?.length > 0) {
-          allSongs.push(...response.playlist.entry);
-        }
-      }
-      return allSongs;
-    } catch (error) {
-      console.error("Failed to fetch playlist songs:", error);
-      return [];
-    }
-  };
+  const getSelectedSources = () =>
+    getSelectedPlaylists().map((playlist) => ({
+      sourceType: "playlist" as const,
+      sourceId: playlist.id,
+    }));
 
   // Play all songs from selected playlists
-  const playSelectedNow = async () => {
-    const songs = await fetchPlaylistSongs();
-    if (songs.length === 0) {
+  const playSelectedNow = () => {
+    const sources = getSelectedSources();
+    if (sources.length === 0) {
       toast.error("Selected playlists are empty");
       return;
     }
     startQueue({
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
-      songIds: songs.map((s: Song) => s.id),
+      sources,
       shuffle: false,
     });
-    toast.success(
-      `Playing ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,
-    );
+    toast.success(`Playing ${sources.length} playlists`);
     clearSelection();
   };
 
   // Shuffle play all songs from selected playlists
-  const shuffleSelected = async () => {
-    const songs = await fetchPlaylistSongs();
-    if (songs.length === 0) {
+  const shuffleSelected = () => {
+    const sources = getSelectedSources();
+    if (sources.length === 0) {
       toast.error("Selected playlists are empty");
       return;
     }
     startQueue({
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
-      songIds: songs.map((s: Song) => s.id),
+      sources,
       shuffle: true,
     });
-    toast.success(
-      `Shuffling ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,
-    );
+    toast.success(`Shuffling ${sources.length} playlists`);
     clearSelection();
   };
 
   // Add selected playlist songs to queue
   const addSelectedToQueue = async (position: "next" | "last" = "last") => {
-    const songs = await fetchPlaylistSongs();
-    if (songs.length === 0) {
+    const sources = getSelectedSources();
+    if (sources.length === 0) {
       toast.error("Selected playlists are empty");
       return;
     }
 
-    addToQueue({
-      songIds: songs.map((s: Song) => s.id),
+    const result = await addToQueue({
+      sources,
+      sourceName: `${sources.length} playlists`,
       position: position === "last" ? "end" : position,
     });
 
+    if (!result.success || result.addedCount === 0) {
+      toast.error("Selected playlists are empty");
+      return;
+    }
     toast.success(
       position === "next"
-        ? `Added ${songs.length} songs to play next`
-        : `Added ${songs.length} songs to queue`,
+        ? `Added ${result.addedCount} songs to play next`
+        : `Added ${result.addedCount} songs to queue`,
     );
     clearSelection();
   };
@@ -144,19 +128,20 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     const client = getClient();
     if (!client) return;
 
-    const songs = await fetchPlaylistSongs();
-    if (songs.length === 0) {
+    const sources = getSelectedSources();
+    if (sources.length === 0) {
       toast.error("Selected playlists are empty");
       return;
     }
 
     try {
-      // Create new playlist with all songs
-      await client.createPlaylist({
+      const result = await client.createPlaylist({
         name: newPlaylistName,
-        songId: songs.map((s: Song) => s.id),
+        sources,
       });
-      toast.success(`Created "${newPlaylistName}" with ${songs.length} songs`);
+      toast.success(
+        `Created "${newPlaylistName}" with ${result.matchedCount} songs`,
+      );
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       clearSelection();

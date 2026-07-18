@@ -94,14 +94,13 @@ export function UploadDialog({ open, onOpenChange }: UploadDialogProps) {
       const newTrackIds: string[] = [];
 
       for (const uploaded of response.files) {
-        // Use type assertion since TaggerTrack expects bigint but we work with numbers
         const track = {
           id: uploaded.id,
           isStaged: true,
           filePath: uploaded.originalFilename,
           fileFormat: uploaded.originalFilename.split(".").pop() ?? "unknown",
           fileSize: uploaded.fileSize,
-          durationMs: uploaded.durationMs ?? BigInt(0),
+          durationMs: uploaded.durationMs ?? 0,
           tags: uploaded.tags,
           coverArtId: null,
           musicFolderId: null,

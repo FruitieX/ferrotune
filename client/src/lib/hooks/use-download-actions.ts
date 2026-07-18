@@ -52,15 +52,12 @@ export interface DownloadActions {
   removeSongDownload: (songId: string) => Promise<void>;
   /** Cancel or remove several song downloads with one user-facing result. */
   removeSongDownloads: (songIds: string[]) => Promise<boolean>;
-  /** Enqueue every song in an album (one-shot snapshot). */
+  /** Enqueue every song in an album from a server-generated snapshot. */
   downloadAlbum: (albumId: string) => Promise<void>;
-  /** Enqueue every song across all of an artist's albums. */
+  /** Enqueue every song by an artist from a server-generated snapshot. */
   downloadArtist: (artistId: string) => Promise<void>;
-  /**
-   * Enqueue every song in a playlist. The caller is expected to already
-   * have fetched the playlist's songs; pass them directly.
-   */
-  downloadPlaylist: (playlistId: string, songs: Song[]) => Promise<void>;
+  /** Enqueue every song in a playlist from a server-generated snapshot. */
+  downloadPlaylist: (playlistId: string) => Promise<void>;
   /** Cancel any queued download / remove downloaded bytes for a container. */
   removeContainerDownload: (
     containerId: string,
@@ -133,6 +130,47 @@ export function useDownloadActions(): DownloadActions {
     }
   }
 
+  async function downloadSource(
+    containerId: string,
+    source: { sourceType: "album" | "artist" | "playlist"; sourceId: string },
+    label: string,
+  ): Promise<void> {
+    if (!isTauriMobile()) return;
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      const manifest = await client.getDownloadManifest([source]);
+      if (manifest.songs.length === 0) {
+        toast.error(`This ${label} has no songs.`);
+        return;
+      }
+
+      let queued = 0;
+      for (const song of manifest.songs) {
+        if (await enqueue(song)) queued++;
+      }
+      if (queued === 0) return;
+
+      await persistDownloadedContainer(
+        containerId,
+        manifest.songs.map((song) => song.id),
+      );
+      if (source.sourceType === "playlist") {
+        await refreshOfflinePlaylistMembership();
+      }
+      hapticConfirm();
+      toast.success(
+        `Queued ${queued} song${queued === 1 ? "" : "s"} from the ${label} for download`,
+      );
+    } catch (err) {
+      console.error(`[downloads] ${source.sourceType} download failed`, err);
+      toast.error(
+        `${label[0].toUpperCase()}${label.slice(1)} download failed: ${err}`,
+      );
+    }
+  }
+
   return {
     isDownloaded: (songId) => downloaded.has(songId),
     getDownloadState: (songId) => deriveDownloadState(stateMap, songId),
@@ -153,93 +191,25 @@ export function useDownloadActions(): DownloadActions {
       );
     },
     downloadAlbum: async (albumId) => {
-      if (!isTauriMobile()) return;
-      const client = getClient();
-      if (!client) return;
-      try {
-        const response = await client.getAlbum(albumId);
-        const songs = response.album.song ?? [];
-        if (songs.length === 0) {
-          toast.error("This album has no songs.");
-          return;
-        }
-        let ok = 0;
-        for (const song of songs) {
-          if (await enqueue(song)) ok++;
-        }
-        if (ok > 0) {
-          await persistDownloadedContainer(
-            `album:${albumId}`,
-            songs.map((s) => s.id),
-          );
-          hapticConfirm();
-          toast.success(
-            `Queued ${ok} song${ok === 1 ? "" : "s"} from the album for download`,
-          );
-        }
-      } catch (err) {
-        console.error("[downloads] downloadAlbum failed", err);
-        toast.error(`Album download failed: ${err}`);
-      }
+      await downloadSource(
+        `album:${albumId}`,
+        { sourceType: "album", sourceId: albumId },
+        "album",
+      );
     },
     downloadArtist: async (artistId) => {
-      if (!isTauriMobile()) return;
-      const client = getClient();
-      if (!client) return;
-      try {
-        const artist = await client.getArtist(artistId);
-        const albums = artist.artist.album ?? [];
-        const allSongs: Song[] = [];
-        for (const album of albums) {
-          const detail = await client.getAlbum(album.id);
-          for (const song of detail.album.song ?? []) {
-            allSongs.push(song);
-          }
-        }
-        if (allSongs.length === 0) {
-          toast.error("This artist has no songs.");
-          return;
-        }
-        let ok = 0;
-        for (const song of allSongs) {
-          if (await enqueue(song)) ok++;
-        }
-        if (ok > 0) {
-          await persistDownloadedContainer(
-            `artist:${artistId}`,
-            allSongs.map((s) => s.id),
-          );
-          hapticConfirm();
-          toast.success(
-            `Queued ${ok} song${ok === 1 ? "" : "s"} from the artist for download`,
-          );
-        }
-      } catch (err) {
-        console.error("[downloads] downloadArtist failed", err);
-        toast.error(`Artist download failed: ${err}`);
-      }
+      await downloadSource(
+        `artist:${artistId}`,
+        { sourceType: "artist", sourceId: artistId },
+        "artist",
+      );
     },
-    downloadPlaylist: async (playlistId, songs) => {
-      if (!isTauriMobile()) return;
-      if (songs.length === 0) {
-        toast.error("This playlist has no songs.");
-        return;
-      }
-      let ok = 0;
-      for (const song of songs) {
-        if (await enqueue(song)) ok++;
-      }
-      if (ok > 0) {
-        await persistDownloadedContainer(
-          `playlist:${playlistId}`,
-          songs.map((s) => s.id),
-        );
-        await refreshOfflinePlaylistMembership();
-        hapticConfirm();
-        toast.success(
-          `Queued ${ok} song${ok === 1 ? "" : "s"} from the playlist for download`,
-        );
-      }
+    downloadPlaylist: async (playlistId) => {
+      await downloadSource(
+        `playlist:${playlistId}`,
+        { sourceType: "playlist", sourceId: playlistId },
+        "playlist",
+      );
     },
     removeContainerDownload: async (containerId, songIds) => {
       if (!isTauriMobile()) return;

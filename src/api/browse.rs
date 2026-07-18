@@ -6,12 +6,17 @@
 use crate::api::auth::FerrotuneAuthenticatedUser;
 use crate::api::common::browse::{
     get_album_logic, get_artist_logic, get_artists_logic, get_genres_logic, get_indexes_logic,
-    get_song_logic,
+    get_song_logic, song_to_response_with_stats,
 };
 use crate::api::common::models::{
-    AlbumDetail, ArtistDetail, ArtistsIndex, DirectoryIndex, GenresList, SongResponse,
+    AlbumDetail, AlbumResponse, ArtistDetail, ArtistsIndex, DirectoryIndex, GenresList,
+    SongPlayStats, SongResponse,
 };
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::utils::{format_datetime_iso, format_datetime_iso_ms};
 use crate::api::AppState;
+use crate::db::models::ItemType;
+use crate::db::repo::browse::CollectionSongSort;
 use crate::error::{FerrotuneApiError, FerrotuneApiResult};
 use axum::extract::{Path, Query, State};
 use axum::Json;
@@ -102,21 +107,6 @@ pub async fn get_artists(
     }))
 }
 
-/// Query params for artist detail endpoint
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetArtistParams {
-    /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
-    #[serde(default)]
-    pub sort: Option<String>,
-    /// Sort direction: asc or desc
-    #[serde(default)]
-    pub sort_dir: Option<String>,
-    /// Filter text to match against song title, artist, album
-    #[serde(default)]
-    pub filter: Option<String>,
-}
-
 /// Response for artist detail
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -125,26 +115,13 @@ pub struct FerrotuneArtistResponse {
     pub artist: ArtistDetail,
 }
 
-/// GET /api/artists/:id - Get artist details with albums and songs
+/// GET /api/artists/:id - Get artist metadata
 pub async fn get_artist(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Query(params): Query<GetArtistParams>,
 ) -> FerrotuneApiResult<Json<FerrotuneArtistResponse>> {
-    let artist_detail = get_artist_logic(
-        &state.database,
-        user.user_id,
-        &id,
-        params.filter.as_deref(),
-        params.sort.as_deref(),
-        params.sort_dir.as_deref(),
-    )
-    .await
-    .map_err(|e| match e {
-        crate::error::Error::NotFound(_) => FerrotuneApiError::from(e),
-        _ => FerrotuneApiError::from(e),
-    })?;
+    let artist_detail = get_artist_logic(&state.database, user.user_id, &id).await?;
 
     Ok(Json(FerrotuneArtistResponse {
         artist: artist_detail,
@@ -155,21 +132,6 @@ pub async fn get_artist(
 // Albums Endpoints
 // ============================================================================
 
-/// Query params for album detail endpoint
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetAlbumParams {
-    /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
-    #[serde(default)]
-    pub sort: Option<String>,
-    /// Sort direction: asc or desc
-    #[serde(default)]
-    pub sort_dir: Option<String>,
-    /// Filter text to match against song title, artist
-    #[serde(default)]
-    pub filter: Option<String>,
-}
-
 /// Response for album detail
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -178,29 +140,264 @@ pub struct FerrotuneAlbumResponse {
     pub album: AlbumDetail,
 }
 
-/// GET /api/albums/:id - Get album details with songs
+/// GET /api/albums/:id - Get album metadata
 pub async fn get_album(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Query(params): Query<GetAlbumParams>,
 ) -> FerrotuneApiResult<Json<FerrotuneAlbumResponse>> {
-    let album_detail = get_album_logic(
-        &state.database,
-        user.user_id,
-        &id,
-        params.filter.as_deref(),
-        params.sort.as_deref(),
-        params.sort_dir.as_deref(),
-    )
-    .await
-    .map_err(|e| match e {
-        crate::error::Error::NotFound(_) => FerrotuneApiError::from(e),
-        _ => FerrotuneApiError::from(e),
-    })?;
+    let album_detail = get_album_logic(&state.database, user.user_id, &id).await?;
 
     Ok(Json(FerrotuneAlbumResponse {
         album: album_detail,
+    }))
+}
+
+// ============================================================================
+// Paginated collection children
+// ============================================================================
+
+fn default_collection_page_count() -> i64 {
+    100
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct CollectionSongsParams {
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub offset: i64,
+    #[serde(default = "default_collection_page_count")]
+    #[ts(type = "number")]
+    pub count: i64,
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub sort_dir: Option<String>,
+    #[serde(default)]
+    pub filter: Option<String>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct CollectionSongsResponse {
+    pub songs: Vec<SongResponse>,
+    #[ts(type = "number")]
+    pub total: i64,
+    #[ts(type = "number")]
+    pub offset: i64,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ArtistAlbumsParams {
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub offset: i64,
+    #[serde(default = "default_collection_page_count")]
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ArtistAlbumsResponse {
+    pub albums: Vec<AlbumResponse>,
+    #[ts(type = "number")]
+    pub total: i64,
+    #[ts(type = "number")]
+    pub offset: i64,
+}
+
+fn validate_page(offset: i64, count: i64) -> Result<(u64, u64), FerrotuneApiError> {
+    if offset < 0 {
+        return Err(
+            crate::error::Error::InvalidRequest("offset must be non-negative".to_string()).into(),
+        );
+    }
+    if !(1..=500).contains(&count) {
+        return Err(crate::error::Error::InvalidRequest(
+            "count must be between 1 and 500".to_string(),
+        )
+        .into());
+    }
+    Ok((offset as u64, count as u64))
+}
+
+fn collection_song_sort(value: Option<&str>) -> Result<CollectionSongSort, FerrotuneApiError> {
+    match value.unwrap_or("trackNumber") {
+        "custom" | "trackNumber" => Ok(CollectionSongSort::TrackNumber),
+        "name" => Ok(CollectionSongSort::Name),
+        "artist" => Ok(CollectionSongSort::Artist),
+        "album" => Ok(CollectionSongSort::Album),
+        "year" => Ok(CollectionSongSort::Year),
+        "genre" => Ok(CollectionSongSort::Genre),
+        "dateAdded" => Ok(CollectionSongSort::DateAdded),
+        "duration" => Ok(CollectionSongSort::Duration),
+        "bitRate" => Ok(CollectionSongSort::BitRate),
+        "format" => Ok(CollectionSongSort::Format),
+        "playCount" => Ok(CollectionSongSort::PlayCount),
+        "playStarts" => Ok(CollectionSongSort::PlayStarts),
+        "lastPlayed" => Ok(CollectionSongSort::LastPlayed),
+        value => Err(crate::error::Error::InvalidRequest(format!(
+            "unsupported collection song sort: {value}"
+        ))
+        .into()),
+    }
+}
+
+fn collection_song_descending(value: Option<&str>) -> Result<bool, FerrotuneApiError> {
+    match value.unwrap_or("asc") {
+        "asc" => Ok(false),
+        "desc" => Ok(true),
+        value => Err(crate::error::Error::InvalidRequest(format!(
+            "unsupported sort direction: {value}"
+        ))
+        .into()),
+    }
+}
+
+async fn collection_songs_response(
+    database: &crate::db::Database,
+    user_id: i64,
+    page: crate::db::repo::browse::CollectionSongPage,
+    offset: i64,
+) -> FerrotuneApiResult<Json<CollectionSongsResponse>> {
+    let song_ids = page
+        .songs
+        .iter()
+        .map(|song| song.id.clone())
+        .collect::<Vec<_>>();
+    let (starred, ratings) = tokio::try_join!(
+        get_starred_map(database, user_id, ItemType::Song, &song_ids),
+        get_ratings_map(database, user_id, ItemType::Song, &song_ids),
+    )?;
+    let songs = page
+        .songs
+        .into_iter()
+        .map(|song| {
+            let play_stats = SongPlayStats {
+                play_count: song.play_count,
+                last_played: song.last_played.map(format_datetime_iso),
+            };
+            let starred_at = starred.get(&song.id).cloned();
+            let rating = ratings.get(&song.id).copied();
+            song_to_response_with_stats(
+                song,
+                None,
+                starred_at,
+                rating,
+                Some(play_stats),
+                None,
+                None,
+            )
+        })
+        .collect();
+    Ok(Json(CollectionSongsResponse {
+        songs,
+        total: page.total,
+        offset,
+    }))
+}
+
+pub async fn get_album_songs(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<CollectionSongsParams>,
+) -> FerrotuneApiResult<Json<CollectionSongsResponse>> {
+    let (offset, count) = validate_page(params.offset, params.count)?;
+    let sort = collection_song_sort(params.sort.as_deref())?;
+    let descending = collection_song_descending(params.sort_dir.as_deref())?;
+    let page = crate::db::repo::browse::page_album_songs_for_user(
+        &state.database,
+        &id,
+        user.user_id,
+        params.filter.as_deref(),
+        sort,
+        descending,
+        offset,
+        count,
+    )
+    .await?;
+    collection_songs_response(&state.database, user.user_id, page, params.offset).await
+}
+
+pub async fn get_artist_songs(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<CollectionSongsParams>,
+) -> FerrotuneApiResult<Json<CollectionSongsResponse>> {
+    let (offset, count) = validate_page(params.offset, params.count)?;
+    let sort = collection_song_sort(params.sort.as_deref())?;
+    let descending = collection_song_descending(params.sort_dir.as_deref())?;
+    let page = crate::db::repo::browse::page_artist_songs_for_user(
+        &state.database,
+        &id,
+        user.user_id,
+        params.filter.as_deref(),
+        sort,
+        descending,
+        offset,
+        count,
+    )
+    .await?;
+    collection_songs_response(&state.database, user.user_id, page, params.offset).await
+}
+
+pub async fn get_artist_albums(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<ArtistAlbumsParams>,
+) -> FerrotuneApiResult<Json<ArtistAlbumsResponse>> {
+    let (offset, count) = validate_page(params.offset, params.count)?;
+    let page = crate::db::repo::browse::page_albums_by_artist_for_user(
+        &state.database,
+        &id,
+        user.user_id,
+        offset,
+        count,
+    )
+    .await?;
+    let album_ids = page
+        .albums
+        .iter()
+        .map(|album| album.id.clone())
+        .collect::<Vec<_>>();
+    let (starred, ratings) = tokio::try_join!(
+        get_starred_map(&state.database, user.user_id, ItemType::Album, &album_ids),
+        get_ratings_map(&state.database, user.user_id, ItemType::Album, &album_ids),
+    )?;
+    let albums = page
+        .albums
+        .into_iter()
+        .map(|album| AlbumResponse {
+            id: album.id.clone(),
+            name: album.name,
+            artist: album.artist_name,
+            artist_id: album.artist_id,
+            cover_art: Some(album.id.clone()),
+            cover_art_data: None,
+            song_count: album.song_count,
+            duration: album.duration,
+            year: album.year,
+            genre: album.genre,
+            created: format_datetime_iso_ms(album.created_at),
+            starred: starred.get(&album.id).cloned(),
+            user_rating: ratings.get(&album.id).copied(),
+            played: None,
+        })
+        .collect();
+    Ok(Json(ArtistAlbumsResponse {
+        albums,
+        total: page.total,
+        offset: params.offset,
     }))
 }
 

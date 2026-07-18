@@ -95,7 +95,6 @@ import {
 } from "@/lib/utils/format";
 import { filterPlaylists, sortPlaylists } from "@/lib/utils/sort-playlists";
 import {
-  organizePlaylistsIntoFolders,
   buildFolderTreeFromApi,
   getPlaylistDisplayName,
   parsePlaylistPath,
@@ -203,21 +202,7 @@ function PlaylistsPageContent() {
     enabled: isReady && !isOfflineMode,
   });
 
-  // Also fetch legacy playlists for compatibility (used by move mutation, etc.)
-  const playlists = playlistFoldersData?.playlists?.map((p) => ({
-    id: p.id,
-    name: p.name,
-    comment: null,
-    owner: p.owner ?? "admin",
-    public: false,
-    songCount: p.songCount,
-    duration: p.duration,
-    created: new Date().toISOString(),
-    changed: new Date().toISOString(),
-    coverArt: null,
-    sharedWithMe: p.sharedWithMe,
-    canEdit: p.canEdit,
-  })) as (Playlist & { sharedWithMe: boolean; canEdit: boolean })[] | undefined;
+  const playlists = playlistFoldersData?.playlists;
 
   // Fetch smart playlists
   const { data: smartPlaylists } = useQuery({
@@ -362,18 +347,12 @@ function PlaylistsPageContent() {
     movePlaylistMutation.mutate({ playlistId, targetFolderId });
   };
 
-  // Build folder tree from API data
-  // Use the new API-based folder tree if we have folder entities,
-  // otherwise fall back to the legacy name-based parsing
   const playlistTree = playlistFoldersData
-    ? playlistFoldersData.folders.length > 0 ||
-      playlistFoldersData.playlists.some((p) => p.folderId)
-      ? buildFolderTreeFromApi(
-          playlistFoldersData.folders,
-          playlistFoldersData.playlists,
-          smartPlaylists,
-        )
-      : organizePlaylistsIntoFolders(playlists ?? [], smartPlaylists)
+    ? buildFolderTreeFromApi(
+        playlistFoldersData.folders,
+        playlistFoldersData.playlists,
+        smartPlaylists,
+      )
     : null;
 
   // Get current folder from path
@@ -438,26 +417,14 @@ function PlaylistsPageContent() {
   })();
 
   // Play smart playlist handler
-  const handlePlaySmartPlaylist = async (id: string) => {
+  const handlePlaySmartPlaylist = (id: string) => {
     const sp = displaySmartPlaylists.find((s) => s.id === id);
     if (!sp) return;
-    const client = getClient();
-    if (!client) return;
-    try {
-      const response = await client.getSmartPlaylistSongs(id);
-      if (response.songs.length === 0) {
-        toast.info("Smart playlist has no matching songs");
-        return;
-      }
-      startQueue({
-        sourceType: "other",
-        sourceName: `Smart: ${sp.name}`,
-        songIds: response.songs.map((s) => s.id),
-      });
-    } catch (error) {
-      toast.error("Failed to play smart playlist");
-      console.error(error);
-    }
+    startQueue({
+      sourceType: "smartPlaylist",
+      sourceId: id,
+      sourceName: sp.name,
+    });
   };
 
   // Calculate totals
@@ -1725,7 +1692,11 @@ function SmartPlaylistGridCard({
             smartPlaylist.name
           }
           titleIcon={<Sparkles className="w-4 h-4 shrink-0 text-purple-500" />}
-          subtitle={`${smartPlaylist.songCount} songs`}
+          subtitle={
+            smartPlaylist.songCount === null
+              ? "Dynamic playlist"
+              : formatCount(smartPlaylist.songCount, "song")
+          }
           href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
           coverArt={coverArtUrl}
           coverType="smartPlaylist"
@@ -1774,7 +1745,11 @@ function SmartPlaylistListRow({
             smartPlaylist.name
           }
           titleIcon={<Sparkles className="w-4 h-4 shrink-0 text-purple-500" />}
-          subtitle={`${smartPlaylist.songCount} songs`}
+          subtitle={
+            smartPlaylist.songCount === null
+              ? "Dynamic playlist"
+              : formatCount(smartPlaylist.songCount, "song")
+          }
           href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
           coverArt={coverArtUrl}
           coverType="smartPlaylist"

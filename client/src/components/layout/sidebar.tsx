@@ -6,7 +6,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
 import {
   Home,
   Search,
@@ -60,7 +59,6 @@ import { ScanDialog } from "@/components/admin/scan-dialog";
 import { CoverImage } from "@/components/shared/cover-image";
 import { UserSwitcher } from "@/components/layout/user-switcher";
 import {
-  organizePlaylistsIntoFolders,
   buildFolderTreeFromApi,
   getPlaylistDisplayName,
   parsePlaylistPath,
@@ -170,32 +168,12 @@ export function Sidebar() {
     enabled: isConnected,
   });
 
-  // Build folder tree from API data
-  // Use the new API-based folder tree if we have folder entities,
-  // otherwise fall back to the legacy name-based parsing
   const playlistTree = playlistFoldersData
-    ? playlistFoldersData.folders.length > 0 ||
-      playlistFoldersData.playlists.some((p) => p.folderId)
-      ? buildFolderTreeFromApi(
-          playlistFoldersData.folders,
-          playlistFoldersData.playlists,
-          smartPlaylists,
-        )
-      : organizePlaylistsIntoFolders(
-          playlistFoldersData.playlists.map((p) => ({
-            id: p.id,
-            name: p.name,
-            comment: null,
-            owner: "admin",
-            public: false,
-            songCount: p.songCount,
-            duration: 0,
-            created: new Date().toISOString(),
-            changed: new Date().toISOString(),
-            coverArt: null,
-          })),
-          smartPlaylists,
-        )
+    ? buildFolderTreeFromApi(
+        playlistFoldersData.folders,
+        playlistFoldersData.playlists,
+        smartPlaylists,
+      )
     : null;
 
   const toggleFolder = (path: string) => {
@@ -217,24 +195,12 @@ export function Sidebar() {
   };
 
   // Play smart playlist handler
-  const handlePlaySmartPlaylist = async (id: string, name: string) => {
-    const client = getClient();
-    if (!client) return;
-    try {
-      const response = await client.getSmartPlaylistSongs(id);
-      if (response.songs.length === 0) {
-        toast.info("Smart playlist has no matching songs");
-        return;
-      }
-      startQueue({
-        sourceType: "other",
-        sourceName: `Smart: ${name}`,
-        songIds: response.songs.map((s) => s.id),
-      });
-    } catch (error) {
-      toast.error("Failed to play smart playlist");
-      console.error(error);
-    }
+  const handlePlaySmartPlaylist = (id: string, name: string) => {
+    startQueue({
+      sourceType: "smartPlaylist",
+      sourceId: id,
+      sourceName: name,
+    });
   };
 
   // Update CSS variable when collapsed state changes (after hydration)

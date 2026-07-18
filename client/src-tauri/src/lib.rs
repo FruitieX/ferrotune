@@ -1,5 +1,13 @@
 use std::sync::Mutex;
 
+const NATIVE_AUDIO_PLATFORM_FLAG: &str = "__FERROTUNE_NATIVE_AUDIO__";
+
+fn native_audio_initialization_script(enabled: bool) -> String {
+    format!(
+        "Object.defineProperty(window, '{NATIVE_AUDIO_PLATFORM_FLAG}', {{ value: {enabled}, configurable: false }});"
+    )
+}
+
 // Embedded server module (desktop only)
 #[cfg(not(target_os = "android"))]
 mod embedded_server;
@@ -45,6 +53,12 @@ pub fn run() {
     let server_state = Mutex::new(EmbeddedServerState::default());
 
     let builder = tauri::Builder::default()
+        // Publish the native-audio capability before the web bundle executes.
+        // Browser heuristics such as viewport size and touch support are not a
+        // reliable way to distinguish an Android WebView from desktop Tauri.
+        .append_invoke_initialization_script(native_audio_initialization_script(cfg!(
+            target_os = "android"
+        )))
         .plugin(tauri_plugin_native_audio::init())
         .manage(server_state)
         .invoke_handler(tauri::generate_handler![
@@ -80,4 +94,17 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::native_audio_initialization_script;
+
+    #[test]
+    fn platform_script_publishes_native_audio_capability() {
+        assert!(native_audio_initialization_script(true)
+            .contains("__FERROTUNE_NATIVE_AUDIO__', { value: true"));
+        assert!(native_audio_initialization_script(false)
+            .contains("__FERROTUNE_NATIVE_AUDIO__', { value: false"));
+    }
 }

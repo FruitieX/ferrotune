@@ -14,13 +14,18 @@ use crate::db::{models::MusicFolder, Database};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Semaphore};
+use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, error, info, warn};
 
 /// Duration to wait after file changes before triggering scan
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(5);
+
+/// How often the blocking watcher checks whether its owning runtime was dropped.
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Message sent from file watcher to scan trigger
 #[derive(Debug)]
@@ -41,32 +46,60 @@ pub struct LibraryWatcher {
     /// Shared scan state for progress updates (reserved for future use)
     #[allow(dead_code)]
     scan_state: Arc<ScanState>,
-    /// Channel sender for watcher messages
-    tx: mpsc::Sender<WatcherMessage>,
     /// Tracked folder paths and their IDs
     watched_folders: std::sync::Mutex<Vec<(i64, PathBuf)>>,
     /// Limits concurrent auto-scans triggered by watcher events
     scan_semaphore: Arc<Semaphore>,
 }
 
+/// Owns every task spawned by a [`LibraryWatcher`].
+///
+/// Dropping this handle stops the blocking filesystem watcher, the event dispatcher,
+/// and any scans currently owned by the dispatcher.
+pub struct LibraryWatcherHandle {
+    shutdown: Arc<AtomicBool>,
+    file_watcher_task: Option<JoinHandle<()>>,
+    scan_trigger_task: Option<JoinHandle<()>>,
+}
+
+impl LibraryWatcherHandle {
+    fn idle() -> Self {
+        Self {
+            shutdown: Arc::new(AtomicBool::new(true)),
+            file_watcher_task: None,
+            scan_trigger_task: None,
+        }
+    }
+
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(task) = &self.scan_trigger_task {
+            task.abort();
+        }
+        if let Some(task) = &self.file_watcher_task {
+            // A running spawn_blocking task cannot be force-aborted, so the atomic
+            // signal above is what stops it. abort() still prevents a queued task
+            // from starting during runtime teardown.
+            task.abort();
+        }
+    }
+}
+
+impl Drop for LibraryWatcherHandle {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 impl LibraryWatcher {
-    /// Create a new library watcher
-    /// Returns the watcher and the receiver for watcher messages
-    pub fn new(
-        pool: Database,
-        scan_state: Arc<ScanState>,
-    ) -> (Self, mpsc::Receiver<WatcherMessage>) {
-        let (tx, rx) = mpsc::channel(100);
-        (
-            Self {
-                pool,
-                scan_state,
-                tx,
-                watched_folders: std::sync::Mutex::new(Vec::new()),
-                scan_semaphore: Arc::new(Semaphore::new(2)),
-            },
-            rx,
-        )
+    /// Create a new library watcher.
+    pub fn new(pool: Database, scan_state: Arc<ScanState>) -> Self {
+        Self {
+            pool,
+            scan_state,
+            watched_folders: std::sync::Mutex::new(Vec::new()),
+            scan_semaphore: Arc::new(Semaphore::new(2)),
+        }
     }
 
     /// Start watching music folders with watch_enabled = true
@@ -74,13 +107,13 @@ impl LibraryWatcher {
     /// This spawns background tasks for:
     /// 1. The file system watcher itself
     /// 2. A scan trigger that processes debounced events
-    pub async fn start(self: Arc<Self>, rx: mpsc::Receiver<WatcherMessage>) -> anyhow::Result<()> {
+    pub async fn start(self: Arc<Self>) -> anyhow::Result<LibraryWatcherHandle> {
         // Load folders to watch
         let folders = self.load_watch_enabled_folders().await?;
 
         if folders.is_empty() {
             info!("No music folders with watch_enabled=true, file watcher not started");
-            return Ok(());
+            return Ok(LibraryWatcherHandle::idle());
         }
 
         info!("Starting file watcher for {} folder(s)", folders.len());
@@ -94,25 +127,29 @@ impl LibraryWatcher {
                 .collect();
         }
 
-        // Clone for the watcher task (reserved for future enhancements)
-        let _watcher_self = Arc::clone(&self);
-        let tx = self.tx.clone();
+        let (tx, rx) = mpsc::channel(100);
+        let shutdown = Arc::new(AtomicBool::new(false));
 
         // Spawn the file watcher
         let folders_to_watch: Vec<_> = folders.iter().map(|f| (f.id, f.path.clone())).collect();
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = run_watcher(folders_to_watch, tx) {
+        let watcher_shutdown = Arc::clone(&shutdown);
+        let file_watcher_task = tokio::task::spawn_blocking(move || {
+            if let Err(e) = run_watcher(folders_to_watch, tx, watcher_shutdown) {
                 error!("File watcher error: {}", e);
             }
         });
 
         // Spawn the scan trigger task
         let trigger_self = Arc::clone(&self);
-        tokio::spawn(async move {
+        let scan_trigger_task = tokio::spawn(async move {
             trigger_self.run_scan_trigger(rx).await;
         });
 
-        Ok(())
+        Ok(LibraryWatcherHandle {
+            shutdown,
+            file_watcher_task: Some(file_watcher_task),
+            scan_trigger_task: Some(scan_trigger_task),
+        })
     }
 
     /// Load music folders that have watch_enabled = true
@@ -122,7 +159,25 @@ impl LibraryWatcher {
 
     /// Process watcher messages and trigger scans
     async fn run_scan_trigger(self: Arc<Self>, mut rx: mpsc::Receiver<WatcherMessage>) {
-        while let Some(msg) = rx.recv().await {
+        let mut scans = JoinSet::new();
+
+        loop {
+            let msg = tokio::select! {
+                msg = rx.recv() => msg,
+                result = scans.join_next(), if !scans.is_empty() => {
+                    if let Some(Err(error)) = result {
+                        if !error.is_cancelled() {
+                            error!("Auto-scan task failed: {}", error);
+                        }
+                    }
+                    continue;
+                }
+            };
+
+            let Some(msg) = msg else {
+                break;
+            };
+
             match msg {
                 WatcherMessage::FilesChanged {
                     folder_id,
@@ -138,7 +193,7 @@ impl LibraryWatcher {
                     let scan_semaphore = Arc::clone(&self.scan_semaphore);
 
                     // Spawn scan in background - use targeted file scanning
-                    tokio::spawn(async move {
+                    scans.spawn(async move {
                         let permit = match scan_semaphore.acquire_owned().await {
                             Ok(permit) => permit,
                             Err(e) => {
@@ -192,6 +247,7 @@ impl LibraryWatcher {
 fn run_watcher(
     folders: Vec<(i64, String)>,
     tx: mpsc::Sender<WatcherMessage>,
+    shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     // Create a debounced watcher with 5 second timeout
     let (debounced_tx, debounced_rx) = std::sync::mpsc::channel();
@@ -222,8 +278,8 @@ fn run_watcher(
         .collect();
 
     // Process debounced events
-    loop {
-        match debounced_rx.recv() {
+    while !shutdown.load(Ordering::Acquire) {
+        match debounced_rx.recv_timeout(SHUTDOWN_POLL_INTERVAL) {
             Ok(Ok(events)) => {
                 // Collect unique affected folders with their file paths
                 let mut folder_files: std::collections::HashMap<i64, Vec<PathBuf>> =
@@ -265,8 +321,9 @@ fn run_watcher(
                 warn!("Watcher error: {:?}", error);
                 let _ = tx.blocking_send(WatcherMessage::Error(format!("{:?}", error)));
             }
-            Err(e) => {
-                error!("Watcher channel error: {}", e);
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                error!("Watcher event channel disconnected");
                 break;
             }
         }
@@ -298,5 +355,18 @@ mod tests {
         assert!(is_audio_file(&PathBuf::from("/music/song.m4a")));
         assert!(!is_audio_file(&PathBuf::from("/music/cover.jpg")));
         assert!(!is_audio_file(&PathBuf::from("/music/playlist.m3u")));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn watcher_loop_stops_when_its_runtime_is_dropped() {
+        let (tx, _rx) = mpsc::channel(1);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let watcher_shutdown = Arc::clone(&shutdown);
+        let watcher_task =
+            tokio::task::spawn_blocking(move || run_watcher(Vec::new(), tx, watcher_shutdown));
+
+        shutdown.store(true, Ordering::Release);
+
+        watcher_task.await.unwrap().unwrap();
     }
 }

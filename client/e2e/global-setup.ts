@@ -12,7 +12,9 @@
 
 import { spawn, execSync, ChildProcess } from "child_process";
 import * as fs from "fs";
+import * as net from "net";
 import * as path from "path";
+import { expect } from "@playwright/test";
 
 // Store Vite preview server info globally so teardown can access it
 declare global {
@@ -28,20 +30,29 @@ declare global {
 async function waitForServer(
   url: string,
   timeout: number = 60000,
-): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return true;
-      }
-    } catch {
-      // Server not ready yet
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return false;
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        try {
+          return (await fetch(url)).ok;
+        } catch {
+          return false;
+        }
+      },
+      { timeout, message: `server should become ready at ${url}` },
+    )
+    .toBe(true);
+}
+
+async function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
 }
 
 /** Check if test fixtures exist */
@@ -132,9 +143,12 @@ export default async function globalSetup() {
   // Kill any stale process on the Vite preview port before starting
   console.log(`Checking for stale processes on port ${vitePort}...`);
   killProcessOnPort(vitePort);
-
-  // Small delay to ensure port is released
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await expect
+    .poll(() => isPortAvailable(vitePort), {
+      timeout: 5000,
+      message: `Vite port ${vitePort} should be available`,
+    })
+    .toBe(true);
 
   // Start Vite preview server
   console.log(`Starting Vite preview server on port ${vitePort}...`);
@@ -180,13 +194,13 @@ export default async function globalSetup() {
 
   // Wait for Vite preview to be ready
   const viteUrl = `http://localhost:${vitePort}`;
-  const viteReady = await waitForServer(viteUrl, 30000);
-
-  if (!viteReady) {
+  try {
+    await waitForServer(viteUrl, 30000);
+  } catch (error) {
     console.error("Vite preview server failed to start. Output:", viteOutput);
     console.error("Vite errors:", viteError);
     viteProcess.kill();
-    throw new Error("Vite preview server failed to start within timeout");
+    throw error;
   }
 
   console.log(`✅ Vite preview server ready at http://localhost:${vitePort}`);

@@ -12,16 +12,10 @@ export default async function globalTeardown() {
   const viteServerInfo = global.__VITE_PREVIEW_SERVER__;
   if (viteServerInfo) {
     console.log("Stopping Vite preview server...");
+    const exited = once(viteServerInfo.process, "exit");
     viteServerInfo.process.kill("SIGTERM");
-
-    // Wait a moment for graceful shutdown
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // Force kill if still running
-    try {
-      viteServerInfo.process.kill("SIGKILL");
-    } catch {
-      // Already dead
+    if (viteServerInfo.process.exitCode === null) {
+      await exited;
     }
 
     console.log("✅ Vite preview server stopped");
@@ -31,3 +25,4 @@ export default async function globalTeardown() {
 
   console.log("✅ Global teardown complete\n");
 }
+import { once } from "events";

@@ -15,7 +15,7 @@ use axum::{
     response::Response,
     Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -202,6 +202,65 @@ pub struct SongIdsResponse {
     /// Total count of matching songs
     #[ts(type = "number")]
     pub total: i64,
+}
+
+/// Request to materialize one or more library collection sources.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SourceSongsRequest {
+    pub sources: Vec<crate::api::queue::QueueSourceRequest>,
+}
+
+/// IDs-only materialization used by playlist and bulk operations.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SourceSongIdsResponse {
+    pub ids: Vec<String>,
+    #[ts(type = "number")]
+    pub total: i64,
+}
+
+/// Complete metadata required to persist a native offline download snapshot.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct DownloadManifestResponse {
+    pub songs: Vec<crate::api::common::models::SongResponse>,
+}
+
+pub async fn get_source_song_ids(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<SourceSongsRequest>,
+) -> FerrotuneApiResult<Json<SourceSongIdsResponse>> {
+    let songs = crate::api::queue::materialize_queue_sources(
+        &state.database,
+        user.user_id,
+        &request.sources,
+    )
+    .await?;
+    let ids = songs.into_iter().map(|song| song.id).collect::<Vec<_>>();
+    let total = ids.len() as i64;
+    Ok(Json(SourceSongIdsResponse { ids, total }))
+}
+
+pub async fn get_download_manifest(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<SourceSongsRequest>,
+) -> FerrotuneApiResult<Json<DownloadManifestResponse>> {
+    let songs = crate::api::queue::materialize_queue_sources(
+        &state.database,
+        user.user_id,
+        &request.sources,
+    )
+    .await?
+    .into_iter()
+    .map(|song| crate::api::common::browse::song_to_response(song, None, None, None))
+    .collect();
+    Ok(Json(DownloadManifestResponse { songs }))
 }
 
 /// Get all song IDs matching the given search and filter criteria.

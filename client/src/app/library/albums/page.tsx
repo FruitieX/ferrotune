@@ -19,7 +19,7 @@ import {
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album } from "@/lib/api/types";
 import {
   AlbumCard,
   AlbumCardSkeleton,
@@ -117,62 +117,53 @@ export default function AlbumsPage() {
     getSelectedItems,
   } = useItemSelection(displayAlbums);
 
-  // Get songs from selected albums
-  const getSelectedAlbumsSongs = async (): Promise<Song[]> => {
-    const client = getClient();
-    if (!client) return [];
-
-    const albums = getSelectedItems();
-    const songsPromises = albums.map((album) =>
-      client.getAlbum(album.id).then((res) => res.album.song ?? []),
-    );
-    const songsArrays = await Promise.all(songsPromises);
-    return songsArrays.flat();
-  };
+  const getSelectedAlbumSources = () =>
+    getSelectedItems().map((album) => ({
+      sourceType: "album" as const,
+      sourceId: album.id,
+    }));
 
   // Bulk action handlers
-  const handlePlaySelected = async () => {
-    const songs = await getSelectedAlbumsSongs();
-    if (songs.length > 0) {
+  const handlePlaySelected = () => {
+    const sources = getSelectedAlbumSources();
+    if (sources.length > 0) {
       startQueue({
-        sourceType: "library",
-        sourceName: "Library",
-        songIds: songs.map((s) => s.id),
+        sourceType: "other",
+        sourceName: `${sources.length} albums`,
+        sources,
         shuffle: false,
       });
       clearSelection();
-      toast.success(
-        `Playing ${songs.length} songs from ${selectedCount} albums`,
-      );
+      toast.success(`Playing ${selectedCount} albums`);
     }
   };
 
-  const handleShuffleSelected = async () => {
-    const songs = await getSelectedAlbumsSongs();
-    if (songs.length > 0) {
+  const handleShuffleSelected = () => {
+    const sources = getSelectedAlbumSources();
+    if (sources.length > 0) {
       startQueue({
-        sourceType: "library",
-        sourceName: "Library",
-        songIds: songs.map((s) => s.id),
+        sourceType: "other",
+        sourceName: `${sources.length} albums`,
+        sources,
         shuffle: true,
       });
       clearSelection();
-      toast.success(
-        `Shuffling ${songs.length} songs from ${selectedCount} albums`,
-      );
+      toast.success(`Shuffling ${selectedCount} albums`);
     }
   };
 
   const handleAddSelectedToQueue = async (position: "next" | "last") => {
-    const songs = await getSelectedAlbumsSongs();
-    if (songs.length > 0) {
-      addToQueue({
-        songIds: songs.map((s) => s.id),
+    const sources = getSelectedAlbumSources();
+    if (sources.length > 0) {
+      const result = await addToQueue({
+        sources,
+        sourceName: `${sources.length} albums`,
         position: position === "last" ? "end" : position,
       });
+      if (!result.success) return;
       clearSelection();
       toast.success(
-        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+        `Added ${result.addedCount} songs to ${position === "next" ? "play next" : "queue"}`,
       );
     }
   };

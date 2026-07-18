@@ -60,8 +60,8 @@ export default defineConfig({
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
 
-  /* Retry on failure - helps with flaky tests due to timing/virtualization */
-  retries: process.env.CI ? 3 : 1,
+  /* Tests wait on observable state; retrying the whole test would hide flakes. */
+  retries: 0,
 
   /* Cap CI workers because each worker also boots a backend test server. */
   workers: process.env.CI ? 2 : Math.min(Math.ceil(os.cpus().length / 2), 4),
@@ -82,14 +82,14 @@ export default defineConfig({
     /* Base URL for the client app */
     baseURL: "http://localhost:13000",
 
-    /* Collect trace when retrying the failed test */
-    trace: "on-first-retry",
+    /* Preserve a trace for the original failure. */
+    trace: "retain-on-failure",
 
     /* Take screenshot on failure */
     screenshot: "only-on-failure",
 
     /* Video recording (disabled in CI - ffmpeg install is unreliable) */
-    video: process.env.CI ? "off" : "on-first-retry",
+    video: process.env.CI ? "off" : "retain-on-failure",
 
     /* Action timeout */
     actionTimeout: 10_000,

@@ -7,4 +7,4 @@ export type ContinueListeningPlaylist = { id: string, name: string,
 /**
  * "playlist" or "smartPlaylist"
  */
-playlistType: string, songCount: number, duration: number, coverArt: string | null, };
+playlistType: string, songCount: number | null, duration: number | null, coverArt: string | null, };

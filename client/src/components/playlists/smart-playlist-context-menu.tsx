@@ -164,21 +164,15 @@ export function SmartPlaylistContextMenu({
   };
 
   const handlePlayNext = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getSmartPlaylistSongs(smartPlaylist.id);
-      if (response.songs?.length > 0) {
-        const result = await addToQueue({
-          songIds: response.songs.map((s) => s.id),
-          position: "next",
-        });
-        if (result.success) {
-          toast.success(`Added "${smartPlaylist.name}" to play next`);
-        } else {
-          toast.error("Failed to add to queue");
-        }
+      const result = await addToQueue({
+        sourceType: "smartPlaylist",
+        sourceId: smartPlaylist.id,
+        sourceName: getSmartPlaylistDisplayName(smartPlaylist),
+        position: "next",
+      });
+      if (result.success && result.addedCount > 0) {
+        toast.success(`Added "${smartPlaylist.name}" to play next`);
       } else {
         toast.error("Smart playlist has no matching songs");
       }
@@ -189,21 +183,15 @@ export function SmartPlaylistContextMenu({
   };
 
   const handleAddToQueue = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getSmartPlaylistSongs(smartPlaylist.id);
-      if (response.songs?.length > 0) {
-        const result = await addToQueue({
-          songIds: response.songs.map((s) => s.id),
-          position: "end",
-        });
-        if (result.success) {
-          toast.success(`Added "${smartPlaylist.name}" to queue`);
-        } else {
-          toast.error("Failed to add to queue");
-        }
+      const result = await addToQueue({
+        sourceType: "smartPlaylist",
+        sourceId: smartPlaylist.id,
+        sourceName: getSmartPlaylistDisplayName(smartPlaylist),
+        position: "end",
+      });
+      if (result.success && result.addedCount > 0) {
+        toast.success(`Added "${smartPlaylist.name}" to queue`);
       } else {
         toast.error("Smart playlist has no matching songs");
       }
@@ -472,21 +460,15 @@ export function SmartPlaylistDropdownMenu({
   };
 
   const handlePlayNext = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getSmartPlaylistSongs(smartPlaylist.id);
-      if (response.songs?.length > 0) {
-        const result = await addToQueue({
-          songIds: response.songs.map((s) => s.id),
-          position: "next",
-        });
-        if (result.success) {
-          toast.success(`Added "${smartPlaylist.name}" to play next`);
-        } else {
-          toast.error("Failed to add to queue");
-        }
+      const result = await addToQueue({
+        sourceType: "smartPlaylist",
+        sourceId: smartPlaylist.id,
+        sourceName: getSmartPlaylistDisplayName(smartPlaylist),
+        position: "next",
+      });
+      if (result.success && result.addedCount > 0) {
+        toast.success(`Added "${smartPlaylist.name}" to play next`);
       } else {
         toast.error("Smart playlist has no matching songs");
       }
@@ -497,21 +479,15 @@ export function SmartPlaylistDropdownMenu({
   };
 
   const handleAddToQueue = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getSmartPlaylistSongs(smartPlaylist.id);
-      if (response.songs?.length > 0) {
-        const result = await addToQueue({
-          songIds: response.songs.map((s) => s.id),
-          position: "end",
-        });
-        if (result.success) {
-          toast.success(`Added "${smartPlaylist.name}" to queue`);
-        } else {
-          toast.error("Failed to add to queue");
-        }
+      const result = await addToQueue({
+        sourceType: "smartPlaylist",
+        sourceId: smartPlaylist.id,
+        sourceName: getSmartPlaylistDisplayName(smartPlaylist),
+        position: "end",
+      });
+      if (result.success && result.addedCount > 0) {
+        toast.success(`Added "${smartPlaylist.name}" to queue`);
       } else {
         toast.error("Smart playlist has no matching songs");
       }

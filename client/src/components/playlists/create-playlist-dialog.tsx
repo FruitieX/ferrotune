@@ -170,8 +170,8 @@ export function CreatePlaylistDialog({
         await queryClient.invalidateQueries({ queryKey: ["playlists"] });
 
         // Navigate to the new playlist
-        if (result.playlist.playlist?.id) {
-          router.push(`/playlists/details?id=${result.playlist.playlist.id}`);
+        if (result.playlist.playlistId) {
+          router.push(`/playlists/details?id=${result.playlist.playlistId}`);
         }
       }
       setName("");

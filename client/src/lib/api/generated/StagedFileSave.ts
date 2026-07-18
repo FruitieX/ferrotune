@@ -8,4 +8,4 @@ targetPath: string,
 /**
  * Music folder ID to save to
  */
-musicFolderId: bigint, };
+musicFolderId: number, };

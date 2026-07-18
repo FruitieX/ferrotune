@@ -8,4 +8,4 @@ newPath: string,
 /**
  * Target music folder ID (required for staged files, optional for library files)
  */
-targetMusicFolderId: bigint | null, };
+targetMusicFolderId: number | null, };

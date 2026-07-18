@@ -307,7 +307,7 @@ export default function TaggerPage() {
                   fileFormat:
                     stagedFile.originalFilename.split(".").pop() ?? "unknown",
                   fileSize: stagedFile.fileSize,
-                  durationMs: stagedFile.durationMs ?? BigInt(0),
+                  durationMs: stagedFile.durationMs ?? 0,
                   tags: stagedFile.tags,
                   coverArtId: null,
                   musicFolderId: null,
@@ -547,7 +547,7 @@ export default function TaggerPage() {
             filePath: uploaded.originalFilename,
             fileFormat: uploaded.originalFilename.split(".").pop() ?? "unknown",
             fileSize: uploaded.fileSize,
-            durationMs: uploaded.durationMs ?? BigInt(0),
+            durationMs: uploaded.durationMs ?? 0,
             tags: uploaded.tags,
             coverArtId: null,
             musicFolderId: null,
@@ -1392,18 +1392,14 @@ export default function TaggerPage() {
           {focusedTrack && (
             <div className="flex items-center gap-4">
               <span>
-                {(Number(focusedTrack.track.fileSize) / 1024 / 1024).toFixed(1)}{" "}
-                MB
+                {(focusedTrack.track.fileSize / 1024 / 1024).toFixed(1)} MB
               </span>
               <span>{focusedTrack.track.fileFormat.toUpperCase()}</span>
               <span>
-                {Math.floor(
-                  Number(focusedTrack.track.durationMs ?? 0) / 1000 / 60,
-                )}
-                :
+                {Math.floor((focusedTrack.track.durationMs ?? 0) / 1000 / 60)}:
                 {String(
                   Math.floor(
-                    (Number(focusedTrack.track.durationMs ?? 0) / 1000) % 60,
+                    ((focusedTrack.track.durationMs ?? 0) / 1000) % 60,
                   ),
                 ).padStart(2, "0")}
               </span>

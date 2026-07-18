@@ -97,7 +97,7 @@ import {
   DrawerMenuCheckboxItem,
   DrawerMenuLabel,
 } from "@/components/shared/drawer-menu";
-import type { Album, Artist, Song } from "@/lib/api/types";
+import type { Album, Artist } from "@/lib/api/types";
 import type {
   SortField,
   ColumnVisibility,
@@ -368,59 +368,49 @@ export default function FavoritesPage() {
     }
   };
 
-  // Get songs from selected albums
-  const getSelectedAlbumsSongs = async (): Promise<Song[]> => {
-    const client = getClient();
-    if (!client) return [];
-
-    const selectedAlbums = albumSelection.getSelectedItems();
-    const songsPromises = selectedAlbums.map((album) =>
-      client.getAlbum(album.id).then((res) => res.album.song ?? []),
-    );
-    const songsArrays = await Promise.all(songsPromises);
-    return songsArrays.flat();
-  };
+  const getSelectedAlbumSources = () =>
+    albumSelection.getSelectedItems().map((album) => ({
+      sourceType: "album" as const,
+      sourceId: album.id,
+    }));
 
   // Album bulk action handlers
-  const handlePlaySelectedAlbums = async () => {
-    const songs = await getSelectedAlbumsSongs();
-    if (songs.length > 0) {
+  const handlePlaySelectedAlbums = () => {
+    const sources = getSelectedAlbumSources();
+    if (sources.length > 0) {
       startQueue({
-        sourceType: "favorites",
+        sourceType: "other",
         sourceName: "Favorites (albums selection)",
-        songIds: songs.map((s) => s.id),
+        sources,
         shuffle: false,
       });
       albumSelection.clearSelection();
-      toast.success(
-        `Playing ${songs.length} songs from ${albumSelection.selectedCount} albums`,
-      );
+      toast.success(`Playing ${albumSelection.selectedCount} albums`);
     }
   };
 
-  const handleShuffleSelectedAlbums = async () => {
-    const songs = await getSelectedAlbumsSongs();
-    if (songs.length > 0) {
+  const handleShuffleSelectedAlbums = () => {
+    const sources = getSelectedAlbumSources();
+    if (sources.length > 0) {
       startQueue({
-        sourceType: "favorites",
+        sourceType: "other",
         sourceName: "Favorites (albums selection)",
-        songIds: songs.map((s) => s.id),
+        sources,
         shuffle: true,
       });
       albumSelection.clearSelection();
-      toast.success(
-        `Shuffling ${songs.length} songs from ${albumSelection.selectedCount} albums`,
-      );
+      toast.success(`Shuffling ${albumSelection.selectedCount} albums`);
     }
   };
 
   const handleAddSelectedAlbumsToQueue = async (position: "next" | "end") => {
-    const songs = await getSelectedAlbumsSongs();
-    if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position });
+    const sources = getSelectedAlbumSources();
+    if (sources.length > 0) {
+      const result = await addToQueue({ sources, position });
+      if (!result.success) return;
       albumSelection.clearSelection();
       toast.success(
-        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+        `Added ${result.addedCount} songs to ${position === "next" ? "play next" : "queue"}`,
       );
     }
   };
@@ -449,57 +439,48 @@ export default function FavoritesPage() {
   };
 
   // Artist bulk action handlers
-  const getSelectedArtistsSongs = async (): Promise<Song[]> => {
-    const client = getClient();
-    if (!client) return [];
+  const getSelectedArtistSources = () =>
+    artistSelection.getSelectedItems().map((artist) => ({
+      sourceType: "artist" as const,
+      sourceId: artist.id,
+    }));
 
-    const selectedArtists = artistSelection.getSelectedItems();
-    const songsPromises = selectedArtists.map((artist) =>
-      client.getArtist(artist.id).then((res) => res.artist.song ?? []),
-    );
-    const songsArrays = await Promise.all(songsPromises);
-    return songsArrays.flat();
-  };
-
-  const handlePlaySelectedArtists = async () => {
-    const songs = await getSelectedArtistsSongs();
-    if (songs.length > 0) {
+  const handlePlaySelectedArtists = () => {
+    const sources = getSelectedArtistSources();
+    if (sources.length > 0) {
       startQueue({
-        sourceType: "favorites",
+        sourceType: "other",
         sourceName: "Favorites (artists selection)",
-        songIds: songs.map((s) => s.id),
+        sources,
         shuffle: false,
       });
       artistSelection.clearSelection();
-      toast.success(
-        `Playing ${songs.length} songs from ${artistSelection.selectedCount} artists`,
-      );
+      toast.success(`Playing ${artistSelection.selectedCount} artists`);
     }
   };
 
-  const handleShuffleSelectedArtists = async () => {
-    const songs = await getSelectedArtistsSongs();
-    if (songs.length > 0) {
+  const handleShuffleSelectedArtists = () => {
+    const sources = getSelectedArtistSources();
+    if (sources.length > 0) {
       startQueue({
-        sourceType: "favorites",
+        sourceType: "other",
         sourceName: "Favorites (artists selection)",
-        songIds: songs.map((s) => s.id),
+        sources,
         shuffle: true,
       });
       artistSelection.clearSelection();
-      toast.success(
-        `Shuffling ${songs.length} songs from ${artistSelection.selectedCount} artists`,
-      );
+      toast.success(`Shuffling ${artistSelection.selectedCount} artists`);
     }
   };
 
   const handleAddSelectedArtistsToQueue = async (position: "next" | "end") => {
-    const songs = await getSelectedArtistsSongs();
-    if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position });
+    const sources = getSelectedArtistSources();
+    if (sources.length > 0) {
+      const result = await addToQueue({ sources, position });
+      if (!result.success) return;
       artistSelection.clearSelection();
       toast.success(
-        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+        `Added ${result.addedCount} songs to ${position === "next" ? "play next" : "queue"}`,
       );
     }
   };

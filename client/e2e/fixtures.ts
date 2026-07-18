@@ -1,5 +1,6 @@
 import { test as base, expect, Page } from "@playwright/test";
 import { spawn, ChildProcess } from "child_process";
+import { once } from "events";
 import * as fs from "fs";
 import * as net from "net";
 import * as path from "path";
@@ -169,13 +170,10 @@ export async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
     return;
   }
 
+  const exited = once(serverInfo.process, "exit");
   serverInfo.process.kill("SIGTERM");
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  try {
-    serverInfo.process.kill("SIGKILL");
-  } catch {
-    // Already dead
+  if (serverInfo.process.exitCode === null) {
+    await exited;
   }
 
   fs.rmSync(serverInfo.tempDir, { recursive: true, force: true });
@@ -234,19 +232,15 @@ export async function spawnUnseededServer(
     console.error(`Instance ${instanceName} failed to start server:`, err);
   });
 
-  const ready = await waitForServer(
-    `http://127.0.0.1:${port}/api/setup/status`,
-  );
-
-  if (!ready) {
+  try {
+    await waitForServer(`http://127.0.0.1:${port}/api/setup/status`);
+  } catch (error) {
     console.error(
       `Instance ${instanceName} server failed to start. Errors:`,
       serverError,
     );
     serverProcess.kill();
-    throw new Error(
-      `Ferrotune server for ${instanceName} failed to start within timeout`,
-    );
+    throw error;
   }
 
   return {
@@ -270,20 +264,19 @@ function nextIsolatedServerName(): string {
 async function waitForServer(
   url: string,
   timeout: number = 30000,
-): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return true;
-      }
-    } catch {
-      // Server not ready yet
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return false;
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        try {
+          return (await fetch(url)).ok;
+        } catch {
+          return false;
+        }
+      },
+      { timeout, message: `server should become ready at ${url}` },
+    )
+    .toBe(true);
 }
 
 type ScanStatus = {
@@ -362,36 +355,31 @@ async function waitForScanComplete(
   baseUrl: string,
   credentials: Credentials,
 ): Promise<void> {
-  const deadline = Date.now() + 60000;
-
-  while (Date.now() < deadline) {
-    const response = await fetchOrThrow(
-      `${baseUrl}/api/scan/full`,
-      {
-        method: "GET",
-        headers: { Authorization: basicAuthHeader(credentials) },
+  await expect
+    .poll(
+      async () => {
+        const response = await fetchOrThrow(
+          `${baseUrl}/api/scan/full`,
+          {
+            method: "GET",
+            headers: { Authorization: basicAuthHeader(credentials) },
+          },
+          "Scan status request",
+        );
+        const status: unknown = await response.json();
+        if (!isScanStatus(status)) {
+          throw new Error(
+            `Unexpected scan status response: ${JSON.stringify(status)}`,
+          );
+        }
+        if (typeof status.error === "string" && status.error.length > 0) {
+          throw new Error(`Library scan failed: ${status.error}`);
+        }
+        return status.scanning;
       },
-      "Scan status request",
-    );
-    const status: unknown = await response.json();
-
-    if (!isScanStatus(status)) {
-      throw new Error(
-        `Unexpected scan status response: ${JSON.stringify(status)}`,
-      );
-    }
-
-    if (!status.scanning) {
-      if (typeof status.error === "string" && status.error.length > 0) {
-        throw new Error(`Library scan failed: ${status.error}`);
-      }
-      return;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-
-  throw new Error("Library scan did not finish within timeout");
+      { timeout: 60000, message: "library scan should finish" },
+    )
+    .toBe(false);
 }
 
 async function seedServer(
@@ -544,19 +532,15 @@ async function spawnServer(instanceName: string): Promise<ServerInfo> {
   });
 
   // Wait for server to be ready
-  const ready = await waitForServer(
-    `http://127.0.0.1:${port}/api/setup/status`,
-  );
-
-  if (!ready) {
+  try {
+    await waitForServer(`http://127.0.0.1:${port}/api/setup/status`);
+  } catch (error) {
     console.error(
       `Instance ${instanceName} server failed to start. Errors:`,
       serverError,
     );
     serverProcess.kill();
-    throw new Error(
-      `Ferrotune server for ${instanceName} failed to start within timeout`,
-    );
+    throw error;
   }
 
   const baseUrl = `http://127.0.0.1:${port}`;

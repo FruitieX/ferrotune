@@ -6,10 +6,10 @@
 //! stats are composed via the shared scrobble repo helpers instead of inline
 //! dialect-specific SQL.
 
-use sea_orm::sea_query::{Expr, Func, SimpleExpr};
+use sea_orm::sea_query::{Expr, ExprTrait, Func, SimpleExpr};
 use sea_orm::{
-    ColumnTrait, Condition, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
-    QueryTrait, RelationTrait, Value,
+    ColumnTrait, Condition, EntityTrait, JoinType, Order, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait, RelationTrait, Value,
 };
 
 use std::collections::HashMap;
@@ -529,6 +529,281 @@ pub async fn get_songs_by_artist_for_user(
     Ok(songs)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectionSongSort {
+    Natural,
+    TrackNumber,
+    Name,
+    Artist,
+    Album,
+    Year,
+    Genre,
+    DateAdded,
+    Duration,
+    BitRate,
+    Format,
+    PlayCount,
+    PlayStarts,
+    LastPlayed,
+}
+
+#[derive(Debug)]
+pub struct CollectionSongPage {
+    pub songs: Vec<Song>,
+    pub total: i64,
+}
+
+fn collection_song_filter(filter: Option<&str>) -> Option<Condition> {
+    filter
+        .filter(|value| !value.trim().is_empty())
+        .map(|filter| {
+            let pattern = format!("%{}%", filter.to_lowercase());
+            Condition::any()
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::songs::Entity,
+                        entity::songs::Column::Title,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::artists::Entity,
+                        entity::artists::Column::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::albums::Entity,
+                        entity::albums::Column::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(Expr::expr(Func::lower(Expr::col(entity::songs::Column::Genre))).like(pattern))
+        })
+}
+
+fn order_collection_songs(
+    database: &Database,
+    mut query: sea_orm::Select<entity::songs::Entity>,
+    user_id: i64,
+    sort: CollectionSongSort,
+    descending: bool,
+) -> sea_orm::Select<entity::songs::Entity> {
+    use entity::songs::Column as SongColumn;
+
+    let order = if descending { Order::Desc } else { Order::Asc };
+    query = match sort {
+        CollectionSongSort::Natural | CollectionSongSort::TrackNumber => query
+            .order_by(SongColumn::DiscNumber, order.clone())
+            .order_by(SongColumn::TrackNumber, order.clone()),
+        CollectionSongSort::Name => query.order_by(
+            case_insensitive_order(database.sea_backend(), SongColumn::Title),
+            order.clone(),
+        ),
+        CollectionSongSort::Artist => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::artists::Entity, entity::artists::Column::Name),
+            ),
+            order.clone(),
+        ),
+        CollectionSongSort::Album => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::albums::Entity, entity::albums::Column::Name),
+            ),
+            order.clone(),
+        ),
+        CollectionSongSort::Year => query.order_by(
+            Expr::col((entity::songs::Entity, SongColumn::Year)).if_null(0),
+            order.clone(),
+        ),
+        CollectionSongSort::Genre => query.order_by(
+            case_insensitive_order(database.sea_backend(), SongColumn::Genre),
+            order.clone(),
+        ),
+        CollectionSongSort::DateAdded => query.order_by(SongColumn::CreatedAt, order.clone()),
+        CollectionSongSort::Duration => query.order_by(SongColumn::Duration, order.clone()),
+        CollectionSongSort::BitRate => query.order_by(SongColumn::Bitrate, order.clone()),
+        CollectionSongSort::Format => query.order_by(
+            case_insensitive_order(database.sea_backend(), SongColumn::FileFormat),
+            order.clone(),
+        ),
+        CollectionSongSort::PlayCount => query.order_by(
+            Expr::cust(format!(
+                "(SELECT COALESCE(SUM(sc.play_count), 0) FROM scrobbles sc \
+                 WHERE sc.song_id = songs.id AND sc.user_id = {user_id} \
+                 AND sc.submission = TRUE)"
+            )),
+            order.clone(),
+        ),
+        CollectionSongSort::PlayStarts => query.order_by(
+            Expr::cust(format!(
+                "(SELECT COUNT(*) FROM playback_starts ps \
+                 WHERE ps.song_id = songs.id AND ps.user_id = {user_id} \
+                 AND ps.explicit_start = TRUE)"
+            )),
+            order.clone(),
+        ),
+        CollectionSongSort::LastPlayed => {
+            let last_played = format!(
+                "(SELECT MAX(sc.played_at) FROM scrobbles sc \
+                 WHERE sc.song_id = songs.id AND sc.user_id = {user_id} \
+                 AND sc.submission = TRUE)"
+            );
+            query
+                .order_by(Expr::cust(format!("{last_played} IS NULL")), Order::Asc)
+                .order_by(Expr::cust(last_played), order.clone())
+        }
+    };
+    query
+        .order_by(
+            case_insensitive_order(database.sea_backend(), SongColumn::Title),
+            order,
+        )
+        .order_by_asc(SongColumn::Id)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn page_collection_songs(
+    database: &Database,
+    user_id: i64,
+    collection_condition: Condition,
+    filter: Option<&str>,
+    sort: CollectionSongSort,
+    descending: bool,
+    offset: u64,
+    limit: u64,
+) -> Result<CollectionSongPage> {
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok(CollectionSongPage {
+            songs: Vec::new(),
+            total: 0,
+        });
+    }
+
+    let mut query = song_select(database)
+        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids))
+        .filter(collection_condition);
+    if let Some(filter_condition) = collection_song_filter(filter) {
+        query = query.filter(filter_condition);
+    }
+    let total = query.clone().count(database.conn()).await? as i64;
+    let mut songs = order_collection_songs(database, query, user_id, sort, descending)
+        .offset(offset)
+        .limit(limit)
+        .into_model::<Song>()
+        .all(database.conn())
+        .await?;
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = scrobbles::fetch_song_play_stats_rows(
+        database,
+        Some(user_id),
+        &song_ids,
+        PlayStatsAggregation::CountRows,
+    )
+    .await?;
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
+            .await?;
+    apply_song_play_stats(&mut songs, stats, play_starts);
+    Ok(CollectionSongPage { songs, total })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn page_album_songs_for_user(
+    database: &Database,
+    album_id: &str,
+    user_id: i64,
+    filter: Option<&str>,
+    sort: CollectionSongSort,
+    descending: bool,
+    offset: u64,
+    limit: u64,
+) -> Result<CollectionSongPage> {
+    page_collection_songs(
+        database,
+        user_id,
+        Condition::all().add(entity::songs::Column::AlbumId.eq(album_id)),
+        filter,
+        sort,
+        descending,
+        offset,
+        limit,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn page_artist_songs_for_user(
+    database: &Database,
+    artist_id: &str,
+    user_id: i64,
+    filter: Option<&str>,
+    sort: CollectionSongSort,
+    descending: bool,
+    offset: u64,
+    limit: u64,
+) -> Result<CollectionSongPage> {
+    page_collection_songs(
+        database,
+        user_id,
+        Condition::any()
+            .add(entity::songs::Column::ArtistId.eq(artist_id))
+            .add(entity::albums::Column::ArtistId.eq(artist_id)),
+        filter,
+        sort,
+        descending,
+        offset,
+        limit,
+    )
+    .await
+}
+
+#[derive(Debug)]
+pub struct ArtistAlbumPage {
+    pub albums: Vec<Album>,
+    pub total: i64,
+}
+
+pub async fn page_albums_by_artist_for_user(
+    database: &Database,
+    artist_id: &str,
+    user_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<ArtistAlbumPage> {
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
+    if album_ids.is_empty() {
+        return Ok(ArtistAlbumPage {
+            albums: Vec::new(),
+            total: 0,
+        });
+    }
+    let query = album_select()
+        .filter(entity::albums::Column::ArtistId.eq(artist_id))
+        .filter(entity::albums::Column::Id.is_in(album_ids));
+    let total = query.clone().count(database.conn()).await? as i64;
+    let albums = query
+        .order_by_desc(entity::albums::Column::Year)
+        .order_by(
+            case_insensitive_order(database.sea_backend(), entity::albums::Column::Name),
+            Order::Asc,
+        )
+        .order_by_asc(entity::albums::Column::Id)
+        .offset(offset)
+        .limit(limit)
+        .into_model::<Album>()
+        .all(database.conn())
+        .await?;
+    Ok(ArtistAlbumPage { albums, total })
+}
+
 pub async fn get_song_by_id(database: &Database, id: &str) -> Result<Option<Song>> {
     song_select(database)
         .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
@@ -822,6 +1097,278 @@ pub struct DirectorySongRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectorySort {
+    Name,
+    Artist,
+    Album,
+    Year,
+    Duration,
+    Size,
+    DateAdded,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DirectoryPageOptions<'a> {
+    pub filter: Option<&'a str>,
+    pub sort: DirectorySort,
+    pub descending: bool,
+    pub offset: u64,
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, sea_orm::FromQueryResult)]
+pub struct DirectoryFolderRow {
+    pub name: String,
+    pub file_count: i64,
+    pub total_size: i64,
+}
+
+#[derive(Debug)]
+pub struct DirectoryFolderPage {
+    pub rows: Vec<DirectoryFolderRow>,
+    pub total: i64,
+}
+
+#[derive(Debug)]
+pub struct DirectorySongPage {
+    pub rows: Vec<DirectorySongRow>,
+    pub total: i64,
+    pub total_size: i64,
+}
+
+fn path_has_child_separator_expr(database: &Database, prefix: &str) -> SimpleExpr {
+    let path = || Expr::col(entity::songs::Column::FilePath).into();
+    let prefix = || Expr::val(prefix.to_string()).into();
+    match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => {
+            Expr::cust_with_exprs("instr(substr(?, length(?) + 1), '/')", [path(), prefix()])
+        }
+        sea_orm::DbBackend::Postgres => Expr::cust_with_exprs(
+            "position('/' in substring($1 from char_length($2) + 1))",
+            [path(), prefix()],
+        ),
+        sea_orm::DbBackend::MySql => Expr::cust_with_exprs(
+            "locate('/', substr(?, char_length(?) + 1))",
+            [path(), prefix()],
+        ),
+    }
+}
+
+fn first_path_component_expr(database: &Database, prefix: &str) -> SimpleExpr {
+    let path = || Expr::col(entity::songs::Column::FilePath).into();
+    let prefix = || Expr::val(prefix.to_string()).into();
+    match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => Expr::cust_with_exprs(
+            "substr(substr(?, length(?) + 1), 1, instr(substr(?, length(?) + 1), '/') - 1)",
+            [path(), prefix(), path(), prefix()],
+        ),
+        sea_orm::DbBackend::Postgres => Expr::cust_with_exprs(
+            "split_part(substring($1 from char_length($2) + 1), '/', 1)",
+            [path(), prefix()],
+        ),
+        sea_orm::DbBackend::MySql => Expr::cust_with_exprs(
+            "substring_index(substr(?, char_length(?) + 1), '/', 1)",
+            [path(), prefix()],
+        ),
+    }
+}
+
+fn case_insensitive_directory_expr(_database: &Database, expr: SimpleExpr) -> SimpleExpr {
+    SimpleExpr::FunctionCall(Func::lower(expr))
+}
+
+fn directory_filter_condition(filter: &str, columns: &[SimpleExpr]) -> Condition {
+    let pattern = format!("%{}%", filter.to_lowercase());
+    columns
+        .iter()
+        .cloned()
+        .fold(Condition::any(), |condition, column| {
+            condition.add(Expr::expr(Func::lower(column)).like(pattern.clone()))
+        })
+}
+
+pub async fn page_directory_folders(
+    database: &Database,
+    folder_id: i64,
+    prefix: &str,
+    options: DirectoryPageOptions<'_>,
+) -> Result<DirectoryFolderPage> {
+    use entity::songs::Column as Song;
+
+    let folder_name = first_path_component_expr(database, prefix);
+    let total_size = Expr::col(Song::FileSize).sum().cast_as("BIGINT");
+    let mut query = entity::songs::Entity::find()
+        .select_only()
+        .column_as(folder_name.clone(), "name")
+        .column_as(Song::Id.count(), "file_count")
+        .column_as(total_size.clone(), "total_size")
+        .filter(Song::MusicFolderId.eq(folder_id))
+        .filter(Song::MarkedForDeletionAt.is_null())
+        .filter(path_has_child_separator_expr(database, prefix).gt(0))
+        .group_by(folder_name.clone());
+
+    if !prefix.is_empty() {
+        query = query.filter(Song::FilePath.starts_with(prefix));
+    }
+    if let Some(filter) = options.filter.filter(|value| !value.trim().is_empty()) {
+        query = query.filter(directory_filter_condition(
+            filter,
+            std::slice::from_ref(&folder_name),
+        ));
+    }
+
+    let total = query.clone().count(database.conn()).await? as i64;
+    let order = if options.descending {
+        Order::Desc
+    } else {
+        Order::Asc
+    };
+    query = if options.sort == DirectorySort::Size {
+        query.order_by(total_size, order.clone())
+    } else {
+        query.order_by(
+            case_insensitive_directory_expr(database, folder_name.clone()),
+            order.clone(),
+        )
+    };
+    let rows = query
+        .order_by(
+            case_insensitive_directory_expr(database, folder_name),
+            order,
+        )
+        .offset(options.offset)
+        .limit(options.limit)
+        .into_model::<DirectoryFolderRow>()
+        .all(database.conn())
+        .await?;
+
+    Ok(DirectoryFolderPage { rows, total })
+}
+
+pub async fn page_directory_songs(
+    database: &Database,
+    folder_id: i64,
+    prefix: &str,
+    options: DirectoryPageOptions<'_>,
+) -> Result<DirectorySongPage> {
+    use entity::albums::Column as Album;
+    use entity::artists::Column as Artist;
+    use entity::songs::Column as Song;
+
+    let mut query = entity::songs::Entity::find()
+        .select_only()
+        .column(Song::Id)
+        .column(Song::FilePath)
+        .column(Song::Title)
+        .column(Song::AlbumId)
+        .column_as(Album::Name, "album_name")
+        .column(Song::Year)
+        .column(Song::Genre)
+        .column(Song::TrackNumber)
+        .column(Song::FileSize)
+        .column(Song::FileFormat)
+        .column(Song::Duration)
+        .column(Song::Bitrate)
+        .column(Song::ArtistId)
+        .column_as(Artist::Name, "artist_name")
+        .column(Song::CreatedAt)
+        .join(JoinType::LeftJoin, entity::songs::Relation::Artists.def())
+        .join(JoinType::LeftJoin, entity::songs::Relation::Albums.def())
+        .filter(Song::MusicFolderId.eq(folder_id))
+        .filter(Song::MarkedForDeletionAt.is_null())
+        .filter(path_has_child_separator_expr(database, prefix).eq(0));
+
+    if !prefix.is_empty() {
+        query = query.filter(Song::FilePath.starts_with(prefix));
+    }
+    if let Some(filter) = options.filter.filter(|value| !value.trim().is_empty()) {
+        query = query.filter(directory_filter_condition(
+            filter,
+            &[
+                Expr::col((entity::songs::Entity, Song::Title)).into(),
+                Expr::col((entity::artists::Entity, Artist::Name)).into(),
+                Expr::col((entity::albums::Entity, Album::Name)).into(),
+            ],
+        ));
+    }
+
+    let total = query.clone().count(database.conn()).await? as i64;
+    let total_size = query
+        .clone()
+        .select_only()
+        .expr_as(
+            Expr::expr(Func::coalesce([
+                Expr::col((entity::songs::Entity, Song::FileSize)).sum(),
+                Expr::val(0_i64).into(),
+            ]))
+            .cast_as("BIGINT"),
+            "total_size",
+        )
+        .into_tuple::<i64>()
+        .one(database.conn())
+        .await?
+        .unwrap_or(0);
+
+    let order = if options.descending {
+        Order::Desc
+    } else {
+        Order::Asc
+    };
+    query = match options.sort {
+        DirectorySort::Name => query.order_by(
+            case_insensitive_directory_expr(
+                database,
+                Expr::col((entity::songs::Entity, Song::Title)).into(),
+            ),
+            order.clone(),
+        ),
+        DirectorySort::Artist => query.order_by(
+            case_insensitive_directory_expr(
+                database,
+                Expr::col((entity::artists::Entity, Artist::Name)).into(),
+            ),
+            order.clone(),
+        ),
+        DirectorySort::Album => query.order_by(
+            case_insensitive_directory_expr(
+                database,
+                Expr::col((entity::albums::Entity, Album::Name)).if_null(""),
+            ),
+            order.clone(),
+        ),
+        DirectorySort::Year => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Year)).if_null(0),
+            order.clone(),
+        ),
+        DirectorySort::Duration => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Duration)),
+            order.clone(),
+        ),
+        DirectorySort::Size => query.order_by(
+            Expr::col((entity::songs::Entity, Song::FileSize)),
+            order.clone(),
+        ),
+        DirectorySort::DateAdded => query.order_by(
+            Expr::col((entity::songs::Entity, Song::CreatedAt)),
+            order.clone(),
+        ),
+    };
+    let rows = query
+        .order_by_asc(Song::Id)
+        .offset(options.offset)
+        .limit(options.limit)
+        .into_model::<DirectorySongRow>()
+        .all(database.conn())
+        .await?;
+
+    Ok(DirectorySongPage {
+        rows,
+        total,
+        total_size,
+    })
+}
+
 /// Select all songs in `folder_id` whose `file_path` begins with `prefix`,
 /// ordered by `file_path`. Pass an empty prefix to match every song.
 pub async fn list_directory_songs(
@@ -890,4 +1437,115 @@ pub async fn list_user_songs_by_path_prefix(
         .all(database.conn())
         .await
         .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        page_directory_folders, page_directory_songs, DirectoryPageOptions, DirectorySort,
+    };
+    use crate::db::{entity, Database};
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};
+
+    async fn directory_database() -> Database {
+        let database = Database::new_sqlite_in_memory()
+            .await
+            .expect("create SQLite test database");
+        entity::music_folders::ActiveModel {
+            id: Set(1),
+            name: Set("Music".to_string()),
+            path: Set("/music".to_string()),
+            enabled: Set(true),
+            watch_enabled: Set(false),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert music folder");
+        entity::artists::ActiveModel {
+            id: Set("artist".to_string()),
+            name: Set("Artist".to_string()),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert artist");
+
+        let mut songs = (0..75)
+            .map(|index| entity::songs::ActiveModel {
+                id: Set(format!("root-{index:03}")),
+                title: Set(format!("Root {index:03}")),
+                artist_id: Set("artist".to_string()),
+                music_folder_id: Set(Some(1)),
+                duration: Set(1),
+                file_path: Set(format!("root-{index:03}.mp3")),
+                file_size: Set(1),
+                file_format: Set("mp3".to_string()),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+        for folder in ["Alpha", "Beta"] {
+            for index in 0..3 {
+                songs.push(entity::songs::ActiveModel {
+                    id: Set(format!("{folder}-{index}")),
+                    title: Set(format!("{folder} {index}")),
+                    artist_id: Set("artist".to_string()),
+                    music_folder_id: Set(Some(1)),
+                    duration: Set(1),
+                    file_path: Set(format!("{folder}/song-{index}.mp3")),
+                    file_size: Set(2),
+                    file_format: Set("mp3".to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+        entity::songs::Entity::insert_many(songs)
+            .exec(database.conn())
+            .await
+            .expect("insert directory songs");
+        database
+    }
+
+    #[tokio::test]
+    async fn root_directory_pages_direct_children_without_descendant_materialization() {
+        let database = directory_database().await;
+        let folder_page = page_directory_folders(
+            &database,
+            1,
+            "",
+            DirectoryPageOptions {
+                filter: None,
+                sort: DirectorySort::Name,
+                descending: false,
+                offset: 0,
+                limit: 1,
+            },
+        )
+        .await
+        .expect("page root folders");
+        assert_eq!(folder_page.rows.len(), 1, "{folder_page:?}");
+        assert_eq!(folder_page.total, 2);
+        assert_eq!(folder_page.rows[0].name, "Alpha");
+        assert_eq!(folder_page.rows[0].file_count, 3);
+
+        let song_page = page_directory_songs(
+            &database,
+            1,
+            "",
+            DirectoryPageOptions {
+                filter: None,
+                sort: DirectorySort::Name,
+                descending: false,
+                offset: 50,
+                limit: 10,
+            },
+        )
+        .await
+        .expect("page root songs after item 50");
+        assert_eq!(song_page.total, 75);
+        assert_eq!(song_page.total_size, 75);
+        assert_eq!(song_page.rows.len(), 10);
+        assert_eq!(song_page.rows[0].id, "root-050");
+        assert_eq!(song_page.rows[9].id, "root-059");
+    }
 }

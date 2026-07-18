@@ -177,20 +177,23 @@ fn scan_library_via_api(server: &TestServer) -> Result<(), String> {
 
 fn run_hurl_test_inner(path: &Path, content: &str) -> datatest_stable::Result<()> {
     if !hurl_available() {
-        eprintln!("Skipping test: hurl not available");
-        return Ok(());
+        return Err(
+            "hurl is required for PostgreSQL integration tests but was not found in PATH".into(),
+        );
     }
 
     if !docker_available() {
-        eprintln!("Skipping test: docker not available");
-        return Ok(());
+        return Err(
+            "Docker is required for PostgreSQL integration tests but is unavailable".into(),
+        );
     }
 
     let config = parse_hurl_config(content);
 
     if config.requires_fixtures && !fixtures_exist() {
-        eprintln!("Skipping test: fixtures not generated. Run `moon run generate-fixtures` first.");
-        return Ok(());
+        return Err(
+            "integration fixtures are missing; run `moon run generate-fixtures` first".into(),
+        );
     }
 
     let container = Postgres::default()
@@ -224,29 +227,7 @@ fn run_hurl_test_inner(path: &Path, content: &str) -> datatest_stable::Result<()
 }
 
 fn run_hurl_test(path: &Path, content: String) -> datatest_stable::Result<()> {
-    let max_retries = 3;
-    let mut last_error = None;
-
-    for attempt in 1..=max_retries {
-        match run_hurl_test_inner(path, &content) {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                if attempt < max_retries {
-                    eprintln!(
-                        "Test {} failed attempt {}/{}: {}",
-                        path.display(),
-                        attempt,
-                        max_retries,
-                        e
-                    );
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
-                last_error = Some(e);
-            }
-        }
-    }
-
-    Err(last_error.unwrap())
+    run_hurl_test_inner(path, &content)
 }
 
 datatest_stable::harness! {

@@ -122,7 +122,7 @@ tasks:
 
   test-unit:
     # Run actual unit tests only (exclude integration tests and ts-rs binding generation)
-    command: 'cargo test -- --skip run_hurl_test --skip export_bindings'
+    command: 'cargo test --lib -- --skip export_bindings'
     inputs:
       - '@group(sources)'
     deps:
@@ -148,6 +148,16 @@ tasks:
   # INTEGRATION TESTS
   # ============================================================================
 
+  check-hurl-prerequisite:
+    command: 'bash scripts/check-test-prerequisite.sh hurl'
+    inputs:
+      - 'scripts/check-test-prerequisite.sh'
+
+  check-docker-prerequisite:
+    command: 'bash scripts/check-test-prerequisite.sh docker'
+    inputs:
+      - 'scripts/check-test-prerequisite.sh'
+
   test-integration:
     # Use half of available CPUs (max 8) to prevent resource exhaustion
     # Each test spawns a full ferrotune server with tokio runtime + SQLite
@@ -160,6 +170,7 @@ tasks:
     deps:
       - 'build'
       - 'generate-fixtures'
+      - 'check-hurl-prerequisite'
     options:
       # Integration tests take longer
       timeout: 300
@@ -175,6 +186,7 @@ tasks:
     deps:
       - 'build'
       - 'generate-fixtures'
+      - 'check-hurl-prerequisite'
     options:
       timeout: 600
       mutex: 'cargo'
@@ -189,6 +201,8 @@ tasks:
     deps:
       - 'build'
       - 'generate-fixtures'
+      - 'check-hurl-prerequisite'
+      - 'check-docker-prerequisite'
     options:
       timeout: 900
       mutex: 'cargo'
@@ -202,6 +216,7 @@ tasks:
     deps:
       - 'build'
       - 'generate-fixtures'
+      - 'check-docker-prerequisite'
     options:
       timeout: 900
       mutex: 'cargo'

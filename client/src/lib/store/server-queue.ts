@@ -86,6 +86,11 @@ export type QueueSourceType =
   | "similarTracks"
   | "other";
 
+export interface QueueSourceReference {
+  sourceType: QueueSourceType;
+  sourceId?: string;
+}
+
 export type RepeatMode = "off" | "all" | "one";
 
 // Queue state from server
@@ -348,6 +353,8 @@ export const startQueueAtom = atom(
       sort?: { field: string; direction: string };
       /** Explicit song IDs for history or custom queues */
       songIds?: string[];
+      /** Multiple collection sources to concatenate on the server. */
+      sources?: QueueSourceReference[];
       /** Client-known song IDs used only for offline queue materialization. */
       offlineSongIds?: string[];
     },
@@ -432,6 +439,7 @@ export const startQueueAtom = atom(
         filters: params.filters,
         sort: params.sort,
         songIds: params.songIds,
+        sources: params.sources,
         inlineImages: "small", // Always request small thumbnails for queue
         sessionId,
         clientId,
@@ -1332,6 +1340,8 @@ export const addToQueueAtom = atom(
       position: "next" | "end";
       sourceType?: QueueSourceType;
       sourceId?: string;
+      sourceName?: string;
+      sources?: QueueSourceReference[];
     },
   ): Promise<{ success: boolean; addedCount: number }> => {
     const client = getClient();
@@ -1355,12 +1365,21 @@ export const addToQueueAtom = atom(
     set(isQueueOperationPendingAtom, true);
 
     try {
-      // If no queue exists, start a new queue instead of adding
-      if (!hasQueue && params.songIds && params.songIds.length > 0) {
+      // If no queue exists, start the requested source directly instead of
+      // requiring the browser to materialize it into song IDs first.
+      const canStartQueue =
+        (params.songIds?.length ?? 0) > 0 ||
+        (params.sources?.length ?? 0) > 0 ||
+        (params.sourceType !== undefined && params.sourceId !== undefined);
+      if (!hasQueue && canStartQueue) {
         set(isRestoringQueueAtom, false); // User action - enable auto-play
+        const usesSourceSet = (params.sources?.length ?? 0) > 0;
         const response = await client.startQueue({
-          sourceType: "other",
+          sourceType: usesSourceSet ? "other" : (params.sourceType ?? "other"),
+          sourceId: usesSourceSet ? undefined : params.sourceId,
+          sourceName: params.sourceName,
           songIds: params.songIds,
+          sources: params.sources,
           startIndex: 0,
           inlineImages: "small",
           sessionId,
@@ -1382,7 +1401,7 @@ export const addToQueueAtom = atom(
         });
         set(queueWindowAtom, response.window);
         set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
-        return { success: true, addedCount: params.songIds.length };
+        return { success: true, addedCount: response.totalCount };
       }
 
       // Queue exists, add to it
@@ -1393,6 +1412,7 @@ export const addToQueueAtom = atom(
           params.position === "next" ? state?.currentIndex : undefined,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        sources: params.sources,
         sessionId,
       });
 

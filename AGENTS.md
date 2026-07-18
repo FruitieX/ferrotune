@@ -241,6 +241,19 @@ let songs: Vec<Song> = crate::db::raw::query_all(
 | `search.rs` | Search operations | `search_artists()`, `search_albums()`, `search_songs()` |
 | `sorting.rs` | Server-side sorting | `filter_and_sort_songs()` |
 
+### Server Runtime and Collection Commands
+
+| Module | Purpose | Key APIs |
+|--------|---------|----------|
+| `src/lib.rs` | Canonical standalone/embedded server bootstrap and owned maintenance-task lifecycle | `ServerRuntime::bootstrap()`, `ServerRuntime::bootstrap_with_database()`, `ServerRuntimeOptions`, `CorsPolicy` |
+| `src/api/queue.rs` | Server-side materialization of one or more collection descriptors with stable first-occurrence deduplication | `QueueSourceRequest`, `materialize_queue_sources()` |
+| `src/api/media.rs` | IDs-only and native-download snapshots for collection commands | `POST /api/sources/song-ids`, `POST /api/downloads/manifest` |
+
+CLI, desktop, and test launchers must consume `ServerRuntime`; do not recreate
+watchers, session maintenance loops, router layers, or startup readiness in a
+launcher. Queue, bulk, playlist, and download actions should send collection
+source descriptors instead of fetching detail DTOs to extract song IDs.
+
 **Examples:**
 
 ```rust

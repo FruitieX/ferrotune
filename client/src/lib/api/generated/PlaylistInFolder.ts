@@ -3,15 +3,11 @@
 /**
  * A playlist in the folder response.
  */
-export type PlaylistInFolder = { id: string, name: string, folderId: string | null, position: number, songCount: number, 
+export type PlaylistInFolder = { id: string, name: string, comment: string | null, folderId: string | null, owner: string, public: boolean, position: number, songCount: number, 
 /**
  * Total duration of all songs in the playlist (seconds)
  */
 duration: number, 
-/**
- * Owner username (present for shared playlists)
- */
-owner: string | null, 
 /**
  * Whether this playlist was shared with the current user
  */
@@ -19,8 +15,4 @@ sharedWithMe: boolean,
 /**
  * Whether the current user can edit this shared playlist
  */
-canEdit: boolean, 
-/**
- * When the playlist was last updated (ISO 8601)
- */
-updatedAt: string, };
+canEdit: boolean, created: string, changed: string, coverArt: string | null, };

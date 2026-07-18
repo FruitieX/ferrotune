@@ -1,8 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Generate TypeScript bindings from Rust types using ts-rs
 # Run from the project root directory
 
-set -e
+set -euo pipefail
+
+# File ordering must not depend on the developer or CI machine's locale.
+export LC_ALL=C
 
 GENERATED_DIR="client/src/lib/api/generated"
 
@@ -17,7 +20,7 @@ mkdir -p "$GENERATED_DIR"
 cargo test --lib export_bindings
 
 # Check if any .ts files were generated
-if [ -z "$(ls -A "$GENERATED_DIR"/*.ts 2>/dev/null)" ]; then
+if [ -z "$(find "$GENERATED_DIR" -maxdepth 1 -type f -name '*.ts' -print -quit)" ]; then
     echo "❌ No TypeScript files were generated"
     exit 1
 fi
@@ -32,16 +35,21 @@ cat > "$INDEX_FILE" << 'EOF'
 
 EOF
 
-# Add exports for each .ts file (except index.ts)
-for f in "$GENERATED_DIR"/*.ts; do
+# Add exports for each .ts file (except index.ts) in byte-stable order.
+while IFS= read -r -d '' f; do
     filename=$(basename "$f")
     if [ "$filename" != "index.ts" ]; then
         name="${filename%.ts}"
         echo "export type { $name } from './$name';" >> "$INDEX_FILE"
     fi
-done
+done < <(find "$GENERATED_DIR" -maxdepth 1 -type f -name '*.ts' -print0 | sort -z)
+
+if grep -R -n -w bigint "$GENERATED_DIR"; then
+    echo "❌ Generated API contracts contain bigint; JSON integer fields must be annotated as TypeScript number"
+    exit 1
+fi
 
 # Count generated types
-TYPE_COUNT=$(ls -1 "$GENERATED_DIR"/*.ts 2>/dev/null | grep -v index.ts | wc -l)
+TYPE_COUNT=$(find "$GENERATED_DIR" -maxdepth 1 -type f -name '*.ts' ! -name index.ts | wc -l)
 
 echo "✅ Generated $TYPE_COUNT TypeScript types in $GENERATED_DIR"

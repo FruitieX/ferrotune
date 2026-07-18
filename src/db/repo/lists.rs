@@ -1,7 +1,7 @@
 //! SeaORM-backed list/reporting queries for the simpler album and song list surfaces.
 
 use chrono::{DateTime, FixedOffset, Utc};
-use sea_orm::sea_query::{CaseStatement, Expr, SimpleExpr};
+use sea_orm::sea_query::{CaseStatement, Expr, ExprTrait, SimpleExpr};
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType, Order, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, RelationTrait,
@@ -668,11 +668,189 @@ pub async fn count_recent_albums_for_user(database: &Database, user_id: i64) -> 
     Ok(result)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromQueryResult)]
 pub struct ForgottenFavoriteSongSummary {
     pub song_id: String,
     pub play_count: i64,
     pub last_played: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForgottenFavoriteSort {
+    Seeded(String),
+    Name,
+    Artist,
+    Album,
+    Year,
+    Duration,
+    DateAdded,
+    PlayCount,
+    LastPlayed,
+}
+
+fn forgotten_favorite_query(
+    user_id: i64,
+    min_plays: i64,
+    cutoff: DateTime<Utc>,
+    filter: Option<&str>,
+    folder_ids: &[i64],
+) -> sea_orm::Select<entity::scrobbles::Entity> {
+    use entity::scrobbles::Column as Scrobble;
+    use entity::songs::Column as Song;
+
+    let mut query = entity::scrobbles::Entity::find()
+        .select_only()
+        .column(Scrobble::SongId)
+        .expr_as(
+            Expr::col((entity::scrobbles::Entity, Scrobble::PlayCount))
+                .sum()
+                .cast_as("BIGINT"),
+            "play_count",
+        )
+        .expr_as(
+            Expr::col((entity::scrobbles::Entity, Scrobble::PlayedAt)).max(),
+            "last_played",
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::scrobbles::Relation::Songs.def(),
+        )
+        .join(JoinType::InnerJoin, entity::songs::Relation::Artists.def())
+        .join(JoinType::LeftJoin, entity::songs::Relation::Albums.def())
+        .filter(Scrobble::UserId.eq(user_id))
+        .filter(Scrobble::Submission.eq(true))
+        .filter(Song::MarkedForDeletionAt.is_null())
+        .filter(Song::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .group_by(Scrobble::SongId)
+        .having(
+            Expr::col((entity::scrobbles::Entity, Scrobble::PlayCount))
+                .sum()
+                .gte(min_plays),
+        )
+        .having(
+            Expr::col((entity::scrobbles::Entity, Scrobble::PlayedAt))
+                .max()
+                .lte(cutoff),
+        );
+
+    if let Some(filter) = filter.filter(|value| !value.trim().is_empty()) {
+        let pattern = format!("%{}%", filter.to_lowercase());
+        query = query.filter(
+            Condition::any()
+                .add(
+                    Expr::expr(sea_orm::sea_query::Func::lower(Expr::col((
+                        entity::songs::Entity,
+                        Song::Title,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(sea_orm::sea_query::Func::lower(Expr::col((
+                        entity::artists::Entity,
+                        entity::artists::Column::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(sea_orm::sea_query::Func::lower(Expr::col((
+                        entity::albums::Entity,
+                        entity::albums::Column::Name,
+                    ))))
+                    .like(pattern),
+                ),
+        );
+    }
+    query
+}
+
+fn order_forgotten_favorite_query(
+    database: &Database,
+    mut query: sea_orm::Select<entity::scrobbles::Entity>,
+    sort: &ForgottenFavoriteSort,
+    descending: bool,
+) -> sea_orm::Select<entity::scrobbles::Entity> {
+    use entity::scrobbles::Column as Scrobble;
+    use entity::songs::Column as Song;
+
+    let order = if descending { Order::Desc } else { Order::Asc };
+    query = match sort {
+        ForgottenFavoriteSort::Seeded(pivot) => query.order_by(
+            Expr::col((entity::scrobbles::Entity, Scrobble::SongId)).gte(pivot.clone()),
+            Order::Desc,
+        ),
+        ForgottenFavoriteSort::Name => query.order_by(
+            case_insensitive_order(database.sea_backend(), (entity::songs::Entity, Song::Title)),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::Artist => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::artists::Entity, entity::artists::Column::Name),
+            ),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::Album => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::albums::Entity, entity::albums::Column::Name),
+            ),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::Year => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Year)).if_null(0),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::Duration => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Duration)),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::DateAdded => query.order_by(
+            Expr::col((entity::songs::Entity, Song::CreatedAt)),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::PlayCount => query.order_by(
+            Expr::col((entity::scrobbles::Entity, Scrobble::PlayCount)).sum(),
+            order.clone(),
+        ),
+        ForgottenFavoriteSort::LastPlayed => query.order_by(
+            Expr::col((entity::scrobbles::Entity, Scrobble::PlayedAt)).max(),
+            order.clone(),
+        ),
+    };
+    let id_order = if matches!(sort, ForgottenFavoriteSort::Seeded(_)) {
+        Order::Asc
+    } else {
+        order
+    };
+    query.order_by(Scrobble::SongId, id_order)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn page_forgotten_favorite_song_summaries(
+    database: &Database,
+    user_id: i64,
+    min_plays: i64,
+    cutoff: DateTime<Utc>,
+    filter: Option<&str>,
+    sort: ForgottenFavoriteSort,
+    descending: bool,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<ForgottenFavoriteSongSummary>, i64)> {
+    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
+    if folder_ids.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+
+    let base = forgotten_favorite_query(user_id, min_plays, cutoff, filter, &folder_ids);
+    let total = base.clone().count(database.conn()).await? as i64;
+    let rows = order_forgotten_favorite_query(database, base, &sort, descending)
+        .offset(offset)
+        .limit(limit)
+        .into_model::<ForgottenFavoriteSongSummary>()
+        .all(database.conn())
+        .await?;
+    Ok((rows, total))
 }
 
 /// Find songs with high play counts that haven't been played recently.
@@ -966,21 +1144,25 @@ pub async fn list_continue_listening_sources(
 
 /// Count of distinct continue-listening sources for the user.
 pub async fn count_continue_listening_sources(database: &Database, user_id: i64) -> Result<i64> {
+    use sea_orm::sea_query::{Alias, Asterisk, Query as SqQuery};
     use sea_orm::ConnectionTrait;
 
     #[derive(FromQueryResult)]
     struct Row {
-        source_id: Option<String>,
+        count: i64,
     }
 
-    let stmt = continue_listening_subquery(user_id);
+    let mut stmt = SqQuery::select();
+    stmt.expr_as(Expr::col(Asterisk).count(), Alias::new("count"))
+        .from_subquery(continue_listening_subquery(user_id), Alias::new("sources"))
+        .and_where(Expr::col((Alias::new("sources"), Alias::new("source_id"))).is_not_null());
     let backend = database.conn().get_database_backend();
     let sql = backend.build(&stmt);
-    let rows = Row::find_by_statement(sql).all(database.conn()).await?;
-    Ok(rows
-        .into_iter()
-        .filter(|row| row.source_id.is_some())
-        .count() as i64)
+    Ok(Row::find_by_statement(sql)
+        .one(database.conn())
+        .await?
+        .map(|row| row.count)
+        .unwrap_or(0))
 }
 
 /// Fetch the minimal playlist summary (id, name, song_count, total duration)
@@ -998,47 +1180,15 @@ pub async fn list_playlist_summaries(
         id: String,
         name: String,
         song_count: i64,
-        duration: Option<i64>,
+        duration: i64,
     }
-
-    use sea_orm::sea_query::Query as SqQuery;
-    let duration_subquery = SqQuery::select()
-        .expr(
-            Expr::col((entity::songs::Entity, entity::songs::Column::Duration))
-                .sum()
-                .cast_as("BIGINT"),
-        )
-        .from(entity::playlist_songs::Entity)
-        .inner_join(
-            entity::songs::Entity,
-            Expr::col((entity::songs::Entity, entity::songs::Column::Id)).equals((
-                entity::playlist_songs::Entity,
-                entity::playlist_songs::Column::SongId,
-            )),
-        )
-        .and_where(
-            Expr::col((
-                entity::playlist_songs::Entity,
-                entity::playlist_songs::Column::PlaylistId,
-            ))
-            .equals((entity::playlists::Entity, entity::playlists::Column::Id)),
-        )
-        .to_owned();
 
     let rows = entity::playlists::Entity::find()
         .select_only()
         .column(entity::playlists::Column::Id)
         .column(entity::playlists::Column::Name)
         .column(entity::playlists::Column::SongCount)
-        .expr_as(
-            SimpleExpr::SubQuery(
-                None,
-                Box::new(sea_orm::sea_query::SubQueryStatement::SelectStatement(
-                    duration_subquery,
-                )),
-            ),
-            "duration",
-        )
+        .column(entity::playlists::Column::Duration)
         .filter(entity::playlists::Column::Id.is_in(ids.iter().cloned()))
         .into_model::<Row>()
         .all(database.conn())
@@ -1050,7 +1200,7 @@ pub async fn list_playlist_summaries(
             id: r.id,
             name: r.name,
             song_count: r.song_count,
-            duration: r.duration.unwrap_or(0),
+            duration: r.duration,
         })
         .collect())
 }

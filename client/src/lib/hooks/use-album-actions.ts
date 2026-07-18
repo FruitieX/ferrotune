@@ -12,7 +12,7 @@ import {
   hapticDouble,
   hapticSelection,
 } from "@/lib/utils/haptic";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album } from "@/lib/api/types";
 import { isTauriMobile } from "@/lib/tauri";
 import { useDownloadActions } from "@/lib/hooks/use-download-actions";
 import {
@@ -37,7 +37,7 @@ interface UseAlbumActionsReturn {
   handleAddToPlaylist: () => Promise<void>;
   addToPlaylistOpen: boolean;
   setAddToPlaylistOpen: (open: boolean) => void;
-  albumSongs: Song[] | null;
+  albumSongIds: string[] | null;
 
   // Details dialog
   detailsOpen: boolean;
@@ -61,7 +61,7 @@ export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
 
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [albumSongs, setAlbumSongs] = useState<Song[] | null>(null);
+  const [albumSongIds, setAlbumSongIds] = useState<string[] | null>(null);
 
   const { isStarred, toggleStar } = useStar({
     itemType: "album",
@@ -85,14 +85,16 @@ export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
     void downloadActions.removeContainerDownload(`album:${album.id}`, songIds);
   };
 
-  const fetchSongs = async (): Promise<Song[] | null> => {
+  const fetchSongIds = async (): Promise<string[] | null> => {
     const client = getClient();
     if (!client) return null;
     try {
-      const response = await client.getAlbum(album.id);
-      return response.album.song ?? [];
+      const response = await client.getSourceSongIds([
+        { sourceType: "album", sourceId: album.id },
+      ]);
+      return response.ids;
     } catch (error) {
-      console.error("Failed to fetch album songs:", error);
+      console.error("Failed to fetch album song IDs:", error);
       return null;
     }
   };
@@ -122,10 +124,14 @@ export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
   };
 
   const handlePlayNext = async () => {
-    const songs = await fetchSongs();
-    if (songs && songs.length > 0) {
+    const result = await addToQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      position: "next",
+    });
+    if (result.success && result.addedCount > 0) {
       hapticSelection();
-      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${album.name}" to play next`);
     } else {
       toast.error("No songs in this album");
@@ -133,10 +139,14 @@ export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
   };
 
   const handleAddToQueue = async () => {
-    const songs = await fetchSongs();
-    if (songs && songs.length > 0) {
+    const result = await addToQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      position: "end",
+    });
+    if (result.success && result.addedCount > 0) {
       hapticSelection();
-      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${album.name}" to queue`);
     } else {
       toast.error("No songs in this album");
@@ -144,12 +154,12 @@ export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
   };
 
   const handleAddToPlaylist = async () => {
-    const songs = await fetchSongs();
-    if (songs && songs.length > 0) {
+    const songIds = await fetchSongIds();
+    if (songIds && songIds.length > 0) {
       // Filter out disabled songs when adding album to playlist
-      const enabledSongs = songs.filter((s) => !disabledSongs.has(s.id));
-      if (enabledSongs.length > 0) {
-        setAlbumSongs(enabledSongs);
+      const enabledSongIds = songIds.filter((id) => !disabledSongs.has(id));
+      if (enabledSongIds.length > 0) {
+        setAlbumSongIds(enabledSongIds);
         setAddToPlaylistOpen(true);
       } else {
         toast.error("All songs in this album are disabled");
@@ -169,7 +179,7 @@ export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
     handleAddToPlaylist,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
-    albumSongs,
+    albumSongIds,
     detailsOpen,
     setDetailsOpen,
     handleDownload: isTauriMobile() ? handleDownload : undefined,

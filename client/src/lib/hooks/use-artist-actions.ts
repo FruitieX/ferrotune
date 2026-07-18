@@ -12,7 +12,7 @@ import {
   hapticDouble,
   hapticSelection,
 } from "@/lib/utils/haptic";
-import type { Artist, Song } from "@/lib/api/types";
+import type { Artist } from "@/lib/api/types";
 import { isTauriMobile } from "@/lib/tauri";
 import { useDownloadActions } from "@/lib/hooks/use-download-actions";
 import {
@@ -35,7 +35,7 @@ interface UseArtistActionsReturn {
   handleAddToPlaylist: () => Promise<void>;
   addToPlaylistOpen: boolean;
   setAddToPlaylistOpen: (open: boolean) => void;
-  artistSongs: Song[] | null;
+  artistSongIds: string[] | null;
 
   // Details dialog
   detailsOpen: boolean;
@@ -48,28 +48,17 @@ interface UseArtistActionsReturn {
   isDownloaded?: boolean;
 }
 
-/**
- * Helper function to fetch all songs from an artist.
- */
-async function fetchArtistSongs(artistId: string): Promise<Song[]> {
+async function fetchArtistSongIds(artistId: string): Promise<string[]> {
   const client = getClient();
   if (!client) return [];
 
   try {
-    const artistData = await client.getArtist(artistId);
-    if (!artistData.artist.album?.length) return [];
-
-    // Get songs from all albums
-    const allSongs: Song[] = [];
-    for (const album of artistData.artist.album) {
-      const albumData = await client.getAlbum(album.id);
-      if (albumData.album.song) {
-        allSongs.push(...albumData.album.song);
-      }
-    }
-    return allSongs;
+    const response = await client.getSourceSongIds([
+      { sourceType: "artist", sourceId: artistId },
+    ]);
+    return response.ids;
   } catch (error) {
-    console.error("Failed to fetch artist songs:", error);
+    console.error("Failed to fetch artist song IDs:", error);
     return [];
   }
 }
@@ -85,7 +74,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
 
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
+  const [artistSongIds, setArtistSongIds] = useState<string[] | null>(null);
 
   const { isStarred, toggleStar } = useStar({
     itemType: "artist",
@@ -137,10 +126,14 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   };
 
   const handlePlayNext = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
+    const result = await addToQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+      position: "next",
+    });
+    if (result.success && result.addedCount > 0) {
       hapticSelection();
-      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
       toast.error("No songs found for this artist");
@@ -148,10 +141,14 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   };
 
   const handleAddToQueue = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
+    const result = await addToQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+      position: "end",
+    });
+    if (result.success && result.addedCount > 0) {
       hapticSelection();
-      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${artist.name}" songs to queue`);
     } else {
       toast.error("No songs found for this artist");
@@ -159,12 +156,12 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   };
 
   const handleAddToPlaylist = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
+    const songIds = await fetchArtistSongIds(artist.id);
+    if (songIds.length > 0) {
       // Filter out disabled songs when adding artist to playlist
-      const enabledSongs = songs.filter((s) => !disabledSongs.has(s.id));
-      if (enabledSongs.length > 0) {
-        setArtistSongs(enabledSongs);
+      const enabledSongIds = songIds.filter((id) => !disabledSongs.has(id));
+      if (enabledSongIds.length > 0) {
+        setArtistSongIds(enabledSongIds);
         setAddToPlaylistOpen(true);
       } else {
         toast.error("All songs from this artist are disabled");
@@ -184,7 +181,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
     handleAddToPlaylist,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
-    artistSongs,
+    artistSongIds,
     detailsOpen,
     setDetailsOpen,
     handleDownload: isTauriMobile() ? handleDownload : undefined,

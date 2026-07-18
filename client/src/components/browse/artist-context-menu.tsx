@@ -36,7 +36,7 @@ export function ArtistContextMenu({
     handleAddToPlaylist,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
-    artistSongs,
+    artistSongIds,
     detailsOpen,
     setDetailsOpen,
     handleDownload,
@@ -75,11 +75,11 @@ export function ArtistContextMenu({
       >
         {children}
       </ResponsiveContextMenu>
-      {artistSongs && (
+      {artistSongIds && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
-          songs={artistSongs}
+          songIds={artistSongIds}
         />
       )}
       <DetailsDialog
@@ -115,7 +115,7 @@ export function ArtistDropdownMenu({
     handleAddToPlaylist,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
-    artistSongs,
+    artistSongIds,
     detailsOpen,
     setDetailsOpen,
     handleDownload,
@@ -171,11 +171,11 @@ export function ArtistDropdownMenu({
         drawerTitle={artist.name}
         drawerThumbnail={coverArtUrl ?? undefined}
       />
-      {artistSongs && (
+      {artistSongIds && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
-          songs={artistSongs}
+          songIds={artistSongIds}
         />
       )}
       <DetailsDialog

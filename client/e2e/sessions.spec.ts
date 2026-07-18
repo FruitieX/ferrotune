@@ -1330,8 +1330,12 @@ test.describe.serial("Multi-Session Playback", () => {
 
     // Toggle shuffle - should NOT restart or affect paused state
     const shuffleBtn = playerBar.getByRole("button", { name: "Shuffle" });
+    const shuffleBefore = await shuffleBtn.getAttribute("aria-pressed");
     await shuffleBtn.click();
-    await page.waitForTimeout(1000);
+    await expect(shuffleBtn).not.toHaveAttribute(
+      "aria-pressed",
+      shuffleBefore ?? "false",
+    );
 
     const timeAfterShuffle = await getDisplayedCurrentTime(page);
     expect(timeAfterShuffle).toBe(timeBeforeShuffle);
@@ -1339,8 +1343,12 @@ test.describe.serial("Multi-Session Playback", () => {
 
     // Toggle repeat - should also NOT restart or affect paused state
     const repeatBtn = playerBar.getByRole("button", { name: "Repeat" });
+    const repeatBefore = await repeatBtn.getAttribute("data-repeat-mode");
     await repeatBtn.click();
-    await page.waitForTimeout(1000);
+    await expect(repeatBtn).not.toHaveAttribute(
+      "data-repeat-mode",
+      repeatBefore ?? "off",
+    );
 
     const timeAfterRepeat = await getDisplayedCurrentTime(page);
     expect(timeAfterRepeat).toBe(timeBeforeShuffle);
@@ -1594,8 +1602,13 @@ test.describe.serial("Multi-Session Playback", () => {
 
       // Toggle shuffle from FOLLOWER
       const shuffleBtn = followerBar.getByRole("button", { name: "Shuffle" });
+      const ownerShuffle = ownerBar.getByRole("button", { name: "Shuffle" });
+      const shuffleBefore = await ownerShuffle.getAttribute("aria-pressed");
       await shuffleBtn.click();
-      await ownerPage.waitForTimeout(1000);
+      await expect(ownerShuffle).not.toHaveAttribute(
+        "aria-pressed",
+        shuffleBefore ?? "false",
+      );
 
       // Owner should still be at the same position, still paused
       const ownerTimeAfterShuffle = await getDisplayedCurrentTime(ownerPage);
@@ -1606,8 +1619,13 @@ test.describe.serial("Multi-Session Playback", () => {
 
       // Toggle repeat from FOLLOWER
       const repeatBtn = followerBar.getByRole("button", { name: "Repeat" });
+      const ownerRepeat = ownerBar.getByRole("button", { name: "Repeat" });
+      const repeatBefore = await ownerRepeat.getAttribute("data-repeat-mode");
       await repeatBtn.click();
-      await ownerPage.waitForTimeout(1000);
+      await expect(ownerRepeat).not.toHaveAttribute(
+        "data-repeat-mode",
+        repeatBefore ?? "off",
+      );
 
       const ownerTimeAfterRepeat = await getDisplayedCurrentTime(ownerPage);
       expect(ownerTimeAfterRepeat).toBe(ownerTimeBefore);
@@ -1692,10 +1710,13 @@ test.describe.serial("Multi-Session Playback", () => {
     await songRow.click({ button: "right" });
     const contextMenu = page.locator('[data-slot="context-menu-content"]');
     await expect(contextMenu).toBeVisible({ timeout: 5000 });
+    const addResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/queue/add" &&
+        response.request().method() === "POST",
+    );
     await contextMenu.getByRole("menuitem", { name: /add to queue/i }).click();
-
-    // Wait for the queue to update
-    await page.waitForTimeout(1500);
+    expect((await addResponse).ok()).toBe(true);
 
     // Should still be paused and at approximately the same time (allow 1s drift from pause delay)
     const timeAfterAdd = await getDisplayedCurrentTime(page);
@@ -1728,8 +1749,14 @@ test.describe.serial("Multi-Session Playback", () => {
         name: /remove from queue/i,
       });
       if (await removeOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+        const removeResponse = page.waitForResponse(
+          (response) =>
+            /^\/api\/queue\/\d+$/.test(new URL(response.url()).pathname) &&
+            response.request().method() === "DELETE",
+        );
         await removeOption.click();
-        await page.waitForTimeout(1500);
+        expect((await removeResponse).ok()).toBe(true);
+        await expect(queueItems).toHaveCount(queueItemCount - 1);
 
         // Should still be paused and at approximately the same time
         const timeAfterRemove = await getDisplayedCurrentTime(page);

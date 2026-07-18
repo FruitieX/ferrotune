@@ -391,8 +391,9 @@ function ContinueListeningRow({
         }
         subtitleContent={
           <span>
-            {formatCount(playlist.songCount, "song")} •{" "}
-            {formatDuration(playlist.duration)}
+            {playlist.songCount === null || playlist.duration === null
+              ? "Dynamic playlist"
+              : `${formatCount(playlist.songCount, "song")} • ${formatDuration(playlist.duration)}`}
           </span>
         }
         href={getPlaylistDetailsHref(playlist.playlistType, playlist.id)}

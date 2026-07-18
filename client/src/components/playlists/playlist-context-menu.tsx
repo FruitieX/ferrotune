@@ -144,16 +144,14 @@ export function PlaylistContextMenu({
   };
 
   const handlePlayNext = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        addToQueue({
-          songIds: response.playlist.entry.map((s) => s.id),
-          position: "next",
-        });
+      const result = await addToQueue({
+        sourceType: "playlist",
+        sourceId: playlist.id,
+        sourceName: getPlaylistDisplayName(playlist),
+        position: "next",
+      });
+      if (result.success && result.addedCount > 0) {
         toast.success(`Added "${playlist.name}" to play next`);
       } else {
         toast.error("Playlist is empty");
@@ -165,16 +163,14 @@ export function PlaylistContextMenu({
   };
 
   const handleAddToQueue = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        addToQueue({
-          songIds: response.playlist.entry.map((s) => s.id),
-          position: "end",
-        });
+      const result = await addToQueue({
+        sourceType: "playlist",
+        sourceId: playlist.id,
+        sourceName: getPlaylistDisplayName(playlist),
+        position: "end",
+      });
+      if (result.success && result.addedCount > 0) {
         toast.success(`Added "${playlist.name}" to queue`);
       } else {
         toast.error("Playlist is empty");
@@ -212,11 +208,7 @@ export function PlaylistContextMenu({
   );
 
   const handlePlaylistDownload = async () => {
-    const client = getClient();
-    if (!client) return;
-    const response = await client.getPlaylist(playlist.id);
-    const songs = response.playlist.entry ?? [];
-    await downloadActions.downloadPlaylist(playlist.id, songs);
+    await downloadActions.downloadPlaylist(playlist.id);
   };
   const handlePlaylistRemoveDownload = () => {
     const songIds = containers.get(`playlist:${playlist.id}`) ?? [];
@@ -473,16 +465,14 @@ export function PlaylistDropdownMenu({
   };
 
   const handlePlayNext = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        addToQueue({
-          songIds: response.playlist.entry.map((s) => s.id),
-          position: "next",
-        });
+      const result = await addToQueue({
+        sourceType: "playlist",
+        sourceId: playlist.id,
+        sourceName: getPlaylistDisplayName(playlist),
+        position: "next",
+      });
+      if (result.success && result.addedCount > 0) {
         toast.success(`Added "${playlist.name}" to play next`);
       } else {
         toast.error("Playlist is empty");
@@ -494,16 +484,14 @@ export function PlaylistDropdownMenu({
   };
 
   const handleAddToQueue = async () => {
-    const client = getClient();
-    if (!client) return;
-
     try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        addToQueue({
-          songIds: response.playlist.entry.map((s) => s.id),
-          position: "end",
-        });
+      const result = await addToQueue({
+        sourceType: "playlist",
+        sourceId: playlist.id,
+        sourceName: getPlaylistDisplayName(playlist),
+        position: "end",
+      });
+      if (result.success && result.addedCount > 0) {
         toast.success(`Added "${playlist.name}" to queue`);
       } else {
         toast.error("Playlist is empty");
@@ -541,11 +529,7 @@ export function PlaylistDropdownMenu({
   );
 
   const handlePlaylistDownload = async () => {
-    const client = getClient();
-    if (!client) return;
-    const response = await client.getPlaylist(playlist.id);
-    const songs = response.playlist.entry ?? [];
-    await downloadActions.downloadPlaylist(playlist.id, songs);
+    await downloadActions.downloadPlaylist(playlist.id);
   };
   const handlePlaylistRemoveDownload = () => {
     const songIds = containers.get(`playlist:${playlist.id}`) ?? [];

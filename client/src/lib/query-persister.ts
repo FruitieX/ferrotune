@@ -34,6 +34,13 @@ const PERSISTED_QUERY_PREFIXES = new Set([
 export const PERSIST_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 /**
+ * Increment whenever a persisted API response changes incompatibly. TanStack
+ * removes blobs written with an older buster before hydrating React, so a new
+ * bundle cannot render stale DTO shapes while the fresh request is in flight.
+ */
+export const PERSISTED_QUERY_CACHE_BUSTER = "2";
+
+/**
  * React Query implements gcTime with timers, and JS runtimes clamp timer
  * durations to a signed 32-bit integer. Keep persisted maxAge at 30 days, but
  * clamp in-memory gcTime so production builds do not emit TimeoutOverflowWarning.

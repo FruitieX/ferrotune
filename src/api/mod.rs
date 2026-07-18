@@ -53,6 +53,10 @@ pub mod transcoding;
 pub mod users;
 mod waveform;
 
+pub use browse::{
+    get_album_songs, get_artist_albums, get_artist_songs, ArtistAlbumsParams, ArtistAlbumsResponse,
+    CollectionSongsParams, CollectionSongsResponse,
+};
 pub use duplicates::{
     get_duplicates as ferrotune_get_duplicates, DuplicateFile, DuplicateGroup, DuplicatesResponse,
 };

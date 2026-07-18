@@ -34,7 +34,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     handleAddToPlaylist,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
-    albumSongs,
+    albumSongIds,
     detailsOpen,
     setDetailsOpen,
     handleDownload,
@@ -75,11 +75,11 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
       >
         {children}
       </ResponsiveContextMenu>
-      {albumSongs && (
+      {albumSongIds && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
-          songs={albumSongs}
+          songIds={albumSongIds}
         />
       )}
       <DetailsDialog
@@ -116,7 +116,7 @@ export function AlbumDropdownMenu({
     handleAddToPlaylist,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
-    albumSongs,
+    albumSongIds,
     detailsOpen,
     setDetailsOpen,
     handleDownload,
@@ -174,11 +174,11 @@ export function AlbumDropdownMenu({
         drawerThumbnail={coverArtUrl ?? undefined}
         drawerExtraContent={drawerExtraContent}
       />
-      {albumSongs && (
+      {albumSongIds && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
-          songs={albumSongs}
+          songIds={albumSongIds}
         />
       )}
       <DetailsDialog

@@ -879,6 +879,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         )}
         onClick={handleShuffle}
         aria-label="Shuffle"
+        aria-pressed={isShuffled}
       >
         <Shuffle className="w-4 h-4" />
       </Button>
@@ -959,6 +960,8 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         )}
         onClick={handleRepeat}
         aria-label="Repeat"
+        aria-pressed={repeatMode !== "off"}
+        data-repeat-mode={repeatMode}
       >
         <RepeatIcon className="w-4 h-4" />
       </Button>

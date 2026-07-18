@@ -174,14 +174,14 @@ export function SearchPageContent() {
     refetchOnMount: "always",
   });
 
-  // Fetch and filter playlists client-side (API doesn't have playlist search)
+  // Fetch playlists for the cross-entity search view.
   const { data: playlists } = useQuery({
     queryKey: ["playlists"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists?.playlist ?? [];
+      const response = await client.getPlaylistFoldersWithStructure();
+      return response.playlists;
     },
     enabled: isReady && !isOfflineMode,
     staleTime: 60000,

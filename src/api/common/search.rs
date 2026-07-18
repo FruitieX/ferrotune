@@ -235,76 +235,6 @@ fn sqlite_placeholders_to_postgres(fragment: &str) -> String {
     result
 }
 
-fn paginate_search_results<T>(items: Vec<T>, limit: i64, offset: i64) -> (Vec<T>, Option<i64>) {
-    let total = items.len() as i64;
-    let offset = offset.max(0) as usize;
-    let limit = limit.max(0) as usize;
-    let page = items.into_iter().skip(offset).take(limit).collect();
-    (page, Some(total))
-}
-
-fn sort_artists_for_search(
-    mut artists: Vec<crate::db::models::Artist>,
-    sort: Option<&String>,
-    sort_dir: Option<&String>,
-) -> Vec<crate::db::models::Artist> {
-    let field = sort.map(|value| value.as_str()).unwrap_or("name");
-
-    artists.sort_by(|left, right| match field {
-        "albumCount" => left
-            .album_count
-            .cmp(&right.album_count)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
-        "songCount" => left
-            .song_count
-            .cmp(&right.song_count)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
-        _ => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
-    });
-
-    if matches!(sort_dir.map(|value| value.as_str()), Some("desc")) {
-        artists.reverse();
-    }
-
-    artists
-}
-
-fn sort_albums_for_search(
-    mut albums: Vec<crate::db::models::Album>,
-    sort: Option<&String>,
-    sort_dir: Option<&String>,
-) -> Vec<crate::db::models::Album> {
-    let field = sort.map(|value| value.as_str()).unwrap_or("name");
-
-    albums.sort_by(|left, right| match field {
-        "artist" => left
-            .artist_name
-            .to_lowercase()
-            .cmp(&right.artist_name.to_lowercase())
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
-        "year" => left
-            .year
-            .unwrap_or(0)
-            .cmp(&right.year.unwrap_or(0))
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
-        "dateAdded" => left
-            .created_at
-            .cmp(&right.created_at)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
-        "songCount" => left
-            .song_count
-            .cmp(&right.song_count)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
-        _ => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
-    });
-
-    if matches!(sort_dir.map(|value| value.as_str()), Some("desc")) {
-        albums.reverse();
-    }
-
-    albums
-}
-
 fn is_starred_sort(sort: Option<&String>) -> bool {
     matches!(sort.map(|value| value.as_str()), Some("starred"))
 }
@@ -650,7 +580,7 @@ pub fn get_song_order_clause_for_search(
 
     match sort.map(|s| s.as_str()) {
         Some("artist") => format!("ar.name COLLATE NOCASE {dir}, s.title COLLATE NOCASE {dir}"),
-        Some("album") => format!("s.album COLLATE NOCASE {dir}, s.title COLLATE NOCASE {dir}"),
+        Some("album") => format!("al.name COLLATE NOCASE {dir}, s.title COLLATE NOCASE {dir}"),
         Some("year") => format!("s.year {dir}, s.title COLLATE NOCASE {dir}"),
         Some("duration") => format!("s.duration {dir}, s.title COLLATE NOCASE {dir}"),
         Some("playCount") => format!("COALESCE(play_count, 0) {dir}, s.title COLLATE NOCASE {dir}"),
@@ -1058,15 +988,26 @@ pub async fn search_songs_for_queue(
 
     let filter_conds = build_song_filter_conditions(params, user_id);
     let pg = is_postgres(database);
-    let song_order = if pg {
-        // Rust-side sort handles ordering; avoid referencing the SQLite-only
-        // `fts.rank` alias that the default clause may produce.
-        "s.title".to_string()
+    if pg
+        && matches!(
+            params.song_sort.as_deref(),
+            Some("recommended" | "relevance")
+        )
+    {
+        return Err(crate::error::Error::InvalidRequest(
+            "recommended and relevance song sorting are not supported on PostgreSQL".to_string(),
+        ));
+    }
+    let song_order = if pg && !is_wildcard && params.song_sort.is_none() {
+        "s.title COLLATE NOCASE ASC, s.id ASC".to_string()
     } else {
-        get_song_order_clause_for_search(
-            params.song_sort.as_ref(),
-            params.song_sort_dir.as_ref(),
-            !is_wildcard,
+        format!(
+            "{}, s.id ASC",
+            get_song_order_clause_for_search(
+                params.song_sort.as_ref(),
+                params.song_sort_dir.as_ref(),
+                !is_wildcard,
+            )
         )
     };
 
@@ -1099,29 +1040,6 @@ pub async fn search_songs_for_queue(
         limit_offset,
     )
     .await?;
-
-    // Match previous behaviour: the Postgres path sorted via sort_songs() with
-    // default "name" when no sort was provided. The SQLite path used ORDER BY
-    // directly. We now always apply the server-side ORDER BY, but keep the
-    // post-sort for Postgres parity in case future logic relies on it.
-    let songs = if is_postgres(database) {
-        crate::api::common::sorting::sort_songs(
-            songs,
-            params.song_sort.as_deref().or(Some("name")),
-            params.song_sort_dir.as_deref(),
-        )
-    } else {
-        songs
-    };
-
-    // Apply offset/limit for server-side pagination. This is used by lazy
-    // queue page requests; when offset/limit are None the existing behaviour
-    // (return all matching songs) is preserved.
-    let songs = if let (Some(off), Some(lim)) = (offset, limit) {
-        songs.into_iter().skip(off).take(lim).collect()
-    } else {
-        songs
-    };
 
     // Fuzzy supplements keep search-based queues consistent with the search endpoint.
     // Only apply when not paginating, otherwise the skip/take would slice an
@@ -1353,6 +1271,7 @@ pub async fn search_artists(
             } else {
                 sql.push_str(artist_order);
             }
+            sql.push_str(", a.id ASC");
             sql.push_str(" LIMIT ");
             push_bind(&mut sql, &mut binds, limit, pg);
             sql.push_str(" OFFSET ");
@@ -1361,73 +1280,14 @@ pub async fn search_artists(
         (sql, binds)
     };
 
-    // On Postgres, the legacy code post-sorted via `sort_artists_for_search`.
-    // We reproduce that behaviour to keep search parity.
     let pg = is_postgres(database);
+    if pg && matches!(params.artist_sort.as_deref(), Some("recommended")) {
+        return Err(crate::error::Error::InvalidRequest(
+            "recommended artist sorting is not supported on PostgreSQL".to_string(),
+        ));
+    }
 
-    let (artists, total) = if pg {
-        // Postgres: fetch all without LIMIT/OFFSET, sort/paginate in Rust
-        // (matches previous post-sort behaviour).
-        let mut sql = String::new();
-        let mut binds: Vec<Value> = Vec::new();
-        sql.push_str("SELECT a.* FROM artists a");
-        if let Some(ref extra_join) = artist_order_clause.extra_join {
-            append_extra_join_with_user_binds(
-                &mut sql,
-                &mut binds,
-                extra_join,
-                &artist_order_clause.extra_join_user_ids,
-                pg,
-            );
-        }
-        if artist_has_rating_filter {
-            sql.push_str(" LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'artist' AND r.user_id = ");
-            push_bind(&mut sql, &mut binds, user_id, pg);
-        }
-        if artist_has_starred_filter {
-            sql.push_str(" LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'artist' AND st.user_id = ");
-            push_bind(&mut sql, &mut binds, user_id, pg);
-        }
-        sql.push_str(" WHERE EXISTS (SELECT 1 FROM songs s_check \
-                       JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id \
-                       JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id \
-                       WHERE s_check.artist_id = a.id AND mf_check.enabled AND ula_check.user_id = ");
-        push_bind(&mut sql, &mut binds, user_id, pg);
-        sql.push(')');
-        if let Some(ref ts) = postgres_ts_query {
-            binds.push(Value::from(ts.clone()));
-            let n = binds.len();
-            sql.push_str(&format!(
-                " AND to_tsvector('simple', COALESCE(a.name, '') || ' ' || COALESCE(a.sort_name, '')) \
-                   @@ to_tsquery('simple', ${n})"
-            ));
-        }
-        for condition in &artist_filter_conds {
-            sql.push_str(" AND ");
-            sql.push_str(&sqlite_case_insensitive_sql_to_postgres(condition));
-        }
-
-        let should_order_in_sql = is_starred_sort(params.artist_sort.as_ref())
-            || is_last_played_sort(params.artist_sort.as_ref());
-        if should_order_in_sql {
-            sql.push_str(" ORDER BY ");
-            sql.push_str(&sqlite_case_insensitive_sql_to_postgres(artist_order));
-        }
-
-        let artists =
-            query_all_for_backend::<crate::db::models::Artist>(database, &sql, binds).await?;
-        let artists = if should_order_in_sql {
-            artists
-        } else {
-            sort_artists_for_search(
-                artists,
-                params.artist_sort.as_ref(),
-                params.artist_sort_dir.as_ref(),
-            )
-        };
-        let total = Some(artists.len() as i64);
-        (artists, total)
-    } else if is_wildcard || fts_query.is_some() {
+    let (artists, total) = if is_wildcard || fts_query.is_some() {
         let (sql, binds) = build_query(false);
         let artists =
             query_all_for_backend::<crate::db::models::Artist>(database, &sql, binds).await?;
@@ -1471,14 +1331,6 @@ pub async fn search_artists(
             t
         }
     });
-
-    // On Postgres we fetched all rows; paginate now. SQLite already paginated via LIMIT/OFFSET.
-    let artists = if pg {
-        let (paged, _) = paginate_search_results(artists, limit, offset);
-        paged
-    } else {
-        artists
-    };
 
     Ok(ArtistSearchResult { artists, total })
 }
@@ -1603,42 +1455,29 @@ pub async fn search_albums(
             }
         }
 
-        let should_order_in_sql = !pg
-            || is_starred_sort(params.album_sort.as_ref())
-            || is_last_played_sort(params.album_sort.as_ref());
-        if !count_only && should_order_in_sql {
+        if !count_only {
             sql.push_str(" ORDER BY ");
             if pg {
                 sql.push_str(&sqlite_case_insensitive_sql_to_postgres(album_order));
             } else {
                 sql.push_str(album_order);
-                sql.push_str(" LIMIT ");
-                push_bind(&mut sql, &mut binds, limit, pg);
-                sql.push_str(" OFFSET ");
-                push_bind(&mut sql, &mut binds, offset, pg);
             }
+            sql.push_str(", a.id ASC");
+            sql.push_str(" LIMIT ");
+            push_bind(&mut sql, &mut binds, limit, pg);
+            sql.push_str(" OFFSET ");
+            push_bind(&mut sql, &mut binds, offset, pg);
         }
         (sql, binds)
     };
 
-    let (albums, total) = if pg {
-        let (sql, binds) = build_query(false);
-        let albums =
-            query_all_for_backend::<crate::db::models::Album>(database, &sql, binds).await?;
-        let albums = if is_starred_sort(params.album_sort.as_ref())
-            || is_last_played_sort(params.album_sort.as_ref())
-        {
-            albums
-        } else {
-            sort_albums_for_search(
-                albums,
-                params.album_sort.as_ref(),
-                params.album_sort_dir.as_ref(),
-            )
-        };
-        let total = Some(albums.len() as i64);
-        (albums, total)
-    } else if is_wildcard || fts_query.is_some() {
+    if pg && matches!(params.album_sort.as_deref(), Some("recommended")) {
+        return Err(crate::error::Error::InvalidRequest(
+            "recommended album sorting is not supported on PostgreSQL".to_string(),
+        ));
+    }
+
+    let (albums, total) = if is_wildcard || fts_query.is_some() {
         let (sql, binds) = build_query(false);
         let albums =
             query_all_for_backend::<crate::db::models::Album>(database, &sql, binds).await?;
@@ -1670,13 +1509,6 @@ pub async fn search_albums(
             t
         }
     });
-
-    let albums = if pg {
-        let (paged, _) = paginate_search_results(albums, limit, offset);
-        paged
-    } else {
-        albums
-    };
 
     Ok(AlbumSearchResult { albums, total })
 }
@@ -1711,63 +1543,34 @@ pub async fn search_songs(
     };
     let is_wildcard = is_wildcard_input || fts_query.is_none();
 
-    let song_order = get_song_order_clause_for_search(
-        params.song_sort.as_ref(),
-        params.song_sort_dir.as_ref(),
-        !is_wildcard,
-    );
-
     let filter_conds = build_song_filter_conditions(params, user_id);
     let pg = is_postgres(database);
-
-    if pg {
-        // Postgres path: fetch all with a neutral ORDER BY (Rust-side sort
-        // handles the real ordering), then sort/paginate in Rust to match
-        // legacy behaviour. This avoids referencing the SQLite-only FTS
-        // alias (`fts.rank`) that the sort clause may produce for FTS
-        // queries.
-        let pg_song_order = "s.title".to_string();
-        let songs = search_songs_unified(
-            database,
-            user_id,
-            if is_wildcard {
-                None
-            } else {
-                postgres_ts_query.as_deref()
-            },
-            None,
-            &filter_conds,
-            &pg_song_order,
-            None,
+    if pg
+        && matches!(
+            params.song_sort.as_deref(),
+            Some("recommended" | "relevance")
         )
-        .await?;
-        let songs = crate::api::common::sorting::sort_songs(
-            songs,
-            params.song_sort.as_deref().or(Some("name")),
-            params.song_sort_dir.as_deref(),
-        );
-        let total = Some(songs.len() as i64);
-        let original_len = songs.len();
-        let songs = if !is_wildcard && offset == 0 && (songs.len() as i64) < limit {
-            match fuzzy_supplement_songs(database, user_id, trimmed_query, &songs, limit).await {
-                Ok(supplemented) => supplemented,
-                Err(_) => songs,
-            }
-        } else {
-            songs
-        };
-        let total = total.map(|t| {
-            if offset == 0 {
-                t + (songs.len() as i64 - original_len as i64)
-            } else {
-                t
-            }
-        });
-        let (songs, _) = paginate_search_results(songs, limit, offset);
-        return Ok(SongSearchResult { songs, total });
+    {
+        return Err(crate::error::Error::InvalidRequest(
+            "recommended and relevance song sorting are not supported on PostgreSQL".to_string(),
+        ));
     }
+    let song_order = if pg && !is_wildcard && params.song_sort.is_none() {
+        // PostgreSQL and SQLite use different full-text ranking functions.
+        // Use a stable documented fallback instead of hydrating every match
+        // and pretending the backends share a relevance score.
+        "s.title COLLATE NOCASE ASC, s.id ASC".to_string()
+    } else {
+        format!(
+            "{}, s.id ASC",
+            get_song_order_clause_for_search(
+                params.song_sort.as_ref(),
+                params.song_sort_dir.as_ref(),
+                !is_wildcard,
+            )
+        )
+    };
 
-    // SQLite path.
     let (songs, total) = if is_wildcard {
         let songs = search_songs_unified(
             database,
@@ -1780,6 +1583,26 @@ pub async fn search_songs(
         )
         .await?;
         let count = count_songs_unified(database, user_id, None, None, &filter_conds).await?;
+        (songs, Some(count))
+    } else if pg {
+        let songs = search_songs_unified(
+            database,
+            user_id,
+            postgres_ts_query.as_deref(),
+            None,
+            &filter_conds,
+            &song_order,
+            Some((limit, offset)),
+        )
+        .await?;
+        let count = count_songs_unified(
+            database,
+            user_id,
+            postgres_ts_query.as_deref(),
+            None,
+            &filter_conds,
+        )
+        .await?;
         (songs, Some(count))
     } else if let Some(ref fts_q) = fts_query {
         let songs = search_songs_unified(

@@ -208,7 +208,11 @@ pub async fn get_directory_paged(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetDirectoryPagedParams>,
 ) -> FerrotuneApiResult<Json<DirectoryPagedResponse>> {
-    let count = params.count.unwrap_or(100).min(500) as i64;
+    let requested_count = params.count.unwrap_or(100);
+    if requested_count == 0 || requested_count > 500 {
+        return Err(Error::InvalidRequest("count must be between 1 and 500".to_string()).into());
+    }
+    let count = requested_count as i64;
     let offset = params.offset.unwrap_or(0) as i64;
     let inline_size = params.inline_images.get_size();
 
@@ -356,352 +360,182 @@ async fn get_directory_contents_for_library(
     files_only: bool,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> FerrotuneApiResult<(Vec<DirectoryChildPaged>, DirectoryStats)> {
-    type DirectorySongRow = (
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<i32>,
-        Option<String>,
-        Option<i32>,
-        i64,
-        String,
-        i64,
-        Option<i32>,
-        String,
-        String,
-        chrono::DateTime<chrono::Utc>,
-    );
-
-    // Path prefix for finding files in this directory
-    // file_path in DB is relative to library root, so we use relative_path
-    let path_prefix = if relative_path.is_empty() {
-        // At library root - match all files (any path)
-        String::new()
-    } else {
-        // In a subdirectory - match files that start with this path
-        format!("{}/", relative_path)
+    use crate::db::repo::browse::{
+        DirectoryFolderPage, DirectoryPageOptions, DirectorySongPage, DirectorySort,
     };
 
-    // Get all songs that start with this path prefix and belong to this library
-    let song_rows =
-        crate::db::repo::browse::list_directory_songs(database, library_id, &path_prefix).await?;
-    let all_songs: Vec<DirectorySongRow> = song_rows
-        .into_iter()
-        .map(|r| {
-            (
-                r.id,
-                r.file_path,
-                r.title,
-                r.album_id,
-                r.album_name,
-                r.year,
-                r.genre,
-                r.track_number,
-                r.file_size,
-                r.file_format,
-                r.duration,
-                r.bitrate,
-                r.artist_id,
-                r.artist_name,
-                r.created_at,
+    if folders_only && files_only {
+        return Err(Error::InvalidRequest(
+            "foldersOnly and filesOnly cannot both be true".to_string(),
+        )
+        .into());
+    }
+    let sort = match sort.unwrap_or("name") {
+        "name" => DirectorySort::Name,
+        "artist" => DirectorySort::Artist,
+        "album" => DirectorySort::Album,
+        "year" => DirectorySort::Year,
+        "duration" => DirectorySort::Duration,
+        "size" => DirectorySort::Size,
+        "dateAdded" => DirectorySort::DateAdded,
+        value => {
+            return Err(
+                Error::InvalidRequest(format!("unsupported directory sort field: {value}")).into(),
             )
-        })
-        .collect();
-
-    // Separate into direct children and subdirectories
-    let mut direct_songs: Vec<DirectorySongRow> = Vec::new();
-    let mut subdir_stats: HashMap<String, (i64, i64)> = HashMap::new(); // (file_count, total_size)
-
-    for song in all_songs {
-        let file_path = &song.1;
-        let rel_to_current = file_path.strip_prefix(&path_prefix).unwrap_or(file_path);
-
-        if rel_to_current.contains('/') {
-            // This song is in a subdirectory
-            let first_component = rel_to_current.split('/').next().unwrap().to_string();
-            let entry = subdir_stats.entry(first_component).or_insert((0, 0));
-            entry.0 += 1; // file count
-            entry.1 += song.8; // total size
-        } else {
-            // This song is directly in this folder
-            direct_songs.push(song);
         }
-    }
-
-    // Build list of all children (folders first, then files)
-    let mut all_children: Vec<DirectoryChildPaged> = Vec::new();
-
-    // Add subdirectories with stats
-    if !files_only {
-        for (subdir_name, (file_count, total_size)) in &subdir_stats {
-            // Build relative path for this subdirectory
-            let subdir_relative_path = if relative_path.is_empty() {
-                subdir_name.clone()
-            } else {
-                format!("{}/{}", relative_path, subdir_name)
-            };
-
-            // Apply filter if provided
-            if let Some(filter_text) = filter {
-                if !subdir_name
-                    .to_lowercase()
-                    .contains(&filter_text.to_lowercase())
-                {
-                    continue;
-                }
-            }
-
-            all_children.push(DirectoryChildPaged {
-                id: subdir_relative_path.clone(),
-                parent: Some(relative_path.to_string()),
-                is_dir: true,
-                title: subdir_name.clone(),
-                artist: None,
-                artist_id: None,
-                album: None,
-                album_id: None,
-                cover_art: None,
-                cover_art_data: None,
-                year: None,
-                genre: None,
-                track: None,
-                size: None,
-                content_type: None,
-                suffix: None,
-                duration: None,
-                bit_rate: None,
-                path: Some(subdir_relative_path),
-                starred: None,
-                user_rating: None,
-                created: None,
-                folder_size: Some(*total_size),
-                child_count: Some(*file_count),
-            });
+    };
+    let descending = match sort_dir.unwrap_or("asc") {
+        "asc" => false,
+        "desc" => true,
+        value => {
+            return Err(Error::InvalidRequest(format!(
+                "unsupported directory sort direction: {value}"
+            ))
+            .into())
         }
-    }
+    };
+    let path_prefix = if relative_path.is_empty() {
+        String::new()
+    } else {
+        format!("{relative_path}/")
+    };
+    let offset = u64::try_from(offset)
+        .map_err(|_| Error::InvalidRequest("offset cannot be negative".to_string()))?;
+    let count = u64::try_from(count)
+        .map_err(|_| Error::InvalidRequest("count cannot be negative".to_string()))?;
 
-    // Get starred status and ratings for songs
-    let song_ids: Vec<String> = direct_songs.iter().map(|s| s.0.clone()).collect();
+    let folder_page = if files_only {
+        DirectoryFolderPage {
+            rows: Vec::new(),
+            total: 0,
+        }
+    } else {
+        crate::db::repo::browse::page_directory_folders(
+            database,
+            library_id,
+            &path_prefix,
+            DirectoryPageOptions {
+                filter,
+                sort,
+                descending,
+                offset,
+                limit: count,
+            },
+        )
+        .await?
+    };
+    let remaining = count.saturating_sub(folder_page.rows.len() as u64);
+    let song_offset = if files_only {
+        offset
+    } else {
+        offset.saturating_sub(folder_page.total.max(0) as u64)
+    };
+    let song_page = if folders_only {
+        DirectorySongPage {
+            rows: Vec::new(),
+            total: 0,
+            total_size: 0,
+        }
+    } else {
+        crate::db::repo::browse::page_directory_songs(
+            database,
+            library_id,
+            &path_prefix,
+            DirectoryPageOptions {
+                filter,
+                sort,
+                descending,
+                offset: song_offset,
+                limit: remaining,
+            },
+        )
+        .await?
+    };
+
+    let song_ids: Vec<String> = song_page.rows.iter().map(|song| song.id.clone()).collect();
     let starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
     let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
-
-    // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {
-        // song_thumbnail_data: (song_id, album_id)
-        let song_thumbnail_data: Vec<(String, Option<String>)> = direct_songs
+        let thumbnail_data = song_page
+            .rows
             .iter()
-            .map(|s| (s.0.clone(), s.3.clone()))
-            .collect();
-        get_song_thumbnails_base64(database, &song_thumbnail_data, size).await
+            .map(|song| (song.id.clone(), song.album_id.clone()))
+            .collect::<Vec<_>>();
+        get_song_thumbnails_base64(database, &thumbnail_data, size).await
     } else {
         HashMap::new()
     };
 
-    // Add songs
-    if !folders_only {
-        for song in direct_songs.iter() {
-            // Apply filter if provided
-            if let Some(filter_text) = filter {
-                let filter_lower = filter_text.to_lowercase();
-                let matches = song.2.to_lowercase().contains(&filter_lower)
-                    || song.13.to_lowercase().contains(&filter_lower)
-                    || song
-                        .4
-                        .as_ref()
-                        .map(|a| a.to_lowercase().contains(&filter_lower))
-                        .unwrap_or(false);
-                if !matches {
-                    continue;
-                }
-            }
-
-            let content_type = get_content_type_for_format(&song.9);
-
-            // file_path in the database is already relative to library root
-            let song_relative_path = song.1.clone();
-
-            all_children.push(DirectoryChildPaged {
-                id: song.0.clone(),
-                parent: Some(relative_path.to_string()),
-                is_dir: false,
-                title: song.2.clone(),
-                artist: Some(song.13.clone()),
-                artist_id: Some(song.12.clone()),
-                album: song.4.clone(),
-                album_id: song.3.clone(),
-                cover_art: Some(song.0.clone()), // Use song ID for cover art
-                cover_art_data: thumbnails.get(&song.0).cloned(),
-                year: song.5,
-                genre: song.6.clone(),
-                track: song.7,
-                size: Some(song.8),
-                content_type: Some(content_type.to_string()),
-                suffix: Some(song.9.clone()),
-                duration: Some(song.10),
-                bit_rate: song.11,
-                path: Some(song_relative_path),
-                starred: starred_map.get(&song.0).cloned(),
-                user_rating: ratings_map.get(&song.0).copied(),
-                created: Some(song.14.to_rfc3339()),
-                folder_size: None,
-                child_count: None,
-            });
-        }
+    let mut children = Vec::with_capacity(folder_page.rows.len() + song_page.rows.len());
+    for folder in &folder_page.rows {
+        let folder_path = if relative_path.is_empty() {
+            folder.name.clone()
+        } else {
+            format!("{relative_path}/{}", folder.name)
+        };
+        children.push(DirectoryChildPaged {
+            id: folder_path.clone(),
+            parent: Some(relative_path.to_string()),
+            is_dir: true,
+            title: folder.name.clone(),
+            artist: None,
+            artist_id: None,
+            album: None,
+            album_id: None,
+            cover_art: None,
+            cover_art_data: None,
+            year: None,
+            genre: None,
+            track: None,
+            size: None,
+            content_type: None,
+            suffix: None,
+            duration: None,
+            bit_rate: None,
+            path: Some(folder_path),
+            starred: None,
+            user_rating: None,
+            created: None,
+            folder_size: Some(folder.total_size),
+            child_count: Some(folder.file_count),
+        });
     }
-
-    // Calculate stats before sorting/pagination
-    let folder_count = subdir_stats.len() as i64;
-    let file_count = direct_songs.len() as i64;
-    let total_count = all_children.len() as i64;
-    let total_size: i64 = direct_songs.iter().map(|s| s.8).sum();
-
-    // Sort children
-    let sort_field = sort.unwrap_or("name");
-    let sort_direction = sort_dir.unwrap_or("asc");
-    let ascending = sort_direction == "asc";
-
-    match sort_field {
-        "name" => all_children.sort_by(|a, b| {
-            // Folders first, then by name
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => {
-                    let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                    if ascending {
-                        cmp
-                    } else {
-                        cmp.reverse()
-                    }
-                }
-            }
-        }),
-        "artist" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            (true, true) => {
-                let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                if ascending {
-                    cmp
-                } else {
-                    cmp.reverse()
-                }
-            }
-            (false, false) => {
-                let a_artist = a.artist.as_deref().unwrap_or("");
-                let b_artist = b.artist.as_deref().unwrap_or("");
-                let cmp = a_artist.to_lowercase().cmp(&b_artist.to_lowercase());
-                if ascending {
-                    cmp
-                } else {
-                    cmp.reverse()
-                }
-            }
-        }),
-        "album" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            (true, true) => {
-                let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                if ascending {
-                    cmp
-                } else {
-                    cmp.reverse()
-                }
-            }
-            (false, false) => {
-                let a_album = a.album.as_deref().unwrap_or("");
-                let b_album = b.album.as_deref().unwrap_or("");
-                let cmp = a_album.to_lowercase().cmp(&b_album.to_lowercase());
-                if ascending {
-                    cmp
-                } else {
-                    cmp.reverse()
-                }
-            }
-        }),
-        "year" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => {
-                let a_year = a.year.unwrap_or(0);
-                let b_year = b.year.unwrap_or(0);
-                if ascending {
-                    a_year.cmp(&b_year)
-                } else {
-                    b_year.cmp(&a_year)
-                }
-            }
-        }),
-        "duration" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => {
-                let a_dur = a.duration.unwrap_or(0);
-                let b_dur = b.duration.unwrap_or(0);
-                if ascending {
-                    a_dur.cmp(&b_dur)
-                } else {
-                    b_dur.cmp(&a_dur)
-                }
-            }
-        }),
-        "size" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            (true, true) => {
-                let a_size = a.folder_size.unwrap_or(0);
-                let b_size = b.folder_size.unwrap_or(0);
-                if ascending {
-                    a_size.cmp(&b_size)
-                } else {
-                    b_size.cmp(&a_size)
-                }
-            }
-            (false, false) => {
-                let a_size = a.size.unwrap_or(0);
-                let b_size = b.size.unwrap_or(0);
-                if ascending {
-                    a_size.cmp(&b_size)
-                } else {
-                    b_size.cmp(&a_size)
-                }
-            }
-        }),
-        "dateAdded" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => {
-                let a_created = a.created.as_deref().unwrap_or("");
-                let b_created = b.created.as_deref().unwrap_or("");
-                let cmp = a_created.cmp(b_created);
-                if ascending {
-                    cmp
-                } else {
-                    cmp.reverse()
-                }
-            }
-        }),
-        _ => {}
+    for song in &song_page.rows {
+        children.push(DirectoryChildPaged {
+            id: song.id.clone(),
+            parent: Some(relative_path.to_string()),
+            is_dir: false,
+            title: song.title.clone(),
+            artist: Some(song.artist_name.clone()),
+            artist_id: Some(song.artist_id.clone()),
+            album: song.album_name.clone(),
+            album_id: song.album_id.clone(),
+            cover_art: Some(song.id.clone()),
+            cover_art_data: thumbnails.get(&song.id).cloned(),
+            year: song.year,
+            genre: song.genre.clone(),
+            track: song.track_number,
+            size: Some(song.file_size),
+            content_type: Some(get_content_type_for_format(&song.file_format).to_string()),
+            suffix: Some(song.file_format.clone()),
+            duration: Some(song.duration),
+            bit_rate: song.bitrate,
+            path: Some(song.file_path.clone()),
+            starred: starred_map.get(&song.id).cloned(),
+            user_rating: ratings_map.get(&song.id).copied(),
+            created: Some(song.created_at.to_rfc3339()),
+            folder_size: None,
+            child_count: None,
+        });
     }
-
-    // Apply pagination
-    let start = offset as usize;
-    let paginated: Vec<DirectoryChildPaged> = all_children
-        .into_iter()
-        .skip(start)
-        .take(count as usize)
-        .collect();
 
     Ok((
-        paginated,
+        children,
         DirectoryStats {
-            total_count,
-            folder_count,
-            file_count,
-            total_size,
+            total_count: folder_page.total + song_page.total,
+            folder_count: folder_page.total,
+            file_count: song_page.total,
+            total_size: song_page.total_size,
         },
     ))
 }

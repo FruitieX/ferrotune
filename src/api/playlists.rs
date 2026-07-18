@@ -44,7 +44,10 @@ pub struct PlaylistFolderResponse {
 pub struct PlaylistInFolder {
     pub id: String,
     pub name: String,
+    pub comment: Option<String>,
     pub folder_id: Option<String>,
+    pub owner: String,
+    pub public: bool,
     #[ts(type = "number")]
     pub position: i64,
     #[ts(type = "number")]
@@ -52,17 +55,15 @@ pub struct PlaylistInFolder {
     /// Total duration of all songs in the playlist (seconds)
     #[ts(type = "number")]
     pub duration: i64,
-    /// Owner username (present for shared playlists)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
     /// Whether this playlist was shared with the current user
     #[serde(default)]
     pub shared_with_me: bool,
     /// Whether the current user can edit this shared playlist
     #[serde(default)]
     pub can_edit: bool,
-    /// When the playlist was last updated (ISO 8601)
-    pub updated_at: String,
+    pub created: String,
+    pub changed: String,
+    pub cover_art: Option<String>,
 }
 
 /// Response containing all folders and playlists.
@@ -163,16 +164,20 @@ pub async fn get_playlist_folders(
         .await?
         .into_iter()
         .map(|playlist| PlaylistInFolder {
+            cover_art: (playlist.song_count > 0).then(|| playlist.id.clone()),
             id: playlist.id,
             name: playlist.name,
+            comment: playlist.comment,
             folder_id: playlist.folder_id,
+            owner: playlist.owner_name.unwrap_or_else(|| user.username.clone()),
+            public: playlist.is_public,
             position: playlist.position,
             song_count: playlist.song_count,
             duration: playlist.duration,
-            owner: playlist.owner_name,
             shared_with_me: playlist.shared_with_me,
             can_edit: playlist.can_edit,
-            updated_at: format_datetime_iso(playlist.updated_at.with_timezone(&Utc)),
+            created: format_datetime_iso(playlist.created_at.with_timezone(&Utc)),
+            changed: format_datetime_iso(playlist.updated_at.with_timezone(&Utc)),
         })
         .collect();
 
@@ -902,7 +907,12 @@ pub struct ImportPlaylistRequest {
     /// Optional comment/description
     pub comment: Option<String>,
     /// Entries in the playlist (can include missing entries)
+    #[serde(default)]
     pub entries: Vec<ImportPlaylistEntry>,
+    /// Collection sources to concatenate server-side. Duplicate song IDs are
+    /// kept once, at their first occurrence across the source list.
+    #[serde(default)]
+    pub sources: Vec<crate::api::queue::QueueSourceRequest>,
     /// Optional folder ID to create the playlist in
     pub folder_id: Option<String>,
 }
@@ -959,6 +969,24 @@ pub async fn import_playlist(
         }
     }
 
+    let ImportPlaylistRequest {
+        name,
+        comment,
+        mut entries,
+        sources,
+        folder_id,
+    } = request;
+
+    if !sources.is_empty() {
+        let source_songs =
+            crate::api::queue::materialize_queue_sources(&state.database, user.user_id, &sources)
+                .await?;
+        entries.extend(source_songs.into_iter().map(|song| ImportPlaylistEntry {
+            song_id: Some(song.id),
+            missing: None,
+        }));
+    }
+
     // Generate playlist ID
     let playlist_id = format!("pl-{}", Uuid::new_v4());
 
@@ -966,18 +994,17 @@ pub async fn import_playlist(
     create_playlist(
         &state.database,
         &playlist_id,
-        &request.name,
+        &name,
         user.user_id,
-        request.comment.as_deref(),
+        comment.as_deref(),
         false,
-        request.folder_id.as_deref(),
+        folder_id.as_deref(),
     )
     .await?;
     let mut matched_count = 0i32;
     let mut missing_count = 0i32;
 
-    let entries: Vec<PlaylistEntry> = request
-        .entries
+    let entries: Vec<PlaylistEntry> = entries
         .into_iter()
         .filter_map(|entry| {
             // Parse missing data if present (used for refine match later)
@@ -1183,67 +1210,95 @@ pub async fn get_playlist_songs(
         return Err(Error::Forbidden("Not authorized to access this playlist".to_string()).into());
     }
 
-    // Get all playlist entries (positions, song_ids, missing data, added_at, entry_id)
-    #[derive(sea_orm::FromQueryResult)]
-    struct EntryRaw {
-        position: i64,
-        song_id: Option<String>,
-        missing_entry_data: Option<String>,
-        missing_search_text: Option<String>,
-        added_at: DateTime<Utc>,
-        entry_id: Option<String>,
-    }
-    let entries_raw: Vec<EntryRaw> =
-        crate::db::repo::playlists::list_playlist_entries_full(&state.database, &playlist_id)
-            .await?
-            .into_iter()
-            .map(|r| EntryRaw {
-                position: r.position,
-                song_id: r.song_id,
-                missing_entry_data: r.missing_entry_data,
-                missing_search_text: r.missing_search_text,
-                added_at: r.added_at,
-                entry_id: r.entry_id,
-            })
-            .collect();
-
-    // Count totals
-    let total_entries = entries_raw.len() as i64;
-    let matched_count = entries_raw.iter().filter(|e| e.song_id.is_some()).count() as i64;
-    // Only count as "missing" if there's no song_id (truly unmatched entries)
-    let missing_count = entries_raw
-        .iter()
-        .filter(|e| e.song_id.is_none() && e.missing_entry_data.is_some())
-        .count() as i64;
-
-    // Get all song IDs that are not null
-    let song_ids: Vec<String> = entries_raw
-        .iter()
-        .filter_map(|e| e.song_id.clone())
-        .collect();
-
-    // Fetch all songs at once with their library enabled status
-    let songs = if !song_ids.is_empty() {
-        crate::db::repo::browse::get_songs_by_ids_with_library_status(
-            &state.database,
-            &song_ids,
-            user.user_id,
-        )
-        .await?
-    } else {
-        vec![]
+    use crate::db::repo::playlists::{
+        PlaylistEntryPageOptions, PlaylistEntrySort, PlaylistEntryTypeFilter,
     };
 
-    // Create a lookup map from song_id -> SongWithLibraryStatus
+    let sort = match params.sort.as_deref().unwrap_or("custom") {
+        "custom" => PlaylistEntrySort::Custom,
+        "name" | "title" => PlaylistEntrySort::Title,
+        "artist" => PlaylistEntrySort::Artist,
+        "album" => PlaylistEntrySort::Album,
+        "year" => PlaylistEntrySort::Year,
+        "dateAdded" | "created" => PlaylistEntrySort::Created,
+        "addedToPlaylist" => PlaylistEntrySort::AddedToPlaylist,
+        "duration" => PlaylistEntrySort::Duration,
+        "playCount" | "playStarts" | "lastPlayed" => {
+            return Err(Error::InvalidRequest(
+                "playlist sorting by listening statistics is not supported".to_string(),
+            )
+            .into())
+        }
+        value => {
+            return Err(
+                Error::InvalidRequest(format!("unsupported playlist sort field: {value}")).into(),
+            )
+        }
+    };
+    let descending = match params.sort_dir.as_deref().unwrap_or("asc") {
+        "asc" => false,
+        "desc" => true,
+        value => {
+            return Err(Error::InvalidRequest(format!(
+                "unsupported playlist sort direction: {value}"
+            ))
+            .into())
+        }
+    };
+    let entry_type = match params.entry_type.as_deref() {
+        None => PlaylistEntryTypeFilter::Any,
+        Some("song") => PlaylistEntryTypeFilter::Song,
+        Some("missing") => PlaylistEntryTypeFilter::Missing,
+        Some("notfound" | "notFound") => PlaylistEntryTypeFilter::NotFound,
+        Some(value) => {
+            return Err(
+                Error::InvalidRequest(format!("unsupported playlist entry type: {value}")).into(),
+            )
+        }
+    };
+    const MAX_PAGE_SIZE: u32 = 500;
+    let count = params.count.unwrap_or(50);
+    if count == 0 || count > MAX_PAGE_SIZE {
+        return Err(
+            Error::InvalidRequest(format!("count must be between 1 and {MAX_PAGE_SIZE}")).into(),
+        );
+    }
+    let page_options = PlaylistEntryPageOptions {
+        offset: params.offset.unwrap_or(0) as u64,
+        limit: count as u64,
+        sort,
+        descending,
+        search_tokens: params
+            .filter
+            .as_deref()
+            .map(crate::api::common::search::parse_search_tokens)
+            .unwrap_or_default(),
+        entry_type,
+    };
+    let (totals, page) = tokio::try_join!(
+        crate::db::repo::playlists::playlist_entry_totals(&state.database, &playlist_id),
+        crate::db::repo::playlists::page_playlist_entries(
+            &state.database,
+            &playlist_id,
+            &page_options,
+        ),
+    )?;
+    let song_ids: Vec<String> = page
+        .entries
+        .iter()
+        .filter_map(|entry| entry.song_id.clone())
+        .collect();
+    let songs = crate::db::repo::browse::get_songs_by_ids_with_library_status(
+        &state.database,
+        &song_ids,
+        user.user_id,
+    )
+    .await?;
     let song_map: std::collections::HashMap<String, crate::db::models::SongWithLibraryStatus> =
-        songs.into_iter().map(|s| (s.id.clone(), s)).collect();
-
-    // Determine sort mode
-    let sort_field = params.sort.as_deref().unwrap_or("custom");
-    let sort_dir = params.sort_dir.as_deref().unwrap_or("asc");
-    let filter_text = params.filter.as_deref();
-    let has_filter = filter_text.map(|f| !f.trim().is_empty()).unwrap_or(false);
-    let is_custom_sort = sort_field == "custom";
+        songs
+            .into_iter()
+            .map(|song| (song.id.clone(), song))
+            .collect();
 
     // Build unified entry list with position info
     #[derive(Clone)]
@@ -1273,17 +1328,17 @@ pub async fn get_playlist_songs(
         /// A song that has a song_id but the song is truly not found (deleted from DB)
         NotFound {
             position: i64,
-            song_id: String,
             missing_data: Option<MissingEntryData>,
             added_at: Option<String>,
             entry_id: String,
         },
     }
 
-    let mut unified_entries: Vec<EntryData> = entries_raw
+    let unified_entries: Vec<EntryData> = page
+        .entries
         .into_iter()
         .filter_map(
-            |EntryRaw {
+            |crate::db::repo::playlists::PlaylistEntryFullRow {
                  position,
                  song_id,
                  missing_entry_data: missing_json,
@@ -1327,7 +1382,6 @@ pub async fn get_playlist_songs(
                         // Song ID exists but song not found in DB at all (truly deleted)
                         Some(EntryData::NotFound {
                             position,
-                            song_id: sid,
                             missing_data,
                             added_at,
                             entry_id,
@@ -1344,153 +1398,9 @@ pub async fn get_playlist_songs(
             },
         )
         .collect();
-
-    // Apply entry type filter first
-    if let Some(ref entry_type_filter) = params.entry_type {
-        let filter_type = entry_type_filter.to_lowercase();
-        unified_entries.retain(|entry| {
-            matches!(
-                (&filter_type[..], entry),
-                ("song", EntryData::Song { .. }) 
-                | ("song", EntryData::DisabledLibrary { .. })  // DisabledLibrary has song data
-                | ("missing", EntryData::Missing { .. })
-                | ("missing", EntryData::NotFound { .. })  // notFound entries are treated as missing for filtering
-                | ("missing", EntryData::DisabledLibrary { .. })  // DisabledLibrary can also be treated as "missing" when looking for unavailable
-                | ("notfound", EntryData::NotFound { .. })
-                | ("notfound", EntryData::DisabledLibrary { .. })
-            )
-        });
-    }
-
-    // Apply text filtering using the same tokenization logic as FTS search
-    if has_filter {
-        use crate::api::common::search::text_matches_query;
-        let query = filter_text.unwrap();
-        unified_entries.retain(|entry| match entry {
-            EntryData::Song { song, .. } => {
-                // Build combined searchable text from song metadata
-                let search_text = format!(
-                    "{} {} {}",
-                    song.title,
-                    song.artist_name,
-                    song.album_name.as_deref().unwrap_or("")
-                );
-                text_matches_query(&search_text, query)
-            }
-            EntryData::Missing { data, .. } => {
-                // Build combined searchable text from missing entry metadata
-                let search_text = format!(
-                    "{} {} {} {}",
-                    data.title.as_deref().unwrap_or(""),
-                    data.artist.as_deref().unwrap_or(""),
-                    data.album.as_deref().unwrap_or(""),
-                    data.raw
-                );
-                text_matches_query(&search_text, query)
-            }
-            EntryData::NotFound {
-                missing_data,
-                song_id,
-                ..
-            } => {
-                // Build searchable text from missing data or song_id
-                if let Some(data) = missing_data {
-                    let search_text = format!(
-                        "{} {} {} {}",
-                        data.title.as_deref().unwrap_or(""),
-                        data.artist.as_deref().unwrap_or(""),
-                        data.album.as_deref().unwrap_or(""),
-                        data.raw
-                    );
-                    text_matches_query(&search_text, query)
-                } else {
-                    text_matches_query(song_id, query)
-                }
-            }
-            EntryData::DisabledLibrary { song, .. } => {
-                // Build combined searchable text from song metadata
-                let search_text = format!(
-                    "{} {} {}",
-                    song.title,
-                    song.artist_name,
-                    song.album_name.as_deref().unwrap_or("")
-                );
-                text_matches_query(&search_text, query)
-            }
-        });
-    }
-
-    // Apply sorting
-    if !is_custom_sort {
-        // When sorting by a specific field, we need to decide how to handle missing/disabled entries.
-        // Missing/NotFound/DisabledLibrary entries are excluded when sorting by
-        // specific fields. They are only shown in "custom" (playlist order) mode.
-        unified_entries.retain(|entry| matches!(entry, EntryData::Song { .. }));
-
-        // Sort songs - need to capture added_at from the entry since it's not on the Song model
-        unified_entries.sort_by(|a, b| {
-            let (song_a, added_at_a, song_b, added_at_b) = match (a, b) {
-                (
-                    EntryData::Song {
-                        song: sa,
-                        added_at: aa,
-                        ..
-                    },
-                    EntryData::Song {
-                        song: sb,
-                        added_at: ab,
-                        ..
-                    },
-                ) => (sa, aa, sb, ab),
-                _ => unreachable!(), // We filtered out missing entries above
-            };
-
-            let cmp = match sort_field {
-                "name" | "title" => song_a
-                    .title
-                    .to_lowercase()
-                    .cmp(&song_b.title.to_lowercase()),
-                "artist" => song_a
-                    .artist_name
-                    .to_lowercase()
-                    .cmp(&song_b.artist_name.to_lowercase()),
-                "album" => {
-                    let a_album = song_a.album_name.as_deref().unwrap_or("");
-                    let b_album = song_b.album_name.as_deref().unwrap_or("");
-                    a_album.to_lowercase().cmp(&b_album.to_lowercase())
-                }
-                "year" => song_a.year.unwrap_or(0).cmp(&song_b.year.unwrap_or(0)),
-                "dateAdded" | "created" => song_a.created_at.cmp(&song_b.created_at),
-                "addedToPlaylist" => added_at_a.cmp(added_at_b),
-                "playCount" => song_a
-                    .play_count
-                    .unwrap_or(0)
-                    .cmp(&song_b.play_count.unwrap_or(0)),
-                "playStarts" => song_a
-                    .play_starts
-                    .unwrap_or(0)
-                    .cmp(&song_b.play_starts.unwrap_or(0)),
-                "lastPlayed" => song_a.last_played.cmp(&song_b.last_played),
-                "duration" => song_a.duration.cmp(&song_b.duration),
-                _ => std::cmp::Ordering::Equal,
-            };
-            cmp
-        });
-
-        if sort_dir == "desc" {
-            unified_entries.reverse();
-        }
-    } else if sort_dir == "desc" {
-        // Custom sort with desc = reverse playlist order
-        unified_entries.reverse();
-    }
-
-    let filtered_count = unified_entries.len() as i64;
-
-    // Compute song indices (index among songs only, excluding missing entries)
-    // This is computed before pagination so indices are correct across pages
-    let mut song_idx = 0i32;
-    let entries_with_song_idx: Vec<_> = unified_entries
+    let mut song_idx = i32::try_from(page.leading_song_count)
+        .map_err(|_| Error::Internal("playlist song index exceeds supported range".to_string()))?;
+    let page_entries: Vec<_> = unified_entries
         .into_iter()
         .map(|entry| {
             let idx = match &entry {
@@ -1506,16 +1416,7 @@ pub async fn get_playlist_songs(
             (entry, idx)
         })
         .collect();
-
-    // Apply pagination
-    let offset = params.offset.unwrap_or(0) as usize;
-    let count = params.count.unwrap_or(50) as usize;
     let inline_size = params.inline_images.get_size();
-    let page_entries: Vec<_> = entries_with_song_idx
-        .into_iter()
-        .skip(offset)
-        .take(count)
-        .collect();
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {
@@ -1625,7 +1526,6 @@ pub async fn get_playlist_songs(
             },
             EntryData::NotFound {
                 position,
-                song_id: _,
                 missing_data,
                 added_at,
                 entry_id,
@@ -1710,11 +1610,11 @@ pub async fn get_playlist_songs(
         comment: playlist.comment,
         owner: owner_name,
         public: playlist.is_public,
-        total_entries,
-        matched_count,
-        missing_count,
-        duration: playlist.duration,
-        filtered_count,
+        total_entries: totals.total_entries,
+        matched_count: totals.matched_count,
+        missing_count: totals.missing_count,
+        duration: totals.duration,
+        filtered_count: page.filtered_count,
         created: format_datetime_iso_ms(playlist.created_at),
         changed: format_datetime_iso_ms(playlist.updated_at),
         cover_art,

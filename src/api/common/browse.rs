@@ -74,41 +74,15 @@ pub async fn get_artists_logic(
     Ok(ArtistsIndex { index: indexes })
 }
 
-/// Get artist details with albums and songs (for getArtist endpoint)
+/// Get artist metadata. Child collections have dedicated paginated endpoints.
 pub async fn get_artist_logic(
     database: &crate::db::Database,
     user_id: i64,
     artist_id: &str,
-    filter: Option<&str>,
-    sort: Option<&str>,
-    sort_dir: Option<&str>,
 ) -> crate::error::Result<ArtistDetail> {
-    use crate::api::common::sorting::filter_and_sort_songs;
-
     let artist = crate::db::repo::browse::get_artist_by_id(database, artist_id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", artist_id)))?;
-
-    let albums =
-        crate::db::repo::browse::get_albums_by_artist_for_user(database, artist_id, user_id)
-            .await?;
-
-    // Get all songs by this artist (track artist, includes songs on compilations)
-    let songs =
-        crate::db::repo::browse::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
-
-    // Apply server-side filtering and sorting
-    let songs = filter_and_sort_songs(songs, filter, sort, sort_dir);
-
-    // Get starred status and ratings for albums
-    let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
-    let starred_map = get_starred_map(database, user_id, ItemType::Album, &album_ids).await?;
-    let ratings_map = get_ratings_map(database, user_id, ItemType::Album, &album_ids).await?;
-
-    // Get starred status and ratings for songs
-    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let song_starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
-    let song_ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
 
     // Get starred status and rating for the artist itself
     let artist_ids_vec = vec![artist_id.to_string()];
@@ -116,47 +90,6 @@ pub async fn get_artist_logic(
         get_starred_map(database, user_id, ItemType::Artist, &artist_ids_vec).await?;
     let artist_ratings_map =
         get_ratings_map(database, user_id, ItemType::Artist, &artist_ids_vec).await?;
-
-    let album_responses: Vec<AlbumResponse> = albums
-        .iter()
-        .map(|album| AlbumResponse {
-            id: album.id.clone(),
-            name: album.name.clone(),
-            artist: album.artist_name.clone(),
-            artist_id: album.artist_id.clone(),
-            cover_art: Some(album.id.clone()),
-            cover_art_data: None,
-            song_count: album.song_count,
-            duration: album.duration,
-            year: album.year,
-            genre: album.genre.clone(),
-            created: format_datetime_iso_ms(album.created_at),
-            starred: starred_map.get(&album.id).cloned(),
-            user_rating: ratings_map.get(&album.id).copied(),
-            played: None,
-        })
-        .collect();
-
-    // Convert songs to response format
-    let song_responses: Vec<SongResponse> = songs
-        .iter()
-        .map(|song| {
-            // Use play stats from the Song model (populated by get_songs_by_artist)
-            let play_stats = SongPlayStats {
-                play_count: song.play_count,
-                last_played: song.last_played.map(format_datetime_iso),
-            };
-            song_to_response_with_stats(
-                song.clone(),
-                None, // We don't have album info here, but song has album_id
-                song_starred_map.get(&song.id).cloned(),
-                song_ratings_map.get(&song.id).copied(),
-                Some(play_stats),
-                None,
-                None,
-            )
-        })
-        .collect();
 
     Ok(ArtistDetail {
         id: artist.id.clone(),
@@ -167,36 +100,18 @@ pub async fn get_artist_logic(
         cover_art_data: None,
         starred: artist_starred_map.get(&artist.id).cloned(),
         user_rating: artist_ratings_map.get(&artist.id).copied(),
-        album: album_responses,
-        song: song_responses,
     })
 }
 
-/// Get album details with songs (for getAlbum endpoint)
+/// Get album metadata. Songs are exposed through the paginated album endpoint.
 pub async fn get_album_logic(
     database: &crate::db::Database,
     user_id: i64,
     album_id: &str,
-    filter: Option<&str>,
-    sort: Option<&str>,
-    sort_dir: Option<&str>,
 ) -> crate::error::Result<AlbumDetail> {
-    use crate::api::common::sorting::filter_and_sort_songs;
-
     let album = crate::db::repo::browse::get_album_by_id(database, album_id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Album {} not found", album_id)))?;
-
-    let songs =
-        crate::db::repo::browse::get_songs_by_album_for_user(database, album_id, user_id).await?;
-
-    // Apply server-side filtering and sorting
-    let songs = filter_and_sort_songs(songs, filter, sort, sort_dir);
-
-    // Get starred status and ratings for songs
-    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
-    let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
 
     // Get starred status and rating for the album itself
     let album_ids_vec = vec![album_id.to_string()];
@@ -204,26 +119,6 @@ pub async fn get_album_logic(
         get_starred_map(database, user_id, ItemType::Album, &album_ids_vec).await?;
     let album_ratings_map =
         get_ratings_map(database, user_id, ItemType::Album, &album_ids_vec).await?;
-
-    let song_responses: Vec<SongResponse> = songs
-        .iter()
-        .map(|song| {
-            // Use play stats from the Song model (populated by get_songs_by_album)
-            let play_stats = SongPlayStats {
-                play_count: song.play_count,
-                last_played: song.last_played.map(format_datetime_iso),
-            };
-            song_to_response_with_stats(
-                song.clone(),
-                Some(&album),
-                starred_map.get(&song.id).cloned(),
-                ratings_map.get(&song.id).copied(),
-                Some(play_stats),
-                None,
-                None,
-            )
-        })
-        .collect();
 
     Ok(AlbumDetail {
         id: album.id.clone(),
@@ -239,7 +134,6 @@ pub async fn get_album_logic(
         created: format_datetime_iso_ms(album.created_at),
         starred: album_starred_map.get(&album.id).cloned(),
         user_rating: album_ratings_map.get(&album.id).copied(),
-        song: song_responses,
     })
 }
 

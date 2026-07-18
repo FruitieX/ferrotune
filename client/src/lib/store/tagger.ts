@@ -383,8 +383,7 @@ function debouncedSaveSession(session: TaggerSession) {
           targetLibraryId: sessionToSave.targetLibraryId ?? undefined,
           showLibraryPrefix: sessionToSave.showLibraryPrefix,
           showComputedPath: sessionToSave.showComputedPath,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generated types use bigint for i64 but runtime uses number
-          columnWidths: columnWidthsForApi as any,
+          columnWidths: columnWidthsForApi,
           fileColumnWidth: sessionToSave.fileColumnWidth,
           detailsPanelOpen: sessionToSave.detailsPanelOpen,
         });
@@ -431,8 +430,7 @@ export async function flushSessionSync(): Promise<void> {
           targetLibraryId: session.targetLibraryId ?? undefined,
           showLibraryPrefix: session.showLibraryPrefix,
           showComputedPath: session.showComputedPath,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generated types use bigint for i64 but runtime uses number
-          columnWidths: columnWidthsForApi as any,
+          columnWidths: columnWidthsForApi,
           fileColumnWidth: session.fileColumnWidth,
           detailsPanelOpen: session.detailsPanelOpen,
         });
@@ -616,12 +614,6 @@ export async function loadTaggerState(): Promise<void> {
 
     // Load session LAST - this triggers track loading which needs pending edits to be ready
     const sessionResponse = await client.getTaggerSession();
-    // Convert columnWidths from API response (may have bigint values) to number
-    const columnWidths: Record<string, number> = {};
-    for (const [key, value] of Object.entries(sessionResponse.columnWidths)) {
-      columnWidths[key] = Number(value);
-    }
-
     const session: TaggerSession = {
       tracks: sessionResponse.tracks.map((t) => ({
         id: t.id,
@@ -633,8 +625,8 @@ export async function loadTaggerState(): Promise<void> {
       targetLibraryId: sessionResponse.targetLibraryId ?? null,
       showLibraryPrefix: sessionResponse.showLibraryPrefix,
       showComputedPath: sessionResponse.showComputedPath,
-      columnWidths,
-      fileColumnWidth: Number(sessionResponse.fileColumnWidth),
+      columnWidths: sessionResponse.columnWidths,
+      fileColumnWidth: sessionResponse.fileColumnWidth,
       detailsPanelOpen: sessionResponse.detailsPanelOpen,
       dangerousCharMode:
         (sessionResponse.dangerousCharMode as

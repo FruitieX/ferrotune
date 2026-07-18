@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, FixedOffset, Utc};
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, Func, SimpleExpr};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, Order,
-    QueryFilter, QueryOrder, QuerySelect, RelationTrait, TransactionTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, TransactionTrait,
 };
 
 use crate::db::entity;
@@ -28,13 +28,16 @@ pub struct PlaylistFolderRecord {
 pub struct PlaylistListingRecord {
     pub id: String,
     pub name: String,
+    pub comment: Option<String>,
     pub folder_id: Option<String>,
+    pub is_public: bool,
     pub position: i64,
     pub song_count: i64,
     pub duration: i64,
     pub owner_name: Option<String>,
     pub shared_with_me: bool,
     pub can_edit: bool,
+    pub created_at: DateTime<FixedOffset>,
     pub updated_at: DateTime<FixedOffset>,
 }
 
@@ -70,9 +73,13 @@ struct PlaylistFolderQueryRow {
 struct OwnedPlaylistQueryRow {
     id: String,
     name: String,
+    comment: Option<String>,
     folder_id: Option<String>,
+    is_public: bool,
     position: i64,
     song_count: i64,
+    duration: i64,
+    created_at: DateTime<FixedOffset>,
     updated_at: DateTime<FixedOffset>,
 }
 
@@ -80,17 +87,15 @@ struct OwnedPlaylistQueryRow {
 struct SharedPlaylistQueryRow {
     id: String,
     name: String,
+    comment: Option<String>,
+    is_public: bool,
     position: i64,
     song_count: i64,
+    duration: i64,
     owner_name: String,
     can_edit: bool,
+    created_at: DateTime<FixedOffset>,
     updated_at: DateTime<FixedOffset>,
-}
-
-#[derive(Debug, FromQueryResult)]
-struct PlaylistDurationQueryRow {
-    playlist_id: String,
-    duration: Option<i64>,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -129,39 +134,6 @@ fn playlist_folder_select(
             Order::Asc,
         )
         .order_by_asc(entity::playlist_folders::Column::Name)
-}
-
-async fn fetch_playlist_duration_map(
-    database: &Database,
-    playlist_ids: &[String],
-) -> Result<HashMap<String, i64>> {
-    if playlist_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    let rows = entity::playlist_songs::Entity::find()
-        .select_only()
-        .column(entity::playlist_songs::Column::PlaylistId)
-        .column_as(
-            Expr::col((entity::songs::Entity, entity::songs::Column::Duration))
-                .sum()
-                .cast_as("BIGINT"),
-            "duration",
-        )
-        .join(
-            JoinType::InnerJoin,
-            entity::playlist_songs::Relation::Songs.def(),
-        )
-        .filter(entity::playlist_songs::Column::PlaylistId.is_in(playlist_ids.iter().cloned()))
-        .group_by(entity::playlist_songs::Column::PlaylistId)
-        .into_model::<PlaylistDurationQueryRow>()
-        .all(database.conn())
-        .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.playlist_id, row.duration.unwrap_or(0)))
-        .collect())
 }
 
 async fn fetch_playlist_override_map(
@@ -486,9 +458,13 @@ pub async fn list_visible_playlists_for_user(
         .select_only()
         .column(entity::playlists::Column::Id)
         .column(entity::playlists::Column::Name)
+        .column(entity::playlists::Column::Comment)
         .column(entity::playlists::Column::FolderId)
+        .column(entity::playlists::Column::IsPublic)
         .column(entity::playlists::Column::Position)
         .column(entity::playlists::Column::SongCount)
+        .column(entity::playlists::Column::Duration)
+        .column(entity::playlists::Column::CreatedAt)
         .column(entity::playlists::Column::UpdatedAt)
         .filter(entity::playlists::Column::OwnerId.eq(user_id))
         .order_by_asc(entity::playlists::Column::Position)
@@ -514,6 +490,20 @@ pub async fn list_visible_playlists_for_user(
         .column_as(
             Expr::col((
                 entity::playlists::Entity,
+                entity::playlists::Column::Comment,
+            )),
+            "comment",
+        )
+        .column_as(
+            Expr::col((
+                entity::playlists::Entity,
+                entity::playlists::Column::IsPublic,
+            )),
+            "is_public",
+        )
+        .column_as(
+            Expr::col((
+                entity::playlists::Entity,
                 entity::playlists::Column::Position,
             )),
             "position",
@@ -526,10 +516,24 @@ pub async fn list_visible_playlists_for_user(
             "song_count",
         )
         .column_as(
+            Expr::col((
+                entity::playlists::Entity,
+                entity::playlists::Column::Duration,
+            )),
+            "duration",
+        )
+        .column_as(
             Expr::col((entity::users::Entity, entity::users::Column::Username)),
             "owner_name",
         )
         .column(entity::playlist_shares::Column::CanEdit)
+        .column_as(
+            Expr::col((
+                entity::playlists::Entity,
+                entity::playlists::Column::CreatedAt,
+            )),
+            "created_at",
+        )
         .column_as(
             Expr::col((
                 entity::playlists::Entity,
@@ -570,13 +574,17 @@ pub async fn list_visible_playlists_for_user(
         .select_only()
         .column(entity::playlists::Column::Id)
         .column(entity::playlists::Column::Name)
+        .column(entity::playlists::Column::Comment)
+        .column(entity::playlists::Column::IsPublic)
         .column(entity::playlists::Column::Position)
         .column(entity::playlists::Column::SongCount)
+        .column(entity::playlists::Column::Duration)
         .column_as(
             Expr::col((entity::users::Entity, entity::users::Column::Username)),
             "owner_name",
         )
         .column_as(Expr::value(false), "can_edit")
+        .column(entity::playlists::Column::CreatedAt)
         .column(entity::playlists::Column::UpdatedAt)
         .join(
             JoinType::InnerJoin,
@@ -599,53 +607,61 @@ pub async fn list_visible_playlists_for_user(
         .all(database.conn())
         .await?;
 
-    let all_ids = owned_rows
+    let external_ids = shared_rows
         .iter()
         .map(|playlist| playlist.id.clone())
-        .chain(shared_rows.iter().map(|playlist| playlist.id.clone()))
         .chain(public_rows.iter().map(|playlist| playlist.id.clone()))
         .collect::<Vec<_>>();
-    let duration_map = fetch_playlist_duration_map(database, &all_ids).await?;
-    let override_map = fetch_playlist_override_map(database, user_id, &all_ids).await?;
+    let override_map = fetch_playlist_override_map(database, user_id, &external_ids).await?;
 
-    let mut playlists = Vec::with_capacity(all_ids.len());
+    let mut playlists =
+        Vec::with_capacity(owned_rows.len() + shared_rows.len() + public_rows.len());
 
     playlists.extend(owned_rows.into_iter().map(|row| PlaylistListingRecord {
-        duration: duration_map.get(&row.id).copied().unwrap_or(0),
+        duration: row.duration,
         owner_name: None,
         shared_with_me: false,
         can_edit: true,
         id: row.id,
         name: row.name,
+        comment: row.comment,
         folder_id: row.folder_id,
+        is_public: row.is_public,
         position: row.position,
         song_count: row.song_count,
+        created_at: row.created_at,
         updated_at: row.updated_at,
     }));
 
     playlists.extend(shared_rows.into_iter().map(|row| PlaylistListingRecord {
-        duration: duration_map.get(&row.id).copied().unwrap_or(0),
+        duration: row.duration,
         folder_id: override_map.get(&row.id).cloned().flatten(),
         owner_name: Some(row.owner_name),
         shared_with_me: true,
         can_edit: row.can_edit,
         id: row.id,
         name: row.name,
+        comment: row.comment,
+        is_public: row.is_public,
         position: row.position,
         song_count: row.song_count,
+        created_at: row.created_at,
         updated_at: row.updated_at,
     }));
 
     playlists.extend(public_rows.into_iter().map(|row| PlaylistListingRecord {
-        duration: duration_map.get(&row.id).copied().unwrap_or(0),
+        duration: row.duration,
         folder_id: override_map.get(&row.id).cloned().flatten(),
         owner_name: Some(row.owner_name),
         shared_with_me: false,
         can_edit: false,
         id: row.id,
         name: row.name,
+        comment: row.comment,
+        is_public: row.is_public,
         position: row.position,
         song_count: row.song_count,
+        created_at: row.created_at,
         updated_at: row.updated_at,
     }));
 
@@ -820,6 +836,312 @@ pub struct PlaylistEntryFullRow {
     pub missing_search_text: Option<String>,
     pub added_at: DateTime<Utc>,
     pub entry_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistEntrySort {
+    Custom,
+    Title,
+    Artist,
+    Album,
+    Year,
+    Created,
+    AddedToPlaylist,
+    Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistEntryTypeFilter {
+    Any,
+    Song,
+    Missing,
+    NotFound,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlaylistEntryPageOptions {
+    pub offset: u64,
+    pub limit: u64,
+    pub sort: PlaylistEntrySort,
+    pub descending: bool,
+    pub search_tokens: Vec<String>,
+    pub entry_type: PlaylistEntryTypeFilter,
+}
+
+#[derive(Debug)]
+pub struct PlaylistEntryPage {
+    pub entries: Vec<PlaylistEntryFullRow>,
+    pub filtered_count: i64,
+    /// Number of playable songs before this page in the selected view. This
+    /// lets the API calculate queue indices without hydrating earlier rows.
+    pub leading_song_count: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PlaylistEntryTotals {
+    pub total_entries: i64,
+    pub matched_count: i64,
+    pub missing_count: i64,
+    pub duration: i64,
+}
+
+fn playlist_entry_select(
+    playlist_id: &str,
+    options: &PlaylistEntryPageOptions,
+) -> sea_orm::Select<entity::playlist_songs::Entity> {
+    use entity::albums::Column as Album;
+    use entity::artists::Column as Artist;
+    use entity::music_folders::Column as Folder;
+    use entity::playlist_songs::Column as Entry;
+    use entity::songs::Column as Song;
+
+    let playable = sea_orm::Condition::all()
+        .add(Entry::SongId.is_not_null())
+        .add(Song::Id.is_not_null())
+        .add(Folder::Enabled.eq(true));
+    let unavailable = sea_orm::Condition::all()
+        .add(Entry::SongId.is_not_null())
+        .add(
+            sea_orm::Condition::any()
+                .add(Song::Id.is_null())
+                .add(Folder::Enabled.eq(false)),
+        );
+
+    let mut query = entity::playlist_songs::Entity::find()
+        .select_only()
+        .column(Entry::Position)
+        .column(Entry::SongId)
+        .column(Entry::MissingEntryData)
+        .column(Entry::MissingSearchText)
+        .column(Entry::AddedAt)
+        .column(Entry::EntryId)
+        .join(
+            JoinType::LeftJoin,
+            entity::playlist_songs::Relation::Songs.def(),
+        )
+        .join(JoinType::LeftJoin, entity::songs::Relation::Artists.def())
+        .join(JoinType::LeftJoin, entity::songs::Relation::Albums.def())
+        .join(
+            JoinType::LeftJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .filter(Entry::PlaylistId.eq(playlist_id))
+        .filter(
+            sea_orm::Condition::any()
+                .add(Entry::SongId.is_not_null())
+                .add(Entry::MissingEntryData.is_not_null()),
+        );
+
+    query = match options.entry_type {
+        PlaylistEntryTypeFilter::Any => query,
+        PlaylistEntryTypeFilter::Song => query.filter(Song::Id.is_not_null()),
+        PlaylistEntryTypeFilter::Missing => query.filter(
+            sea_orm::Condition::any()
+                .add(
+                    sea_orm::Condition::all()
+                        .add(Entry::SongId.is_null())
+                        .add(Entry::MissingEntryData.is_not_null()),
+                )
+                .add(unavailable.clone()),
+        ),
+        PlaylistEntryTypeFilter::NotFound => query.filter(unavailable),
+    };
+
+    // Non-custom sorts are song-only views. Keep this predicate in SQL so
+    // LIMIT/OFFSET refer to playable songs on both database backends.
+    if options.sort != PlaylistEntrySort::Custom {
+        query = query.filter(playable);
+    }
+
+    for token in &options.search_tokens {
+        let pattern = format!("%{}%", token);
+        query = query.filter(
+            sea_orm::Condition::any()
+                .add(
+                    Expr::expr(Func::lower(Expr::col((entity::songs::Entity, Song::Title))))
+                        .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::artists::Entity,
+                        Artist::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::albums::Entity,
+                        Album::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col(Entry::MissingSearchText)))
+                        .like(pattern.clone()),
+                )
+                .add(Expr::expr(Func::lower(Expr::col(Entry::SongId))).like(pattern)),
+        );
+    }
+
+    query
+}
+
+fn case_insensitive_entry_order(database: &Database, expr: SimpleExpr) -> SimpleExpr {
+    match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => Expr::cust_with_expr("$1 COLLATE NOCASE", expr),
+        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
+            SimpleExpr::FunctionCall(Func::lower(expr))
+        }
+    }
+}
+
+fn order_playlist_entry_query(
+    database: &Database,
+    mut query: sea_orm::Select<entity::playlist_songs::Entity>,
+    options: &PlaylistEntryPageOptions,
+) -> sea_orm::Select<entity::playlist_songs::Entity> {
+    use entity::albums::Column as Album;
+    use entity::artists::Column as Artist;
+    use entity::playlist_songs::Column as Entry;
+    use entity::songs::Column as Song;
+
+    let order = if options.descending {
+        Order::Desc
+    } else {
+        Order::Asc
+    };
+    let tie_order = order.clone();
+    query = match options.sort {
+        PlaylistEntrySort::Custom => query,
+        PlaylistEntrySort::Title => query.order_by(
+            case_insensitive_entry_order(
+                database,
+                Expr::col((entity::songs::Entity, Song::Title)).into(),
+            ),
+            order,
+        ),
+        PlaylistEntrySort::Artist => query.order_by(
+            case_insensitive_entry_order(
+                database,
+                Expr::col((entity::artists::Entity, Artist::Name)).into(),
+            ),
+            order,
+        ),
+        PlaylistEntrySort::Album => query.order_by(
+            case_insensitive_entry_order(
+                database,
+                Expr::col((entity::albums::Entity, Album::Name)).if_null(""),
+            ),
+            order,
+        ),
+        PlaylistEntrySort::Year => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Year)).if_null(0),
+            order,
+        ),
+        PlaylistEntrySort::Created => {
+            query.order_by(Expr::col((entity::songs::Entity, Song::CreatedAt)), order)
+        }
+        PlaylistEntrySort::AddedToPlaylist => query.order_by(Entry::AddedAt, order),
+        PlaylistEntrySort::Duration => {
+            query.order_by(Expr::col((entity::songs::Entity, Song::Duration)), order)
+        }
+    };
+
+    query.order_by(Entry::Position, tie_order)
+}
+
+pub async fn page_playlist_entries(
+    database: &Database,
+    playlist_id: &str,
+    options: &PlaylistEntryPageOptions,
+) -> Result<PlaylistEntryPage> {
+    use entity::music_folders::Column as Folder;
+    use entity::playlist_songs::Column as Entry;
+    use entity::songs::Column as Song;
+
+    let base_query = playlist_entry_select(playlist_id, options);
+    let filtered_count = base_query.clone().count(database.conn()).await? as i64;
+    let entries = order_playlist_entry_query(database, base_query.clone(), options)
+        .offset(options.offset)
+        .limit(options.limit)
+        .into_model::<PlaylistEntryFullRow>()
+        .all(database.conn())
+        .await?;
+
+    let leading_song_count = if options.sort == PlaylistEntrySort::Custom {
+        if let Some(first) = entries.first() {
+            let before_page = if options.descending {
+                Entry::Position.gt(first.position)
+            } else {
+                Entry::Position.lt(first.position)
+            };
+            base_query
+                .filter(before_page)
+                .filter(Entry::SongId.is_not_null())
+                .filter(Song::Id.is_not_null())
+                .filter(Folder::Enabled.eq(true))
+                .count(database.conn())
+                .await? as i64
+        } else {
+            0
+        }
+    } else {
+        options.offset.min(filtered_count.max(0) as u64) as i64
+    };
+
+    Ok(PlaylistEntryPage {
+        entries,
+        filtered_count,
+        leading_song_count,
+    })
+}
+
+pub async fn playlist_entry_totals(
+    database: &Database,
+    playlist_id: &str,
+) -> Result<PlaylistEntryTotals> {
+    use entity::playlist_songs::Column as Entry;
+
+    let total_entries = entity::playlist_songs::Entity::find()
+        .filter(Entry::PlaylistId.eq(playlist_id))
+        .count(database.conn())
+        .await? as i64;
+    let matched_count = entity::playlist_songs::Entity::find()
+        .filter(Entry::PlaylistId.eq(playlist_id))
+        .filter(Entry::SongId.is_not_null())
+        .count(database.conn())
+        .await? as i64;
+    let missing_count = entity::playlist_songs::Entity::find()
+        .filter(Entry::PlaylistId.eq(playlist_id))
+        .filter(Entry::SongId.is_null())
+        .filter(Entry::MissingEntryData.is_not_null())
+        .count(database.conn())
+        .await? as i64;
+    let duration = entity::playlist_songs::Entity::find()
+        .select_only()
+        .expr_as(
+            Expr::col((entity::songs::Entity, entity::songs::Column::Duration))
+                .sum()
+                .cast_as("BIGINT"),
+            "duration",
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::playlist_songs::Relation::Songs.def(),
+        )
+        .filter(Entry::PlaylistId.eq(playlist_id))
+        .into_tuple::<Option<i64>>()
+        .one(database.conn())
+        .await?
+        .flatten()
+        .unwrap_or(0);
+
+    Ok(PlaylistEntryTotals {
+        total_entries,
+        matched_count,
+        missing_count,
+        duration,
+    })
 }
 
 pub async fn list_playlist_entries_full(
@@ -1198,4 +1520,144 @@ pub async fn list_recent_smart_playlists(
         .all(database.conn())
         .await?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        list_playlist_song_memberships, page_playlist_entries, playlist_entry_totals,
+        PlaylistEntryPageOptions, PlaylistEntrySort, PlaylistEntryTypeFilter,
+    };
+    use crate::db::{entity, Database};
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};
+
+    const PLAYLIST_ID: &str = "large-playlist";
+
+    async fn large_playlist_database() -> Database {
+        let database = Database::new_sqlite_in_memory()
+            .await
+            .expect("create SQLite test database");
+
+        entity::users::ActiveModel {
+            id: Set(1),
+            username: Set("playlist-page-test".to_string()),
+            password_hash: Set("x".to_string()),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert user");
+        entity::music_folders::ActiveModel {
+            id: Set(1),
+            name: Set("Music".to_string()),
+            path: Set("/music".to_string()),
+            enabled: Set(true),
+            watch_enabled: Set(false),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert music folder");
+        entity::artists::ActiveModel {
+            id: Set("artist".to_string()),
+            name: Set("Artist".to_string()),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert artist");
+        entity::playlists::ActiveModel {
+            id: Set(PLAYLIST_ID.to_string()),
+            name: Set("Large playlist".to_string()),
+            owner_id: Set(1),
+            song_count: Set(75),
+            duration: Set(75),
+            ..Default::default()
+        }
+        .insert(database.conn())
+        .await
+        .expect("insert playlist");
+
+        let songs = (0..75)
+            .map(|index| entity::songs::ActiveModel {
+                id: Set(format!("song-{index:03}")),
+                title: Set(format!("Song {index:03}")),
+                artist_id: Set("artist".to_string()),
+                music_folder_id: Set(Some(1)),
+                duration: Set(1),
+                file_path: Set(format!("song-{index:03}.mp3")),
+                file_size: Set(1),
+                file_format: Set("mp3".to_string()),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+        entity::songs::Entity::insert_many(songs)
+            .exec(database.conn())
+            .await
+            .expect("insert songs");
+
+        let entries = (0..75)
+            .map(|index| entity::playlist_songs::ActiveModel {
+                playlist_id: Set(PLAYLIST_ID.to_string()),
+                song_id: Set(Some(format!("song-{index:03}"))),
+                position: Set(index),
+                entry_id: Set(Some(format!("entry-{index:03}"))),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+        entity::playlist_songs::Entity::insert_many(entries)
+            .exec(database.conn())
+            .await
+            .expect("insert playlist entries");
+
+        database
+    }
+
+    #[tokio::test]
+    async fn playlist_page_after_default_boundary_is_complete_and_stable() {
+        let database = large_playlist_database().await;
+        let page = page_playlist_entries(
+            &database,
+            PLAYLIST_ID,
+            &PlaylistEntryPageOptions {
+                offset: 50,
+                limit: 10,
+                search_tokens: Vec::new(),
+                entry_type: PlaylistEntryTypeFilter::Any,
+                sort: PlaylistEntrySort::Custom,
+                descending: false,
+            },
+        )
+        .await
+        .expect("fetch page after item 50");
+
+        assert_eq!(page.filtered_count, 75);
+        assert_eq!(page.leading_song_count, 50);
+        assert_eq!(page.entries.len(), 10);
+        assert_eq!(page.entries[0].song_id.as_deref(), Some("song-050"));
+        assert_eq!(page.entries[9].song_id.as_deref(), Some("song-059"));
+
+        let totals = playlist_entry_totals(&database, PLAYLIST_ID)
+            .await
+            .expect("fetch playlist totals");
+        assert_eq!(totals.total_entries, 75);
+        assert_eq!(totals.matched_count, 75);
+        assert_eq!(totals.duration, 75);
+    }
+
+    #[tokio::test]
+    async fn membership_lookup_detects_a_song_after_item_fifty() {
+        let database = large_playlist_database().await;
+        let memberships = list_playlist_song_memberships(
+            &database,
+            &[PLAYLIST_ID.to_string()],
+            &["song-060".to_string()],
+        )
+        .await
+        .expect("look up playlist membership");
+
+        assert_eq!(memberships.len(), 1);
+        assert_eq!(memberships[0].song_id, "song-060");
+        assert_eq!(memberships[0].position, 60);
+    }
 }

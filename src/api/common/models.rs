@@ -166,9 +166,6 @@ pub struct ArtistDetail {
     pub starred: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_rating: Option<i32>,
-    pub album: Vec<AlbumResponse>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub song: Vec<SongResponse>,
 }
 
 #[derive(Serialize, TS)]
@@ -197,7 +194,6 @@ pub struct AlbumDetail {
     pub starred: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_rating: Option<i32>,
-    pub song: Vec<SongResponse>,
 }
 
 // ===================================

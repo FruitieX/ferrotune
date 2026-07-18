@@ -16,4 +16,4 @@ pathOverrides: { [key in string]?: string },
 /**
  * Target music folder ID for staged files (required if saving staged files)
  */
-targetMusicFolderId: bigint | null, };
+targetMusicFolderId: number | null, };

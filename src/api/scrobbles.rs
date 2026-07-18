@@ -259,8 +259,10 @@ pub struct CheckImportDuplicateResponse {
     /// Whether an import with this description already exists
     pub exists: bool,
     /// Number of songs in the existing import
+    #[ts(type = "number")]
     pub song_count: i64,
     /// Total play count in the existing import
+    #[ts(type = "number")]
     pub total_plays: i64,
 }
 

@@ -83,8 +83,13 @@ test.describe.serial("Queue Management", () => {
     // Clear queue if needed
     const clearButton = queuePanel.getByRole("button", { name: "Clear" });
     if (await clearButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const clearResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/queue" &&
+          response.request().method() === "DELETE",
+      );
       await clearButton.click({ force: true });
-      await page.waitForTimeout(500);
+      expect((await clearResponse).ok()).toBe(true);
     }
 
     await expect(

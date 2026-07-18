@@ -3,4 +3,4 @@
 /**
  * Request to update session settings
  */
-export type UpdateTaggerSessionRequest = { visibleColumns: Array<string> | null, activeRenameScriptId: string | null, activeTagScriptId: string | null, targetLibraryId: string | null, showLibraryPrefix: boolean | null, showComputedPath: boolean | null, columnWidths: { [key in string]?: bigint } | null, fileColumnWidth: number | undefined, detailsPanelOpen: boolean | null, dangerousCharMode: string | null, dangerousCharReplacement: string | null, };
+export type UpdateTaggerSessionRequest = { visibleColumns: Array<string> | null, activeRenameScriptId: string | null, activeTagScriptId: string | null, targetLibraryId: string | null, showLibraryPrefix: boolean | null, showComputedPath: boolean | null, columnWidths: Record<string, number> | null, fileColumnWidth: number | undefined, detailsPanelOpen: boolean | null, dangerousCharMode: string | null, dangerousCharReplacement: string | null, };

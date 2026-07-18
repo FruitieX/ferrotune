@@ -50,9 +50,10 @@ pub struct SmartPlaylistInfo {
     pub max_songs: Option<i64>,
     /// Optional folder ID for organizing smart playlists
     pub folder_id: Option<String>,
-    /// Materialized song count (computed on request)
-    #[ts(type = "number")]
-    pub song_count: i64,
+    /// Materialized song count. List responses omit this to avoid executing
+    /// every smart-playlist rule; detail responses include it.
+    #[ts(type = "number | null")]
+    pub song_count: Option<i64>,
     #[ts(type = "string")]
     pub created_at: DateTime<Utc>,
     #[ts(type = "string")]
@@ -285,10 +286,6 @@ pub async fn list_smart_playlists(
     for playlist in playlists {
         let rules = parse_smart_playlist_rules_lossy(&playlist.rules_json);
 
-        // Count matching songs (respecting max_songs limit)
-        let song_count =
-            count_matching_songs(&state.database, &rules, user.user_id, playlist.max_songs).await?;
-
         result.push(SmartPlaylistInfo {
             id: playlist.id,
             name: playlist.name,
@@ -299,7 +296,7 @@ pub async fn list_smart_playlists(
             sort_direction: playlist.sort_direction,
             max_songs: playlist.max_songs,
             folder_id: playlist.folder_id,
-            song_count,
+            song_count: None,
             created_at: playlist.created_at,
             updated_at: playlist.updated_at,
         });
@@ -336,7 +333,7 @@ pub async fn get_smart_playlist(
                 sort_direction: playlist.sort_direction,
                 max_songs: playlist.max_songs,
                 folder_id: playlist.folder_id,
-                song_count,
+                song_count: Some(song_count),
                 created_at: playlist.created_at,
                 updated_at: playlist.updated_at,
             }))

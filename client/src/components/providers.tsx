@@ -40,6 +40,7 @@ import {
   cleanupLegacyCache,
   PERSIST_MAX_AGE_MS,
   PERSIST_GC_TIME_MS,
+  PERSISTED_QUERY_CACHE_BUSTER,
   shouldPersistQuery,
 } from "@/lib/query-persister";
 import { cacheInit } from "@/lib/cache-store";
@@ -374,6 +375,7 @@ function AccountPersistenceBoundary({
       queryClient,
       persister,
       maxAge: PERSIST_MAX_AGE_MS,
+      buster: PERSISTED_QUERY_CACHE_BUSTER,
       dehydrateOptions: {
         shouldDehydrateQuery: (query) =>
           query.state.status === "success" &&

@@ -5,10 +5,11 @@ use crate::db::entity;
 use crate::db::models::*;
 use crate::db::ordering::case_insensitive_order;
 use crate::db::Database;
-use sea_orm::sea_query::{Expr, SimpleExpr};
+use sea_orm::sea_query::{Expr, Func, SimpleExpr};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, QueryTrait, RelationTrait, TransactionTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, EntityTrait, JoinType, Order,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationTrait,
+    TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -128,7 +129,7 @@ pub async fn get_playlist_songs(
         )
         .filter(PS::PlaylistId.eq(playlist_id))
         .order_by(PS::Position, sea_orm::Order::Asc)
-        .into_model::<Song>()
+        .into_model::<crate::db::models::Song>()
         .all(database.conn())
         .await?;
 
@@ -1897,32 +1898,20 @@ async fn directory_songs(
     path_prefix: Option<&str>,
     flat: bool,
 ) -> crate::error::Result<Vec<Song>> {
-    use crate::db::ordering::case_insensitive_order;
     use crate::db::repo::scrobbles::{fetch_song_play_stats_rows, PlayStatsAggregation};
-    use entity::songs::Column as S;
-
-    let mut q = crate::db::repo::browse::song_select(database);
-    if let Some(lib_id) = library_id {
-        q = q.filter(S::MusicFolderId.eq(lib_id));
-    }
-    if let Some(prefix) = path_prefix {
-        let pattern = format!("{}%", prefix);
-        q = q.filter(S::FilePath.like(pattern));
-        if flat {
-            let nested = format!("{}%/%", prefix);
-            q = q.filter(S::FilePath.not_like(nested));
-        }
-    } else if flat {
-        q = q.filter(S::FilePath.not_like("%/%"));
-    }
-
-    let order_expr =
-        case_insensitive_order(database.sea_backend(), (entity::songs::Entity, S::FilePath));
-    let mut songs: Vec<Song> = q
-        .order_by(order_expr, sea_orm::Order::Asc)
-        .into_model::<Song>()
-        .all(database.conn())
-        .await?;
+    let mut songs: Vec<Song> =
+        directory_song_query(database, user_id, library_id, path_prefix, flat, None)
+            .order_by(
+                case_insensitive_order(
+                    database.sea_backend(),
+                    (entity::songs::Entity, entity::songs::Column::FilePath),
+                ),
+                Order::Asc,
+            )
+            .order_by_asc(entity::songs::Column::Id)
+            .into_model::<Song>()
+            .all(database.conn())
+            .await?;
 
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
     let stats = fetch_song_play_stats_rows(
@@ -1937,6 +1926,188 @@ async fn directory_songs(
             .await?;
     crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
     Ok(songs)
+}
+
+fn directory_song_query(
+    database: &Database,
+    user_id: i64,
+    library_id: Option<i64>,
+    path_prefix: Option<&str>,
+    flat: bool,
+    text_filter: Option<&str>,
+) -> sea_orm::Select<entity::songs::Entity> {
+    use entity::songs::Column as Song;
+
+    let mut query = crate::db::repo::browse::song_select(database)
+        .join(
+            JoinType::InnerJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::music_folders::Relation::UserLibraryAccess.def(),
+        )
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .filter(Song::MarkedForDeletionAt.is_null());
+
+    if let Some(library_id) = library_id {
+        query = query.filter(Song::MusicFolderId.eq(library_id));
+    }
+    if let Some(prefix) = path_prefix {
+        query = query.filter(Song::FilePath.starts_with(prefix));
+        if flat {
+            query = query.filter(Song::FilePath.not_like(format!("{prefix}%/%")));
+        }
+    } else if flat {
+        query = query.filter(Song::FilePath.not_like("%/%"));
+    }
+    if let Some(filter) = text_filter.filter(|value| !value.trim().is_empty()) {
+        let pattern = format!("%{}%", filter.to_lowercase());
+        query = query.filter(
+            Condition::any()
+                .add(
+                    Expr::expr(Func::lower(Expr::col((entity::songs::Entity, Song::Title))))
+                        .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::artists::Entity,
+                        entity::artists::Column::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(
+                    Expr::expr(Func::lower(Expr::col((
+                        entity::albums::Entity,
+                        entity::albums::Column::Name,
+                    ))))
+                    .like(pattern.clone()),
+                )
+                .add(Expr::expr(Func::lower(Expr::col(Song::Genre))).like(pattern)),
+        );
+    }
+    query
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn get_songs_by_directory_page(
+    database: &Database,
+    source_id: &str,
+    user_id: i64,
+    flat: bool,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+    offset: usize,
+    limit: usize,
+) -> crate::error::Result<Vec<Song>> {
+    use crate::db::repo::scrobbles::{fetch_song_play_stats_rows, PlayStatsAggregation};
+    use entity::songs::Column as Song;
+
+    let (library_id, path_prefix) = parse_directory_source_id(source_id);
+    let direction = if sort_dir == Some("desc") {
+        Order::Desc
+    } else {
+        Order::Asc
+    };
+    let mut query = directory_song_query(
+        database,
+        user_id,
+        library_id,
+        path_prefix.as_deref(),
+        flat,
+        text_filter,
+    );
+    query = match sort_field {
+        Some("name" | "title") => query.order_by(
+            case_insensitive_order(database.sea_backend(), (entity::songs::Entity, Song::Title)),
+            direction.clone(),
+        ),
+        Some("artist") => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::artists::Entity, entity::artists::Column::Name),
+            ),
+            direction.clone(),
+        ),
+        Some("album") => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::albums::Entity, entity::albums::Column::Name),
+            ),
+            direction.clone(),
+        ),
+        Some("year") => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Year)).if_null(0),
+            direction.clone(),
+        ),
+        Some("duration") => query.order_by(
+            Expr::col((entity::songs::Entity, Song::Duration)),
+            direction.clone(),
+        ),
+        Some("size") => query.order_by(
+            Expr::col((entity::songs::Entity, Song::FileSize)),
+            direction.clone(),
+        ),
+        Some("dateAdded" | "created") => query.order_by(
+            Expr::col((entity::songs::Entity, Song::CreatedAt)),
+            direction.clone(),
+        ),
+        Some(value) => {
+            return Err(crate::error::Error::InvalidRequest(format!(
+                "unsupported directory queue sort field: {value}"
+            )))
+        }
+        None => query.order_by(
+            case_insensitive_order(
+                database.sea_backend(),
+                (entity::songs::Entity, Song::FilePath),
+            ),
+            direction.clone(),
+        ),
+    };
+
+    let mut songs = query
+        .order_by_asc(Song::Id)
+        .offset(offset as u64)
+        .limit(limit as u64)
+        .into_model::<crate::db::models::Song>()
+        .all(database.conn())
+        .await?;
+    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
+    let stats = fetch_song_play_stats_rows(
+        database,
+        Some(user_id),
+        &song_ids,
+        PlayStatsAggregation::CountRows,
+    )
+    .await?;
+    let play_starts =
+        crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
+            .await?;
+    crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
+    Ok(songs)
+}
+
+pub async fn count_songs_by_directory(
+    database: &Database,
+    source_id: &str,
+    user_id: i64,
+    flat: bool,
+    text_filter: Option<&str>,
+) -> crate::error::Result<u64> {
+    let (library_id, path_prefix) = parse_directory_source_id(source_id);
+    Ok(directory_song_query(
+        database,
+        user_id,
+        library_id,
+        path_prefix.as_deref(),
+        flat,
+        text_filter,
+    )
+    .count(database.conn())
+    .await?)
 }
 
 // ============================================================================

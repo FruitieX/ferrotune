@@ -78,13 +78,18 @@ fn postgres_test_app_config(database: DatabaseConfig) -> Config {
 }
 
 fn docker_available() -> bool {
-    Command::new("docker")
+    let available = Command::new("docker")
         .arg("info")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|status| status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    assert!(
+        available,
+        "Docker is required for PostgreSQL tests but is unavailable"
+    );
+    true
 }
 
 fn simple_audio_fixture_path() -> PathBuf {
@@ -3418,26 +3423,83 @@ fn test_postgres_browse_library_reads_work() {
         assert_eq!(artists.index[0].artist[0].id, artist_id);
         assert_eq!(artists.index[0].artist[0].user_rating, Some(4));
 
-        let artist_detail =
-            browse::get_artist_logic(&database, user.id, &artist_id, None, None, None)
-                .await
-                .expect("postgres artist detail should succeed");
-        assert_eq!(artist_detail.album.len(), 1);
-        assert_eq!(artist_detail.song.len(), 2);
+        let artist_detail = browse::get_artist_logic(&database, user.id, &artist_id)
+            .await
+            .expect("postgres artist detail should succeed");
         assert_eq!(artist_detail.user_rating, Some(4));
-        assert_eq!(artist_detail.album[0].id, album_id);
-        assert_eq!(artist_detail.album[0].user_rating, Some(5));
-        assert_eq!(artist_detail.song[0].id, song_1);
-        assert_eq!(artist_detail.song[0].play_count, Some(2));
-        assert_eq!(artist_detail.song[0].user_rating, Some(3));
+        assert_eq!(artist_detail.album_count, Some(1));
+        assert_eq!(artist_detail.song_count, Some(2));
 
-        let album_detail = browse::get_album_logic(&database, user.id, &album_id, None, None, None)
+        let state = Arc::new(AppState {
+            database: database.clone(),
+            config: postgres_test_app_config(config.clone()),
+            scan_state: ferrotune::api::create_scan_state(),
+            shuffle_cache: Default::default(),
+            session_manager: Arc::new(SessionManager::new()),
+        });
+        let authenticated_user = || FerrotuneAuthenticatedUser {
+            user_id: user.id,
+            username: user.username.clone(),
+            is_admin: user.is_admin,
+        };
+        let artist_albums = ferrotune::api::get_artist_albums(
+            authenticated_user(),
+            State(state.clone()),
+            Path(artist_id.clone()),
+            Query(ferrotune::api::ArtistAlbumsParams {
+                offset: 0,
+                count: 10,
+            }),
+        )
+        .await
+        .expect("postgres paginated artist albums should succeed")
+        .0;
+        assert_eq!(artist_albums.total, 1);
+        assert_eq!(artist_albums.albums.len(), 1);
+        assert_eq!(artist_albums.albums[0].id, album_id);
+        assert_eq!(artist_albums.albums[0].user_rating, Some(5));
+
+        let collection_params = || ferrotune::api::CollectionSongsParams {
+            offset: 0,
+            count: 10,
+            sort: None,
+            sort_dir: None,
+            filter: None,
+        };
+        let artist_songs = ferrotune::api::get_artist_songs(
+            authenticated_user(),
+            State(state.clone()),
+            Path(artist_id.clone()),
+            Query(collection_params()),
+        )
+        .await
+        .expect("postgres paginated artist songs should succeed")
+        .0;
+        assert_eq!(artist_songs.total, 2);
+        assert_eq!(artist_songs.songs.len(), 2);
+        assert_eq!(artist_songs.songs[0].id, song_1);
+        assert_eq!(artist_songs.songs[0].play_count, Some(2));
+        assert_eq!(artist_songs.songs[0].user_rating, Some(3));
+
+        let album_detail = browse::get_album_logic(&database, user.id, &album_id)
             .await
             .expect("postgres album detail should succeed");
-        assert_eq!(album_detail.song.len(), 2);
+        assert_eq!(album_detail.song_count, 2);
         assert_eq!(album_detail.user_rating, Some(5));
-        assert_eq!(album_detail.song[0].id, song_1);
-        assert_eq!(album_detail.song[0].play_count, Some(2));
+
+        let album_songs = ferrotune::api::get_album_songs(
+            authenticated_user(),
+            State(state),
+            Path(album_id.clone()),
+            Query(collection_params()),
+        )
+        .await
+        .expect("postgres paginated album songs should succeed")
+        .0;
+        assert_eq!(album_songs.total, 2);
+        assert_eq!(album_songs.songs.len(), 2);
+        assert_eq!(album_songs.songs[0].id, song_1);
+        assert_eq!(album_songs.songs[0].play_count, Some(2));
 
         let song_detail = browse::get_song_logic(&database, user.id, &song_1)
             .await
@@ -4477,6 +4539,7 @@ fn test_postgres_playlist_start_queue_handler_works() {
                 filters: None,
                 sort: None,
                 song_ids: None,
+                sources: Vec::new(),
                 inline_images: None,
                 client_id: None,
                 client_name: None,
@@ -4639,6 +4702,7 @@ fn test_postgres_smart_playlist_start_queue_handler_works() {
                 filters: None,
                 sort: None,
                 song_ids: None,
+                sources: Vec::new(),
                 inline_images: None,
                 client_id: None,
                 client_name: None,
@@ -4753,7 +4817,7 @@ fn test_postgres_smart_playlist_read_handlers_work() {
         .0;
         assert_eq!(list_response.smart_playlists.len(), 1);
         assert_eq!(list_response.smart_playlists[0].id, smart_playlist_id);
-        assert_eq!(list_response.smart_playlists[0].song_count, 1);
+        assert_eq!(list_response.smart_playlists[0].song_count, None);
 
         let playlist_response = ferrotune_smart_playlists::get_smart_playlist(
             FerrotuneAuthenticatedUser {
@@ -4768,7 +4832,7 @@ fn test_postgres_smart_playlist_read_handlers_work() {
         .expect("postgres smart playlist get handler should succeed")
         .0;
         assert_eq!(playlist_response.id, smart_playlist_id);
-        assert_eq!(playlist_response.song_count, 1);
+        assert_eq!(playlist_response.song_count, Some(1));
 
         let songs_response = ferrotune_smart_playlists::get_smart_playlist_songs(
             FerrotuneAuthenticatedUser {
@@ -5163,7 +5227,7 @@ fn test_postgres_continue_listening_handler_works() {
                 .as_ref()
                 .expect("smart playlist entry should include playlist payload")
                 .song_count,
-            1
+            Some(1)
         );
         assert!(response
             .entries
@@ -5229,6 +5293,7 @@ fn test_postgres_continue_listening_start_queue_handler_works() {
                 filters: None,
                 sort: None,
                 song_ids: None,
+                sources: Vec::new(),
                 inline_images: None,
                 client_id: None,
                 client_name: None,
@@ -5329,6 +5394,7 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
                 filters: Some(serde_json::json!({ "since": since })),
                 sort: None,
                 song_ids: None,
+                sources: Vec::new(),
                 inline_images: None,
                 client_id: None,
                 client_name: None,
@@ -5374,6 +5440,7 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
                 })),
                 sort: None,
                 song_ids: None,
+                sources: Vec::new(),
                 inline_images: None,
                 client_id: None,
                 client_name: None,
@@ -6633,7 +6700,10 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
         );
         assert!(listed_shared_playlist.shared_with_me);
         assert!(!listed_shared_playlist.can_edit);
-        assert_eq!(listed_shared_playlist.owner.as_deref(), Some(owner.username.as_str()));
+        assert_eq!(
+            listed_shared_playlist.owner.as_str(),
+            owner.username.as_str()
+        );
 
         let listed_public_playlist = collaborator_listing
             .playlists
@@ -7085,6 +7155,7 @@ fn test_postgres_ferrotune_playlist_write_admin_handlers_work() {
                         }),
                     },
                 ],
+                sources: Vec::new(),
                 folder_id: None,
             }),
         )
@@ -7342,9 +7413,11 @@ fn test_postgres_initialize_app_state_works() {
 
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should initialize");
     runtime.block_on(async move {
-        let state = ferrotune::initialize_app_state(config)
-            .await
-            .expect("postgres app state initialization should succeed");
+        let runtime =
+            ferrotune::ServerRuntime::bootstrap(config, ferrotune::ServerRuntimeOptions::default())
+                .await
+                .expect("postgres server runtime initialization should succeed");
+        let state = runtime.state();
 
         assert!(matches!(state.database, db::Database::Postgres { .. }));
         assert_eq!(

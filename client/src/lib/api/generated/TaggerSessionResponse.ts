@@ -36,7 +36,7 @@ showComputedPath: boolean,
 /**
  * Column widths
  */
-columnWidths: { [key in string]?: bigint }, 
+columnWidths: Record<string, number>, 
 /**
  * File column width
  */

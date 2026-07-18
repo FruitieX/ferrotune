@@ -243,6 +243,7 @@ export function ImportPlaylistDialog({
           name: playlistName.trim(),
           comment: null,
           entries,
+          sources: [],
           folderId: folderId ?? null,
         });
 
@@ -266,7 +267,7 @@ export function ImportPlaylistDialog({
       const response = await client.createPlaylist({
         name: playlistName.trim(),
       });
-      const playlistId = response.playlist?.id;
+      const playlistId = response.playlistId;
 
       if (!playlistId) {
         throw new Error("Failed to create playlist");

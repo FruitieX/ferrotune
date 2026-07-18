@@ -11,8 +11,8 @@ exists: boolean,
 /**
  * Number of songs in the existing import
  */
-songCount: bigint, 
+songCount: number, 
 /**
  * Total play count in the existing import
  */
-totalPlays: bigint, };
+totalPlays: number, };

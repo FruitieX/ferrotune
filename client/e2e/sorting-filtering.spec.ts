@@ -48,18 +48,30 @@ test.describe("Sorting and Filtering", () => {
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
     const filterInput = page.getByRole("textbox", { name: /filter/i });
+    const filteredResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/search" &&
+        url.searchParams.get("query") === "First Song"
+      );
+    });
     await filterInput.fill("First Song");
-    await page.waitForTimeout(500);
+    await filteredResponse;
 
     const songRows = page.locator('[data-testid="song-row"]');
     await expect(songRows).toHaveCount(1);
     await expect(songRows.first()).toContainText("First Song");
 
     // Clear filter shows all
+    const unfilteredResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/search" && url.searchParams.get("query") === "*"
+      );
+    });
     await filterInput.clear();
-    await page.waitForTimeout(500);
-    const count = await songRows.count();
-    expect(count).toBeGreaterThan(1);
+    await unfilteredResponse;
+    await expect.poll(() => songRows.count()).toBeGreaterThan(1);
   });
 
   test("can change sort order", async ({ authenticatedPage: page }) => {
@@ -90,8 +102,15 @@ test.describe("Sorting and Filtering", () => {
 
     const dropdown = page.locator('[data-slot="dropdown-menu-content"]');
     await expect(dropdown).toBeVisible();
+    const titleSortResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/search" &&
+        url.searchParams.get("songSort") === "name"
+      );
+    });
     await dropdown.getByRole("menuitem", { name: /title/i }).click();
-    await page.waitForTimeout(500);
+    await titleSortResponse;
 
     // Get titles after sorting by title
     const titlesAfterNameSort = await getSongTitles();
@@ -120,8 +139,22 @@ test.describe("Sorting and Filtering", () => {
       name: /ascending|descending/i,
     });
     if (await directionButton.isVisible()) {
+      const directionBefore = await directionButton.getAttribute("aria-label");
+      const expectedDirection = directionBefore
+        ?.toLowerCase()
+        .includes("ascending")
+        ? "desc"
+        : "asc";
+      const directionResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === "/api/search" &&
+          url.searchParams.get("songSort") === "name" &&
+          url.searchParams.get("songSortDir") === expectedDirection
+        );
+      });
       await directionButton.click();
-      await page.waitForTimeout(500);
+      await directionResponse;
 
       const titlesAfterToggle = await getSongTitles();
 
@@ -158,7 +191,6 @@ test.describe("Sorting and Filtering", () => {
     // Switch to list view
     const listButton = page.getByRole("button", { name: /list view/i });
     await listButton.click();
-    await page.waitForTimeout(300);
 
     const songRows = page.locator('[data-testid="song-row"]');
     await expect(songRows.first()).toBeVisible({ timeout: 3000 });
@@ -166,7 +198,6 @@ test.describe("Sorting and Filtering", () => {
     // Switch to grid view
     const gridButton = page.getByRole("button", { name: /grid view/i });
     await gridButton.click();
-    await page.waitForTimeout(300);
 
     const mediaCards = page.locator('[data-testid="media-card"]');
     await expect(mediaCards.first()).toBeVisible({ timeout: 3000 });

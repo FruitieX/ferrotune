@@ -42,7 +42,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ping", get(browse::ping))
         .route("/artists", get(browse::get_artists))
         .route("/artists/{id}", get(browse::get_artist))
+        .route("/artists/{id}/albums", get(browse::get_artist_albums))
+        .route("/artists/{id}/songs", get(browse::get_artist_songs))
         .route("/albums/{id}", get(browse::get_album))
+        .route("/albums/{id}/songs", get(browse::get_album_songs))
         // .route("/songs/{id}", get(browse::get_song)) <- Moved to combined route below
         .route("/genres", get(browse::get_genres))
         .route("/indexes", get(browse::get_indexes))
@@ -185,6 +188,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Song ID query endpoint (for bulk selection)
         .route("/songs/ids", get(media::get_song_ids))
+        .route("/sources/song-ids", post(media::get_source_song_ids))
+        .route("/downloads/manifest", post(media::get_download_manifest))
         // Song match list endpoint (for client-side matching)
         .route("/songs/match-list", get(songs::get_song_match_list))
         // Server-side fuzzy matching endpoint

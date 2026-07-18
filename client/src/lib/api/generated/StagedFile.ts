@@ -4,4 +4,4 @@ import type { TagEntry } from "./TagEntry";
 /**
  * A staged file awaiting import
  */
-export type StagedFile = { id: string, originalFilename: string, fileSize: bigint, durationMs: bigint | null, tags: Array<TagEntry>, uploadedAt: string, };
+export type StagedFile = { id: string, originalFilename: string, fileSize: number, durationMs: number | null, tags: Array<TagEntry>, uploadedAt: string, };

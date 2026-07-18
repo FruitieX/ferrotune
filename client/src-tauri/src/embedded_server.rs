@@ -5,7 +5,7 @@
 //! custom protocol handler for IPC.
 
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{mpsc, Mutex, OnceLock};
 
 use axum::body::Body;
 use axum::Router;
@@ -21,7 +21,6 @@ use crate::EmbeddedServerState;
 /// Global state for the embedded server router
 /// We use OnceLock + Arc for thread-safe lazy initialization
 static ROUTER: OnceLock<Router> = OnceLock::new();
-static ADMIN_PASSWORD: OnceLock<String> = OnceLock::new();
 
 /// Generate a random password for the embedded admin user
 fn generate_random_password() -> String {
@@ -118,65 +117,93 @@ pub fn initialize_server(app_handle: tauri::AppHandle) -> Result<(), Box<dyn std
     log::info!("  Data directory: {}", data_dir.display());
     log::info!("  Database backend: sqlite (embedded desktop mode)");
 
-    // Store the admin password for later retrieval
-    let _ = ADMIN_PASSWORD.set(admin_password.clone());
-
     // Set the data directory environment variable
     ferrotune::set_data_dir(&data_dir);
 
-    // Spawn initialization in background
+    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let app_handle_clone = app_handle.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create tokio runtime");
-
-        rt.block_on(async move {
-            // Initialize tracing
-            ferrotune::init_tracing(false);
-
-            // Initialize app state and create router
-            match ferrotune::initialize_app_state(config).await {
-                Ok(state) => {
-                    let router = ferrotune::create_router(state);
-
-                    // Store the router globally
-                    if ROUTER.set(router).is_err() {
-                        log::error!("Router already initialized!");
-                    }
-
-                    log::info!("Embedded server initialized successfully");
-
-                    // Update the state with admin password
-                    if let Some(state) = app_handle_clone.try_state::<Mutex<EmbeddedServerState>>()
-                    {
-                        if let Ok(mut guard) = state.lock() {
-                            guard.admin_password = Some(admin_password);
-                        }
-                    }
+    std::thread::Builder::new()
+        .name("ferrotune-embedded-server".to_string())
+        .spawn(move || {
+            let rt = match tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(format!(
+                        "failed to create embedded Tokio runtime: {error}"
+                    )));
+                    return;
                 }
-                Err(e) => {
-                    log::error!("Failed to initialize embedded server: {}", e);
+            };
+
+            rt.block_on(async move {
+                ferrotune::init_tracing(false);
+
+                let runtime = match ferrotune::ServerRuntime::bootstrap(
+                    config,
+                    ferrotune::ServerRuntimeOptions {
+                        cors: ferrotune::CorsPolicy::Disabled,
+                    },
+                )
+                .await
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        let _ = ready_tx.send(Err(format!(
+                            "failed to initialize embedded server: {error}"
+                        )));
+                        return;
+                    }
+                };
+
+                if ROUTER.set(runtime.router().clone()).is_err() {
+                    let _ = ready_tx.send(Err("embedded router was already initialized".into()));
+                    return;
                 }
-            }
 
-            // Keep the runtime alive
-            std::future::pending::<()>().await;
-        });
-    });
+                let password_stored = app_handle_clone
+                    .try_state::<Mutex<EmbeddedServerState>>()
+                    .and_then(|state| state.lock().ok().map(|mut guard| {
+                        guard.admin_password = Some(admin_password);
+                    }))
+                    .is_some();
+                if !password_stored {
+                    let _ = ready_tx.send(Err(
+                        "failed to publish embedded admin credentials".into(),
+                    ));
+                    return;
+                }
 
-    // Give the server a moment to initialize
-    std::thread::sleep(std::time::Duration::from_millis(500));
+                log::info!("Embedded server initialized successfully");
+                if ready_tx.send(Ok(())).is_err() {
+                    return;
+                }
 
-    Ok(())
+                let _runtime = runtime;
+                std::future::pending::<()>().await;
+            });
+        })?;
+
+    wait_for_readiness(ready_rx).map_err(|message| {
+        Box::new(std::io::Error::new(std::io::ErrorKind::Other, message))
+            as Box<dyn std::error::Error>
+    })
+}
+
+fn wait_for_readiness(receiver: mpsc::Receiver<Result<(), String>>) -> Result<(), String> {
+    receiver
+        .recv()
+        .map_err(|_| "embedded server initializer exited before reporting readiness".to_string())?
 }
 
 #[cfg(test)]
 mod tests {
-    use super::build_embedded_config;
+    use super::{build_embedded_config, wait_for_readiness};
     use ferrotune::config::DatabaseBackend;
     use std::path::PathBuf;
+    use std::sync::mpsc;
 
     #[test]
     fn embedded_server_config_stays_sqlite_only() {
@@ -189,5 +216,40 @@ mod tests {
         assert_eq!(config.cache.path, data_dir.join("cache"));
         assert_eq!(config.server.admin_user, "admin");
         assert_eq!(config.server.admin_password, "secret");
+    }
+
+    #[test]
+    fn readiness_waits_for_success_signal() {
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+
+        let waiter = std::thread::spawn(move || {
+            result_tx
+                .send(wait_for_readiness(ready_rx))
+                .expect("test result receiver should stay connected");
+        });
+
+        assert!(matches!(result_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        ready_tx
+            .send(Ok(()))
+            .expect("readiness waiter should stay connected");
+        assert_eq!(
+            result_rx.recv().expect("waiter should report a result"),
+            Ok(())
+        );
+        waiter.join().expect("readiness waiter should not panic");
+    }
+
+    #[test]
+    fn readiness_propagates_initialization_failure() {
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        ready_tx
+            .send(Err("database unavailable".to_string()))
+            .expect("readiness receiver should stay connected");
+
+        assert_eq!(
+            wait_for_readiness(ready_rx),
+            Err("database unavailable".to_string())
+        );
     }
 }

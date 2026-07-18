@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -46,6 +46,7 @@ import { formatTotalDuration, formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 
 function AlbumDetailContent() {
+  const pageSize = 100;
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
   const songId = searchParams.get("songId");
@@ -75,33 +76,48 @@ function AlbumDetailContent() {
     }
   }, [id, isMounted, authLoading, router]);
 
-  // Fetch album data with server-side sort/filter for songs
-  const { data: albumData, isLoading } = useQuery({
+  const { data: albumData, isLoading: isAlbumLoading } = useQuery({
+    queryKey: ["album", id],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getAlbum(id!);
+      return response.album;
+    },
+    enabled: isReady && !!id,
+  });
+
+  const songsQuery = useInfiniteQuery({
     queryKey: [
-      "album",
+      "album-songs",
       id,
       sortConfig.field,
       sortConfig.direction,
       debouncedFilter,
     ],
-    queryFn: async () => {
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbum(id!, {
-        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir:
-          sortConfig.field !== "custom" ? sortConfig.direction : undefined,
-        filter: debouncedFilter.trim() || undefined,
+      return client.getAlbumSongs(id!, {
+        offset: pageParam,
+        count: pageSize,
+        sort: sortConfig.field === "custom" ? "trackNumber" : sortConfig.field,
+        sortDir: sortConfig.direction,
+        filter: debouncedFilter.trim() || null,
       });
-      return response.album;
+    },
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.songs.length;
+      return nextOffset < lastPage.total ? nextOffset : undefined;
     },
     enabled: isReady && !!id,
-    // Keep previous data while fetching new sort/filter results
-    placeholderData: (previousData) => previousData,
   });
 
-  // Songs come directly from server response - already sorted and filtered
-  const displaySongs = albumData?.song ?? [];
+  const displaySongs =
+    songsQuery.data?.pages.flatMap((page) => page.songs) ?? [];
+  const totalSongs =
+    songsQuery.data?.pages[0]?.total ?? albumData?.songCount ?? 0;
 
   // Detect multi-disc albums for disc header display
   const isMultiDisc = displaySongs.some(
@@ -141,10 +157,7 @@ function AlbumDetailContent() {
     ? getClient()?.getCoverArtUrl(albumData.coverArt, "large")
     : undefined;
 
-  const totalDuration = displaySongs.reduce(
-    (acc, song) => acc + song.duration,
-    0,
-  );
+  const totalDuration = albumData?.duration ?? 0;
 
   const handlePlayAll = () => {
     if (id && displaySongs.length > 0) {
@@ -240,7 +253,7 @@ function AlbumDetailContent() {
         useBlurredBackground
         label="Album"
         title={albumData?.name || "Album"}
-        isLoading={isLoading}
+        isLoading={isAlbumLoading}
         subtitle={
           albumData && (
             <>
@@ -275,7 +288,7 @@ function AlbumDetailContent() {
       <ActionBar
         onPlayAll={handlePlayAll}
         onShuffle={handleShuffle}
-        disablePlay={isLoading || displaySongs.length === 0}
+        disablePlay={songsQuery.isLoading || totalSongs === 0}
         showShuffleOnMobile
         toolbar={
           <SongListToolbar
@@ -332,7 +345,7 @@ function AlbumDetailContent() {
           selection.hasSelection && "select-none",
         )}
       >
-        {isLoading ? (
+        {songsQuery.isLoading ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -366,6 +379,12 @@ function AlbumDetailContent() {
               )}
               renderSkeleton={() => <SongCardSkeleton />}
               getItemKey={(song) => song.id}
+              totalCount={totalSongs}
+              hasNextPage={songsQuery.hasNextPage}
+              isFetchingNextPage={songsQuery.isFetchingNextPage}
+              fetchNextPage={() => {
+                void songsQuery.fetchNextPage();
+              }}
             />
           ) : (
             <>
@@ -419,6 +438,12 @@ function AlbumDetailContent() {
                 )}
                 getItemKey={(song) => song.id}
                 estimateItemHeight={56}
+                totalCount={totalSongs}
+                hasNextPage={songsQuery.hasNextPage}
+                isFetchingNextPage={songsQuery.isFetchingNextPage}
+                fetchNextPage={() => {
+                  void songsQuery.fetchNextPage();
+                }}
                 scrollToIndex={
                   highlightedSongIndex >= 0 ? highlightedSongIndex : undefined
                 }

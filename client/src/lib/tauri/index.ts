@@ -25,8 +25,7 @@ export function isTauri(): boolean {
 
   if (_isTauri === null) {
     // Check for Tauri IPC internals
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    _isTauri = !!(window as any).__TAURI_INTERNALS__;
+    _isTauri = !!window.__TAURI_INTERNALS__;
   }
 
   return _isTauri;
@@ -66,34 +65,14 @@ export function isTauriMobile(): boolean {
     return false;
   }
 
-  // In Tauri, we can check the platform
-  // For now, we assume mobile if:
-  // 1. We're in Tauri
-  // 2. The viewport hints at mobile OR touch is primary
   if (typeof window === "undefined") {
     return false;
   }
 
-  // Check for touch-primary device (common on mobile)
-  const hasTouchScreen =
-    "ontouchstart" in window ||
-    navigator.maxTouchPoints > 0 ||
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (navigator as any).msMaxTouchPoints > 0;
-
-  // Check for mobile viewport
-  const isMobileViewport = window.innerWidth <= 768;
-
-  // On Tauri mobile, both should be true
-  // But also check user agent for Android/iOS
-  const userAgent = navigator.userAgent.toLowerCase();
-  const isMobileUA =
-    /android/.test(userAgent) ||
-    /iphone|ipad|ipod/.test(userAgent) ||
-    // Tauri Android WebView
-    /wv/.test(userAgent);
-
-  return hasTouchScreen && (isMobileViewport || isMobileUA);
+  // The native shell publishes this authoritative capability before the web
+  // bundle runs. Viewport, touch, and user-agent heuristics are not reliable
+  // enough to choose which playback engine owns a session.
+  return window.__FERROTUNE_NATIVE_AUDIO__ === true;
 }
 
 /**

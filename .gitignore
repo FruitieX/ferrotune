@@ -23,7 +23,8 @@
 
 *.db
 
-/scripts/
+/scripts/*
+!/scripts/check-test-prerequisite.sh
 /.cache
 /*.log
 /*.csv

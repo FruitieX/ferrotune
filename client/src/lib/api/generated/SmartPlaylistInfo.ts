@@ -10,6 +10,7 @@ export type SmartPlaylistInfo = { id: string, name: string, comment: string | nu
  */
 folderId: string | null, 
 /**
- * Materialized song count (computed on request)
+ * Materialized song count. List responses omit this to avoid executing
+ * every smart-playlist rule; detail responses include it.
  */
-songCount: number, createdAt: string, updatedAt: string, };
+songCount: number | null, createdAt: string, updatedAt: string, };

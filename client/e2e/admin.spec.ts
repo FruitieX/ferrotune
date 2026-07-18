@@ -36,19 +36,17 @@ test.describe("Admin", () => {
     await expect(scanButton).toBeVisible();
     await scanButton.click();
 
-    // Either a toast appears, scan status updates, or button state changes
-    await page.waitForTimeout(1000);
-
-    // Scan should start - check for progress indicator, status text, or toast
-    const scanProgress = page.getByText(/scanning|in progress/i);
-    const scanStatus = page.getByText(/last scan|completed/i);
-    const toast = page.locator("[data-sonner-toast]");
-
-    const hasProgress = await scanProgress.isVisible().catch(() => false);
-    const hasStatus = await scanStatus.isVisible().catch(() => false);
-    const hasToast = await toast.isVisible().catch(() => false);
-
-    // At least one indicator should be present
-    expect(hasProgress || hasStatus || hasToast || true).toBeTruthy();
+    const scanDialog = page.getByRole("dialog");
+    await expect(scanDialog).toBeVisible();
+    const startResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/scan" &&
+        response.request().method() === "POST",
+    );
+    await scanDialog.getByRole("button", { name: /start scan/i }).click();
+    expect((await startResponse).ok()).toBe(true);
+    await expect(page.locator("[data-sonner-toast]")).toContainText(
+      /scan started/i,
+    );
   });
 });

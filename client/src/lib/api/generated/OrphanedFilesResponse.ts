@@ -7,7 +7,7 @@ export type OrphanedFilesResponse = {
 /**
  * Number of orphaned files found
  */
-count: bigint, 
+count: number, 
 /**
  * Orphaned file IDs (staged filenames that are not in the session)
  */

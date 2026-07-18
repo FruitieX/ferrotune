@@ -20,9 +20,7 @@ test.describe("Search", () => {
     await page.goto("/search");
     const searchInput = page.getByPlaceholder(/search/i);
     await expect(searchInput).toBeVisible({ timeout: 5000 });
-
-    // Wait for React hydration to settle (input re-mounts during Suspense resolution)
-    await page.waitForTimeout(1000);
+    await expect(searchInput).toBeEditable();
 
     // Fill the search query (more resilient to DOM re-attachment than click+type)
     await searchInput.fill(searchQuery);

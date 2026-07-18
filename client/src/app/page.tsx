@@ -61,8 +61,6 @@ import {
   renderMenuItem,
   type MenuComponents,
 } from "@/components/shared/media-menu-items";
-import { PlaylistContextMenu } from "@/components/playlists/playlist-context-menu";
-import { SmartPlaylistContextMenu } from "@/components/playlists/smart-playlist-context-menu";
 import { VirtualizedHorizontalScroll } from "@/components/shared/virtualized-horizontal-scroll";
 import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
@@ -634,8 +632,8 @@ function HomePlaylistCard({
     id: string;
     name: string;
     playlistType: string;
-    songCount: number;
-    duration: number;
+    songCount: number | null;
+    duration: number | null;
     coverArt: string | null;
   };
   onPlay: () => void;
@@ -649,46 +647,6 @@ function HomePlaylistCard({
 
   const PlaylistIcon = isSmartPlaylist ? Sparkles : ListMusic;
 
-  const contextMenu = isSmartPlaylist
-    ? (children: React.ReactNode) => (
-        <SmartPlaylistContextMenu
-          smartPlaylist={{
-            id: playlist.id,
-            name: playlist.name,
-            comment: null,
-            isPublic: false,
-            rules: { conditions: [], logic: "and" },
-            sortField: null,
-            sortDirection: null,
-            maxSongs: null,
-            folderId: null,
-            songCount: playlist.songCount,
-            createdAt: "",
-            updatedAt: "",
-          }}
-        >
-          {children}
-        </SmartPlaylistContextMenu>
-      )
-    : (children: React.ReactNode) => (
-        <PlaylistContextMenu
-          playlist={{
-            id: playlist.id,
-            name: playlist.name,
-            comment: null,
-            owner: "",
-            public: false,
-            songCount: playlist.songCount,
-            duration: playlist.duration,
-            created: "",
-            changed: "",
-            coverArt: playlist.coverArt,
-          }}
-        >
-          {children}
-        </PlaylistContextMenu>
-      );
-
   return (
     <MediaCard
       coverArt={coverArtUrl}
@@ -698,15 +656,21 @@ function HomePlaylistCard({
       }
       subtitleContent={
         <span className="flex items-center gap-1">
-          {playlist.songCount} {playlist.songCount === 1 ? "song" : "songs"} •{" "}
-          <Clock className="w-3 h-3" /> {formatDuration(playlist.duration)}
+          {playlist.songCount === null || playlist.duration === null ? (
+            "Dynamic playlist"
+          ) : (
+            <>
+              {playlist.songCount} {playlist.songCount === 1 ? "song" : "songs"}{" "}
+              • <Clock className="w-3 h-3" />{" "}
+              {formatDuration(playlist.duration)}
+            </>
+          )}
         </span>
       }
       href={href}
       coverType={isSmartPlaylist ? "smartPlaylist" : "playlist"}
       colorSeed={playlist.name}
       onPlay={onPlay}
-      contextMenu={contextMenu}
     />
   );
 }

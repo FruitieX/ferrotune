@@ -1,17 +1,5 @@
-// API response types
-// Re-exports generated types from ts-rs with client-friendly type aliases
-//
-// NAMING CONVENTION:
-// - Entity types (Song, Album, Artist, Genre, Playlist) = base data objects
-// - *Response types = API response wrappers (e.g., { artist: ... }, { album: ... })
-// - *WithSongs / *WithAlbums = entities with nested child data
-//
-// The generated types use a different naming:
-// - SongResponse, AlbumResponse, ArtistResponse = entity types
-// - AlbumDetailResponse = { album: AlbumDetail } (wrapper)
-// - AlbumDetail = album entity with songs
-//
-// We re-export with aliases to match client expectations.
+// Thin re-export surface for generated API contracts. Aliases here rename
+// canonical ts-rs DTOs; this module must not adapt or fabricate wire data.
 
 import type {
   AlbumListType as _AlbumListType,
@@ -34,7 +22,7 @@ import type {
   IndexesData as _IndexesData,
   MusicFolderInfo as _MusicFolderInfo,
   MusicFoldersResponse as _GeneratedMusicFoldersResponse,
-  PlaylistSongsResponse as _PlaylistSongsResponse,
+  PlaylistInFolder as _PlaylistInFolder,
   SongResponse as _SongResponse,
 } from "./generated";
 
@@ -58,21 +46,8 @@ export type { ArtistResponse as Artist } from "./generated";
 export type { GenreResponse } from "./generated";
 export type { GenreResponse as Genre } from "./generated";
 
-// Playlist entity. The native folder listing returns a compact playlist shape,
-// while much of the client still expects the older playlist metadata shape.
-export type PlaylistResponse = {
-  id: string;
-  name: string;
-  comment: string | null;
-  owner: string;
-  public: boolean;
-  songCount: number;
-  duration: number;
-  created: string;
-  changed: string;
-  coverArt: string | null;
-};
-export type Playlist = PlaylistResponse;
+// Playlist entity
+export type Playlist = _PlaylistInFolder;
 
 // Smart playlist entity
 export type { SmartPlaylistsResponse } from "./generated";
@@ -83,20 +58,11 @@ export type MusicFolderResponse = _MusicFolderInfo;
 export type MusicFolder = _MusicFolderInfo;
 
 // ============================================================================
-// Extended Entity Types - Entities with nested child data
+// Detail entity types. Child collections use their generated paged responses.
 // ============================================================================
 
-// Album with its songs (for album detail pages)
 export type { AlbumDetail } from "./generated";
-export type { AlbumDetail as AlbumWithSongs } from "./generated";
-
-// Artist with albums and songs (for artist detail pages)
 export type { ArtistDetail } from "./generated";
-export type { ArtistDetail as ArtistWithAlbums } from "./generated";
-
-// Playlist with its songs (for playlist detail pages)
-export type PlaylistDetailResponse = _PlaylistSongsResponse;
-export type PlaylistWithSongs = _PlaylistSongsResponse;
 
 // ============================================================================
 // API Response Wrapper Types - What the endpoints actually return
@@ -172,15 +138,6 @@ export type Starred2Content = {
 };
 export type Starred2Response = { starred2: Starred2Content };
 export type StarredResponse = _FerrotuneStarredResponse;
-
-// getPlaylists response
-export type PlaylistsResponse = { playlists: { playlist: PlaylistResponse[] } };
-
-// getPlaylist response: { playlist: PlaylistDetail }
-export type PlaylistWithSongsResponse = {
-  playlist: PlaylistResponse & { entry: _SongResponse[] };
-};
-export type PlaylistResponse_Wrapper = PlaylistWithSongsResponse;
 
 // Play Queue
 export type PlayQueueContent = {
