@@ -841,6 +841,9 @@ export default function HomePage() {
   // Store the discovery seed/count/exclusion for Similar Tracks so playback queues
   // match the rendered list.
   const similarTracksSeedRef = useRef<number | undefined>(undefined);
+  const [similarTracksRequestSeed] = useState(() =>
+    Math.floor(Math.random() * Number.MAX_SAFE_INTEGER),
+  );
   const similarTracksCountRef = useRef<number>(50);
   const similarTracksExcludeRef = useRef<number>(7);
   // Resolved seed song ID returned by the discovery API on the first fetch.
@@ -877,8 +880,6 @@ export default function HomePage() {
   useEffect(() => {
     discoverSeedRef.current = undefined;
     forgottenFavSeedRef.current = undefined;
-    similarTracksSeedRef.current = undefined;
-    similarTracksSeedSongIdRef.current = null;
   }, [
     currentAccountKey,
     forgottenFavoritesFilters.minPlays,
@@ -1015,6 +1016,7 @@ export default function HomePage() {
     "similar-songs",
     "home",
     currentAccountKey,
+    similarTracksRequestSeed,
   ] as const;
   const batchSectionsKey = [
     isSectionEnabled("continueListening") ? "continue" : "no-continue",
@@ -1454,7 +1456,7 @@ export default function HomePage() {
         size: pageSize,
         offset: pageParam,
         inlineImages: "medium",
-        seed: similarTracksSeedRef.current,
+        seed: similarTracksRequestSeed,
       });
       similarTracksSeedRef.current = response.seed;
       similarTracksCountRef.current = response.count;

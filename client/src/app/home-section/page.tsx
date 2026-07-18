@@ -532,6 +532,9 @@ export default function HomeSectionPage() {
   const debouncedFilter = useDebounce(filter, 300);
   const seedRef = useRef<number | undefined>(undefined);
   const similarTracksSeedRef = useRef<number | undefined>(undefined);
+  const [similarTracksRequestSeed] = useState(() =>
+    Math.floor(Math.random() * Number.MAX_SAFE_INTEGER),
+  );
   const similarTracksCountRef = useRef<number>(50);
   const similarTracksExcludeRef = useRef<number>(7);
   // Resolved seed song ID returned by the discovery API on the first fetch.
@@ -544,8 +547,6 @@ export default function HomeSectionPage() {
 
   useEffect(() => {
     seedRef.current = undefined;
-    similarTracksSeedRef.current = undefined;
-    similarTracksSeedSongIdRef.current = null;
     mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters(
       mostPlayedRecentlyDays,
     );
@@ -568,6 +569,7 @@ export default function HomeSectionPage() {
       mostPlayedRecentlyDays,
       forgottenFavoritesFilters.minPlays,
       forgottenFavoritesFilters.notPlayedSinceDays,
+      similarTracksRequestSeed,
     ],
     queryFn: async ({ pageParam }) => {
       if (!section) {
@@ -667,7 +669,7 @@ export default function HomeSectionPage() {
           size: PAGE_SIZE,
           offset: pageParam,
           inlineImages: "small",
-          seed: similarTracksSeedRef.current,
+          seed: similarTracksRequestSeed,
         });
         similarTracksSeedRef.current = response.seed;
         similarTracksCountRef.current = response.count;

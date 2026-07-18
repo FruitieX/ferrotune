@@ -337,6 +337,13 @@ if (options?.sort) params.set("sort", options.sort);
 
 Server-backed UI preferences such as Home tiles and sections use `atomWithServerStorage`. That helper keeps an account-scoped memory cache and mirrors values into the shared IndexedDB cache store, so account switches can render the correct Home/settings state before the fresh server preference fetch completes.
 
+### Frontend Persistent Query Cache (`client/src/lib/query-persister.ts`)
+
+`PERSISTED_QUERY_CACHE_BUSTER` versions API DTOs stored by TanStack Query in
+the account-scoped IndexedDB cache. Increment it whenever a persisted response
+shape changes incompatibly; do not hydrate old DTOs and patch them with legacy
+field fallbacks in components.
+
 ### Frontend Hooks (`client/src/lib/hooks/`)
 
 | Hook | Purpose |
@@ -367,6 +374,7 @@ Server-backed UI preferences such as Home tiles and sections use `atomWithServer
 | `OwnedCallback.kt` | Owner-token callback slot for Activity/WebView bridges whose stale teardown must not clear a replacement binding. |
 | `SseConnectionGeneration.kt` | Generation guard that discards callbacks from superseded native SSE connections. |
 | `PlaybackStallMonitor.kt` | Pure watchdog state machine for playback progress, backward-seek re-baselining, recovery, and skip escalation. |
+| `PlaybackNotificationLifecycle.kt` | Foreground-service policy for playback intent during notification updates, buffering, and track transitions. |
 
 ---
 

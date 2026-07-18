@@ -476,6 +476,87 @@ test.describe("Home continue listening", () => {
     ).toHaveAttribute("href", "/home/similar-tracks");
   });
 
+  test("similar tracks play all reuses the displayed discovery seed", async ({
+    authenticatedPage: page,
+  }) => {
+    const song = makeSong("similar-home-track", "Similar Home Track");
+    const discoveryRequests: Array<Record<string, string>> = [];
+
+    await setServerPreference(page, "home-sections-v1", [
+      {
+        id: "similar-tracks",
+        kind: "similarTracks",
+        enabled: true,
+      },
+    ]);
+
+    await page.route("**/api/discovery/similar-songs*", async (route) => {
+      const url = new URL(route.request().url());
+      discoveryRequests.push({
+        seed: url.searchParams.get("seed") ?? "",
+      });
+      await route.fulfill({
+        json: {
+          song: [song],
+          total: 1,
+          seed: Number(url.searchParams.get("seed")),
+          count: 30,
+          excludeRecentDays: 7,
+          seedSongId: "similar-seed-song",
+        },
+      });
+    });
+    await routeHomeSongSections(page);
+
+    await page.route("**/api/queue/start", async (route) => {
+      await route.fulfill({
+        json: {
+          totalCount: 1,
+          currentIndex: 0,
+          isShuffled: false,
+          repeatMode: "off",
+          source: {
+            type: "similarTracks",
+            id: null,
+            name: "Similar To What You've Heard",
+            filters: route.request().postDataJSON().filters ?? null,
+            sort: null,
+            instanceId: "00000000-0000-4000-8000-000000000000",
+          },
+          window: { offset: 0, songs: [song] },
+        },
+      });
+    });
+
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: "Similar To What You've Heard" }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("media-card").filter({ hasText: song.title }),
+    ).toBeVisible();
+
+    const queueRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/queue/start") &&
+        request.method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Play Similar To What You've Heard" })
+      .click();
+
+    const requestBody = (await queueRequest).postDataJSON() as {
+      filters: Record<string, unknown>;
+    };
+    expect(discoveryRequests.length).toBeGreaterThan(0);
+    expect(requestBody.filters).toMatchObject({
+      seed: Number(discoveryRequests.at(-1)?.seed),
+      count: 30,
+      excludeRecentDays: 7,
+      seedSongId: "similar-seed-song",
+    });
+  });
+
   test("section list views expose filter sort and column controls", async ({
     authenticatedPage: page,
   }) => {
