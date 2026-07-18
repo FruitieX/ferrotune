@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   AudioLines,
@@ -22,12 +22,17 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { getClient } from "@/lib/api/client";
+import { homeSectionsAtom } from "@/lib/store/ui";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
   DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
   DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
   DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
+  getForgottenFavoritesFilters,
+  getHomeSectionHref,
+  getMostPlayedRecentlyDays,
   getMostPlayedRecentlyFilters,
+  normalizeHomeSections,
 } from "@/lib/utils/home-sections";
 import { getContinueListeningSourceDetails } from "@/lib/utils/continue-listening";
 import {
@@ -322,6 +327,7 @@ function ContinueListeningRow({
   onPlayAlbum,
   onPlayPlaylist,
   onPlaySource,
+  forgottenFavoritesHref,
 }: {
   entry: ContinueListeningEntry;
   index: number;
@@ -332,6 +338,7 @@ function ContinueListeningRow({
     playlistType: string;
   }) => void;
   onPlaySource: (source: ContinueListeningSourceItem) => void;
+  forgottenFavoritesHref?: string;
 }) {
   if (entry.album) {
     const album = entry.album;
@@ -429,11 +436,14 @@ function ContinueListeningRow({
       return null;
     }
 
-    const href = getQueueSourceHref({
-      type: details.queueSourceType,
-      id: source.id,
-      name: source.name,
-    });
+    const href =
+      details.queueSourceType === "forgottenFavorites" && forgottenFavoritesHref
+        ? forgottenFavoritesHref
+        : getQueueSourceHref({
+            type: details.queueSourceType,
+            id: source.id,
+            name: source.name,
+          });
     const coverArtUrl = source.coverArt
       ? getClient()?.getCoverArtUrl(source.coverArt, "small")
       : undefined;
@@ -467,7 +477,24 @@ function ContinueListeningRow({
 export default function HomeSectionPage() {
   const { sectionId } = useParams();
   const [searchParams] = useSearchParams();
+  const homeSections = useAtomValue(homeSectionsAtom);
   const section = getHomeSectionConfig(sectionId);
+  const forgottenFavoritesSection = normalizeHomeSections(homeSections).find(
+    (homeSection) => homeSection.kind === "forgottenFavorites",
+  );
+  const forgottenFavoritesHref = forgottenFavoritesSection
+    ? getHomeSectionHref(forgottenFavoritesSection)
+    : undefined;
+  const configuredForgottenFavoritesFilters = getForgottenFavoritesFilters(
+    forgottenFavoritesSection,
+  );
+  const configuredMostPlayedRecentlyFilters = getMostPlayedRecentlyFilters(
+    getMostPlayedRecentlyDays(
+      normalizeHomeSections(homeSections).find(
+        (homeSection) => homeSection.kind === "mostPlayedRecently",
+      ),
+    ),
+  );
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -824,13 +851,20 @@ export default function HomeSectionPage() {
       return;
     }
 
+    const filters =
+      details.queueSourceType === "forgottenFavorites"
+        ? configuredForgottenFavoritesFilters
+        : details.queueSourceType === "mostPlayedRecently"
+          ? configuredMostPlayedRecentlyFilters
+          : details.filters;
+
     startQueue({
       sourceType: details.queueSourceType,
       sourceId: source.id,
       sourceName: source.name,
       startIndex: 0,
       shuffle: false,
-      filters: details.filters,
+      filters,
     });
   };
 
@@ -980,6 +1014,7 @@ export default function HomeSectionPage() {
                   onPlayAlbum={handlePlayAlbum}
                   onPlayPlaylist={handlePlayPlaylist}
                   onPlaySource={handlePlaySource}
+                  forgottenFavoritesHref={forgottenFavoritesHref}
                 />
               )}
               renderSkeleton={() => (

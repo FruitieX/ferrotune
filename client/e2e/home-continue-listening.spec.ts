@@ -696,6 +696,22 @@ test.describe("Home continue listening", () => {
   test("virtual source entries link correctly and expose context menus", async ({
     authenticatedPage: page,
   }) => {
+    await setServerPreference(page, "home-sections-v1", [
+      {
+        id: "forgotten-favorites",
+        kind: "forgottenFavorites",
+        enabled: true,
+        forgottenFavoritesMinPlays: 42,
+        forgottenFavoritesNotPlayedSinceDays: 365,
+      },
+      {
+        id: "most-played-recently",
+        kind: "mostPlayedRecently",
+        enabled: true,
+        mostPlayedRecentlyDays: 180,
+      },
+    ]);
+
     await page.route("**/api/home*", async (route) => {
       await route.fulfill({
         json: {
@@ -762,6 +778,33 @@ test.describe("Home continue listening", () => {
     });
     await routeHomeSongSections(page);
 
+    await page.route("**/api/queue/start", async (route) => {
+      const body = route.request().postDataJSON() as {
+        sourceType: string;
+        sourceId?: string;
+        sourceName?: string;
+        shuffle?: boolean;
+        filters?: Record<string, unknown>;
+      };
+      await route.fulfill({
+        json: {
+          totalCount: 0,
+          currentIndex: 0,
+          isShuffled: Boolean(body.shuffle),
+          repeatMode: "off",
+          source: {
+            type: body.sourceType,
+            id: body.sourceId ?? null,
+            name: body.sourceName ?? null,
+            filters: body.filters ?? null,
+            sort: null,
+            instanceId: "00000000-0000-4000-8000-000000000000",
+          },
+          window: { offset: 0, songs: [] },
+        },
+      });
+    });
+
     await page.goto("/");
 
     await expect(
@@ -776,10 +819,13 @@ test.describe("Home continue listening", () => {
     ).toHaveAttribute("href", "/home/recently-added");
     await expect(
       page.getByRole("link", { name: "Forgotten Favorites" }).first(),
-    ).toHaveAttribute("href", "/home/forgotten-favorites");
+    ).toHaveAttribute(
+      "href",
+      "/home/forgotten-favorites?minPlays=42&notPlayedSinceDays=365",
+    );
     await expect(
       page.getByRole("link", { name: "Most Played Recently" }).first(),
-    ).toHaveAttribute("href", "/home/most-played-recently");
+    ).toHaveAttribute("href", "/home/most-played-recently?days=180");
 
     const forgottenFavoritesCard = page
       .getByTestId("media-card")
@@ -802,5 +848,36 @@ test.describe("Home continue listening", () => {
     await expect(
       contextMenu.getByRole("menuitem", { name: /add to queue/i }),
     ).toBeVisible();
+
+    const forgottenShuffleRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/queue/start") &&
+        request.method() === "POST",
+    );
+    await contextMenu.getByRole("menuitem", { name: /shuffle/i }).click();
+    expect((await forgottenShuffleRequest).postDataJSON()).toMatchObject({
+      sourceType: "forgottenFavorites",
+      shuffle: true,
+      filters: { minPlays: 42, notPlayedSinceDays: 365 },
+    });
+
+    const mostPlayedCard = page
+      .getByTestId("media-card")
+      .filter({ hasText: "Most Played Recently" })
+      .first();
+    const mostPlayedContextMenu = await openContextMenu(page, mostPlayedCard);
+    const mostPlayedShuffleRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/queue/start") &&
+        request.method() === "POST",
+    );
+    await mostPlayedContextMenu
+      .getByRole("menuitem", { name: /shuffle/i })
+      .click();
+    expect((await mostPlayedShuffleRequest).postDataJSON()).toMatchObject({
+      sourceType: "mostPlayedRecently",
+      shuffle: true,
+      filters: { since: expect.any(String) },
+    });
   });
 });

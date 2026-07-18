@@ -678,9 +678,13 @@ function HomePlaylistCard({
 function HomeSourceCard({
   source,
   onPlay,
+  forgottenFavoritesHref,
+  sourceFilters,
 }: {
   source: ContinueListeningSourceItem;
   onPlay: (source: ContinueListeningSourceItem) => void;
+  forgottenFavoritesHref?: string;
+  sourceFilters?: Record<string, unknown>;
 }) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -690,11 +694,13 @@ function HomeSourceCard({
     source.id,
   );
   const href = details
-    ? getQueueSourceHref({
-        type: details.queueSourceType,
-        id: source.id,
-        name: source.name,
-      })
+    ? details.queueSourceType === "forgottenFavorites" && forgottenFavoritesHref
+      ? forgottenFavoritesHref
+      : getQueueSourceHref({
+          type: details.queueSourceType,
+          id: source.id,
+          name: source.name,
+        })
     : null;
 
   if (!details || !href) {
@@ -720,7 +726,7 @@ function HomeSourceCard({
       sourceName: source.name,
       startIndex: 0,
       shuffle,
-      filters: details.filters,
+      filters: sourceFilters ?? details.filters,
     });
   };
 
@@ -1575,13 +1581,20 @@ export default function HomePage() {
       return;
     }
 
+    const filters =
+      details.queueSourceType === "forgottenFavorites"
+        ? forgottenFavoritesFilters
+        : details.queueSourceType === "mostPlayedRecently"
+          ? mostPlayedRecentlyFilters
+          : details.filters;
+
     startQueue({
       sourceType: details.queueSourceType,
       sourceId: source.id,
       sourceName: source.name,
       startIndex: 0,
       shuffle: false,
-      filters: details.filters,
+      filters,
     });
   };
 
@@ -1679,7 +1692,24 @@ export default function HomePage() {
       );
     }
     if (item.source) {
-      return <HomeSourceCard source={item.source} onPlay={handlePlaySource} />;
+      return (
+        <HomeSourceCard
+          source={item.source}
+          onPlay={handlePlaySource}
+          forgottenFavoritesHref={
+            forgottenFavoritesSection
+              ? getHomeSectionHref(forgottenFavoritesSection)
+              : undefined
+          }
+          sourceFilters={
+            item.source.sourceType === "forgottenFavorites"
+              ? forgottenFavoritesFilters
+              : item.source.sourceType === "mostPlayedRecently"
+                ? mostPlayedRecentlyFilters
+                : undefined
+          }
+        />
+      );
     }
     if (item.album) {
       return (
