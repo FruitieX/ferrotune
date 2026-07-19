@@ -88,7 +88,10 @@ function mapNativeStatusToAppState(
  * Native audio engine callbacks
  */
 export interface NativeAudioCallbacks {
-  onStateChange: (state: AppPlaybackState) => void;
+  onStateChange: (
+    state: AppPlaybackState,
+    context?: { trackId?: string; isInitialSnapshot?: boolean },
+  ) => void;
   onProgress: (
     currentTime: number,
     duration: number,
@@ -103,6 +106,7 @@ export interface NativeAudioCallbacks {
   onTrackChange: (
     track: NativeTrackInfo | undefined,
     queueIndex: number,
+    context?: { isInitialSnapshot?: boolean },
   ) => void;
   onToggleStar: (trackId: string, isStarred: boolean) => void;
   onQueueStateChanged?: (state: {
@@ -226,7 +230,10 @@ export async function initNativeAudioEngine(
           if (status) {
             console.log("[NativeAudio] State change:", status);
             const appState = mapNativeStatusToAppState(status);
-            engineState.callbacks?.onStateChange(appState);
+            engineState.callbacks?.onStateChange(appState, {
+              trackId: data?.state?.track?.id,
+              isInitialSnapshot: data?.isSnapshot === true,
+            });
           }
           break;
         }
@@ -235,6 +242,7 @@ export async function initNativeAudioEngine(
             (data?.positionMs ?? 0) / 1000,
             (data?.durationMs ?? 0) / 1000,
             (data?.bufferedMs ?? 0) / 1000,
+            data?.isSnapshot === true ? { isInitialSnapshot: true } : undefined,
           );
           break;
         case "error":
@@ -254,7 +262,9 @@ export async function initNativeAudioEngine(
           break;
         case "track-change":
           console.log("[NativeAudio] Track change:", data?.track?.title);
-          engineState.callbacks?.onTrackChange(data?.track, data?.queueIndex);
+          engineState.callbacks?.onTrackChange(data?.track, data?.queueIndex, {
+            isInitialSnapshot: data?.isSnapshot === true,
+          });
           break;
         case "toggle-star":
           console.log("[NativeAudio] Toggle star from external controller");
@@ -321,7 +331,13 @@ export async function initNativeAudioEngine(
       const currentState = await api.getState();
       const appState = mapNativeStatusToAppState(currentState.status);
       console.log("[NativeAudio] Post-init state sync:", currentState.status);
-      callbacks.onStateChange(appState);
+      callbacks.onTrackChange(currentState.track, currentState.queueIndex, {
+        isInitialSnapshot: true,
+      });
+      callbacks.onStateChange(appState, {
+        trackId: currentState.track?.id,
+        isInitialSnapshot: true,
+      });
       if (currentState.positionMs > 0 || currentState.durationMs > 0) {
         callbacks.onProgress(
           currentState.positionMs / 1000,

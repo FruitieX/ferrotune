@@ -96,6 +96,10 @@ data class QueueSuccessResponse(
     val totalCount: Int? = null,
 )
 
+data class LogListeningResponse(
+    val sessionId: Long,
+)
+
 /**
  * HTTP client for communicating with the Ferrotune server API.
  * Uses OkHttp (already available via ExoPlayer/Media3 dependency).
@@ -424,6 +428,39 @@ class FerrotuneApiClient {
                 "Scrobble network error",
                 mapOf("songId" to songId),
                 e,
+            )
+        }
+    }
+
+    /**
+     * POST /api/listening
+     *
+     * Creates a listening session on the first call and updates the same row
+     * when [sessionId] is supplied on subsequent calls.
+     */
+    fun logListening(
+        songId: String,
+        durationSeconds: Long,
+        sessionId: Long? = null,
+        skipped: Boolean = false,
+        config: SessionConfig = getConfig(),
+    ): LogListeningResponse {
+        val json = JSONObject().apply {
+            put("songId", songId)
+            put("durationSeconds", durationSeconds)
+            if (sessionId != null) put("sessionId", sessionId)
+            put("skipped", skipped)
+        }
+        val url = buildApiUrl("/api/listening", config = config)
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .also { addAuthHeaders(it, config) }
+            .build()
+
+        return executeRequest(request) { body ->
+            LogListeningResponse(
+                sessionId = JSONObject(body).getLong("sessionId"),
             )
         }
     }

@@ -1447,11 +1447,6 @@ export default function HomePage() {
     queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      if (similarTracksSeedRef.current === undefined) {
-        similarTracksSeedRef.current = Math.floor(
-          Math.random() * Number.MAX_SAFE_INTEGER,
-        );
-      }
       const response = await client.getDiscoverySimilarSongs({
         size: pageSize,
         offset: pageParam,
@@ -1895,7 +1890,9 @@ export default function HomePage() {
                   filters: queueFilters,
                 })
               }
-              viewAllHref={getHomeSectionHref(section)}
+              viewAllHref={getHomeSectionHref(section, {
+                seed: forgottenFavSeed,
+              })}
             />
             <VirtualizedHorizontalScroll<Song>
               items={forgottenFavSongs}
@@ -1950,7 +1947,7 @@ export default function HomePage() {
                 seed: randomSeed,
               })
             }
-            viewAllHref={getHomeSectionHref(section)}
+            viewAllHref={getHomeSectionHref(section, { seed: randomSeed })}
             itemWidth={itemWidth}
             itemGap={itemGap}
             paddingX={paddingX}
@@ -1992,7 +1989,12 @@ export default function HomePage() {
                   },
                 })
               }
-              viewAllHref={getHomeSectionHref(section)}
+              viewAllHref={getHomeSectionHref(section, {
+                seed: similarTracksSeedRef.current,
+                count: similarTracksCountRef.current,
+                excludeRecentDays: similarTracksExcludeRef.current,
+                seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
+              })}
             />
             <VirtualizedHorizontalScroll<Song>
               items={similarTracksSongs}

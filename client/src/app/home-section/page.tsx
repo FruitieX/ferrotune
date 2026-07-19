@@ -295,6 +295,16 @@ function getPositiveNumberParam(
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function getOptionalNonNegativeNumberParam(
+  params: URLSearchParams,
+  key: string,
+): number | undefined {
+  const rawValue = params.get(key);
+  if (rawValue === null) return undefined;
+  const value = Number(rawValue);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 function getNextOffsetPageParam(lastPage: {
   nextOffset: number;
   pageSize: number;
@@ -529,24 +539,44 @@ export default function HomeSectionPage() {
     minPlays: forgottenFavoritesMinPlays,
     notPlayedSinceDays: forgottenFavoritesNotPlayedSinceDays,
   };
+  const linkedSeed = getOptionalNonNegativeNumberParam(searchParams, "seed");
+  const linkedSimilarCount = getOptionalNonNegativeNumberParam(
+    searchParams,
+    "count",
+  );
+  const linkedSimilarExcludeRecentDays = getOptionalNonNegativeNumberParam(
+    searchParams,
+    "excludeRecentDays",
+  );
+  const linkedSimilarSeedSongId = searchParams.get("seedSongId") || undefined;
   const debouncedFilter = useDebounce(filter, 300);
-  const seedRef = useRef<number | undefined>(undefined);
+  const seedRef = useRef<number | undefined>(linkedSeed);
   const similarTracksSeedRef = useRef<number | undefined>(undefined);
-  const [similarTracksRequestSeed] = useState(() =>
+  const [fallbackSimilarTracksRequestSeed] = useState(() =>
     Math.floor(Math.random() * Number.MAX_SAFE_INTEGER),
   );
-  const similarTracksCountRef = useRef<number>(50);
-  const similarTracksExcludeRef = useRef<number>(7);
+  const similarTracksRequestSeed =
+    linkedSeed ?? fallbackSimilarTracksRequestSeed;
+  const similarTracksCountRef = useRef<number>(linkedSimilarCount ?? 50);
+  const similarTracksExcludeRef = useRef<number>(
+    linkedSimilarExcludeRecentDays ?? 7,
+  );
   // Resolved seed song ID returned by the discovery API on the first fetch.
   // Forwarded back when materializing playback queues so the rendered list
   // matches even if the user's most-recent scrobble has changed since.
-  const similarTracksSeedSongIdRef = useRef<string | null>(null);
+  const similarTracksSeedSongIdRef = useRef<string | null>(
+    linkedSimilarSeedSongId ?? null,
+  );
   const mostPlayedFiltersRef = useRef(
     getMostPlayedRecentlyFilters(mostPlayedRecentlyDays),
   );
 
   useEffect(() => {
-    seedRef.current = undefined;
+    seedRef.current = linkedSeed;
+    similarTracksSeedRef.current = linkedSeed;
+    similarTracksCountRef.current = linkedSimilarCount ?? 50;
+    similarTracksExcludeRef.current = linkedSimilarExcludeRecentDays ?? 7;
+    similarTracksSeedSongIdRef.current = linkedSimilarSeedSongId ?? null;
     mostPlayedFiltersRef.current = getMostPlayedRecentlyFilters(
       mostPlayedRecentlyDays,
     );
@@ -557,6 +587,10 @@ export default function HomeSectionPage() {
     mostPlayedRecentlyDays,
     forgottenFavoritesFilters.minPlays,
     forgottenFavoritesFilters.notPlayedSinceDays,
+    linkedSeed,
+    linkedSimilarCount,
+    linkedSimilarExcludeRecentDays,
+    linkedSimilarSeedSongId,
   ]);
 
   const query = useInfiniteQuery({
@@ -570,6 +604,9 @@ export default function HomeSectionPage() {
       forgottenFavoritesFilters.minPlays,
       forgottenFavoritesFilters.notPlayedSinceDays,
       similarTracksRequestSeed,
+      linkedSimilarCount,
+      linkedSimilarExcludeRecentDays,
+      linkedSimilarSeedSongId,
     ],
     queryFn: async ({ pageParam }) => {
       if (!section) {
@@ -639,7 +676,7 @@ export default function HomeSectionPage() {
           size: PAGE_SIZE,
           offset: pageParam,
           inlineImages: "small",
-          seed: pageParam > 0 ? seedRef.current : undefined,
+          seed: seedRef.current,
           ...forgottenFavoritesFilters,
           filter: filterParam,
           ...sortParam,
@@ -660,16 +697,14 @@ export default function HomeSectionPage() {
         section.kind === "song" &&
         section.queueSourceType === "similarTracks"
       ) {
-        if (similarTracksSeedRef.current === undefined) {
-          similarTracksSeedRef.current = Math.floor(
-            Math.random() * Number.MAX_SAFE_INTEGER,
-          );
-        }
         const response = await client.getDiscoverySimilarSongs({
           size: PAGE_SIZE,
           offset: pageParam,
           inlineImages: "small",
           seed: similarTracksRequestSeed,
+          count: linkedSimilarCount,
+          excludeRecentDays: linkedSimilarExcludeRecentDays,
+          seedSongId: linkedSimilarSeedSongId,
         });
         similarTracksSeedRef.current = response.seed;
         similarTracksCountRef.current = response.count;
@@ -698,9 +733,7 @@ export default function HomeSectionPage() {
           filter: filterParam,
           ...sortParam,
           seed:
-            section.albumListType === "random" && pageParam > 0
-              ? seedRef.current
-              : undefined,
+            section.albumListType === "random" ? seedRef.current : undefined,
         });
         seedRef.current = response.albumList2.seed;
         const albums = response.albumList2.album ?? [];

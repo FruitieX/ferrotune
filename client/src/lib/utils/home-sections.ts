@@ -293,6 +293,12 @@ export function getHomeSectionQueueFilters(
 
 export function getHomeSectionHref(
   section: HomeSectionConfig,
+  randomState?: {
+    seed?: number;
+    count?: number;
+    excludeRecentDays?: number;
+    seedSongId?: string;
+  },
 ): string | undefined {
   if (section.kind === "playlistSongs") {
     if (!section.playlistId || !section.playlistType) {
@@ -308,22 +314,41 @@ export function getHomeSectionHref(
   const href = getHomeSectionOption(section.kind).href;
   if (!href) return undefined;
 
+  const params = new URLSearchParams();
+
   if (section.kind === "mostPlayedRecently") {
-    const params = new URLSearchParams({
-      days: String(getMostPlayedRecentlyDays(section)),
-    });
-    return `${href}?${params.toString()}`;
+    params.set("days", String(getMostPlayedRecentlyDays(section)));
+  } else if (section.kind === "forgottenFavorites") {
+    params.set("minPlays", String(getForgottenFavoritesMinPlays(section)));
+    params.set(
+      "notPlayedSinceDays",
+      String(getForgottenFavoritesNotPlayedDays(section)),
+    );
   }
 
-  if (section.kind === "forgottenFavorites") {
-    const params = new URLSearchParams({
-      minPlays: String(getForgottenFavoritesMinPlays(section)),
-      notPlayedSinceDays: String(getForgottenFavoritesNotPlayedDays(section)),
-    });
-    return `${href}?${params.toString()}`;
+  if (
+    (section.kind === "discover" ||
+      section.kind === "forgottenFavorites" ||
+      section.kind === "similarTracks") &&
+    randomState?.seed !== undefined
+  ) {
+    params.set("seed", String(randomState.seed));
   }
 
-  return href;
+  if (section.kind === "similarTracks") {
+    if (randomState?.count !== undefined) {
+      params.set("count", String(randomState.count));
+    }
+    if (randomState?.excludeRecentDays !== undefined) {
+      params.set("excludeRecentDays", String(randomState.excludeRecentDays));
+    }
+    if (randomState?.seedSongId) {
+      params.set("seedSongId", randomState.seedSongId);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `${href}?${query}` : href;
 }
 
 export function getHomeSectionPresentation(

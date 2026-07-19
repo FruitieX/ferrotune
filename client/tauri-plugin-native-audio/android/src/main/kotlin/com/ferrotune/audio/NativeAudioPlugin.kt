@@ -223,6 +223,9 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             lastPlaybackSettings?.let { settings ->
                 connectedService.updateSettings(settings)
             }
+            if (webViewInForeground) {
+                emitCurrentPlaybackSnapshot()
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -344,6 +347,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         super.onResume()
         Log.d(TAG, "NativeAudioPlugin onResume")
         webViewInForeground = true
+        emitCurrentPlaybackSnapshot()
         nativeCastManager?.refreshState()
         refreshWebView(dispatchResumeEvent = true)
     }
@@ -421,12 +425,12 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
      * which doesn't reliably deliver events from Android plugins to JS.
      * Instead, we call a global callback function registered by the JS engine.
      *
-     * When the WebView is backgrounded, high-frequency events (progress, clipping)
-     * are skipped since they'd queue up uselessly. The JS resume handler syncs
-     * full state from the native service via nativeGetState() on foregrounding.
+     * When the WebView is backgrounded, playback snapshots are discarded
+     * instead of queued. A single authoritative snapshot is emitted when the
+     * Activity resumes.
      */
     private fun triggerEvent(event: String, data: JSObject) {
-        if (!webViewInForeground && (event == AudioEvents.PROGRESS || event == AudioEvents.CLIPPING)) {
+        if (!WebViewPlaybackEventPolicy.shouldForward(webViewInForeground, event)) {
             return
         }
         val jsonData = data.toString()
@@ -443,6 +447,27 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 null
             )
         }
+    }
+
+    /** Replace all discarded background transitions with one current snapshot. */
+    private fun emitCurrentPlaybackSnapshot() {
+        val state = playbackService?.getState() ?: return
+
+        triggerEvent(AudioEvents.TRACK_CHANGE, JSObject().apply {
+            put("track", state.track?.toJSObject())
+            put("queueIndex", state.queueIndex)
+            put("isSnapshot", true)
+        })
+        triggerEvent(AudioEvents.STATE_CHANGE, JSObject().apply {
+            put("state", state.toJSObject())
+            put("isSnapshot", true)
+        })
+        triggerEvent(AudioEvents.PROGRESS, JSObject().apply {
+            put("positionMs", state.positionMs)
+            put("durationMs", state.durationMs)
+            put("bufferedMs", state.positionMs)
+            put("isSnapshot", true)
+        })
     }
 
     /**

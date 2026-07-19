@@ -16,23 +16,7 @@ import {
   type NativeAudioCallbacks,
   type NativePlaybackErrorDetails,
 } from "@/lib/audio/native-engine";
-import {
-  updateListeningSession,
-  startListeningUpdateInterval,
-  stopListeningUpdateInterval,
-  logListeningTimeAndReset,
-  playbackStartTime,
-  playbackStartSongId,
-  accumulatedPlayTime,
-  setPlaybackStartTime,
-  setPlaybackStartSongId,
-  setAccumulatedPlayTime,
-  setCurrentListeningSessionId,
-} from "@/lib/audio/listening";
-import {
-  currentLoadedTrackId,
-  setCurrentLoadedTrackId,
-} from "@/lib/audio/engine-state";
+import { setCurrentLoadedTrackId } from "@/lib/audio/engine-state";
 import { getStarredItemKey } from "@/lib/store/starred";
 import type { EngineStateSnapshot, EngineSetters } from "./engine-types";
 
@@ -72,7 +56,6 @@ export function createNativeCallbacks({
     // Handle "ended" state: Kotlin handles repeat-all wrap-around and
     // auto-advance. This only fires when it's truly the end of queue.
     if (state === "ended") {
-      logListeningTimeAndReset();
       const qs = stateRef.current.queueState;
       // Repeat-one is handled natively by ExoPlayer REPEAT_MODE_ONE,
       // so we should never reach here. Just in case:
@@ -88,25 +71,6 @@ export function createNativeCallbacks({
     }
 
     settersRef.current.setPlaybackState(state);
-
-    // Handle listening time tracking
-    const currentSongId = stateRef.current.currentSong?.id;
-    if (state === "playing" && currentSongId) {
-      if (currentSongId !== playbackStartSongId) {
-        setPlaybackStartSongId(currentSongId);
-        setAccumulatedPlayTime(0);
-        setCurrentListeningSessionId(null);
-      }
-      setPlaybackStartTime(Date.now());
-      startListeningUpdateInterval();
-    } else if (state === "paused" && playbackStartTime !== null) {
-      stopListeningUpdateInterval();
-      setAccumulatedPlayTime(
-        accumulatedPlayTime + (Date.now() - playbackStartTime) / 1000,
-      );
-      setPlaybackStartTime(null);
-      updateListeningSession();
-    }
   };
 
   const onProgress = (
@@ -208,15 +172,6 @@ export function createNativeCallbacks({
       return;
     }
 
-    // Log listening time for the track we're leaving
-    if (
-      currentLoadedTrackId &&
-      track?.id &&
-      track.id !== currentLoadedTrackId
-    ) {
-      logListeningTimeAndReset();
-    }
-
     // Update loaded track ID
     if (track?.id) {
       setCurrentLoadedTrackId(track.id);
@@ -264,14 +219,7 @@ export function createNativeCallbacks({
         .catch(console.error);
     }
 
-    // Start listening time tracking for new track
     if (track?.id) {
-      setPlaybackStartSongId(track.id);
-      setAccumulatedPlayTime(0);
-      setCurrentListeningSessionId(null);
-      setPlaybackStartTime(Date.now());
-      startListeningUpdateInterval();
-
       // Sync star state to WearOS button icon
       const isStarred =
         stateRef.current.starredItems.get(

@@ -261,6 +261,11 @@ class PlaybackService : MediaSessionService() {
     private var accumulatedListenMs: Long = 0
     private var hasScrobbled = false
     private var lastProgressTimestamp: Long = 0
+    // Listening sessions belong to native playback. Android may suspend the
+    // WebView while this service continues through the queue.
+    private val listeningLifecycle = NativeListeningSessionLifecycle()
+    // Accessed only from the single-threaded apiExecutor.
+    private val listeningSessionIds = mutableMapOf<Long, Long>()
     // Offset (ms) applied when seeking in transcoded streams via seek-by-reload.
     // The server starts the stream at this offset, so ExoPlayer position is relative.
     // Added to player.currentPosition for correct absolute position reporting.
@@ -423,10 +428,12 @@ class PlaybackService : MediaSessionService() {
             if (player.isPlaying) {
                 updateLastKnownGoodPosition()
                 emitProgressEvent()
-                // Track accumulated listen time for scrobbling
+                // Track accumulated listen time for scrobbling and history.
                 val now = System.currentTimeMillis()
                 if (lastProgressTimestamp > 0) {
-                    accumulatedListenMs += (now - lastProgressTimestamp)
+                    val elapsedMs = (now - lastProgressTimestamp).coerceAtLeast(0)
+                    accumulatedListenMs += elapsedMs
+                    listeningLifecycle.addProgress(elapsedMs)?.let(::enqueueNativeListeningUpdate)
                 }
                 lastProgressTimestamp = now
                 checkScrobble()
@@ -2824,6 +2831,46 @@ class PlaybackService : MediaSessionService() {
         lastKnownGoodPositionMs = 0
     }
 
+    private fun enqueueNativeListeningUpdate(update: NativeListeningUpdate) {
+        val sessionConfig = apiClient.getSessionConfigSnapshot() ?: return
+        apiExecutor.execute {
+            try {
+                val response = apiClient.logListening(
+                    songId = update.songId,
+                    durationSeconds = update.durationSeconds,
+                    sessionId = listeningSessionIds[update.generation],
+                    skipped = update.skipped,
+                    config = sessionConfig,
+                )
+                if (update.finalize) {
+                    listeningSessionIds.remove(update.generation)
+                } else {
+                    listeningSessionIds[update.generation] = response.sessionId
+                }
+            } catch (e: Exception) {
+                Log.w(
+                    TAG,
+                    "Failed to ${if (update.finalize) "finalize" else "update"} listening session for ${update.songId}",
+                    e,
+                )
+                NativeAudioLogger.warn(
+                    TAG,
+                    "listening_session_sync_failed",
+                    "Failed to sync native listening session",
+                    mapOf(
+                        "songId" to update.songId,
+                        "durationSeconds" to update.durationSeconds,
+                        "finalize" to update.finalize,
+                    ),
+                    e,
+                )
+                if (update.finalize) {
+                    listeningSessionIds.remove(update.generation)
+                }
+            }
+        }
+    }
+
     private fun checkScrobble() {
         if (hasScrobbled) return
         val track = currentTrack ?: return
@@ -4227,6 +4274,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun setCurrentTrack(track: TrackInfo?) {
+        if (currentTrack?.id != track?.id) {
+            listeningLifecycle.changeTrack(track?.id)?.let(::enqueueNativeListeningUpdate)
+        }
         currentTrack = track
         preloadNotificationArtwork(track)
     }
@@ -4857,6 +4907,7 @@ class PlaybackService : MediaSessionService() {
                     sendPlaybackStateHeartbeat(true)
                 }
             } else {
+                listeningLifecycle.snapshot()?.let(::enqueueNativeListeningUpdate)
                 markPlaybackPauseIntent(
                     "playWhenReady=false reason=$reasonName"
                 )

@@ -375,6 +375,8 @@ field fallbacks in components.
 | `SseConnectionGeneration.kt` | Generation guard that discards callbacks from superseded native SSE connections. |
 | `PlaybackStallMonitor.kt` | Pure watchdog state machine for playback progress, backward-seek re-baselining, recovery, and skip escalation. |
 | `PlaybackNotificationLifecycle.kt` | Foreground-service policy for playback intent during notification updates, buffering, and track transitions. |
+| `NativeListeningSessionLifecycle.kt` | Pure native listening-session state machine for periodic updates, pause snapshots, and per-track finalization while the WebView sleeps. |
+| `WebViewPlaybackEventPolicy.kt` | Drops stale playback snapshots while the Android WebView is backgrounded; the plugin emits one current snapshot on resume. |
 
 ---
 

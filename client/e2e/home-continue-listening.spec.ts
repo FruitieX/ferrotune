@@ -476,6 +476,77 @@ test.describe("Home continue listening", () => {
     ).toHaveAttribute("href", "/home/similar-tracks");
   });
 
+  test("forgotten favorites header retains its displayed seed", async ({
+    authenticatedPage: page,
+  }) => {
+    const song = makeSong("forgotten-seed-track", "Forgotten Seed Track");
+    const requestedSeeds: string[] = [];
+
+    await setServerPreference(page, "home-sections-v1", [
+      {
+        id: "forgotten-favorites",
+        kind: "forgottenFavorites",
+        enabled: true,
+        forgottenFavoritesMinPlays: 10,
+        forgottenFavoritesNotPlayedSinceDays: 90,
+      },
+    ]);
+    await page.route("**/api/songs/forgotten-favorites*", async (route) => {
+      const url = new URL(route.request().url());
+      requestedSeeds.push(url.searchParams.get("seed") ?? "");
+      await route.fulfill({
+        json: { song: [song], total: 1, seed: 4242 },
+      });
+    });
+    await page.route("**/api/songs/most-played-recently*", async (route) => {
+      await route.fulfill({ json: { song: [], total: 0 } });
+    });
+
+    await page.goto("/");
+    const sectionLink = page
+      .getByRole("link", { name: "Forgotten Favorites" })
+      .first();
+    await expect(sectionLink).toHaveAttribute(
+      "href",
+      "/home/forgotten-favorites?minPlays=10&notPlayedSinceDays=90&seed=4242",
+    );
+
+    await sectionLink.click();
+    await expect(page).toHaveURL(/\/home\/forgotten-favorites\?/);
+    await expect.poll(() => requestedSeeds.length).toBeGreaterThan(1);
+    expect(requestedSeeds.at(-1)).toBe("4242");
+  });
+
+  test("discover header retains its displayed album seed", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "home-sections-v1", [
+      { id: "discover", kind: "discover", enabled: true },
+    ]);
+
+    await page.goto("/");
+    const sectionLink = page
+      .getByRole("heading", { name: "Discover Something New" })
+      .getByRole("link");
+    await expect(sectionLink).toHaveAttribute("href", /seed=\d+/);
+    const href = await sectionLink.getAttribute("href");
+    const linkedUrl = new URL(href ?? "", "http://ferrotune.test");
+    const displayedSeed = linkedUrl.searchParams.get("seed");
+    expect(displayedSeed).toMatch(/^\d+$/);
+
+    const detailRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === "/api/albums" &&
+        url.searchParams.get("type") === "random"
+      );
+    });
+    await sectionLink.click();
+
+    const requestUrl = new URL((await detailRequest).url());
+    expect(requestUrl.searchParams.get("seed")).toBe(displayedSeed);
+  });
+
   test("similar tracks play all reuses the displayed discovery seed", async ({
     authenticatedPage: page,
   }) => {
@@ -494,6 +565,9 @@ test.describe("Home continue listening", () => {
       const url = new URL(route.request().url());
       discoveryRequests.push({
         seed: url.searchParams.get("seed") ?? "",
+        count: url.searchParams.get("count") ?? "",
+        excludeRecentDays: url.searchParams.get("excludeRecentDays") ?? "",
+        seedSongId: url.searchParams.get("seedSongId") ?? "",
       });
       await route.fulfill({
         json: {
@@ -553,6 +627,28 @@ test.describe("Home continue listening", () => {
       seed: Number(discoveryRequests.at(-1)?.seed),
       count: 30,
       excludeRecentDays: 7,
+      seedSongId: "similar-seed-song",
+    });
+
+    const sectionLink = page
+      .getByRole("link", { name: "Similar To What You've Heard" })
+      .first();
+    const sectionHref = await sectionLink.getAttribute("href");
+    const sectionUrl = new URL(sectionHref ?? "", "http://ferrotune.test");
+    expect(sectionUrl.searchParams.get("seed")).toBe(
+      discoveryRequests[0]?.seed,
+    );
+    expect(sectionUrl.searchParams.get("count")).toBe("30");
+    expect(sectionUrl.searchParams.get("excludeRecentDays")).toBe("7");
+    expect(sectionUrl.searchParams.get("seedSongId")).toBe("similar-seed-song");
+
+    await sectionLink.click();
+    await expect(page).toHaveURL(/\/home\/similar-tracks\?/);
+    await expect.poll(() => discoveryRequests.length).toBeGreaterThan(1);
+    expect(discoveryRequests.at(-1)).toMatchObject({
+      seed: discoveryRequests[0]?.seed,
+      count: "30",
+      excludeRecentDays: "7",
       seedSongId: "similar-seed-song",
     });
   });
