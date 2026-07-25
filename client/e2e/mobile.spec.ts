@@ -643,9 +643,21 @@ test.describe("Mobile Tests", () => {
     await expectPressedFeedback(page, albumCard);
   });
 
-  test("hides progress seek overlay after touch tap", async ({
+  test("briefly shows progress seek overlay after touch tap", async ({
     authenticatedPage: page,
   }) => {
+    await page.route("**/api/songs/*/waveform", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          heights: Array.from({ length: 128 }, (_, index) =>
+            index % 2 === 0 ? 0.25 : 0.8,
+          ),
+        }),
+      });
+    });
+
     await playFirstSong(page);
     await waitForPlayerReady(page);
 
@@ -654,6 +666,7 @@ test.describe("Mobile Tests", () => {
       .getByRole("slider", { name: "Playback progress" });
     await expectProgressTimeOverlayOpacity(page, 0);
     await progressSlider.tap({ position: { x: 120, y: 8 } });
+    await expectProgressTimeOverlayOpacity(page, 1);
     await expectProgressTimeOverlayOpacity(page, 0);
   });
 

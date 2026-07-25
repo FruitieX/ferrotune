@@ -21,7 +21,10 @@ import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
 import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
 import { ProgressTimeOverlay } from "@/components/player/progress-time-overlay";
 import { formatDuration } from "@/lib/utils/format";
-import { PROGRESS_UPDATE_INTERVAL_MS } from "@/components/player/progress-constants";
+import {
+  PROGRESS_UPDATE_INTERVAL_MS,
+  TOUCH_PROGRESS_PREVIEW_DURATION_MS,
+} from "@/components/player/progress-constants";
 
 interface WaveformProgressBarProps {
   className?: string;
@@ -106,6 +109,9 @@ export function WaveformProgressBar({
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [isTouchPreviewVisible, setIsTouchPreviewVisible] = useState(false);
+  const touchPreviewTimerRef = useRef<number | null>(null);
+  const ignoreMouseUntilRef = useRef(0);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [containerWidth, setContainerWidth] = useState(0);
 
@@ -485,6 +491,13 @@ export function WaveformProgressBar({
     e.preventDefault(); // Prevent synthetic mouse events
     setIsDragging(true);
     setIsHovering(true);
+    setIsTouchPreviewVisible(true);
+    ignoreMouseUntilRef.current =
+      Date.now() + TOUCH_PROGRESS_PREVIEW_DURATION_MS;
+    if (touchPreviewTimerRef.current !== null) {
+      window.clearTimeout(touchPreviewTimerRef.current);
+      touchPreviewTimerRef.current = null;
+    }
     hapticTap();
     const percent = getPercentFromEvent(touch.clientX);
     lastScrubPercentRef.current = percent;
@@ -495,8 +508,25 @@ export function WaveformProgressBar({
   const finishTouchInteraction = () => {
     setIsDragging(false);
     setIsHovering(false);
-    setHoverPercent(null);
+    setIsTouchPreviewVisible(true);
+    if (touchPreviewTimerRef.current !== null) {
+      window.clearTimeout(touchPreviewTimerRef.current);
+    }
+    touchPreviewTimerRef.current = window.setTimeout(() => {
+      setIsTouchPreviewVisible(false);
+      setHoverPercent(null);
+      touchPreviewTimerRef.current = null;
+    }, TOUCH_PROGRESS_PREVIEW_DURATION_MS);
   };
+
+  useEffect(
+    () => () => {
+      if (touchPreviewTimerRef.current !== null) {
+        window.clearTimeout(touchPreviewTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // Handle mouse/touch move during drag (global listeners)
   useEffect(() => {
@@ -537,7 +567,15 @@ export function WaveformProgressBar({
     const handleGlobalTouchEnd = () => {
       setIsDragging(false);
       setIsHovering(false);
-      setHoverPercent(null);
+      setIsTouchPreviewVisible(true);
+      if (touchPreviewTimerRef.current !== null) {
+        window.clearTimeout(touchPreviewTimerRef.current);
+      }
+      touchPreviewTimerRef.current = window.setTimeout(() => {
+        setIsTouchPreviewVisible(false);
+        setHoverPercent(null);
+        touchPreviewTimerRef.current = null;
+      }, TOUCH_PROGRESS_PREVIEW_DURATION_MS);
       hapticConfirm();
     };
 
@@ -559,6 +597,7 @@ export function WaveformProgressBar({
   }, [isDragging, seekPercent]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     setHoverPercent(
       Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)),
@@ -586,7 +625,8 @@ export function WaveformProgressBar({
   const displayTime = isEnded ? 0 : currentTime;
   const displayDuration = isEnded ? 0 : duration;
   const timeOverlayVisible =
-    hasTrack && (isHovering || isDragging || isFocused);
+    hasTrack &&
+    (isHovering || isDragging || isFocused || isTouchPreviewVisible);
 
   // Fall back to simple progress bar when no waveform data is available
   if (!isAvailable && !isLoading) {
@@ -622,10 +662,23 @@ export function WaveformProgressBar({
       onTouchEnd={hasTrack ? finishTouchInteraction : undefined}
       onTouchCancel={hasTrack ? finishTouchInteraction : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
-      onFocus={hasTrack ? () => setIsFocused(true) : undefined}
+      onFocus={
+        hasTrack
+          ? (event) =>
+              setIsFocused(event.currentTarget.matches(":focus-visible"))
+          : undefined
+      }
       onBlur={() => setIsFocused(false)}
       onMouseMove={hasTrack && !isDragging ? handleMouseMove : undefined}
-      onMouseEnter={hasTrack ? () => setIsHovering(true) : undefined}
+      onMouseEnter={
+        hasTrack
+          ? () => {
+              if (Date.now() >= ignoreMouseUntilRef.current) {
+                setIsHovering(true);
+              }
+            }
+          : undefined
+      }
       onMouseLeave={() => {
         if (!isDragging) {
           setIsHovering(false);
@@ -679,12 +732,13 @@ export function WaveformProgressBar({
           style={{ imageRendering: "pixelated" }}
         />
       </div>
-      {(isHovering || isDragging) && hoverPercent !== null && (
-        <div
-          className="absolute top-1/2 z-10 h-6 w-0.5 -translate-y-1/2 bg-foreground/80 pointer-events-none"
-          style={{ left: `${hoverPercent}%` }}
-        />
-      )}
+      {(isHovering || isDragging || isTouchPreviewVisible) &&
+        hoverPercent !== null && (
+          <div
+            className="absolute top-1/2 z-10 h-6 w-0.5 -translate-y-1/2 bg-foreground/80 pointer-events-none"
+            style={{ left: `${hoverPercent}%` }}
+          />
+        )}
     </div>
   );
 }

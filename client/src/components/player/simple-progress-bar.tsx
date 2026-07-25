@@ -22,7 +22,10 @@ import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { isRemoteControllingAtom } from "@/lib/store/session";
 import { ProgressTimeOverlay } from "@/components/player/progress-time-overlay";
 import { formatDuration } from "@/lib/utils/format";
-import { PROGRESS_UPDATE_INTERVAL_MS } from "@/components/player/progress-constants";
+import {
+  PROGRESS_UPDATE_INTERVAL_MS,
+  TOUCH_PROGRESS_PREVIEW_DURATION_MS,
+} from "@/components/player/progress-constants";
 
 interface SimpleProgressBarProps {
   className?: string;
@@ -50,6 +53,9 @@ export function SimpleProgressBar({
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [isTouchPreviewVisible, setIsTouchPreviewVisible] = useState(false);
+  const touchPreviewTimerRef = useRef<number | null>(null);
+  const ignoreMouseUntilRef = useRef(0);
 
   const isEnded = playbackState === "ended";
   const atomProgress = isEnded
@@ -129,6 +135,37 @@ export function SimpleProgressBar({
     );
   }, [active, atomProgress, playbackState]);
 
+  useEffect(
+    () => () => {
+      if (touchPreviewTimerRef.current !== null) {
+        window.clearTimeout(touchPreviewTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const showTouchPreview = (clientX: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const percent = ((clientX - rect.left) / rect.width) * 100;
+    setHoverPercent(Math.max(0, Math.min(100, percent)));
+    setIsHovering(false);
+    setIsTouchPreviewVisible(true);
+    ignoreMouseUntilRef.current =
+      Date.now() + TOUCH_PROGRESS_PREVIEW_DURATION_MS;
+
+    if (touchPreviewTimerRef.current !== null) {
+      window.clearTimeout(touchPreviewTimerRef.current);
+    }
+    touchPreviewTimerRef.current = window.setTimeout(() => {
+      setIsTouchPreviewVisible(false);
+      setHoverPercent(null);
+      touchPreviewTimerRef.current = null;
+    }, TOUCH_PROGRESS_PREVIEW_DURATION_MS);
+  };
+
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
@@ -137,12 +174,14 @@ export function SimpleProgressBar({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
     setHoverPercent(Math.max(0, Math.min(100, percent)));
   };
 
   const handleMouseEnter = () => {
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     setIsHovering(true);
   };
 
@@ -168,7 +207,8 @@ export function SimpleProgressBar({
   const barHeight = isSmallScreen ? 8 : 4; // pixels
   const displayTime = isEnded ? 0 : currentTime;
   const displayDuration = isEnded ? 0 : duration;
-  const timeOverlayVisible = hasTrack && (isHovering || isFocused);
+  const timeOverlayVisible =
+    hasTrack && (isHovering || isFocused || isTouchPreviewVisible);
 
   return (
     <div
@@ -193,9 +233,19 @@ export function SimpleProgressBar({
         zIndex: 100,
       }}
       onClick={hasTrack ? handleClick : undefined}
-      onPointerDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        if (hasTrack && event.pointerType === "touch") {
+          showTouchPreview(event.clientX);
+        }
+      }}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
-      onFocus={hasTrack ? () => setIsFocused(true) : undefined}
+      onFocus={
+        hasTrack
+          ? (event) =>
+              setIsFocused(event.currentTarget.matches(":focus-visible"))
+          : undefined
+      }
       onBlur={() => setIsFocused(false)}
       onMouseMove={hasTrack ? handleMouseMove : undefined}
       onMouseEnter={hasTrack ? handleMouseEnter : undefined}
@@ -235,7 +285,7 @@ export function SimpleProgressBar({
       </div>
 
       {/* Hover indicator line */}
-      {isHovering && hoverPercent !== null && (
+      {(isHovering || isTouchPreviewVisible) && hoverPercent !== null && (
         <div
           className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 md:h-3 bg-foreground/80 pointer-events-none"
           style={{ left: `${hoverPercent}%` }}
