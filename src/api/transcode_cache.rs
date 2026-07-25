@@ -224,6 +224,18 @@ impl TranscodeCache {
     }
 
     async fn serve_range(&self, entry: Arc<CacheEntry>, range: RangeSpec) -> Result<Response> {
+        // Chromium commonly probes media with `Range: bytes=0-`. While a
+        // transcode is still growing, turning that open-ended request into a
+        // finite partial response makes the currently available cache prefix
+        // look like the complete media resource. The browser then fires
+        // `ended` after roughly RANGE_CHUNK_BYTES of audio instead of asking
+        // for another range. Ignore this initial range probe and stream the
+        // growing file continuously; completed entries still retain normal
+        // byte-range behavior.
+        if matches!(range, RangeSpec::From { start: 0 }) && !entry.progress().complete {
+            return self.serve_full(entry).await;
+        }
+
         let resolved = resolve_range(entry.clone(), range).await?;
         let Some(resolved) = resolved else {
             let progress = entry.progress();
@@ -964,6 +976,54 @@ mod tests {
         assert!(root.join("new.ogg").exists());
 
         let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn initial_open_range_streams_until_incomplete_transcode_finishes() {
+        let cache = TranscodeCache::new(PathBuf::from("/unused"), 0);
+        let entry = test_entry(CacheProgress {
+            size: RANGE_CHUNK_BYTES,
+            complete: false,
+            failed: false,
+        });
+
+        let response = cache
+            .serve_range(entry, RangeSpec::From { start: 0 })
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&header::HeaderValue::from_static(CONTENT_TYPE_OPUS_OGG))
+        );
+        assert!(!response.headers().contains_key(header::CONTENT_LENGTH));
+        assert!(!response.headers().contains_key(header::CONTENT_RANGE));
+    }
+
+    #[tokio::test]
+    async fn initial_open_range_remains_partial_for_completed_transcode() {
+        let cache = TranscodeCache::new(PathBuf::from("/unused"), 0);
+        let entry = test_entry(CacheProgress {
+            size: RANGE_CHUNK_BYTES,
+            complete: true,
+            failed: false,
+        });
+
+        let response = cache
+            .serve_range(entry, RangeSpec::From { start: 0 })
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response.headers().get(header::CONTENT_LENGTH),
+            Some(&header::HeaderValue::from_static("262144"))
+        );
+        assert_eq!(
+            response.headers().get(header::CONTENT_RANGE),
+            Some(&header::HeaderValue::from_static("bytes 0-262143/262144"))
+        );
     }
 
     async fn write_test_cache_entry(root: &Path, key: &str, size: usize, last_access: u64) {
