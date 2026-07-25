@@ -185,6 +185,92 @@ test.describe("Playback", () => {
     ).toBeVisible();
   });
 
+  test("drives simple progress through a CSS custom property", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "progress-bar-style", "simple");
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+    await waitForServerPreference(page, "progress-bar-style", "simple");
+
+    await playTestAlbumSong(page, 2);
+    await waitForPlayerReady(page);
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const indicator = document.querySelector<HTMLElement>(
+            '[data-testid="player-bar"] [style*="--progress-percent"]',
+          );
+          return indicator?.style.getPropertyValue("--progress-percent") ?? "";
+        }),
+      )
+      .not.toBe("");
+  });
+
+  test("reveals waveform progress without scaling its geometry", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "progress-bar-style", "waveform");
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+    await waitForServerPreference(page, "progress-bar-style", "waveform");
+
+    await page.route("**/api/songs/*/waveform", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          heights: Array.from({ length: 128 }, (_, index) =>
+            index % 2 === 0 ? 0.25 : 0.8,
+          ),
+        }),
+      });
+    });
+
+    await playTestAlbumSong(page, 2);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    const progressLayer = playerBar.getByTestId("waveform-progress-layer");
+    await expect(progressLayer).toBeAttached();
+
+    await expect
+      .poll(() =>
+        progressLayer.evaluate((layer) => {
+          const canvas = layer.querySelector("canvas");
+          const baseCanvas =
+            layer.parentElement?.querySelector(":scope > canvas");
+          if (!canvas || !baseCanvas) return null;
+
+          const layerStyle = window.getComputedStyle(layer);
+          return {
+            transform: layerStyle.transform,
+            clipPath: layerStyle.clipPath,
+            canvasWidth: canvas.getBoundingClientRect().width,
+            baseCanvasWidth: baseCanvas.getBoundingClientRect().width,
+          };
+        }),
+      )
+      .toEqual(
+        expect.objectContaining({
+          transform: "none",
+          clipPath: expect.stringContaining("inset("),
+        }),
+      );
+
+    const widths = await progressLayer.evaluate((layer) => {
+      const canvas = layer.querySelector("canvas");
+      const baseCanvas = layer.parentElement?.querySelector(":scope > canvas");
+      return {
+        canvas: canvas?.getBoundingClientRect().width ?? 0,
+        base: baseCanvas?.getBoundingClientRect().width ?? 0,
+      };
+    });
+    expect(widths.canvas).toBeGreaterThan(0);
+    expect(widths.canvas).toBeCloseTo(widths.base, 1);
+  });
+
   test("initializes a client tab without crypto.randomUUID", async ({
     authenticatedPage: page,
   }) => {

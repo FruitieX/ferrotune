@@ -22,12 +22,17 @@ import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { isRemoteControllingAtom } from "@/lib/store/session";
 import { ProgressTimeOverlay } from "@/components/player/progress-time-overlay";
 import { formatDuration } from "@/lib/utils/format";
+import { PROGRESS_UPDATE_INTERVAL_MS } from "@/components/player/progress-constants";
 
 interface SimpleProgressBarProps {
   className?: string;
+  active?: boolean;
 }
 
-export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
+export function SimpleProgressBar({
+  className,
+  active = true,
+}: SimpleProgressBarProps) {
   const currentTrack = useAtomValue(currentSongAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
@@ -41,14 +46,10 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const progressIndicatorRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
-
-  // Smooth progress tracking
-  const smoothProgressRef = useRef<number>(0);
-  const progressAnimationRef = useRef<number | null>(null);
-  const [displayProgress, setDisplayProgress] = useState(0);
 
   const isEnded = playbackState === "ended";
   const atomProgress = isEnded
@@ -58,60 +59,75 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       : 0;
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
 
+  // Progress is painted by CSS. Keep the latest values in refs so the timer
+  // does not need to restart on every audio timeupdate.
+  const smoothProgressRef = useRef<number>(0);
+  const atomProgressRef = useRef(atomProgress);
+  const durationRef = useRef(duration);
+  const remoteControllingRef = useRef(isRemoteControlling);
+
   const hoverTime =
     hoverPercent !== null && duration > 0
       ? (hoverPercent / 100) * duration
       : null;
 
-  // Smooth progress animation loop
   useEffect(() => {
-    const isPlaying = playbackState === "playing";
-    const isNative = hasNativeAudio();
+    atomProgressRef.current = atomProgress;
+    durationRef.current = duration;
+    remoteControllingRef.current = isRemoteControlling;
+  }, [atomProgress, duration, isRemoteControlling]);
 
-    if (isPlaying) {
-      const animateProgress = () => {
-        if (isNative || isRemoteControlling) {
-          // Native audio and remote controlling: use atom-based progress
-          smoothProgressRef.current = atomProgress;
-        } else {
-          const audio = getGlobalAudio();
-          const audioTime = audio
-            ? audio.currentTime + getCurrentStreamTimeOffset()
-            : 0;
-          if (audio && duration > 0 && Number.isFinite(audioTime)) {
-            smoothProgressRef.current = Math.max(
-              0,
-              Math.min(100, (audioTime / duration) * 100),
-            );
-          } else {
-            smoothProgressRef.current = atomProgress;
-          }
+  // Update the CSS progress value at a modest rate. The CSS transition on the
+  // indicator fills the gap between timer ticks without React renders.
+  useEffect(() => {
+    if (!active) return;
+
+    const updateProgress = () => {
+      const isPlaying = playbackState === "playing";
+      let nextProgress = atomProgressRef.current;
+
+      if (isPlaying && !hasNativeAudio() && !remoteControllingRef.current) {
+        const audio = getGlobalAudio();
+        const audioTime = audio
+          ? audio.currentTime + getCurrentStreamTimeOffset()
+          : 0;
+        if (audio && durationRef.current > 0 && Number.isFinite(audioTime)) {
+          nextProgress = Math.max(
+            0,
+            Math.min(100, (audioTime / durationRef.current) * 100),
+          );
         }
-        setDisplayProgress(smoothProgressRef.current);
-        progressAnimationRef.current = requestAnimationFrame(animateProgress);
-      };
-
-      progressAnimationRef.current = requestAnimationFrame(animateProgress);
-    } else {
-      if (progressAnimationRef.current !== null) {
-        cancelAnimationFrame(progressAnimationRef.current);
-        progressAnimationRef.current = null;
       }
-      smoothProgressRef.current = atomProgress;
-      // Schedule the update via RAF to avoid synchronous setState in effect
-      progressAnimationRef.current = requestAnimationFrame(() => {
-        setDisplayProgress(atomProgress);
-        progressAnimationRef.current = null;
-      });
-    }
+
+      smoothProgressRef.current = nextProgress;
+      progressIndicatorRef.current?.style.setProperty(
+        "--progress-percent",
+        `${nextProgress}%`,
+      );
+    };
+
+    updateProgress();
+    if (playbackState !== "playing") return;
+
+    const interval = window.setInterval(
+      updateProgress,
+      PROGRESS_UPDATE_INTERVAL_MS,
+    );
 
     return () => {
-      if (progressAnimationRef.current !== null) {
-        cancelAnimationFrame(progressAnimationRef.current);
-        progressAnimationRef.current = null;
-      }
+      window.clearInterval(interval);
     };
-  }, [playbackState, atomProgress, duration, isRemoteControlling]);
+  }, [active, playbackState]);
+
+  useEffect(() => {
+    if (!active || playbackState === "playing") return;
+
+    smoothProgressRef.current = atomProgress;
+    progressIndicatorRef.current?.style.setProperty(
+      "--progress-percent",
+      `${atomProgress}%`,
+    );
+  }, [active, atomProgress, playbackState]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -162,7 +178,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       aria-label="Playback progress"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(displayProgress)}
+      aria-valuenow={Math.round(atomProgress)}
       aria-valuetext={`${formatDuration(displayTime)} of ${formatDuration(displayDuration)}`}
       tabIndex={hasTrack ? 0 : -1}
       className={cn(
@@ -190,7 +206,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
 
       <ProgressTimeOverlay
         currentTime={displayTime}
-        currentPercent={displayProgress}
+        currentPercent={atomProgress}
         duration={displayDuration}
         scrubPercent={hoverPercent}
         scrubTime={hoverTime}
@@ -209,9 +225,10 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
 
         {/* Progress indicator */}
         <div
-          className="absolute inset-y-0 left-0 rounded-full"
+          ref={progressIndicatorRef}
+          className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-200 ease-linear"
           style={{
-            width: `${displayProgress}%`,
+            width: "var(--progress-percent, 0%)",
             backgroundColor: primaryColor,
           }}
         />

@@ -21,6 +21,7 @@ import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
 import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
 import { ProgressTimeOverlay } from "@/components/player/progress-time-overlay";
 import { formatDuration } from "@/lib/utils/format";
+import { PROGRESS_UPDATE_INTERVAL_MS } from "@/components/player/progress-constants";
 
 interface WaveformProgressBarProps {
   className?: string;
@@ -95,8 +96,12 @@ export function WaveformProgressBar({
   const { seekPercent } = useAudioEngine();
   const { heights: sourceHeights, isAvailable, isLoading } = useWaveform();
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const bufferedCanvasRef = useRef<HTMLCanvasElement>(null);
+  const progressCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const bufferedLayerRef = useRef<HTMLDivElement>(null);
+  const progressLayerRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -125,6 +130,12 @@ export function WaveformProgressBar({
   const rawTrackId = currentTrack?.id ?? null;
   const isEnded = playbackState === "ended";
   const trackId = isEnded ? null : rawTrackId;
+  const atomProgress = isEnded
+    ? 0
+    : duration > 0
+      ? (currentTime / duration) * 100
+      : 0;
+  const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
 
   // Use empty heights when playback has ended so we fade to flat bars
   const effectiveHeights = trackId ? sourceHeights : EMPTY_HEIGHTS;
@@ -134,15 +145,9 @@ export function WaveformProgressBar({
   }, [effectiveHeights]);
 
   const smoothProgressRef = useRef(0);
-  const progressRafRef = useRef<number | null>(null);
+  const atomProgressRef = useRef(atomProgress);
   const drawRef = useRef<() => void>(() => {});
   const animateRef = useRef<(time: number) => void>(() => {});
-  const atomProgress = isEnded
-    ? 0
-    : duration > 0
-      ? (currentTime / duration) * 100
-      : 0;
-  const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
 
   // Track container width — on resize, cancel any animation and redraw immediately
   useEffect(() => {
@@ -194,36 +199,22 @@ export function WaveformProgressBar({
     return () => observer.disconnect();
   }, []);
 
-  // Draw function - computes display heights from source data each frame
+  // Draw the static waveform layers. Progress and buffered position reveal
+  // these fixed-size canvases with CSS clipping, so this work only happens
+  // when the waveform's geometry or colors change (not on playback ticks).
   // Reads sourceHeights from ref and computes barCount from actual container
   // width to avoid stale closure issues during resize.
   const draw = () => {
     if (!active) return;
 
-    const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!container) return;
 
     const rect = container.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
 
     const barCount = calculateMaxBars(rect.width);
     if (barCount === 0) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.round(rect.width * dpr);
-    const height = Math.round(rect.height * dpr);
-
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-      canvas.style.width = `${rect.width}px`;
-      canvas.style.height = `${rect.height}px`;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, rect.width, rect.height);
 
     const a = anim.current;
     const isAnimating = a.outProgress > 0 || a.inProgress > 0;
@@ -274,16 +265,23 @@ export function WaveformProgressBar({
     const unbufferedColor = isDarkMode
       ? COLORS.unbuffered.dark
       : COLORS.unbuffered.light;
-    const progress = smoothProgressRef.current;
-    const progressX = (progress / 100) * rect.width;
-    const bufferedX = (bufferedPercent / 100) * rect.width;
+    const drawBars = (canvas: HTMLCanvasElement | null, color: string) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    const drawBars = (color: string, clipX: number, clipWidth: number) => {
-      if (clipWidth <= 0) return;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(clipX, 0, clipWidth, rect.height);
-      ctx.clip();
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.round(rect.width * dpr);
+      const height = Math.round(rect.height * dpr);
+
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
       ctx.fillStyle = color;
       for (let i = 0; i < barCount; i++) {
         const x = i * (barWidth + BAR_GAP);
@@ -299,14 +297,11 @@ export function WaveformProgressBar({
         );
         ctx.fill();
       }
-      ctx.restore();
     };
 
-    if (bufferedX < rect.width)
-      drawBars(unbufferedColor, bufferedX, rect.width - bufferedX);
-    if (bufferedX > progressX)
-      drawBars(bufferedColor, progressX, bufferedX - progressX);
-    if (progressX > 0) drawBars(primaryColor, 0, progressX);
+    drawBars(baseCanvasRef.current, unbufferedColor);
+    drawBars(bufferedCanvasRef.current, bufferedColor);
+    drawBars(progressCanvasRef.current, primaryColor);
   };
 
   useEffect(() => {
@@ -320,10 +315,6 @@ export function WaveformProgressBar({
     if (a.rafId !== null) {
       cancelAnimationFrame(a.rafId);
       a.rafId = null;
-    }
-    if (progressRafRef.current !== null) {
-      cancelAnimationFrame(progressRafRef.current);
-      progressRafRef.current = null;
     }
   }, [active]);
 
@@ -412,39 +403,52 @@ export function WaveformProgressBar({
     };
   }, []);
 
-  // Playback progress animation (separate from waveform height animation)
-  // Use requestAnimationFrame for smooth visual updates, but get the actual
-  // progress from atomProgress (which correctly handles transcoding time offsets)
+  // Playback progress updates only move the CSS fill layer. The waveform
+  // canvases remain untouched while a track is playing.
+  useEffect(() => {
+    atomProgressRef.current = atomProgress;
+  }, [atomProgress]);
+
+  useEffect(() => {
+    const bufferedRight = 100 - Math.max(0, Math.min(100, bufferedPercent));
+    if (bufferedLayerRef.current) {
+      bufferedLayerRef.current.style.clipPath = `inset(0 ${bufferedRight}% 0 0)`;
+    }
+  }, [bufferedPercent]);
+
   useEffect(() => {
     if (!active) return;
 
-    const isPlaying = playbackState === "playing";
-
-    if (isPlaying) {
-      const animateProgress = () => {
-        // Use atomProgress which correctly accounts for stream time offset
-        // when using timeOffset-based seeking with transcoding
-        smoothProgressRef.current = atomProgress;
-        drawRef.current();
-        progressRafRef.current = requestAnimationFrame(animateProgress);
-      };
-      progressRafRef.current = requestAnimationFrame(animateProgress);
-    } else {
-      if (progressRafRef.current !== null) {
-        cancelAnimationFrame(progressRafRef.current);
-        progressRafRef.current = null;
-      }
-      smoothProgressRef.current = atomProgress;
-      drawRef.current();
-    }
-
-    return () => {
-      if (progressRafRef.current !== null) {
-        cancelAnimationFrame(progressRafRef.current);
-        progressRafRef.current = null;
+    const updateProgress = () => {
+      const nextProgress = Math.max(0, Math.min(100, atomProgressRef.current));
+      smoothProgressRef.current = nextProgress;
+      if (progressLayerRef.current) {
+        progressLayerRef.current.style.clipPath = `inset(0 ${100 - nextProgress}% 0 0)`;
       }
     };
-  }, [active, playbackState, atomProgress]);
+
+    updateProgress();
+    if (playbackState !== "playing") return;
+
+    const interval = window.setInterval(
+      updateProgress,
+      PROGRESS_UPDATE_INTERVAL_MS,
+    );
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [active, playbackState]);
+
+  useEffect(() => {
+    if (!active || playbackState === "playing") return;
+
+    const nextProgress = Math.max(0, Math.min(100, atomProgress));
+    smoothProgressRef.current = nextProgress;
+    if (progressLayerRef.current) {
+      progressLayerRef.current.style.clipPath = `inset(0 ${100 - nextProgress}% 0 0)`;
+    }
+  }, [active, atomProgress, playbackState]);
 
   // Redraw on visual changes, container resize, or new waveform data
   useEffect(() => {
@@ -586,7 +590,7 @@ export function WaveformProgressBar({
 
   // Fall back to simple progress bar when no waveform data is available
   if (!isAvailable && !isLoading) {
-    return <SimpleProgressBar className={className} />;
+    return <SimpleProgressBar active={active} className={className} />;
   }
 
   return (
@@ -641,10 +645,40 @@ export function WaveformProgressBar({
         currentLabelVisibility={progressTimeLabelVisibility}
       />
       <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
+        ref={baseCanvasRef}
+        className="absolute inset-0 h-full w-full"
         style={{ imageRendering: "pixelated" }}
       />
+      <div
+        ref={bufferedLayerRef}
+        data-testid="waveform-buffered-layer"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          clipPath: "inset(0 100% 0 0)",
+          transition: "clip-path 250ms linear",
+        }}
+      >
+        <canvas
+          ref={bufferedCanvasRef}
+          className="absolute inset-0 h-full w-full"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+      <div
+        ref={progressLayerRef}
+        data-testid="waveform-progress-layer"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          clipPath: "inset(0 100% 0 0)",
+          transition: "clip-path 250ms linear",
+        }}
+      >
+        <canvas
+          ref={progressCanvasRef}
+          className="absolute inset-0 h-full w-full"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
       {(isHovering || isDragging) && hoverPercent !== null && (
         <div
           className="absolute top-1/2 z-10 h-6 w-0.5 -translate-y-1/2 bg-foreground/80 pointer-events-none"
