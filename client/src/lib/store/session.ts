@@ -4,6 +4,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { ClientResponse } from "@/lib/api/generated/ClientResponse";
 import { isTauriMobile } from "@/lib/tauri";
+import { createUuid } from "@/lib/utils/uuid";
 import { accountKey, serverConnectionAtom } from "./auth";
 
 const CLIENT_ID_STORAGE_KEY = "ferrotune-client-id";
@@ -18,10 +19,7 @@ interface ActiveClientTabMarker {
   updatedAt: number;
 }
 
-const pageInstanceId =
-  typeof crypto !== "undefined"
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random()}`;
+const pageInstanceId = createUuid();
 
 let activeClientTab: { tabInstanceId: string; clientId: string } | null = null;
 let activeClientTabRefreshInterval: ReturnType<typeof setInterval> | null =
@@ -54,7 +52,7 @@ function getOrCreateMobileClientId(): string {
     window.localStorage.getItem(MOBILE_CLIENT_ID_STORAGE_KEY),
   );
   if (!clientId) {
-    clientId = crypto.randomUUID();
+    clientId = createUuid();
     window.localStorage.setItem(
       MOBILE_CLIENT_ID_STORAGE_KEY,
       JSON.stringify(clientId),
@@ -188,12 +186,12 @@ function getOrCreateTabClientId(): string {
   }
 
   if (!tabInstanceId) {
-    tabInstanceId = crypto.randomUUID();
+    tabInstanceId = createUuid();
     writeSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY, tabInstanceId);
   }
 
   if (!clientId) {
-    clientId = crypto.randomUUID();
+    clientId = createUuid();
     writeSessionString(CLIENT_ID_STORAGE_KEY, clientId);
   }
 
@@ -292,8 +290,7 @@ export const clientIdAtom = atomWithStorage<string>(
           }
 
           const tabInstanceId =
-            readSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY) ??
-            crypto.randomUUID();
+            readSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY) ?? createUuid();
           writeSessionString(CLIENT_TAB_INSTANCE_STORAGE_KEY, tabInstanceId);
           sessionStorage.setItem(key, JSON.stringify(value));
           markActiveClientTab(tabInstanceId, value);

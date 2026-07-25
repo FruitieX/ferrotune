@@ -44,6 +44,7 @@ import {
   clientIdAtom,
   ownerClientIdAtom,
   ownerClientNameAtom,
+  remotePlaybackStateAtom,
   selfTakeoverPending,
   waitForSessionReady,
 } from "./session";
@@ -134,6 +135,17 @@ function restoreQueueTimeline(set: Setter, response: GetQueueResponse): void {
   set(currentTimeAtom, Number.isFinite(positionMs) ? positionMs / 1000 : 0);
   set(durationAtom, currentEntry?.song.duration ?? 0);
   set(bufferedAtom, 0);
+}
+
+function getRemoteTimelinePositionMs(get: QueueGetter): number | null {
+  if (!get(isRemoteControllingAtom)) return null;
+  const remote = get(remotePlaybackStateAtom);
+  if (!remote) return null;
+
+  const elapsedMs = remote.isPlaying
+    ? Math.max(0, Date.now() - remote.positionTimestamp)
+    : 0;
+  return Math.max(0, remote.positionMs + elapsedMs);
 }
 
 function canRefreshQueueWithoutRestart(
@@ -571,17 +583,27 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, null);
       set(queueWindowAtom, null);
     } else {
+      const remotePositionMs = getRemoteTimelinePositionMs(get);
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         currentIndex: response.currentIndex,
-        positionMs: Number(response.positionMs),
+        positionMs: remotePositionMs ?? Number(response.positionMs),
         isShuffled: response.isShuffled,
         repeatMode: response.repeatMode as RepeatMode,
         source: response.source,
       });
 
       set(queueWindowAtom, response.window);
-      restoreQueueTimeline(set, response);
+      if (remotePositionMs !== null) {
+        set(currentTimeAtom, remotePositionMs / 1000);
+        const currentEntry = response.window.songs.find(
+          (entry) => entry.position === response.currentIndex,
+        );
+        set(durationAtom, currentEntry?.song.duration ?? 0);
+        set(bufferedAtom, 0);
+      } else {
+        restoreQueueTimeline(set, response);
+      }
     }
   } catch (error) {
     // Network error or other failure

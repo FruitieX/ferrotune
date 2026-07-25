@@ -669,6 +669,10 @@ export async function nativeInvalidateQueue(
     "[NativeAudio] nativeInvalidateQueue() called, playWhenReady:",
     playWhenReady,
   );
+  // Library play actions can arrive while the React session initializer is
+  // still configuring PlaybackService. Match nativeStartPlayback's readiness
+  // gate so invalidateQueue cannot be silently ignored by Kotlin.
+  await waitForNativeSession();
   const api = await getNativeApi();
   await api.invalidateQueue(playWhenReady);
 }

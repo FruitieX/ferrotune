@@ -203,9 +203,9 @@ async function sendTakeoverCommand(
 
 async function sendSessionHeartbeat(
   page: Page,
-  options: { isPlaying: boolean },
+  options: { isPlaying: boolean; currentIndex?: number; positionMs?: number },
 ): Promise<void> {
-  await page.evaluate(async ({ isPlaying }) => {
+  await page.evaluate(async ({ isPlaying, currentIndex, positionMs }) => {
     const connection = JSON.parse(
       localStorage.getItem("ferrotune-connection") || "null",
     );
@@ -235,8 +235,8 @@ async function sendSessionHeartbeat(
         body: JSON.stringify({
           clientId,
           isPlaying,
-          currentIndex: 0,
-          positionMs: 0,
+          currentIndex: currentIndex ?? 0,
+          positionMs: positionMs ?? 0,
         }),
       },
     );
@@ -1243,6 +1243,14 @@ test.describe.serial("Multi-Session Playback", () => {
     await expect
       .poll(() => getDisplayedCurrentTime(ownerPage), { timeout: 10000 })
       .toBeGreaterThan(0);
+    // Model the autonomous Android service's authoritative heartbeat. The
+    // canonical queue position is deliberately not written by heartbeats, so
+    // a newly opened SSE stream must receive this in-memory live snapshot.
+    await sendSessionHeartbeat(ownerPage, {
+      isPlaying: true,
+      currentIndex: 0,
+      positionMs: 42_000,
+    });
 
     const waveformRequests: string[] = [];
     const waveformHeights = Array.from({ length: 128 }, (_, index) =>
@@ -1269,6 +1277,9 @@ test.describe.serial("Multi-Session Playback", () => {
     try {
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
+      await expect
+        .poll(() => getDisplayedCurrentTime(followerPage), { timeout: 10000 })
+        .toBeGreaterThanOrEqual(42);
       await expect
         .poll(() => waveformRequests.length, { timeout: 10000 })
         .toBeGreaterThan(0);

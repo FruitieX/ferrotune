@@ -283,6 +283,11 @@ struct ConnectedClientState {
 struct SessionState {
     sender: broadcast::Sender<SessionEvent>,
     clients: HashMap<String, ConnectedClientState>,
+    /// Latest owner heartbeat snapshot. This is intentionally kept in memory:
+    /// persisting heartbeat positions into the canonical queue races ordered
+    /// queue mutations, but a client joining mid-song still needs the live
+    /// position instead of the last explicitly persisted seek/transition.
+    latest_position_update: Option<SessionEvent>,
 }
 
 /// Manages per-session broadcast channels and connected clients for real-time SSE updates.
@@ -323,6 +328,7 @@ impl SessionManager {
             SessionState {
                 sender: tx.clone(),
                 clients: HashMap::new(),
+                latest_position_update: None,
             },
         );
         tx
@@ -336,10 +342,22 @@ impl SessionManager {
 
     /// Broadcast an event to all subscribers of a session.
     pub async fn broadcast(&self, session_id: &str, event: SessionEvent) {
-        let sessions = self.sessions.read().await;
-        if let Some(state) = sessions.get(session_id) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(state) = sessions.get_mut(session_id) {
+            if matches!(event, SessionEvent::PositionUpdate { .. }) {
+                state.latest_position_update = Some(event.clone());
+            }
             let _ = state.sender.send(event);
         }
+    }
+
+    /// Return the latest live owner position for an SSE client's initial
+    /// snapshot. Queue persistence remains the fallback after a server restart.
+    pub async fn latest_position_update(&self, session_id: &str) -> Option<SessionEvent> {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(session_id)
+            .and_then(|state| state.latest_position_update.clone())
     }
 
     /// Broadcast an event to multiple sessions.
@@ -702,6 +720,37 @@ mod tests {
 
         assert!(!manager.is_client_connected("session-1", "client-1").await);
         assert!(manager.get_clients("session-1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn latest_live_position_is_available_to_clients_joining_mid_song() {
+        let manager = SessionManager::new();
+        manager.subscribe("session-1").await;
+
+        manager
+            .broadcast(
+                "session-1",
+                SessionEvent::PositionUpdate {
+                    current_index: 7,
+                    position_ms: 42_500,
+                    is_playing: true,
+                    current_song_id: Some("song-7".to_string()),
+                    current_song_title: Some("Live position".to_string()),
+                    current_song_artist: Some("Android owner".to_string()),
+                },
+            )
+            .await;
+
+        let snapshot = manager.latest_position_update("session-1").await;
+        assert!(matches!(
+            snapshot,
+            Some(SessionEvent::PositionUpdate {
+                current_index: 7,
+                position_ms: 42_500,
+                is_playing: true,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

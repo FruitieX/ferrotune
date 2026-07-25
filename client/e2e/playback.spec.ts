@@ -185,6 +185,32 @@ test.describe("Playback", () => {
     ).toBeVisible();
   });
 
+  test("initializes a client tab without crypto.randomUUID", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(globalThis.crypto, "randomUUID", {
+        configurable: true,
+        value: undefined,
+      });
+    });
+    await page.evaluate(() => sessionStorage.clear());
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    const clientIds = await page.evaluate(() => ({
+      clientId: JSON.parse(
+        sessionStorage.getItem("ferrotune-client-id") || "null",
+      ),
+      tabInstanceId: JSON.parse(
+        sessionStorage.getItem("ferrotune-client-tab-instance-id") || "null",
+      ),
+    }));
+
+    expect(clientIds.clientId).toMatch(/^[0-9a-f-]+$/);
+    expect(clientIds.tabInstanceId).toMatch(/^[0-9a-f-]+$/);
+  });
+
   test("can play album and skip between tracks", async ({
     authenticatedPage: page,
   }) => {

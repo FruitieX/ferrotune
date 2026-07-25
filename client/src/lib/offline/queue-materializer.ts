@@ -35,6 +35,7 @@ import {
 } from "@/lib/store/downloads";
 import { getDownloadedSongs } from "@/lib/offline/download-manager";
 import { getOfflinePlaylistMembershipForPlaylist } from "@/lib/offline/playlist-membership";
+import { createUuid } from "@/lib/utils/uuid";
 
 /**
  * Map a (sourceType, sourceId) pair to a container index key.
@@ -186,7 +187,7 @@ export async function materializeOfflineQueueIfPossible(
     name: params.sourceName ?? offlineSourceName,
     filters: { ...(params.filters ?? {}), offline: true },
     sort: params.sort ?? null,
-    instanceId: crypto.randomUUID(),
+    instanceId: createUuid(),
   };
 
   const REPEAT_OFF: RepeatMode = "off";

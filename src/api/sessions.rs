@@ -562,14 +562,18 @@ pub async fn session_events(
     };
 
     // Build initial state to send immediately
-    let initial_event = SessionEvent::PositionUpdate {
-        current_index,
-        position_ms,
-        is_playing: session.is_playing,
-        current_song_id: session.current_song_id,
-        current_song_title: session.current_song_title,
-        current_song_artist: session.current_song_artist,
-    };
+    let initial_event = state
+        .session_manager
+        .latest_position_update(&session.id)
+        .await
+        .unwrap_or(SessionEvent::PositionUpdate {
+            current_index,
+            position_ms,
+            is_playing: session.is_playing,
+            current_song_id: session.current_song_id,
+            current_song_title: session.current_song_title,
+            current_song_artist: session.current_song_artist,
+        });
 
     // Send current ownership info so reconnecting clients can correct stale
     // isAudioOwner state (e.g. after the background inactivity timeout cleared
