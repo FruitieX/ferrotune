@@ -65,6 +65,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/search", get(search::search))
         // Media endpoints
         .route("/stream", get(media::stream))
+        .route(
+            "/transcode-cache/status",
+            get(media::transcode_cache_status),
+        )
         .route("/cover-art", get(media::get_cover_art))
         .route("/download", get(media::download))
         // Starring endpoints

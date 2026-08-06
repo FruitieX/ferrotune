@@ -83,9 +83,10 @@ pub async fn transcode_with_offset(
     let path = path.to_path_buf();
     let config = config.clone();
 
-    // Create channel for streaming transcoded data
-    // Large buffer to allow transcoding to run ahead without blocking
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
+    // Keep only a small amount of encoded audio ahead of the response. Offset
+    // streams are temporary seek bridges, so prompt backpressure lets the
+    // blocking encoder observe a disconnected browser and stop quickly.
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(8);
 
     // Spawn blocking task to transcode
     tokio::task::spawn_blocking(move || {

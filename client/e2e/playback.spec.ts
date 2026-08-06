@@ -356,6 +356,73 @@ test.describe("Playback", () => {
     await expect.poll(async () => getDisplayedDuration(page)).toBe("0:03");
   });
 
+  test("uses temporary offset streams until the canonical transcode is cached", async ({
+    authenticatedPage: page,
+  }) => {
+    await setServerPreference(page, "transcodingEnabled", true);
+    await setServerPreference(page, "transcodingBitrate", 192);
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+    await waitForServerPreference(page, "transcodingEnabled", true);
+    await waitForServerPreference(page, "transcodingBitrate", 192);
+
+    let canonicalCacheComplete = false;
+    await page.route("**/api/transcode-cache/status*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ complete: canonicalCacheComplete }),
+      });
+    });
+
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await page.evaluate(() => {
+      const audio = Array.from(document.querySelectorAll("audio")).find(
+        (element) => element.currentSrc !== "" || element.src !== "",
+      );
+      if (!audio) throw new Error("No active audio element found");
+      Object.defineProperty(audio, "buffered", {
+        configurable: true,
+        get: () => ({
+          length: 0,
+          start: () => {
+            throw new DOMException("IndexSizeError");
+          },
+          end: () => {
+            throw new DOMException("IndexSizeError");
+          },
+        }),
+      });
+    });
+
+    const seekStreamUrls: string[] = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/api/stream")) seekStreamUrls.push(url);
+    });
+
+    const progressSlider = page
+      .getByTestId("player-bar")
+      .getByRole("slider", { name: "Playback progress" });
+
+    await progressSlider.click({ position: { x: 200, y: 4 } });
+    await expect
+      .poll(() => seekStreamUrls.some((url) => url.includes("timeOffset=")))
+      .toBe(true);
+
+    seekStreamUrls.length = 0;
+    canonicalCacheComplete = true;
+    await progressSlider.click({ position: { x: 20, y: 4 } });
+    await expect
+      .poll(() =>
+        seekStreamUrls.some(
+          (url) => url.includes("format=opus") && !url.includes("timeOffset="),
+        ),
+      )
+      .toBe(true);
+  });
+
   test("can configure current and total duration label visibility", async ({
     authenticatedPage: page,
   }) => {

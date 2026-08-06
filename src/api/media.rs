@@ -3,7 +3,7 @@
 use crate::api::auth::FerrotuneAuthenticatedUser;
 use crate::api::common::search::{search_songs_for_queue, SearchParams};
 use crate::api::cover_art::CoverArtParams;
-use crate::api::media_stream::StreamParams;
+use crate::api::media_stream::{StreamParams, TranscodeCacheStatusResponse};
 use crate::api::users::require_admin;
 use crate::api::AppState;
 use crate::db::queries;
@@ -298,6 +298,18 @@ pub async fn stream(
 ) -> FerrotuneApiResult<Response> {
     crate::api::media_stream::stream(user, state, headers, query)
         .await
+        .map_err(FerrotuneApiError::from)
+}
+
+/// GET /api/transcode-cache/status - Check whether the canonical transcode is complete.
+pub async fn transcode_cache_status(
+    user: FerrotuneAuthenticatedUser,
+    state: State<Arc<AppState>>,
+    query: Query<StreamParams>,
+) -> FerrotuneApiResult<Json<TranscodeCacheStatusResponse>> {
+    crate::api::media_stream::transcode_cache_status(user, state, query)
+        .await
+        .map(Json)
         .map_err(FerrotuneApiError::from)
 }
 

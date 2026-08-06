@@ -271,6 +271,7 @@ export type { TopAlbum } from './TopAlbum';
 export type { TopArtist } from './TopArtist';
 export type { TopTrack } from './TopTrack';
 export type { TrackToMatch } from './TrackToMatch';
+export type { TranscodeCacheStatusResponse } from './TranscodeCacheStatusResponse';
 export type { TransferPlaylistOwnershipRequest } from './TransferPlaylistOwnershipRequest';
 export type { UnmatchEntryRequest } from './UnmatchEntryRequest';
 export type { UpdateMusicFolderRequest } from './UpdateMusicFolderRequest';

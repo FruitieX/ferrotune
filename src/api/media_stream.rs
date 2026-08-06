@@ -1,7 +1,7 @@
 use crate::api::auth::FerrotuneAuthenticatedUser;
 use crate::api::common::utils::get_content_type_for_format;
-use crate::api::transcode_cache::transcode_with_cache;
-use crate::api::transcoding::{ReplayGainInfo, TranscodeConfig};
+use crate::api::transcode_cache::{transcode_cache_is_complete, transcode_with_cache};
+use crate::api::transcoding::{transcode_with_offset, ReplayGainInfo, TranscodeConfig};
 use crate::api::users::user_has_song_access;
 use crate::api::AppState;
 use crate::error::{Error, Result};
@@ -11,13 +11,14 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::Response,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 pub struct StreamParams {
@@ -30,6 +31,13 @@ pub struct StreamParams {
     /// Seek mode: "accurate" for sample-accurate seeking (slower), "coarse" for fast seeking
     #[serde(rename = "seekMode")]
     seek_mode: Option<String>,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct TranscodeCacheStatusResponse {
+    pub complete: bool,
 }
 
 pub async fn stream(
@@ -144,16 +152,27 @@ pub async fn stream(
                     .or(song.original_replaygain_track_peak),
             };
 
-            let response = transcode_with_cache(
-                &state.config.cache,
-                &headers,
-                &canonical_path,
-                &config,
-                time_offset_seconds,
-                replaygain_info,
-                params.seek_mode.as_deref().unwrap_or("coarse") == "accurate",
-            )
-            .await;
+            let response = if time_offset_seconds > 0.0 {
+                transcode_with_offset(
+                    &canonical_path,
+                    &config,
+                    time_offset_seconds,
+                    replaygain_info,
+                    params.seek_mode.as_deref().unwrap_or("coarse") == "accurate",
+                )
+                .await
+            } else {
+                transcode_with_cache(
+                    &state.config.cache,
+                    &headers,
+                    &canonical_path,
+                    &config,
+                    0.0,
+                    replaygain_info,
+                    false,
+                )
+                .await
+            };
             log_media_stream_result(
                 &params.id,
                 user.user_id,
@@ -213,6 +232,65 @@ pub async fn stream(
         "Media stream response"
     );
     Ok(response)
+}
+
+pub async fn transcode_cache_status(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<StreamParams>,
+) -> Result<TranscodeCacheStatusResponse> {
+    let song = crate::db::repo::browse::get_song_by_id(&state.database, &params.id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Song {} not found", params.id)))?;
+
+    if !user_has_song_access(&state.database, user.user_id, &params.id).await? {
+        return Err(Error::Forbidden(format!(
+            "You do not have access to song {}",
+            params.id
+        )));
+    }
+
+    let music_folders = crate::db::repo::users::get_music_folders(&state.database).await?;
+    let full_path = music_folders
+        .iter()
+        .map(|folder| PathBuf::from(&folder.path).join(&song.file_path))
+        .find(|candidate| candidate.exists())
+        .ok_or_else(|| Error::NotFound(format!("File not found: {}", song.file_path)))?;
+    let canonical_path = full_path
+        .canonicalize()
+        .map_err(|_| Error::NotFound("File not found".to_string()))?;
+    let is_within_folder = music_folders.iter().any(|folder| {
+        PathBuf::from(&folder.path)
+            .canonicalize()
+            .is_ok_and(|canonical_folder| canonical_path.starts_with(canonical_folder))
+    });
+    if !is_within_folder {
+        return Err(Error::NotFound("File not found".to_string()));
+    }
+
+    let config = TranscodeConfig {
+        song_id: params.id,
+        bitrate: params.max_bit_rate.unwrap_or(128) * 1000,
+        sample_rate: 48000,
+        channels: 2,
+    };
+    let replaygain_info = ReplayGainInfo {
+        track_gain: song
+            .computed_replaygain_track_gain
+            .or(song.original_replaygain_track_gain),
+        track_peak: song
+            .computed_replaygain_track_peak
+            .or(song.original_replaygain_track_peak),
+    };
+    let complete = transcode_cache_is_complete(
+        &state.config.cache,
+        &canonical_path,
+        &config,
+        &replaygain_info,
+    )
+    .await?;
+
+    Ok(TranscodeCacheStatusResponse { complete })
 }
 
 fn log_media_stream_result(

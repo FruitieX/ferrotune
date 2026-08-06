@@ -88,6 +88,7 @@ import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
 import type { GetPlayCountsResponse } from "./generated/GetPlayCountsResponse";
 import type { CheckImportDuplicateResponse } from "./generated/CheckImportDuplicateResponse";
 import type { DeleteSongFileResponse } from "./generated/DeleteSongFileResponse";
+import type { TranscodeCacheStatusResponse } from "./generated/TranscodeCacheStatusResponse";
 import type { DeleteSongFilesRequest } from "./generated/DeleteSongFilesRequest";
 import type { MarkForDeletionRequest } from "./generated/MarkForDeletionRequest";
 import type { MarkForDeletionResponse } from "./generated/MarkForDeletionResponse";
@@ -1062,6 +1063,18 @@ export class FerrotuneClient {
     if (options?.seekMode) params.set("seekMode", options.seekMode);
 
     return `${this.serverUrl}/api/stream?${params.toString()}`;
+  }
+
+  getTranscodeCacheStatus(
+    id: string,
+    options?: { maxBitRate?: number; format?: string },
+  ): Promise<TranscodeCacheStatusResponse> {
+    const endpoint = buildEndpoint("/api/transcode-cache/status", {
+      id,
+      maxBitRate: options?.maxBitRate,
+      format: options?.format,
+    });
+    return this.request<TranscodeCacheStatusResponse>(endpoint, {}, true);
   }
 
   /**

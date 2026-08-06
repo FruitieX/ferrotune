@@ -32,31 +32,51 @@ HTTP 404
 GET {{base_url}}/api/stream?id={{song_id}}
 HTTP 401
 
+# An offset transcode is temporary and must not create a completed canonical
+# cache entry.
+GET {{base_url}}/api/transcode-cache/status?id={{song_id}}&format=opus&maxBitRate=192
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.complete" == false
+
+GET {{base_url}}/api/stream?id={{song_id}}&format=opus&maxBitRate=192&timeOffset=1
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+header "Content-Type" == "audio/ogg"
+
+GET {{base_url}}/api/transcode-cache/status?id={{song_id}}&format=opus&maxBitRate=192
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.complete" == false
+
+# A canonical transcode is persisted and becomes reusable for later seeks.
+GET {{base_url}}/api/stream?id={{song_id}}&format=opus&maxBitRate=192
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+header "Content-Type" == "audio/ogg"
+
+GET {{base_url}}/api/transcode-cache/status?id={{song_id}}&format=opus&maxBitRate=192
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.complete" == true
+
 # ============================================================================
 # GET /api/cover-art
 # ============================================================================
 
-# Get a song with an album for cover art
-GET {{base_url}}/api/artists
-Authorization: Basic {{auth_basic}}
-HTTP 200
-[Captures]
-artist_id: jsonpath "$.artists.index[0].artist[0].id"
-
-GET {{base_url}}/api/artists/{{artist_id}}
-Authorization: Basic {{auth_basic}}
-HTTP 200
-[Captures]
-album_id: jsonpath "$.artist.album[0].id"
-
-# Get cover art for album - response depends on whether cover exists
+# Get cover art for the captured song - response depends on whether cover exists
 # Just expect a successful response or 404 (no cover)
-GET {{base_url}}/api/cover-art?id={{album_id}}
+GET {{base_url}}/api/cover-art?id={{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP *
 
 # Unauthenticated request should fail
-GET {{base_url}}/api/cover-art?id={{album_id}}
+GET {{base_url}}/api/cover-art?id={{song_id}}
 HTTP 401
 
 # ============================================================================

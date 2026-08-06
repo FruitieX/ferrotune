@@ -57,6 +57,18 @@ pub async fn transcode_with_cache(
         .await
 }
 
+pub async fn transcode_cache_is_complete(
+    cache_config: &CacheConfig,
+    source_path: &Path,
+    config: &TranscodeConfig,
+    replaygain_info: &ReplayGainInfo,
+) -> Result<bool> {
+    let cache = cache_for_config(cache_config);
+    let key = build_cache_key(source_path, config, 0.0, replaygain_info, false).await?;
+    let entry = cache.get_or_create_entry(key).await?;
+    Ok(entry.progress().complete)
+}
+
 fn cache_for_config(config: &CacheConfig) -> Arc<TranscodeCache> {
     let max_bytes = config.max_transcode_size_mb.saturating_mul(1024 * 1024);
     let key = CacheRegistryKey {

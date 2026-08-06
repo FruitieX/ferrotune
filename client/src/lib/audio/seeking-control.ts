@@ -44,6 +44,7 @@ export interface SeekControlDeps {
 }
 
 export function useSeekControl(deps: SeekControlDeps) {
+  const streamReloadGenerationRef = useRef(0);
   // Trailing throttle state for unbuffered seeks (only used when transcoding)
   const lastUnbufferedSeekRef = useRef<number>(0);
   const pendingSeekRef = useRef<number | null>(null);
@@ -59,6 +60,7 @@ export function useSeekControl(deps: SeekControlDeps) {
 
   // Native seek for non-transcoded content or buffered positions
   const seekNative = (time: number) => {
+    streamReloadGenerationRef.current += 1;
     const audio = getActiveAudio();
     if (audio) {
       audio.currentTime = time;
@@ -67,37 +69,79 @@ export function useSeekControl(deps: SeekControlDeps) {
   };
 
   // Reload stream with time offset for transcoded unbuffered seeks
-  const seekWithTimeOffset = (time: number) => {
+  const seekWithTimeOffset = async (time: number) => {
     const audio = getActiveAudio();
     if (!audio || !deps.currentSong) return;
 
     const client = getClient();
     if (!client) return;
 
+    const requestGeneration = ++streamReloadGenerationRef.current;
+    const songId = deps.currentSong.id;
+    const sourceAtRequest = audio.currentSrc || audio.src;
     const wasPlaying = !audio.paused;
 
-    currentStreamTimeOffset = time;
-    deps.setBuffered(time);
+    let canonicalCacheComplete = false;
+    try {
+      canonicalCacheComplete = (
+        await client.getTranscodeCacheStatus(songId, {
+          maxBitRate: deps.transcodingBitrate,
+          format: "opus",
+        })
+      ).complete;
+    } catch (error) {
+      console.warn(
+        "[Audio] Could not check transcode cache status; using offset stream",
+        error,
+      );
+    }
 
-    const streamUrl = client.getStreamUrl(deps.currentSong.id, {
+    if (
+      requestGeneration !== streamReloadGenerationRef.current ||
+      getActiveAudio() !== audio ||
+      (audio.currentSrc || audio.src) !== sourceAtRequest
+    ) {
+      return;
+    }
+
+    currentStreamTimeOffset = canonicalCacheComplete ? 0 : time;
+    deps.setBuffered(canonicalCacheComplete ? 0 : time);
+
+    const streamUrl = client.getStreamUrl(songId, {
       maxBitRate: deps.transcodingEnabled ? deps.transcodingBitrate : undefined,
       format: deps.transcodingEnabled ? "opus" : undefined,
-      timeOffset: time,
-      seekMode: deps.transcodingSeekMode,
+      timeOffset: canonicalCacheComplete ? undefined : time,
+      seekMode: canonicalCacheComplete ? undefined : deps.transcodingSeekMode,
     });
 
     // Invalidate pre-buffer since we're seeking (current track position changed)
     invalidatePreBuffer();
 
-    audio.src = streamUrl;
     deps.setCurrentTime(time);
 
-    if (wasPlaying) {
+    if (canonicalCacheComplete) {
+      audio.addEventListener(
+        "loadedmetadata",
+        () => {
+          if (requestGeneration !== streamReloadGenerationRef.current) return;
+          audio.currentTime = time;
+          if (wasPlaying) {
+            resumeAudioContext().then(() => {
+              audio.play().catch(console.error);
+            });
+          }
+        },
+        { once: true },
+      );
+    }
+
+    audio.src = streamUrl;
+    audio.load();
+
+    if (wasPlaying && !canonicalCacheComplete) {
       resumeAudioContext().then(() => {
         audio.play().catch(console.error);
       });
-    } else {
-      audio.load();
     }
   };
 
@@ -178,7 +222,7 @@ export function useSeekControl(deps: SeekControlDeps) {
         seekNative(time);
       }
     } else {
-      seekWithTimeOffset(time);
+      void seekWithTimeOffset(time);
     }
   };
 
@@ -279,14 +323,14 @@ export function useSeekControl(deps: SeekControlDeps) {
           clearTimeout(pendingSeekTimeoutRef.current);
           pendingSeekTimeoutRef.current = null;
         }
-        seekWithTimeOffset(targetTime);
+        void seekWithTimeOffset(targetTime);
       } else if (!pendingSeekTimeoutRef.current) {
         // Schedule trailing seek after throttle window
         const remainingTime = throttleMs - timeSinceLastSeek;
         pendingSeekTimeoutRef.current = setTimeout(() => {
           if (pendingSeekRef.current !== null) {
             lastUnbufferedSeekRef.current = Date.now();
-            seekWithTimeOffset(pendingSeekRef.current);
+            void seekWithTimeOffset(pendingSeekRef.current);
             pendingSeekRef.current = null;
           }
           pendingSeekTimeoutRef.current = null;
