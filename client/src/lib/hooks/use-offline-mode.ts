@@ -3,12 +3,18 @@
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { isOfflineModeAtom } from "@/lib/store/downloads";
-import { getClient, initializeClient } from "@/lib/api/client";
+import {
+  getClient,
+  initializeClient,
+  setNetworkErrorToastsSuppressedForOfflineMode,
+} from "@/lib/api/client";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { isTauriMobile } from "@/lib/tauri";
+import { nativeAppResumeEvent } from "@/lib/utils/app-resume-repaint";
 
 const PING_INTERVAL_ONLINE_MS = 60_000;
 const PING_INTERVAL_WHEN_OFFLINE_MS = 15_000;
+const OFFLINE_RECOVERY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 const PING_PROBE_TIMEOUT_MS = 5_000;
 const INITIAL_PING_PROBE_TIMEOUT_MS = 1_500;
 /**
@@ -32,6 +38,8 @@ const MIN_OFFLINE_DURATION_FOR_RECOVERY_MS = 3_000;
  *    captive-portal / unreachable-server cases where the browser still
  *    reports "online". Requires `PING_FAILURE_THRESHOLD` consecutive failures
  *    before flipping offline, to absorb transient blips.
+ *  - Adaptive recovery probes after 1s, 2s, and 4s while offline, followed by
+ *    the steady 15s cadence. Any successful probe restores online mode.
  *
  * On `offline → online` transition (after at least
  * `MIN_OFFLINE_DURATION_FOR_RECOVERY_MS`), consumers of
@@ -48,35 +56,51 @@ export function useOfflineMode(): void {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let offlineRecoveryAttempt = 0;
 
     function setOfflineMode(next: boolean) {
+      if (next !== isOfflineRef.current) {
+        offlineRecoveryAttempt = 0;
+      }
       isOfflineRef.current = next;
+      setNetworkErrorToastsSuppressedForOfflineMode(next);
       setIsOffline(next);
     }
 
     function scheduleNextProbe() {
       if (cancelled) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(
-        () => void probe().finally(scheduleNextProbe),
-        isOfflineRef.current
-          ? PING_INTERVAL_WHEN_OFFLINE_MS
-          : PING_INTERVAL_ONLINE_MS,
-      );
+      const delay = isOfflineRef.current
+        ? (OFFLINE_RECOVERY_DELAYS_MS[offlineRecoveryAttempt] ??
+          PING_INTERVAL_WHEN_OFFLINE_MS)
+        : PING_INTERVAL_ONLINE_MS;
+      timer = setTimeout(() => {
+        timer = null;
+        if (isOfflineRef.current) offlineRecoveryAttempt += 1;
+        void probe().finally(scheduleNextProbe);
+      }, delay);
     }
 
-    async function probe(options: { initial?: boolean } = {}): Promise<void> {
+    function probeNow(options: { fast?: boolean } = {}) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void probe(options).finally(scheduleNextProbe);
+    }
+
+    async function probe(options: { fast?: boolean } = {}): Promise<void> {
       if (cancelled || probingRef.current) return;
       probingRef.current = true;
       const controller = new AbortController();
-      const aggressiveInitialProbe = options.initial && isTauriMobile();
+      const fastMobileProbe = options.fast && isTauriMobile();
       try {
         const client =
           getClient() ?? (connection ? initializeClient(connection) : null);
         if (!client) return;
         const result = await withTimeout(
-          client.ping({ signal: controller.signal }),
-          aggressiveInitialProbe
+          client.ping({ signal: controller.signal, silent: true }),
+          fastMobileProbe
             ? INITIAL_PING_PROBE_TIMEOUT_MS
             : PING_PROBE_TIMEOUT_MS,
           controller,
@@ -87,7 +111,7 @@ export function useOfflineMode(): void {
           if (isOfflineRef.current) setOfflineMode(false);
         } else {
           consecutiveFailuresRef.current += 1;
-          const threshold = aggressiveInitialProbe ? 1 : PING_FAILURE_THRESHOLD;
+          const threshold = fastMobileProbe ? 1 : PING_FAILURE_THRESHOLD;
           if (
             !isOfflineRef.current &&
             consecutiveFailuresRef.current >= threshold
@@ -98,7 +122,7 @@ export function useOfflineMode(): void {
       } catch (err) {
         if (cancelled) return;
         consecutiveFailuresRef.current += 1;
-        const threshold = aggressiveInitialProbe ? 1 : PING_FAILURE_THRESHOLD;
+        const threshold = fastMobileProbe ? 1 : PING_FAILURE_THRESHOLD;
         if (
           !isOfflineRef.current &&
           consecutiveFailuresRef.current >= threshold
@@ -117,18 +141,28 @@ export function useOfflineMode(): void {
       // Authoritative — flip immediately.
       consecutiveFailuresRef.current = PING_FAILURE_THRESHOLD;
       setOfflineMode(true);
+      scheduleNextProbe();
     }
 
     function handleOnline() {
       // Browser says we're back; probe to confirm the server is reachable.
       consecutiveFailuresRef.current = 0;
-      void probe();
+      probeNow();
     }
 
     function handleVisibilityOrFocus() {
       if (document.visibilityState === "hidden") return;
-      void probe();
+      probeNow();
     }
+
+    function handleNativeResume() {
+      if (document.visibilityState === "hidden") return;
+      // A failed fast probe should enter offline mode before resumed UI work
+      // can fan out into network requests.
+      probeNow({ fast: true });
+    }
+
+    setNetworkErrorToastsSuppressedForOfflineMode(isOfflineRef.current);
 
     if (
       typeof navigator !== "undefined" &&
@@ -138,20 +172,20 @@ export function useOfflineMode(): void {
       handleOffline();
     }
 
-    void probe({ initial: true });
+    probeNow({ fast: true });
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     window.addEventListener("focus", handleVisibilityOrFocus);
+    window.addEventListener(nativeAppResumeEvent, handleNativeResume);
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-
-    scheduleNextProbe();
 
     return () => {
       cancelled = true;
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("focus", handleVisibilityOrFocus);
+      window.removeEventListener(nativeAppResumeEvent, handleNativeResume);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
       if (timer) clearTimeout(timer);
     };

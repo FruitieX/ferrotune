@@ -222,6 +222,7 @@ export class FerrotuneApiError extends Error {
 const NETWORK_ERROR_TOAST_INTERVAL_MS = 10_000;
 let lastNetworkErrorToastTime = 0;
 let networkErrorToastsSuppressedUntil = 0;
+let networkErrorToastsSuppressedForOfflineMode = false;
 
 /**
  * Temporarily suppress network error toasts for `durationMs` milliseconds.
@@ -229,10 +230,21 @@ let networkErrorToastsSuppressedUntil = 0;
  * before the network stack is ready.
  */
 export function suppressNetworkErrorToasts(durationMs: number) {
-  networkErrorToastsSuppressedUntil = Date.now() + durationMs;
+  networkErrorToastsSuppressedUntil = Math.max(
+    networkErrorToastsSuppressedUntil,
+    Date.now() + durationMs,
+  );
+}
+
+/** Keep expected connection failures silent while reachability checks say offline. */
+export function setNetworkErrorToastsSuppressedForOfflineMode(
+  suppressed: boolean,
+) {
+  networkErrorToastsSuppressedForOfflineMode = suppressed;
 }
 
 function showNetworkErrorToast(message: string) {
+  if (networkErrorToastsSuppressedForOfflineMode) return;
   // Suppress when the browser reports offline — we know the network is down
   if (typeof navigator !== "undefined" && !navigator.onLine) return;
   // Suppress during post-resume grace period
@@ -444,10 +456,14 @@ export class FerrotuneClient {
   }
 
   // System endpoints
-  async ping(options: { signal?: AbortSignal } = {}): Promise<PingResponse> {
-    return this.request<PingResponse>("/api/ping", {
-      signal: options.signal,
-    });
+  async ping(
+    options: { signal?: AbortSignal; silent?: boolean } = {},
+  ): Promise<PingResponse> {
+    return this.request<PingResponse>(
+      "/api/ping",
+      { signal: options.signal },
+      options.silent,
+    );
   }
 
   async completeSetup(): Promise<SetupStatusResponse> {

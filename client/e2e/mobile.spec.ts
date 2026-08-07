@@ -575,6 +575,38 @@ test.describe("Mobile Tests", () => {
     await expect(page.locator("h1:has-text('Home')").first()).toBeVisible();
   });
 
+  test("reachability failures recover adaptively without network error toasts", async ({
+    authenticatedPage: page,
+  }) => {
+    let pingRequests = 0;
+    let serverReachable = false;
+    await page.route("**/api/ping", async (route) => {
+      pingRequests += 1;
+      if (serverReachable) {
+        await route.continue();
+      } else {
+        await route.abort("connectionrefused");
+      }
+    });
+
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => pingRequests).toBe(1);
+
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => pingRequests).toBe(2);
+
+    await expect(page.getByText("Offline mode", { exact: true })).toBeVisible();
+    await expect(
+      page
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: "Network error. Please check your connection." }),
+    ).toHaveCount(0);
+
+    serverReachable = true;
+    await expect(page.getByText("Offline mode", { exact: true })).toBeHidden();
+    await expect.poll(() => pingRequests).toBeGreaterThanOrEqual(3);
+  });
+
   test("bottom navigation to library works", async ({
     authenticatedPage: page,
   }) => {
