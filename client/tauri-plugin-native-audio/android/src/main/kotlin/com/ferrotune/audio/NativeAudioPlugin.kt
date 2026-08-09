@@ -179,6 +179,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     companion object {
         private const val TAG = "NativeAudioPlugin"
         private const val NATIVE_APP_RESUME_EVENT = "ferrotune:native-app-resume"
+        private const val OPEN_NOW_PLAYING_EVENT = "ferrotune:native-open-now-playing"
+        private const val OPEN_NOW_PLAYING_FLAG = "__FERROTUNE_OPEN_NOW_PLAYING__"
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -246,6 +248,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             mapOf("pluginInstanceId" to pluginInstanceId),
         )
         webViewRef = webView
+        webView.postDelayed({ dispatchOpenNowPlayingIfRequested() }, 1000)
         // Allow mixed content: the WebView loads from https://tauri.localhost but
         // API requests go to the user's server over plain HTTP. Without this,
         // Android's default MIXED_CONTENT_NEVER_ALLOW silently blocks all fetch()
@@ -315,6 +318,30 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     /**
+     * Consume the media-notification tap intent and bridge it into the WebView.
+     * The global flag covers cold starts where the React listener is not mounted
+     * yet; the event handles an already-running singleTask activity immediately.
+     */
+    private fun dispatchOpenNowPlayingIfRequested() {
+        if (!PlaybackNotificationIntent.shouldOpenNowPlaying(
+                activity.intent?.getBooleanExtra(PlaybackNotificationIntent.EXTRA_OPEN_NOW_PLAYING, false)
+            )
+        ) {
+            return
+        }
+
+        val webView = webViewRef ?: return
+        activity.intent.removeExtra(PlaybackNotificationIntent.EXTRA_OPEN_NOW_PLAYING)
+        webView.post {
+            webView.evaluateJavascript(
+                "window.$OPEN_NOW_PLAYING_FLAG = true;" +
+                    "window.dispatchEvent(new Event('$OPEN_NOW_PLAYING_EVENT'));",
+                null,
+            )
+        }
+    }
+
+    /**
      * Force a WebView redraw after resume/config changes so Android does not
      * wait for the next touch gesture before recompositing blurred layers.
      */
@@ -349,6 +376,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         webViewInForeground = true
         emitCurrentPlaybackSnapshot()
         nativeCastManager?.refreshState()
+        dispatchOpenNowPlayingIfRequested()
         refreshWebView(dispatchResumeEvent = true)
     }
 

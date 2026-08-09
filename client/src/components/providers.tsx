@@ -29,6 +29,7 @@ import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-
 import { useBackButtonClose } from "@/lib/hooks/use-back-button-close";
 import { useAppResumeRepaint } from "@/lib/hooks/use-app-resume-repaint";
 import { useAppResumeRefresh } from "@/lib/hooks/use-app-resume-refresh";
+import { useNativeOpenNowPlaying } from "@/lib/hooks/use-native-open-now-playing";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { useSessionInit } from "@/lib/hooks/use-session-init";
 import { useSessionOwnershipRecovery } from "@/lib/hooks/use-session-owner-state";
@@ -110,6 +111,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useBackButtonClose(); // Handle Android back button to close menus
   useAppResumeRepaint(); // Force Android WebView redraws after resume
   useAppResumeRefresh(); // Invalidate queries after Android resume
+  useNativeOpenNowPlaying(); // Open full-screen player from Android media notification
   useCastInit(); // Initialize Chromecast SDK
   useQueueCacheSync(isCacheRestored); // Sync queue state ↔ React Query cache
   return (

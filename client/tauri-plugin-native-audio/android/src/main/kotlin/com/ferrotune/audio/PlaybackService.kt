@@ -862,11 +862,18 @@ class PlaybackService : MediaSessionService() {
         }
         sessionPlayer = forwardingPlayer
 
-        // Create pending intent for the app
+        // Create a launch intent that tells the WebView to open the full-screen
+        // Now Playing player when the user taps the media notification.
+        val notificationLaunchIntent = packageManager
+            .getLaunchIntentForPackage(packageName)
+            ?.apply {
+                putExtra(PlaybackNotificationIntent.EXTRA_OPEN_NOW_PLAYING, true)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
-            packageManager.getLaunchIntentForPackage(packageName),
+            notificationLaunchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
