@@ -23,11 +23,11 @@ HTTP 200
 [Captures]
 artist_id: jsonpath "$.artists.index[0].artist[0].id"
 
-GET {{base_url}}/api/artists/{{artist_id}}
+GET {{base_url}}/api/artists/{{artist_id}}/albums
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-album_id: jsonpath "$.artist.album[0].id"
+album_id: jsonpath "$.albums[0].id"
 
 # ============================================================================
 # POST /api/star

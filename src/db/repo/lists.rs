@@ -727,10 +727,21 @@ fn forgotten_favorite_query(
                 .sum()
                 .gte(min_plays),
         )
+        // Imported scrobbles intentionally have no played_at timestamp. They
+        // are still forgotten favorites when the user has never played the
+        // song after importing it, so NULL must qualify alongside old dates.
         .having(
-            Expr::col((entity::scrobbles::Entity, Scrobble::PlayedAt))
-                .max()
-                .lte(cutoff),
+            Condition::any()
+                .add(
+                    Expr::col((entity::scrobbles::Entity, Scrobble::PlayedAt))
+                        .max()
+                        .is_null(),
+                )
+                .add(
+                    Expr::col((entity::scrobbles::Entity, Scrobble::PlayedAt))
+                        .max()
+                        .lte(cutoff),
+                ),
         );
 
     if let Some(filter) = filter.filter(|value| !value.trim().is_empty()) {

@@ -50,12 +50,12 @@ HTTP 404
 # GET /api/albums/:id
 # ============================================================================
 
-# First get an album ID by getting artist details
-GET {{base_url}}/api/artists/{{artist_id}}
+# First get an album ID from the artist's paginated album collection
+GET {{base_url}}/api/artists/{{artist_id}}/albums
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-album_id: jsonpath "$.artist.album[0].id"
+album_id: jsonpath "$.albums[0].id"
 
 # Get album details
 GET {{base_url}}/api/albums/{{album_id}}
@@ -65,7 +65,7 @@ HTTP 200
 jsonpath "$.album" exists
 jsonpath "$.album.id" == "{{album_id}}"
 jsonpath "$.album.name" exists
-jsonpath "$.album.song" isCollection
+jsonpath "$.album.songCount" isInteger
 
 # Get nonexistent album
 GET {{base_url}}/api/albums/nonexistent-id
