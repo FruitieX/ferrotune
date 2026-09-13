@@ -4587,7 +4587,7 @@ fn test_postgres_playlist_start_queue_handler_works() {
         let play_starts_rows = db::repo::listening::fetch_song_play_starts_rows(
             &database,
             Some(user.id),
-            &[song_2.clone()],
+            std::slice::from_ref(&song_2),
         )
         .await
         .expect("fetching play starts should succeed");
@@ -4595,7 +4595,14 @@ fn test_postgres_playlist_start_queue_handler_works() {
         assert_eq!(play_starts_rows[0], (song_2.clone(), 1));
 
         let pg_pool = database.postgres_pool().expect("pg pool must resolve");
-        let telemetry: (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        type PlaybackStartTelemetry = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let telemetry: PlaybackStartTelemetry = sqlx::query_as(
             "SELECT session_id, source_type, source_id, client_name, trigger_type FROM playback_starts WHERE song_id = $1"
         )
         .bind(&song_2)
