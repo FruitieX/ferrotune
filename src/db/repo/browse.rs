@@ -1160,10 +1160,13 @@ fn path_has_child_separator_expr(database: &Database, prefix: &str) -> SimpleExp
         sea_orm::DbBackend::Sqlite => {
             Expr::cust_with_exprs("instr(substr(?, length(?) + 1), '/')", [path(), prefix()])
         }
-        sea_orm::DbBackend::Postgres => Expr::cust_with_exprs(
-            "position('/' in substring($1 from char_length($2) + 1))",
-            [path(), prefix()],
-        ),
+        sea_orm::DbBackend::Postgres => {
+            let remainder =
+                Func::cust("substr").args([path(), Expr::expr(Func::char_length(prefix())).add(1)]);
+            Func::cust("strpos")
+                .args([remainder.into(), Expr::val("/").into()])
+                .into()
+        }
         sea_orm::DbBackend::MySql => Expr::cust_with_exprs(
             "locate('/', substr(?, char_length(?) + 1))",
             [path(), prefix()],
@@ -1179,10 +1182,13 @@ fn first_path_component_expr(database: &Database, prefix: &str) -> SimpleExpr {
             "substr(substr(?, length(?) + 1), 1, instr(substr(?, length(?) + 1), '/') - 1)",
             [path(), prefix(), path(), prefix()],
         ),
-        sea_orm::DbBackend::Postgres => Expr::cust_with_exprs(
-            "split_part(substring($1 from char_length($2) + 1), '/', 1)",
-            [path(), prefix()],
-        ),
+        sea_orm::DbBackend::Postgres => {
+            let remainder =
+                Func::cust("substr").args([path(), Expr::expr(Func::char_length(prefix())).add(1)]);
+            Func::cust("split_part")
+                .args([remainder.into(), Expr::val("/").into(), Expr::val(1).into()])
+                .into()
+        }
         sea_orm::DbBackend::MySql => Expr::cust_with_exprs(
             "substring_index(substr(?, char_length(?) + 1), '/', 1)",
             [path(), prefix()],
@@ -1213,16 +1219,19 @@ pub async fn page_directory_folders(
     use entity::songs::Column as Song;
 
     let folder_name = first_path_component_expr(database, prefix);
+    let folder_sort_name = case_insensitive_directory_expr(database, folder_name.clone());
     let total_size = Expr::col(Song::FileSize).sum().cast_as("BIGINT");
     let mut query = entity::songs::Entity::find()
         .select_only()
         .column_as(folder_name.clone(), "name")
+        .column_as(folder_sort_name, "sort_name")
         .column_as(Song::Id.count(), "file_count")
         .column_as(total_size.clone(), "total_size")
         .filter(Song::MusicFolderId.eq(folder_id))
         .filter(Song::MarkedForDeletionAt.is_null())
         .filter(path_has_child_separator_expr(database, prefix).gt(0))
-        .group_by(folder_name.clone());
+        .group_by(Expr::cust("1"))
+        .group_by(Expr::cust("2"));
 
     if !prefix.is_empty() {
         query = query.filter(Song::FilePath.starts_with(prefix));
@@ -1241,18 +1250,12 @@ pub async fn page_directory_folders(
         Order::Asc
     };
     query = if options.sort == DirectorySort::Size {
-        query.order_by(total_size, order.clone())
+        query.order_by(Expr::cust("4"), order.clone())
     } else {
-        query.order_by(
-            case_insensitive_directory_expr(database, folder_name.clone()),
-            order.clone(),
-        )
+        query.order_by(Expr::cust("2"), order.clone())
     };
     let rows = query
-        .order_by(
-            case_insensitive_directory_expr(database, folder_name),
-            order,
-        )
+        .order_by(Expr::cust("1"), order)
         .offset(options.offset)
         .limit(options.limit)
         .into_model::<DirectoryFolderRow>()

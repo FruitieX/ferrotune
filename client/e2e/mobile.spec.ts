@@ -290,7 +290,9 @@ async function swipePlayerBarFullscreenOpenThenCancel(
 
   const startX = box.x + box.width / 2;
   const startY = box.y + box.height / 2;
-  const sideDragX = startX - 64;
+  // Keep the priming move below the gesture-axis threshold so the following
+  // upward motion can still claim the gesture as vertical.
+  const sideDragX = startX - 4;
   const openPreviewY = Math.max(8, startY - Math.max(240, box.height * 3));
   const cancelY = Math.min(startY + 48, box.y + box.height + 48);
   const swipeTarget = playerBar.getByTestId("now-playing-swipe-target");
@@ -716,7 +718,11 @@ test.describe("Mobile Tests", () => {
     const playerBar = page.getByTestId("player-bar");
     await expect(playerBar).toBeVisible();
 
-    await playerBar.getByRole("button", { name: /more options/i }).click();
+    const moreButton = playerBar.getByRole("button", {
+      name: /more options/i,
+    });
+    await expect(moreButton).toBeEnabled({ timeout: 10000 });
+    await moreButton.click();
     await expect(
       page.getByRole("button", { name: /cast to device/i }),
     ).toBeVisible();

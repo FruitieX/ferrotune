@@ -36,4 +36,5 @@ GET {{base_url}}/api/songs/forgotten-favorites?minPlays=1&notPlayedSinceDays=0&s
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.song[*].playCount" contains 12
+jsonpath "$.song[*].playCount" count == 1
+jsonpath "$.song[*].playCount" nth 0 == 12

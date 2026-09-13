@@ -310,8 +310,12 @@ jobs:
         shell: bash
         run: |
           choco install cmake llvm ffmpeg ninja -y
-          echo 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
-          echo 'CMAKE_POLICY_VERSION_MINIMUM=3.5' >> "$GITHUB_ENV"
+          {
+            printf '%s\n' 'LIBCLANG_PATH=C:\Program Files\LLVM\bin'
+            printf '%s\n' 'CMAKE_POLICY_VERSION_MINIMUM=3.5'
+            printf '%s\n' 'CMAKE_GENERATOR=Visual Studio 17 2022'
+            printf '%s\n' 'CMAKE_GENERATOR_PLATFORM=x64'
+          } >> "$GITHUB_ENV"
       - name: Install macOS desktop dependencies
         if: matrix.platform == 'macos'
         run: |
