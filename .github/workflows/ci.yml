@@ -255,7 +255,7 @@ jobs:
           - platform: linux
             os: ubuntu-latest
           - platform: windows
-            os: windows-latest
+            os: windows-2022
           - platform: macos
             os: macos-latest
     env:
