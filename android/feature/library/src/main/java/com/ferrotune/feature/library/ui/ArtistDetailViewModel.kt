@@ -7,7 +7,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.ferrotune.core.media.PlaybackSessionStarter
+import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistDetail
 import com.ferrotune.core.network.generated.SongResponse
@@ -39,7 +39,7 @@ data class ArtistDetailUiState(
 @HiltViewModel
 class ArtistDetailViewModel @Inject constructor(
     private val repository: LibraryRepository,
-    private val sessionStarter: PlaybackSessionStarter,
+    private val sessionStarter: PlaybackStarter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 

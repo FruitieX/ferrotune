@@ -38,8 +38,8 @@ class PlaybackSessionStarter @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
     private val accountStore: AccountStore,
     private val repository: PlaybackRepository,
-) {
-    suspend fun startQueue(spec: QueueStartSpec) {
+) : PlaybackStarter {
+    override suspend fun startQueue(spec: QueueStartSpec) {
         val account = accountStore.activeAccount.first()
             ?: throw IllegalStateException("Not signed in")
         val clientId = accountStore.clientId()
@@ -73,7 +73,7 @@ class PlaybackSessionStarter @Inject constructor(
         )
     }
 
-    suspend fun startRandomQueue(size: Int = DEFAULT_RANDOM_QUEUE_SIZE) {
+    override suspend fun startRandomQueue(size: Int) {
         val songs = apiCall { apiProvider.requireApi().randomSongs(size) }.song
         check(songs.isNotEmpty()) { "Server returned no songs" }
         startQueue(
@@ -85,10 +85,10 @@ class PlaybackSessionStarter @Inject constructor(
         )
     }
 
-    suspend fun startSongRadio(
+    override suspend fun startSongRadio(
         seedSongId: String,
-        sourceName: String? = null,
-        startSongId: String? = null,
+        sourceName: String?,
+        startSongId: String?,
     ) {
         startQueue(
             QueueStartSpec(
@@ -100,7 +100,7 @@ class PlaybackSessionStarter @Inject constructor(
         )
     }
 
-    suspend fun startAlbum(albumId: String, sourceName: String? = null, startSongId: String? = null) {
+    override suspend fun startAlbum(albumId: String, sourceName: String?, startSongId: String?) {
         startQueue(
             QueueStartSpec(
                 sourceType = SOURCE_TYPE_ALBUM,
@@ -111,10 +111,10 @@ class PlaybackSessionStarter @Inject constructor(
         )
     }
 
-    suspend fun startArtist(
+    override suspend fun startArtist(
         artistId: String,
-        sourceName: String? = null,
-        startSongId: String? = null,
+        sourceName: String?,
+        startSongId: String?,
     ) {
         startQueue(
             QueueStartSpec(

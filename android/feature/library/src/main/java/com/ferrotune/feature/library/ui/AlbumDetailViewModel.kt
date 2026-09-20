@@ -7,7 +7,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.ferrotune.core.media.PlaybackSessionStarter
+import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.network.generated.AlbumDetail
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
@@ -32,7 +32,7 @@ data class AlbumDetailUiState(
 @HiltViewModel
 class AlbumDetailViewModel @Inject constructor(
     private val repository: LibraryRepository,
-    private val sessionStarter: PlaybackSessionStarter,
+    private val sessionStarter: PlaybackStarter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 

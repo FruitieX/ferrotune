@@ -52,7 +52,7 @@ import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
-import com.ferrotune.core.media.PlaybackSessionStarter
+import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
 import com.ferrotune.core.network.generated.AlbumResponse
@@ -83,7 +83,7 @@ data class FavoritesUiState(
 @HiltViewModel
 class FavoritesViewModel @Inject constructor(
     private val repository: LibraryRepository,
-    private val sessionStarter: PlaybackSessionStarter,
+    private val sessionStarter: PlaybackStarter,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(FavoritesUiState())

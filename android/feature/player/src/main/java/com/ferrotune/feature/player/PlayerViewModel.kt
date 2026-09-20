@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.media.PlaybackEvent
 import com.ferrotune.core.media.PlaybackRepository
-import com.ferrotune.core.media.PlaybackSessionStarter
+import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackStatus
 import com.ferrotune.core.media.TrackInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,7 +34,7 @@ data class PlayerUiState(
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val repository: PlaybackRepository,
-    private val sessionStarter: PlaybackSessionStarter,
+    private val sessionStarter: PlaybackStarter,
 ) : ViewModel() {
 
     private val isStartingQueue = MutableStateFlow(false)

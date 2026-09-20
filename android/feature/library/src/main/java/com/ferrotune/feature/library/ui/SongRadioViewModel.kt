@@ -3,7 +3,7 @@ package com.ferrotune.feature.library.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ferrotune.core.media.PlaybackSessionStarter
+import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.feature.library.data.LibraryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,7 +25,7 @@ data class SongRadioUiState(
 @HiltViewModel
 class SongRadioViewModel @Inject constructor(
     private val repository: LibraryRepository,
-    private val sessionStarter: PlaybackSessionStarter,
+    private val sessionStarter: PlaybackStarter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
