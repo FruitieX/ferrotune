@@ -752,6 +752,55 @@ class FerrotuneApiClient {
         return trackGain + settings.replayGainOffset
     }
 
+    /**
+     * Upload sanitized native-audio diagnostics in response to a server request.
+     */
+    fun uploadDiagnostics(requestId: String): Boolean {
+        val config = getConfig()
+        val sessionId = config.sessionId ?: return false
+        val clientId = config.clientId ?: return false
+        val payload = NativeAudioLogger.diagnosticsPayload(requestId, clientId)
+        val url = buildApiUrl("/api/sessions/$sessionId/diagnostics/$requestId")
+        val request = Request.Builder()
+            .url(url)
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .also { addAuthHeaders(it) }
+            .build()
+
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Diagnostics upload failed: ${response.code}")
+                    NativeAudioLogger.warn(
+                        TAG,
+                        "diagnostics_upload_failed",
+                        "Diagnostics upload failed",
+                        mapOf("requestId" to requestId, "httpStatus" to response.code),
+                    )
+                    false
+                } else {
+                    NativeAudioLogger.info(
+                        TAG,
+                        "diagnostics_uploaded",
+                        "Diagnostics uploaded to server",
+                        mapOf("requestId" to requestId),
+                    )
+                    true
+                }
+            }
+        } catch (exception: Exception) {
+            Log.w(TAG, "Diagnostics upload failed", exception)
+            NativeAudioLogger.warn(
+                TAG,
+                "diagnostics_upload_failed",
+                "Diagnostics upload failed",
+                mapOf("requestId" to requestId),
+                exception,
+            )
+            false
+        }
+    }
+
     // =========================================================================
     // SSE — real-time session events
     // =========================================================================
@@ -905,6 +954,10 @@ class FerrotuneApiClient {
                 positionMs = if (json.has("positionMs") && !json.isNull("positionMs"))
                     json.getLong("positionMs") else null,
             )
+            "diagnosticsRequest" -> SessionEvent.DiagnosticsRequest(
+                requestId = json.getString("requestId"),
+                clientId = json.getString("clientId"),
+            )
             "volumeChange" -> SessionEvent.VolumeChange(
                 volume = json.getDouble("volume").toFloat(),
                 isMuted = json.getBoolean("isMuted"),
@@ -941,6 +994,10 @@ sealed class SessionEvent {
         val ownerClientName: String?,
         val resumePlayback: Boolean,
         val positionMs: Long?,
+    ) : SessionEvent()
+    data class DiagnosticsRequest(
+        val requestId: String,
+        val clientId: String,
     ) : SessionEvent()
     data class VolumeChange(val volume: Float, val isMuted: Boolean) : SessionEvent()
 }

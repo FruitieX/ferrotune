@@ -5,7 +5,9 @@
 //! One client is the audio owner; others are followers.
 
 use crate::api::auth::FerrotuneAuthenticatedUser;
-use crate::api::{AppState, ConnectedClient, ConnectedClientMetadata, SessionEvent};
+use crate::api::{
+    AppState, ConnectedClient, ConnectedClientMetadata, DiagnosticsBundle, SessionEvent,
+};
 use crate::db::queries;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
@@ -17,7 +19,9 @@ use axum::{
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
+use tokio::time::timeout;
 use ts_rs::TS;
+use uuid::Uuid;
 
 const REVERSE_DNS_TIMEOUT: Duration = Duration::from_millis(750);
 
@@ -117,6 +121,15 @@ pub struct SessionCommandRequest {
 pub struct SessionSuccessResponse {
     pub success: bool,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsPullRequest {
+    pub client_id: String,
+}
+
+const DIAGNOSTICS_RESPONSE_TIMEOUT: Duration = Duration::from_secs(20);
+const MAX_DIAGNOSTICS_BYTES: usize = 12 * 1024 * 1024;
 
 /// Query params for SSE events endpoint
 #[derive(Debug, Deserialize)]
@@ -501,6 +514,118 @@ impl Drop for ClientCleanupGuard {
             }
         });
     }
+}
+
+/// POST /api/sessions/:id/diagnostics — Ask a connected Android client to upload logs.
+pub async fn request_android_diagnostics(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(request): Json<DiagnosticsPullRequest>,
+) -> FerrotuneApiResult<Json<DiagnosticsBundle>> {
+    queries::get_session(&state.database, &session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+
+    let client_name = state
+        .session_manager
+        .get_client_name(&session_id, &request.client_id)
+        .await
+        .ok_or_else(|| Error::NotFound("Connected client not found".to_string()))?;
+    if client_name != "ferrotune-mobile" {
+        return Err(FerrotuneApiError(Error::InvalidRequest(
+            "Diagnostics can only be pulled from a connected Android client".to_string(),
+        )));
+    }
+    if !state
+        .session_manager
+        .is_client_sse_connected(&session_id, &request.client_id)
+        .await
+    {
+        return Err(FerrotuneApiError(Error::Conflict(
+            "Target client has no active SSE connection".to_string(),
+        )));
+    }
+
+    let request_id = Uuid::new_v4().to_string();
+    let response_rx = state
+        .session_manager
+        .register_diagnostics_request(
+            request_id.clone(),
+            session_id.clone(),
+            request.client_id.clone(),
+        )
+        .await;
+
+    state
+        .session_manager
+        .broadcast(
+            &session_id,
+            SessionEvent::DiagnosticsRequest {
+                request_id: request_id.clone(),
+                client_id: request.client_id.clone(),
+            },
+        )
+        .await;
+
+    match timeout(DIAGNOSTICS_RESPONSE_TIMEOUT, response_rx).await {
+        Ok(Ok(bundle)) => Ok(Json(bundle)),
+        Ok(Err(_)) => Err(FerrotuneApiError(Error::Conflict(
+            "Diagnostics client disconnected before uploading logs".to_string(),
+        ))),
+        Err(_) => {
+            state
+                .session_manager
+                .cancel_diagnostics_request(&request_id)
+                .await;
+            Err(FerrotuneApiError(Error::Conflict(
+                "Timed out waiting for Android diagnostics".to_string(),
+            )))
+        }
+    }
+}
+
+/// POST /api/sessions/:id/diagnostics/:request_id — Upload a diagnostics bundle.
+pub async fn upload_android_diagnostics(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path((session_id, request_id)): Path<(String, String)>,
+    Json(bundle): Json<DiagnosticsBundle>,
+) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
+    queries::get_session(&state.database, &session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+
+    if bundle.request_id != request_id || bundle.client_id.is_empty() {
+        return Err(FerrotuneApiError(Error::InvalidRequest(
+            "Diagnostics request metadata does not match the upload endpoint".to_string(),
+        )));
+    }
+
+    let total_bytes = bundle
+        .files
+        .iter()
+        .map(|file| file.content.len())
+        .sum::<usize>();
+    if total_bytes > MAX_DIAGNOSTICS_BYTES {
+        return Err(FerrotuneApiError(Error::InvalidRequest(format!(
+            "Diagnostics bundle exceeds the {} MiB limit",
+            MAX_DIAGNOSTICS_BYTES / (1024 * 1024)
+        ))));
+    }
+
+    let bundle_client_id = bundle.client_id.clone();
+    if !state
+        .session_manager
+        .complete_diagnostics_request(&request_id, &session_id, &bundle_client_id, bundle)
+        .await
+    {
+        return Err(FerrotuneApiError(Error::NotFound(
+            "Diagnostics request not found or target mismatch".to_string(),
+        )));
+    }
+
+    Ok(Json(SessionSuccessResponse { success: true }))
 }
 
 /// GET /api/sessions/:id/events — SSE stream of session events

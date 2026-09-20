@@ -1623,6 +1623,21 @@ class PlaybackService : MediaSessionService() {
             is SessionEvent.OwnerChanged -> {
                 handleOwnerChanged(event)
             }
+            is SessionEvent.DiagnosticsRequest -> {
+                if (event.clientId != apiClient.getClientId()) {
+                    return
+                }
+                Log.i(TAG, "SSE diagnostics request received: ${event.requestId}")
+                NativeAudioLogger.info(
+                    TAG,
+                    "diagnostics_request_received",
+                    "Diagnostics request received from server",
+                    mapOf("requestId" to event.requestId),
+                )
+                apiExecutor.execute {
+                    apiClient.uploadDiagnostics(event.requestId)
+                }
+            }
         }
     }
 

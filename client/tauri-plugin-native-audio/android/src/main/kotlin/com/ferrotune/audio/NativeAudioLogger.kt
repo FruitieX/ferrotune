@@ -19,6 +19,7 @@ object NativeAudioLogger {
     private const val MANIFEST_FILE = "manifest.json"
     private const val MAX_LOG_FILE_BYTES = 2L * 1024L * 1024L
     private const val MAX_LOG_FILE_COUNT = 5
+    private const val MAX_DIAGNOSTICS_UPLOAD_BYTES = 12L * 1024L * 1024L
     private const val REDACTED = "[REDACTED]"
     private val processStartedAtElapsedRealtimeMs = try {
         android.os.Process.getStartElapsedRealtime()
@@ -69,6 +70,51 @@ object NativeAudioLogger {
                 "packageName" to packageName,
             ),
         )
+    }
+
+    /**
+     * Build the sanitized diagnostics payload requested by the server.
+     * Only the logger's manifest and rotated JSONL files are included.
+     */
+    @Synchronized
+    fun diagnosticsPayload(requestId: String, clientId: String): JSONObject {
+        val filesJson = JSONArray()
+        val directory = logDirectory
+        var remainingBytes = MAX_DIAGNOSTICS_UPLOAD_BYTES
+        val files = directory
+            ?.listFiles()
+            ?.filter { file ->
+                file.name == MANIFEST_FILE ||
+                    file.name == ACTIVE_LOG_FILE ||
+                    (file.name.startsWith("native-audio-") && file.name.endsWith(".jsonl"))
+            }
+            ?.sortedWith(compareBy<File> { it.name != MANIFEST_FILE }.thenBy { it.name })
+            .orEmpty()
+
+        for (file in files) {
+            if (remainingBytes <= 0L) break
+            val raw = try {
+                file.readBytes()
+            } catch (exception: Exception) {
+                Log.w(TAG, "Failed to read diagnostics file: ${file.name}", exception)
+                continue
+            }
+            val contentBytes = raw.copyOf(minOf(raw.size.toLong(), remainingBytes).toInt())
+            filesJson.put(JSONObject().apply {
+                put("name", file.name)
+                put("bytes", file.length())
+                put("content", String(contentBytes, Charsets.UTF_8))
+            })
+            remainingBytes -= contentBytes.size.toLong()
+        }
+
+        return JSONObject().apply {
+            put("requestId", requestId)
+            put("clientId", clientId)
+            put("collectedAt", timestamp())
+            put("storageKind", storageKind)
+            put("files", filesJson)
+        }
     }
 
     fun debug(

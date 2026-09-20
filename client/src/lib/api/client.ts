@@ -155,6 +155,20 @@ import type { FerrotuneSimilarSongsResponse } from "./generated/FerrotuneSimilar
 // Ping response is empty
 type PingResponse = Record<string, never>;
 
+export interface AndroidDiagnosticsFile {
+  name: string;
+  bytes: number;
+  content: string;
+}
+
+export interface AndroidDiagnosticsBundle {
+  requestId: string;
+  clientId: string;
+  collectedAt: string;
+  storageKind: string;
+  files: AndroidDiagnosticsFile[];
+}
+
 /**
  * Options for importing from an audio file
  */
@@ -2203,6 +2217,22 @@ export class FerrotuneClient {
    */
   async listClients(): Promise<ClientListResponse> {
     return this.request("/api/sessions/clients");
+  }
+
+  /**
+   * Ask a connected Android client to upload its sanitized native diagnostics.
+   */
+  async pullAndroidDiagnostics(
+    sessionId: string,
+    clientId: string,
+  ): Promise<AndroidDiagnosticsBundle> {
+    return this.request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/diagnostics`,
+      {
+        method: "POST",
+        body: JSON.stringify({ clientId }),
+      },
+    );
   }
 
   /**

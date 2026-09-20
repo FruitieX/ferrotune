@@ -304,6 +304,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(sessions::session_heartbeat),
         )
         .route("/sessions/{id}/events", get(sessions::session_events))
+        .route(
+            "/sessions/{id}/diagnostics",
+            post(sessions::request_android_diagnostics),
+        )
+        .route(
+            "/sessions/{id}/diagnostics/{request_id}",
+            post(sessions::upload_android_diagnostics),
+        )
         .route("/sessions/{id}/command", post(sessions::session_command))
         .route(
             "/sessions/{id}/clients/{client_id}",

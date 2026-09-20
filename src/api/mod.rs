@@ -120,7 +120,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, oneshot, RwLock};
 
 pub use scan_state::{create_scan_state, ScanState};
 
@@ -154,6 +154,26 @@ pub type ShuffleIndicesCache = RwLock<HashMap<(i64, i64), Arc<Vec<usize>>>>;
 // ============================================================================
 // Session Manager — in-memory per-session broadcast channels for SSE
 // ============================================================================
+
+/// A sanitized diagnostics file returned by a connected mobile client.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsFile {
+    pub name: String,
+    pub bytes: u64,
+    pub content: String,
+}
+
+/// A sanitized Android native-audio diagnostics bundle.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsBundle {
+    pub request_id: String,
+    pub client_id: String,
+    pub collected_at: String,
+    pub storage_kind: String,
+    pub files: Vec<DiagnosticsFile>,
+}
 
 /// Events broadcast to SSE subscribers of a playback session.
 #[derive(Clone, Debug, Serialize)]
@@ -210,6 +230,12 @@ pub enum SessionEvent {
         resume_playback: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         position_ms: Option<i64>,
+    },
+    /// Request a connected client to upload its sanitized diagnostics bundle.
+    #[serde(rename_all = "camelCase")]
+    DiagnosticsRequest {
+        request_id: String,
+        client_id: String,
     },
 }
 
@@ -279,6 +305,12 @@ struct ConnectedClientState {
     last_heartbeat_at: Option<Instant>,
 }
 
+struct PendingDiagnosticsRequest {
+    session_id: String,
+    client_id: String,
+    response_tx: oneshot::Sender<DiagnosticsBundle>,
+}
+
 /// Per-session state: broadcast channel + connected clients.
 struct SessionState {
     sender: broadcast::Sender<SessionEvent>,
@@ -294,12 +326,14 @@ struct SessionState {
 pub struct SessionManager {
     /// Map of session_id -> session state
     sessions: RwLock<HashMap<String, SessionState>>,
+    diagnostics_requests: RwLock<HashMap<String, PendingDiagnosticsRequest>>,
 }
 
 impl Default for SessionManager {
     fn default() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            diagnostics_requests: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -368,6 +402,49 @@ impl SessionManager {
                 let _ = state.sender.send(event.clone());
             }
         }
+    }
+
+    /// Register a one-shot diagnostics response and return its receiver.
+    pub async fn register_diagnostics_request(
+        &self,
+        request_id: String,
+        session_id: String,
+        client_id: String,
+    ) -> oneshot::Receiver<DiagnosticsBundle> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.diagnostics_requests.write().await.insert(
+            request_id,
+            PendingDiagnosticsRequest {
+                session_id,
+                client_id,
+                response_tx,
+            },
+        );
+        response_rx
+    }
+
+    /// Complete a pending diagnostics request if it matches its target client.
+    pub async fn complete_diagnostics_request(
+        &self,
+        request_id: &str,
+        session_id: &str,
+        client_id: &str,
+        bundle: DiagnosticsBundle,
+    ) -> bool {
+        let mut requests = self.diagnostics_requests.write().await;
+        let Some(pending) = requests.get(request_id) else {
+            return false;
+        };
+        if pending.session_id != session_id || pending.client_id != client_id {
+            return false;
+        }
+        let pending = requests.remove(request_id).expect("request was present");
+        pending.response_tx.send(bundle).is_ok()
+    }
+
+    /// Remove a timed-out or cancelled diagnostics request.
+    pub async fn cancel_diagnostics_request(&self, request_id: &str) {
+        self.diagnostics_requests.write().await.remove(request_id);
     }
 
     /// Get the number of active SSE receivers for a session.
@@ -628,6 +705,15 @@ impl SessionManager {
             .unwrap_or(false)
     }
 
+    /// Check if a specific client currently has at least one live SSE stream.
+    pub async fn is_client_sse_connected(&self, session_id: &str, client_id: &str) -> bool {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(session_id)
+            .and_then(|state| state.clients.get(client_id))
+            .is_some_and(|client| client.connection_count > 0)
+    }
+
     /// Get the registered display client name for a connected client.
     pub async fn get_client_name(&self, session_id: &str, client_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
@@ -640,7 +726,7 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{SessionEvent, SessionManager};
+    use super::{DiagnosticsBundle, DiagnosticsFile, SessionEvent, SessionManager};
     use crate::api::ConnectedClientMetadata;
     use serde_json::json;
     use std::net::{IpAddr, Ipv4Addr};
@@ -663,6 +749,71 @@ mod tests {
                 "isMuted": false,
                 "clientId": "web-client",
             }))
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_request_round_trip_is_targeted() {
+        let manager = SessionManager::new();
+        let response = manager
+            .register_diagnostics_request(
+                "request-1".to_string(),
+                "session-1".to_string(),
+                "mobile-1".to_string(),
+            )
+            .await;
+        let bundle = DiagnosticsBundle {
+            request_id: "request-1".to_string(),
+            client_id: "mobile-1".to_string(),
+            collected_at: "2026-09-20T12:00:00.000Z".to_string(),
+            storage_kind: "external".to_string(),
+            files: vec![DiagnosticsFile {
+                name: "native-audio-current.jsonl".to_string(),
+                bytes: 12,
+                content: "{}\n".to_string(),
+            }],
+        };
+
+        assert!(
+            !manager
+                .complete_diagnostics_request(
+                    "request-1",
+                    "session-1",
+                    "different-client",
+                    bundle.clone(),
+                )
+                .await
+        );
+        assert!(
+            manager
+                .complete_diagnostics_request("request-1", "session-1", "mobile-1", bundle.clone())
+                .await
+        );
+        assert_eq!(
+            response.await.expect("response should arrive").client_id,
+            "mobile-1"
+        );
+        assert!(
+            !manager
+                .complete_diagnostics_request("request-1", "session-1", "mobile-1", bundle)
+                .await
+        );
+    }
+
+    #[test]
+    fn diagnostics_request_serializes_target_and_request_id() {
+        let event = SessionEvent::DiagnosticsRequest {
+            request_id: "request-1".to_string(),
+            client_id: "mobile-1".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(event).expect("event should serialize"),
+            json!({
+                "type": "diagnosticsRequest",
+                "requestId": "request-1",
+                "clientId": "mobile-1",
+            })
         );
     }
 

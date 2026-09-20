@@ -15,7 +15,8 @@ export interface SessionEvent {
     | "positionUpdate"
     | "volumeChange"
     | "clientListChanged"
-    | "ownerChanged";
+    | "ownerChanged"
+    | "diagnosticsRequest";
   action?: string;
   clientId?: string;
   positionMs?: number;
@@ -29,6 +30,7 @@ export interface SessionEvent {
   ownerClientId?: string;
   ownerClientName?: string;
   resumePlayback?: boolean;
+  requestId?: string;
 }
 
 // Backoff schedule for explicit SSE reconnects. EventSource has built-in
