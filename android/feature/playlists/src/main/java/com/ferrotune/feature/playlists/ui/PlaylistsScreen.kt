@@ -69,6 +69,7 @@ private sealed interface PlaylistsDialog {
 fun PlaylistsScreen(
     onOpenPlaylist: (String) -> Unit,
     onOpenSmartPlaylist: (String) -> Unit,
+    onCreateSmartPlaylist: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlaylistsViewModel = hiltViewModel(),
 ) {
@@ -101,6 +102,13 @@ fun PlaylistsScreen(
                             onClick = {
                                 addMenuExpanded = false
                                 dialog = PlaylistsDialog.CreateFolder(parentId = null)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("New smart playlist") },
+                            onClick = {
+                                addMenuExpanded = false
+                                onCreateSmartPlaylist()
                             },
                         )
                     }

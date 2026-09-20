@@ -50,6 +50,7 @@ import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.SortMenu
 import com.ferrotune.core.designsystem.components.SortOption
+import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.GenreResponse
@@ -252,6 +253,7 @@ private fun SongsTab(
                             IconButton(onClick = { onOpenSongRadio(song.id) }) {
                                 Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                             }
+                                AddToPlaylistAction(songIds = listOf(song.id))
                         },
                     )
                 }

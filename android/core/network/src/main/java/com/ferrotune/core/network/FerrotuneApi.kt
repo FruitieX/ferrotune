@@ -38,6 +38,7 @@ import com.ferrotune.core.network.generated.ListeningStatsResponse
 import com.ferrotune.core.network.generated.LogListeningResponse
 import com.ferrotune.core.network.generated.MatchMissingEntryRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
+import com.ferrotune.core.network.generated.MusicFoldersResponse
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
 import com.ferrotune.core.network.generated.PeriodReviewResponse
@@ -273,6 +274,9 @@ interface FerrotuneApi {
 
     @GET("api/users/shareable")
     suspend fun shareableUsers(): ShareableUsersResponse
+
+    @GET("api/music-folders")
+    suspend fun musicFolders(): MusicFoldersResponse
 
     @GET("api/playlists/{id}/shares")
     suspend fun playlistShares(@Path("id") id: String): PlaylistSharesResponse

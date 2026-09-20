@@ -43,6 +43,7 @@ import com.ferrotune.core.network.generated.MatchMissingEntryRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
+import com.ferrotune.core.network.generated.MusicFoldersResponse
 import com.ferrotune.core.network.generated.PeriodReviewResponse
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
@@ -195,8 +196,10 @@ open class FakeFerrotuneApi(
 
     override suspend fun deletePlaylist(id: String) = error("unused")
 
-    override suspend fun addPlaylistSongs(id: String, request: AddPlaylistSongsRequest) =
-        error("unused")
+    override suspend fun addPlaylistSongs(
+        id: String,
+        request: AddPlaylistSongsRequest,
+    ): Unit = error("unused")
 
     override suspend fun removePlaylistSongs(
         id: String,
@@ -237,6 +240,8 @@ open class FakeFerrotuneApi(
 
     override suspend fun shareableUsers(): ShareableUsersResponse = error("unused")
 
+    override suspend fun musicFolders(): MusicFoldersResponse = error("unused")
+
     override suspend fun playlistShares(id: String): PlaylistSharesResponse = error("unused")
 
     override suspend fun setPlaylistShares(
@@ -256,8 +261,10 @@ open class FakeFerrotuneApi(
         request: CreateSmartPlaylistRequest,
     ): CreateSmartPlaylistResponse = error("unused")
 
-    override suspend fun updateSmartPlaylist(id: String, request: UpdateSmartPlaylistRequest) =
-        error("unused")
+    override suspend fun updateSmartPlaylist(
+        id: String,
+        request: UpdateSmartPlaylistRequest,
+    ): Unit = error("unused")
 
     override suspend fun deleteSmartPlaylist(id: String) = error("unused")
 

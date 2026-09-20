@@ -15,6 +15,7 @@ import com.ferrotune.core.network.generated.ImportPlaylistResponse
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
+import com.ferrotune.core.network.generated.MusicFolderInfo
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
 import com.ferrotune.core.network.generated.PlaylistMembershipRequest
@@ -149,6 +150,9 @@ class PlaylistRepository @Inject constructor(
 
     suspend fun shareableUsers(): List<ShareableUser> =
         apiProvider.requireApi().shareableUsers().users
+
+    suspend fun musicFolders(): List<MusicFolderInfo> =
+        apiProvider.requireApi().musicFolders().musicFolders
 
     suspend fun setShares(playlistId: String, shares: List<ShareEntry>): PlaylistSharesResponse =
         apiProvider.requireApi().setPlaylistShares(playlistId, SetPlaylistSharesRequest(shares))

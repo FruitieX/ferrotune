@@ -54,6 +54,7 @@ fun SmartPlaylistDetailScreen(
     onBack: () -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onOpenSongRadio: (String) -> Unit,
+    onEditRules: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SmartPlaylistDetailViewModel = hiltViewModel(),
 ) {
@@ -93,6 +94,13 @@ fun SmartPlaylistDetailScreen(
                                 onClick = {
                                     menuExpanded = false
                                     viewModel.play(shuffle = true)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Edit rules") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onEditRules()
                                 },
                             )
                             DropdownMenuItem(

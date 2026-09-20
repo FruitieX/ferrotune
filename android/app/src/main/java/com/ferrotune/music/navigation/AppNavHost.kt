@@ -46,6 +46,7 @@ import com.ferrotune.feature.player.NowPlayingScreen
 import com.ferrotune.feature.playlists.ui.PlaylistDetailScreen
 import com.ferrotune.feature.playlists.ui.PlaylistsScreen
 import com.ferrotune.feature.playlists.ui.SmartPlaylistDetailScreen
+import com.ferrotune.feature.playlists.ui.SmartPlaylistEditorScreen
 
 object Routes {
     const val LOGIN = "login"
@@ -62,6 +63,7 @@ object Routes {
     const val SONG_RADIO = "song_radio/{songId}"
     const val PLAYLIST = "playlist/{playlistId}"
     const val SMART_PLAYLIST = "smart_playlist/{smartPlaylistId}"
+    const val SMART_PLAYLIST_EDITOR = "smart_playlist_editor?smartPlaylistId={smartPlaylistId}"
     const val STATS = "stats"
     const val REVIEW = "review"
 
@@ -76,6 +78,9 @@ object Routes {
     fun playlist(playlistId: String) = "playlist/$playlistId"
 
     fun smartPlaylist(smartPlaylistId: String) = "smart_playlist/$smartPlaylistId"
+
+    fun smartPlaylistEditor(smartPlaylistId: String? = null) =
+        "smart_playlist_editor" + (smartPlaylistId?.let { "?smartPlaylistId=$it" } ?: "")
 }
 
 @Composable
@@ -193,6 +198,9 @@ fun FerrotuneApp(
                         onOpenSmartPlaylist = {
                             navController.navigate(Routes.smartPlaylist(it))
                         },
+                        onCreateSmartPlaylist = {
+                            navController.navigate(Routes.smartPlaylistEditor())
+                        },
                     )
                 }
                 composable(Routes.SEARCH) {
@@ -265,12 +273,29 @@ fun FerrotuneApp(
                     arguments = listOf(
                         navArgument("smartPlaylistId") { type = NavType.StringType },
                     ),
-                ) {
+                ) { entry ->
                     SmartPlaylistDetailScreen(
                         onBack = { navController.popBackStack() },
                         onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
                         onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
+                        onEditRules = {
+                            val smartPlaylistId = entry.arguments
+                                ?.getString("smartPlaylistId")
+                            navController.navigate(Routes.smartPlaylistEditor(smartPlaylistId))
+                        },
                     )
+                }
+                composable(
+                    route = Routes.SMART_PLAYLIST_EDITOR,
+                    arguments = listOf(
+                        navArgument("smartPlaylistId") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        },
+                    ),
+                ) {
+                    SmartPlaylistEditorScreen(onDone = { navController.popBackStack() })
                 }
                 composable(Routes.STATS) {
                     StatsScreen(onBack = { navController.popBackStack() })

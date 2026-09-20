@@ -45,6 +45,7 @@ import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.coverArtUrl
 
 @Composable
@@ -196,6 +197,7 @@ private fun AlbumSongList(
                         IconButton(onClick = { onOpenSongRadio(song.id) }) {
                             Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                         }
+                            AddToPlaylistAction(songIds = listOf(song.id))
                     },
                 )
             }

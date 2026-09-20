@@ -33,6 +33,7 @@ import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.designsystem.components.PagingListFooter
 
 @Composable
@@ -115,6 +116,7 @@ fun GenreDetailScreen(
                                 IconButton(onClick = { onOpenSongRadio(song.id) }) {
                                     Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                                 }
+                                    AddToPlaylistAction(songIds = listOf(song.id))
                             },
                         )
                     }
