@@ -46,6 +46,25 @@ moon run client:test-android-emulator
 
 That task always rebuilds and reinstalls the debug Android app before running Playwright, so it does not rely on whatever APK is already present on the device.
 
+## Preferred incident log collection: authenticated SSE pull
+
+When the Android client has an active session SSE connection, prefer the authenticated server-mediated diagnostics pull over ADB. The server sends a `DiagnosticsRequest` event over the target client's SSE stream, waits up to 20 seconds for the client to upload its sanitized native-audio bundle, and returns the bundle in the HTTP response.
+
+Use the authenticated operator session without printing or persisting its token:
+
+```bash
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer ${FERROTUNE_BEARER_TOKEN:?set this from the existing authenticated operator context}" \
+  -H 'Content-Type: application/json' \
+  --data '{"clientId":"<ANDROID_CLIENT_ID>"}' \
+  "https://<FERROTUNE_HOST>/api/sessions/<SESSION_ID>/diagnostics" \
+  > test-results/android-diagnostics/server-pull-$(date -u +%Y%m%dT%H%M%SZ).json
+```
+
+The endpoint is valid only for a connected `ferrotune-mobile` client. Treat `409 Target client has no active SSE connection` or a timeout as evidence that this collection path is unavailable; do not immediately assume playback or ownership failed. Redact credentials and inspect the returned bundle locally.
+
+Use ADB only as the fallback when the server-mediated SSE pull is unavailable or when a fresh logcat/device-state capture is specifically needed.
+
 ## Pulling Android Diagnostics Over ADB
 
 Native audio diagnostics are written to app-specific external storage so they can be collected later over USB without opening an in-app diagnostics screen. The default app id is `com.ferrotune.music`, and the primary device path is:
