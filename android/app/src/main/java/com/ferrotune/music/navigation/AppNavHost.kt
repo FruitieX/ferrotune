@@ -30,6 +30,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
+import com.ferrotune.feature.home.ui.HomeScreen
+import com.ferrotune.feature.home.ui.ReviewScreen
+import com.ferrotune.feature.home.ui.StatsScreen
 import com.ferrotune.feature.library.ui.AlbumDetailScreen
 import com.ferrotune.feature.library.ui.ArtistDetailScreen
 import com.ferrotune.feature.library.ui.FavoritesScreen
@@ -59,6 +62,8 @@ object Routes {
     const val SONG_RADIO = "song_radio/{songId}"
     const val PLAYLIST = "playlist/{playlistId}"
     const val SMART_PLAYLIST = "smart_playlist/{smartPlaylistId}"
+    const val STATS = "stats"
+    const val REVIEW = "review"
 
     fun album(albumId: String) = "album/$albumId"
 
@@ -156,13 +161,20 @@ fun FerrotuneApp(
                 }
                 composable(Routes.HOME) {
                     HomeScreen(
-                        account = state.activeAccount,
+                        accountLabel = state.activeAccount?.label,
                         onSwitchAccount = {
                             viewModel.signOutLocally()
                             navController.navigate(Routes.LOGIN) {
                                 popUpTo(Routes.HOME) { inclusive = true }
                             }
                         },
+                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
+                        onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
+                        onOpenSmartPlaylist = {
+                            navController.navigate(Routes.smartPlaylist(it))
+                        },
+                        onOpenStats = { navController.navigate(Routes.STATS) },
+                        onOpenReview = { navController.navigate(Routes.REVIEW) },
                     )
                 }
                 composable(Routes.LIBRARY) {
@@ -258,6 +270,16 @@ fun FerrotuneApp(
                         onBack = { navController.popBackStack() },
                         onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
                         onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
+                    )
+                }
+                composable(Routes.STATS) {
+                    StatsScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Routes.REVIEW) {
+                    ReviewScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenArtist = { navController.navigate(Routes.artist(it)) },
+                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
                     )
                 }
                 composable(Routes.NOW_PLAYING) {

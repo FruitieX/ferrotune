@@ -57,31 +57,6 @@ fun NameDialog(
     )
 }
 
-@Composable
-fun ConfirmDialog(
-    title: String,
-    message: String,
-    confirmLabel: String = "Delete",
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(confirmLabel, color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-    )
-}
-
 /**
  * Flat folder picker. [excludeIds] hides folders that cannot be selected
  * (for example the folder being moved and its descendants).

@@ -2,7 +2,7 @@ package com.ferrotune.feature.library.ui
 
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
-import com.ferrotune.feature.library.FakePlaybackStarter
+import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.library.data.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

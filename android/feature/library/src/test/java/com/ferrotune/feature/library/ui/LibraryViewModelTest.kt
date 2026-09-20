@@ -5,7 +5,7 @@ import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.GenresList
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
-import com.ferrotune.feature.library.FakePlaybackStarter
+import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir

@@ -5,7 +5,7 @@ import com.ferrotune.core.network.generated.AlbumDetail
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
-import com.ferrotune.feature.library.FakePlaybackStarter
+import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.library.data.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
