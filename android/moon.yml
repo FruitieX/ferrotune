@@ -1,0 +1,58 @@
+# Moon project configuration for the native Android client
+# https://moonrepo.dev/docs/config/project
+
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+project:
+  name: "ferrotune-android"
+  description: "Native Android client (Kotlin + Jetpack Compose)"
+  channel: "#ferrotune"
+
+fileGroups:
+  sources:
+    - "app/src/**/*"
+    - "core/**/src/**/*"
+    - "feature/**/src/**/*"
+    - "**/*.gradle.kts"
+    - "gradle/libs.versions.toml"
+    - "gradle.properties"
+    - "settings.gradle.kts"
+
+tasks:
+  # ============================================================================
+  # BUILD
+  # ============================================================================
+
+  assemble-debug:
+    command: "./gradlew :app:assembleDebug"
+    inputs: ["@group(sources)"]
+    outputs: ["app/build/outputs/apk/debug"]
+    options:
+      cache: true
+      runInCI: false
+
+  test-unit:
+    command: "./gradlew testDebugUnitTest"
+    inputs: ["@group(sources)"]
+    options:
+      cache: true
+      runInCI: true
+
+  lint:
+    command: "./gradlew lintDebug"
+    inputs: ["@group(sources)"]
+    options:
+      cache: true
+      runInCI: true
+
+  install-debug:
+    command: "./gradlew :app:installDebug"
+    options:
+      cache: false
+      runInCI: false
+
+  clean:
+    command: "./gradlew clean"
+    options:
+      cache: false
+      runInCI: false

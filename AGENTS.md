@@ -146,6 +146,18 @@ nix develop .#android
 moon run client:tauri-android-deploy
 ```
 
+### Native Android Client (`android/`)
+
+The native Kotlin/Compose Android client lives in `android/` (moon project `android`). Build, test, and lint tasks must run inside the Android nix shell:
+
+```bash
+nix develop .#android
+moon run android:test-unit        # JVM unit tests
+moon run android:lint             # Android lint
+moon run android:assemble-debug   # debug APK
+moon run android:install-debug    # install on a connected device/emulator
+```
+
 ---
 
 ## Testing Requirements

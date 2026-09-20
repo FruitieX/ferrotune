@@ -10,6 +10,7 @@ $schema: 'https://moonrepo.dev/schemas/workspace.json'
 projects:
   ferrotune: '.'
   client: 'client'
+  android: 'android'
 
 # Version control
 vcs:
