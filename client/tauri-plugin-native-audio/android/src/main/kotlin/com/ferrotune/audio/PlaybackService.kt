@@ -257,6 +257,12 @@ class PlaybackService : MediaSessionService() {
     // SSE QueueUpdated skips full-reload when an invalidation is pending
     // (the invalidateQueue path preserves player.currentPosition correctly).
     private var invalidateVersion = 0
+    // A library play starts a new server queue and also asks the native player
+    // to reload it. The server broadcasts QueueChanged for the same mutation,
+    // so remember the explicit play until one of those reloads applies it.
+    // This matters after audio focus loss, when ExoPlayer is paused while the
+    // explicit native invalidation is still in flight.
+    private var explicitQueuePlayPending = false
     // Scrobble state
     private var accumulatedListenMs: Long = 0
     private var hasScrobbled = false
@@ -1140,6 +1146,7 @@ class PlaybackService : MediaSessionService() {
 
     fun pause() {
         Log.d(TAG, "pause()")
+        explicitQueuePlayPending = false
         logPlaybackDiagnostic(
             DiagnosticLevel.INFO,
             "pause_requested",
@@ -1152,6 +1159,7 @@ class PlaybackService : MediaSessionService() {
 
     fun stop() {
         Log.d(TAG, "stop()")
+        explicitQueuePlayPending = false
         logPlaybackDiagnostic(
             DiagnosticLevel.INFO,
             "stop_requested",
@@ -1204,6 +1212,7 @@ class PlaybackService : MediaSessionService() {
             ),
         )
         markPlaybackPauseIntent(reason)
+        explicitQueuePlayPending = false
         nextQueueLoadGeneration(reason)
         clearPendingNetworkRetry(reason)
         nativeOwnsSession = false
@@ -1488,7 +1497,12 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "SSE QueueChanged: refetching queue")
                 val generation = nextQueueLoadGeneration("SSE QueueChanged")
                 val playbackIntentGenerationAtStart = playbackIntentGeneration
-                val shouldContinuePlayback = player.playWhenReady || player.isPlaying
+                val explicitPlayPending = explicitQueuePlayPending
+                val shouldContinuePlayback = QueuePlaybackIntent.shouldContinuePlayback(
+                    explicitPlayPending,
+                    player.playWhenReady,
+                    player.isPlaying,
+                )
                 apiExecutor.execute {
                     try {
                         val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
@@ -1504,9 +1518,16 @@ class PlaybackService : MediaSessionService() {
                             // started for the currently playing song).
                             if (isCurrentTrackAtTarget(response, response.currentIndex)) {
                                 syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = true)
+                                if (shouldContinuePlayback && !player.playWhenReady) {
+                                    player.playWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                                        true,
+                                        "SSE QueueChanged explicit play",
+                                        playbackIntentGenerationAtStart,
+                                    )
+                                }
                             } else {
-                                // Different track: keep the current paused/playing state.
-                                // QueueChanged is a queue refresh signal, not by itself a play intent.
+                                // Different track: keep the current paused/playing state,
+                                // unless this refresh races an explicit local queue play.
                                 handleQueueWindowResponse(
                                     response,
                                     response.currentIndex,
@@ -1514,6 +1535,9 @@ class PlaybackService : MediaSessionService() {
                                     shouldContinuePlayback,
                                     playbackIntentGenerationAtStart,
                                 )
+                            }
+                            if (explicitPlayPending) {
+                                explicitQueuePlayPending = false
                             }
                         }
                     } catch (e: Exception) {
@@ -1830,6 +1854,7 @@ class PlaybackService : MediaSessionService() {
         if (sessionId != null) {
             apiClient.updateSessionId(sessionId)
         }
+        explicitQueuePlayPending = false
         if (playWhenReady) {
             claimNativeSessionOwnership("startPlayback", startPositionMs, currentIndex)
         }
@@ -1949,6 +1974,7 @@ class PlaybackService : MediaSessionService() {
         if (sessionId != null) {
             apiClient.updateSessionId(sessionId)
         }
+        explicitQueuePlayPending = false
         if (playWhenReady) {
             nativeOwnsSession = true
             sessionOwnerClientId = apiClient.getClientId()
@@ -2671,6 +2697,13 @@ class PlaybackService : MediaSessionService() {
      * Called when JS modifies the queue (add/remove/reorder).
      */
     fun invalidateQueue(playWhenReady: Boolean? = null) {
+        val explicitPlay = playWhenReady == true
+        val playbackIntentGenerationAtRequest = playbackIntentGeneration
+        if (explicitPlay) {
+            explicitQueuePlayPending = true
+            claimNativeSessionOwnership("invalidateQueue explicit play", 0, serverQueueIndex)
+            clearAudioOutputLossPause("invalidateQueue explicit play")
+        }
         invalidateVersion++
         Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex (version=$invalidateVersion, explicitPlay=$playWhenReady)")
         val generation = nextQueueLoadGeneration("invalidateQueue")
@@ -2679,13 +2712,9 @@ class PlaybackService : MediaSessionService() {
                 val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "invalidateQueue")) return@post
-                    val explicitPlay = playWhenReady == true
-                    val shouldPlay = explicitPlay || player.playWhenReady
-
-                    if (explicitPlay) {
-                        claimNativeSessionOwnership("invalidateQueue explicit play", 0, serverQueueIndex)
-                        clearAudioOutputLossPause("invalidateQueue explicit play")
-                    }
+                    val explicitPlayStillCurrent = explicitPlay &&
+                        playbackIntentGenerationAtRequest == playbackIntentGeneration
+                    val shouldPlay = explicitPlayStillCurrent || player.playWhenReady
 
                     // Check if the currently playing track is still the track
                     // at the target position. If so, update the surrounding
@@ -2698,14 +2727,22 @@ class PlaybackService : MediaSessionService() {
                     } else {
                         Log.d(TAG, "invalidateQueue: current track changed, full reload")
                         handleQueueWindowResponse(response, response.currentIndex,
-                            response.positionMs, shouldPlay)
-                        if (explicitPlay && !player.playWhenReady) {
+                            response.positionMs,
+                            shouldPlay,
+                            playbackIntentGenerationAtRequest)
+                        if (explicitPlayStillCurrent && !player.playWhenReady) {
                             player.playWhenReady = true
                         }
+                    }
+                    if (explicitPlay) {
+                        explicitQueuePlayPending = false
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to invalidate queue", e)
+                if (explicitPlay) {
+                    handler.post { explicitQueuePlayPending = false }
+                }
             }
         }
     }
