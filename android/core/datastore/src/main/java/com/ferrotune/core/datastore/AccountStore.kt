@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -67,6 +68,25 @@ class AccountStore @Inject constructor(
         }
     }
 
+    /**
+     * Stable per-install client id used to identify this device in playback
+     * sessions. Generated on first access.
+     */
+    suspend fun clientId(): String {
+        var value: String? = null
+        context.accountDataStore.edit { preferences ->
+            val existing = preferences[CLIENT_ID_KEY]
+            if (existing != null) {
+                value = existing
+            } else {
+                val generated = UUID.randomUUID().toString()
+                preferences[CLIENT_ID_KEY] = generated
+                value = generated
+            }
+        }
+        return checkNotNull(value) { "client id unavailable" }
+    }
+
     private fun decodeAccounts(stored: String): List<Account> = runCatching {
         json.decodeFromString(ListSerializer(Account.serializer()), TokenCipher.decrypt(stored))
     }.getOrDefault(emptyList())
@@ -77,5 +97,6 @@ class AccountStore @Inject constructor(
     private companion object {
         val ACCOUNTS_KEY = stringPreferencesKey("accounts")
         val ACTIVE_KEY = stringPreferencesKey("active_account_id")
+        val CLIENT_ID_KEY = stringPreferencesKey("client_id")
     }
 }

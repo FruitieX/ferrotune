@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required for streaming audio from network -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Required for background audio playback -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Wake lock to prevent CPU from sleeping during playback -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Required for offline download notifications (API 33+). The app must
+         request this at runtime before the DownloadService starts a download. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Required for the offline DownloadService foreground service type
+         (API 34+ typed FGS for dataSync). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application>
+        <provider
+            android:name=".ArtworkContentProvider"
+            android:authorities="com.ferrotune.core.media.artwork"
+            android:exported="true"
+            android:grantUriPermissions="true" />
+
+        <!-- Media playback service -->
+        <service
+            android:name=".PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Offline download service (Media3 DownloadService). Handles
+             background downloads of audio + cover-art for offline playback. -->
+        <service
+            android:name=".FerrotuneDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="androidx.media3.exoplayer.downloadService.action.INIT" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>
