@@ -1,6 +1,7 @@
 package com.ferrotune.audio
 
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -14,6 +15,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 
 /**
@@ -850,16 +852,25 @@ class FerrotuneApiClient {
         val request = Request.Builder().url(sseUrl).get().also { addAuthHeaders(it) }.build()
 
         val factory = EventSources.createFactory(sseClient)
+        val connectionStartedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
+        val connectionOpenedAtElapsedRealtimeMs = AtomicLong(0L)
         val disconnectDelivered = AtomicBoolean(false)
         currentEventSource = factory.newEventSource(request, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 if (!sseConnectionGeneration.isCurrent(generation)) return
+                val openedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                connectionOpenedAtElapsedRealtimeMs.set(openedAtElapsedRealtimeMs)
                 Log.d(TAG, "SSE connected for session $sessionId")
                 NativeAudioLogger.info(
                     TAG,
                     "sse_open",
                     "SSE connected",
-                    mapOf("sessionId" to sessionId, "httpStatus" to response.code),
+                    mapOf(
+                        "sessionId" to sessionId,
+                        "httpStatus" to response.code,
+                        "connectionGeneration" to generation,
+                        "connectDurationMs" to (openedAtElapsedRealtimeMs - connectionStartedAtElapsedRealtimeMs),
+                    ),
                 )
                 listener.onConnected()
             }
@@ -893,11 +904,22 @@ class FerrotuneApiClient {
                     currentEventSource = null
                 }
                 Log.w(TAG, "SSE disconnected (code=${response?.code})", t)
+                val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                val openedAtElapsedRealtimeMs = connectionOpenedAtElapsedRealtimeMs.get()
                 NativeAudioLogger.warn(
                     TAG,
                     "sse_failure",
                     "SSE disconnected",
-                    mapOf("sessionId" to sessionId, "httpStatus" to response?.code),
+                    mapOf(
+                        "sessionId" to sessionId,
+                        "httpStatus" to response?.code,
+                        "connectionGeneration" to generation,
+                        "connectionDurationMs" to if (openedAtElapsedRealtimeMs > 0L) {
+                            nowElapsedRealtimeMs - openedAtElapsedRealtimeMs
+                        } else {
+                            null
+                        },
+                    ),
                     t,
                 )
                 listener.onDisconnected()
@@ -911,8 +933,23 @@ class FerrotuneApiClient {
                 if (currentEventSource === eventSource) {
                     currentEventSource = null
                 }
+                val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                val openedAtElapsedRealtimeMs = connectionOpenedAtElapsedRealtimeMs.get()
                 Log.d(TAG, "SSE closed for session $sessionId")
-                NativeAudioLogger.info(TAG, "sse_closed", "SSE closed", mapOf("sessionId" to sessionId))
+                NativeAudioLogger.info(
+                    TAG,
+                    "sse_closed",
+                    "SSE closed",
+                    mapOf(
+                        "sessionId" to sessionId,
+                        "connectionGeneration" to generation,
+                        "connectionDurationMs" to if (openedAtElapsedRealtimeMs > 0L) {
+                            nowElapsedRealtimeMs - openedAtElapsedRealtimeMs
+                        } else {
+                            null
+                        },
+                    ),
+                )
                 listener.onDisconnected()
             }
         })

@@ -447,10 +447,27 @@ async fn detach_client(
         .await
         .ok()
         .flatten();
-    let is_owner = session
+    let owner_client_id = session
         .as_ref()
-        .and_then(|session| session.owner_client_id.as_deref())
-        == Some(client_id);
+        .and_then(|session| session.owner_client_id.as_deref());
+    let is_owner = owner_client_id == Some(client_id);
+    let owner_heartbeat_fresh = if is_owner {
+        state
+            .session_manager
+            .is_client_heartbeat_fresh(session_id, client_id)
+            .await
+    } else {
+        false
+    };
+    let had_live_sse = if is_owner {
+        state
+            .session_manager
+            .is_client_sse_connected(session_id, client_id)
+            .await
+    } else {
+        false
+    };
+
     let removed = if force {
         state
             .session_manager
@@ -468,14 +485,65 @@ async fn detach_client(
             .await
     };
 
+    tracing::debug!(
+        target: "session_ownership",
+        session_id,
+        client_id,
+        force,
+        is_owner,
+        owner_heartbeat_fresh,
+        had_live_sse,
+        removed,
+        db_is_playing = session.as_ref().map(|value| value.is_playing),
+        db_last_heartbeat = ?session.as_ref().map(|value| value.last_heartbeat),
+        db_last_playing_at = ?session.as_ref().and_then(|value| value.last_playing_at),
+        "Evaluated SSE client detach"
+    );
+
     if !removed {
+        if is_owner {
+            tracing::debug!(
+                target: "session_ownership",
+                session_id,
+                client_id,
+                force,
+                owner_heartbeat_fresh,
+                had_live_sse,
+                "Preserved logical owner after SSE detach"
+            );
+        }
         return;
     }
 
     let owner_cleared = if is_owner {
-        queries::clear_session_owner(&state.database, session_id)
-            .await
-            .is_ok()
+        match queries::clear_session_owner(&state.database, session_id).await {
+            Ok(cleared) => {
+                tracing::warn!(
+                    target: "session_ownership",
+                    session_id,
+                    client_id,
+                    force,
+                    owner_heartbeat_fresh,
+                    had_live_sse,
+                    owner_cleared = cleared,
+                    "Cleared owner after SSE client removal"
+                );
+                cleared
+            }
+            Err(error) => {
+                tracing::error!(
+                    target: "session_ownership",
+                    session_id,
+                    client_id,
+                    force,
+                    owner_heartbeat_fresh,
+                    had_live_sse,
+                    error = %error,
+                    "Failed to clear owner after SSE client removal"
+                );
+                false
+            }
+        }
     } else {
         false
     };
@@ -703,6 +771,28 @@ pub async fn session_events(
     // Send current ownership info so reconnecting clients can correct stale
     // isAudioOwner state (e.g. after the background inactivity timeout cleared
     // ownership while the client's SSE was disconnected).
+    if session.owner_client_id.is_none() {
+        tracing::warn!(
+            target: "session_ownership",
+            session_id = %session.id,
+            reconnecting_client_id = ?query.client_id,
+            reconnecting_client_name = ?query.client_name,
+            db_is_playing = session.is_playing,
+            db_last_heartbeat = %session.last_heartbeat,
+            db_last_playing_at = ?session.last_playing_at,
+            "Sending ownerless initial snapshot to SSE client"
+        );
+    } else {
+        tracing::debug!(
+            target: "session_ownership",
+            session_id = %session.id,
+            reconnecting_client_id = ?query.client_id,
+            owner_client_id = ?session.owner_client_id,
+            db_is_playing = session.is_playing,
+            "Sending current owner initial snapshot to SSE client"
+        );
+    }
+
     let owner_event = SessionEvent::OwnerChanged {
         owner_client_name: session
             .owner_client_id
@@ -802,6 +892,16 @@ pub async fn session_command(
                     "clientId is required for takeOver".to_string(),
                 ))
             })?;
+
+        tracing::info!(
+            target: "session_ownership",
+            session_id,
+            client_id = new_client_id,
+            client_name = new_client_name,
+            position_ms = ?request.position_ms,
+            resume_playback = ?request.resume_playback,
+            "Processing explicit session ownership claim"
+        );
 
         queries::update_session_owner(
             &state.database,

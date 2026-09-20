@@ -301,11 +301,40 @@ fn spawn_inactive_owner_cleanup(
                         };
                         if owner_has_fresh_heartbeat {
                             tracing::debug!(
-                                "Keeping active owner for session {} despite stale playback marker",
-                                session.id
+                                target: "session_ownership",
+                                session_id = %session.id,
+                                owner_client_id = ?session.owner_client_id,
+                                owner_heartbeat_fresh = owner_has_fresh_heartbeat,
+                                db_is_playing = session.is_playing,
+                                db_last_heartbeat = %session.last_heartbeat,
+                                db_last_playing_at = ?session.last_playing_at,
+                                "Keeping active owner despite stale playback marker"
                             );
                             continue;
                         }
+
+                        let owner_sse_connected =
+                            if let Some(owner_client_id) = session.owner_client_id.as_deref() {
+                                Some(
+                                    session_manager
+                                        .is_client_sse_connected(&session.id, owner_client_id)
+                                        .await,
+                                )
+                            } else {
+                                None
+                            };
+
+                        tracing::warn!(
+                            target: "session_ownership",
+                            session_id = %session.id,
+                            owner_client_id = ?session.owner_client_id,
+                            owner_heartbeat_fresh = owner_has_fresh_heartbeat,
+                            owner_sse_connected = ?owner_sse_connected,
+                            db_is_playing = session.is_playing,
+                            db_last_heartbeat = %session.last_heartbeat,
+                            db_last_playing_at = ?session.last_playing_at,
+                            "Clearing inactive session owner"
+                        );
 
                         if let Err(error) =
                             db::queries::clear_session_owner(&database, &session.id).await
