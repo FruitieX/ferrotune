@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+group = "com.ferrotune.core"
+
 android {
     namespace = "com.ferrotune.core.network"
     compileSdk = 36
@@ -13,6 +15,7 @@ android {
     defaultConfig {
         minSdk = 24
     }
+
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -30,6 +33,7 @@ dependencies {
     api(project(":core:model"))
     implementation(project(":core:datastore"))
     api(libs.kotlinx.serialization.json)
+    api(libs.androidx.paging.runtime)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.retrofit)
     implementation(libs.retrofit.kotlinx.serialization)

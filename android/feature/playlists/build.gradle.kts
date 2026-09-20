@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.ferrotune.feature.library"
+    namespace = "com.ferrotune.feature.playlists"
     compileSdk = 36
 
     defaultConfig {

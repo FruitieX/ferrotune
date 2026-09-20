@@ -4,7 +4,9 @@
 
 package com.ferrotune.core.network.generated
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class UpdateSmartPlaylistRequest(
@@ -14,6 +16,8 @@ data class UpdateSmartPlaylistRequest(
     val rules: SmartPlaylistRulesApi? = null,
     val sortField: String? = null,
     val sortDirection: String? = null,
-    val maxSongs: Long? = null,
-    val folderId: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val maxSongs: JsonElement? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val folderId: JsonElement? = null,
 )

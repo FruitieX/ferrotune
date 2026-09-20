@@ -5,8 +5,8 @@ import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSearchContent
 import com.ferrotune.core.network.generated.FerrotuneSearchResponse
 import com.ferrotune.core.network.generated.SearchParams
-import com.ferrotune.feature.library.FakeApiProvider
-import com.ferrotune.feature.library.FakeFerrotuneApi
+import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.feature.library.testSong
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals

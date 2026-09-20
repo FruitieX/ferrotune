@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.ferrotune.feature.library"
+    namespace = "com.ferrotune.feature.home"
     compileSdk = 36
 
     defaultConfig {

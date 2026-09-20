@@ -1,7 +1,5 @@
 package com.ferrotune.feature.library.data
 
-import androidx.paging.PagingSource
-import androidx.paging.PagingState
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
@@ -9,48 +7,11 @@ import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
 import com.ferrotune.core.network.generated.SearchParams
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.core.network.paging.DEFAULT_PAGE_SIZE
+import com.ferrotune.core.network.paging.OffsetPagingSource
 import com.ferrotune.core.network.toQueryMap
 
-internal const val LIBRARY_PAGE_SIZE = 50
-
-/**
- * Offset-keyed paging over an endpoint that reports a total count.
- */
-abstract class OffsetPagingSource<T : Any> : PagingSource<Int, T>() {
-    protected abstract val pageSize: Int
-
-    protected abstract suspend fun loadPage(offset: Int, count: Int): PageResult<T>
-
-    protected data class PageResult<T>(
-        val items: List<T>,
-        val total: Long?,
-    )
-
-    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, T> {
-        val offset = params.key ?: 0
-        return try {
-            val page = loadPage(offset, pageSize)
-            val reachedEnd = when {
-                page.items.isEmpty() -> true
-                page.items.size < pageSize -> true
-                page.total != null -> offset + page.items.size >= page.total
-                else -> false
-            }
-            LoadResult.Page(
-                data = page.items,
-                prevKey = if (offset > 0) maxOf(0, offset - pageSize) else null,
-                nextKey = if (reachedEnd) null else offset + pageSize,
-            )
-        } catch (e: Exception) {
-            LoadResult.Error(e)
-        }
-    }
-
-    override fun getRefreshKey(state: PagingState<Int, T>): Int? {
-        val anchor = state.anchorPosition ?: return null
-        return (anchor / pageSize) * pageSize
-    }
-}
+internal const val LIBRARY_PAGE_SIZE = DEFAULT_PAGE_SIZE
 
 class SearchSongsPagingSource(
     private val apiProvider: FerrotuneApiProvider,

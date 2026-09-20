@@ -3,8 +3,8 @@ package com.ferrotune.feature.library.ui
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.GenresList
-import com.ferrotune.feature.library.FakeApiProvider
-import com.ferrotune.feature.library.FakeFerrotuneApi
+import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.feature.library.FakePlaybackStarter
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SongSort

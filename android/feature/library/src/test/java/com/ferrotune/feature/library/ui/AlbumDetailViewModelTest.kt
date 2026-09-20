@@ -3,8 +3,8 @@ package com.ferrotune.feature.library.ui
 import androidx.lifecycle.SavedStateHandle
 import com.ferrotune.core.network.generated.AlbumDetail
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
-import com.ferrotune.feature.library.FakeApiProvider
-import com.ferrotune.feature.library.FakeFerrotuneApi
+import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.feature.library.FakePlaybackStarter
 import com.ferrotune.feature.library.data.LibraryRepository
 import kotlinx.coroutines.Dispatchers

@@ -263,6 +263,10 @@ function mapTsType(tsType, rustType, generatedNames, context) {
 
 function mapNonNullable(type, rustType, generatedNames, context) {
   const rustInner = unwrapRustType(rustType, "Option") ?? rustType;
+  if (splitTopLevel(type, "|").length > 1) {
+    warn(`${context}: heterogeneous union mapped to JsonElement (${type})`);
+    return "JsonElement";
+  }
   const arrayMatch = type.match(/^Array<([\s\S]+)>$/);
   if (arrayMatch) {
     const elementRust = unwrapRustType(rustInner, "Vec");
@@ -375,6 +379,17 @@ function emitKotlin(types, generatedNames, rustIndex) {
         if (!rustType) {
           warn(`${type.name}.${field.name}: no Rust field match`);
         }
+        const normalizedRust = (rustType ?? "").replace(/\s+/g, "");
+        if (/^Option<Option<[\s\S]+>>$/.test(normalizedRust)) {
+          imports.add("kotlinx.serialization.EncodeDefault");
+          imports.add("kotlinx.serialization.json.JsonElement");
+          return {
+            name: field.name,
+            type: "JsonElement?",
+            default: " = null",
+            annotation: "@EncodeDefault(EncodeDefault.Mode.NEVER)",
+          };
+        }
         const mapped = mapTsType(
           field.tsType,
           rustType,
@@ -395,6 +410,7 @@ function emitKotlin(types, generatedNames, rustIndex) {
       lines.push("@Serializable");
       lines.push(`data class ${type.name}(`);
       fields.forEach((field) => {
+        if (field.annotation) lines.push(`    ${field.annotation}`);
         lines.push(`    val ${field.name}: ${field.type}${field.default},`);
       });
       lines.push(")");

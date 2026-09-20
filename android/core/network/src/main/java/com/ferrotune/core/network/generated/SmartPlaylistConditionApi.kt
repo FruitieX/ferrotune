@@ -11,5 +11,5 @@ import kotlinx.serialization.json.JsonElement
 data class SmartPlaylistConditionApi(
     val field: String,
     val operator: String,
-    val value: List<JsonElement>,
+    val value: JsonElement,
 )
