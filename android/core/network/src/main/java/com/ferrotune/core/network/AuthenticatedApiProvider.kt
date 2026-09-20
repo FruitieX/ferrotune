@@ -26,7 +26,7 @@ class AuthenticatedApiProvider @Inject constructor(
         val api: FerrotuneApi,
     )
 
-    suspend fun requireAccount(): Account =
+    override suspend fun requireAccount(): Account =
         accountStore.activeAccount.first()
             ?: throw FerrotuneApiException(401, "Not signed in")
 

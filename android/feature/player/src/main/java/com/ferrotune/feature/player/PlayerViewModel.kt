@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.media.PlaybackEvent
 import com.ferrotune.core.media.PlaybackRepository
+import com.ferrotune.core.media.PlaybackSessionStarter
 import com.ferrotune.core.media.PlaybackStatus
 import com.ferrotune.core.media.TrackInfo
 import dagger.hilt.android.lifecycle.HiltViewModel

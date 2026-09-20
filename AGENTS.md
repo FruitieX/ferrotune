@@ -419,7 +419,12 @@ typed flows.
 | `android/core/media/PlaybackEvent.kt` | Typed playback events (replaces JSON-over-WebView payloads) | `StateChanged`, `Progress`, `TrackChanged`, `PlaybackError`, `QueueStateChanged`, `StarToggled`, ... |
 | `android/feature/player/PlaybackSessionStarter.kt` | Connects a server playback session and starts queues for the active account | `startRandomQueue(size)` |
 | `android/core/datastore/AccountStore.kt` | Encrypted account persistence plus stable device identity | `accounts`, `activeAccount`, `upsert()`, `setActive()`, `clientId()` |
-| `android/core/network/FerrotuneApi.kt` | Retrofit native API surface bound to a server URL/token | `login()`, `me()`, `refresh()`, `logout()`, `connectSession()`, `startQueue()`, `randomSongs()` |
+| `android/core/network/FerrotuneApi.kt` | Retrofit native API surface bound to a server URL/token | `login()`, `me()`, `refresh()`, `logout()`, `connectSession()`, `startQueue()`, `randomSongs()`, `search()`, `artist*`, `album*`, `song*`, `genres()`, `history()`, `star()`, `setRating()` |
+| `android/core/network/AuthenticatedApiProvider.kt` | Caches the active account's `FerrotuneApi` and `Account`; also backs the app-wide authenticated OkHttp client for Coil | `requireApi()`, `requireAccount()` |
+| `android/core/network/QueryMap.kt` | Converts generated query DTOs into Retrofit `@QueryMap` parameters, omitting nulls | `toQueryMap()` |
+| `android/core/media/PlaybackSessionStarter.kt` | Connects a playback session and materializes queues (library, album, artist, genre, favorites, history, search, song radio, explicit song IDs) | `QueueStartSpec`, `startQueue()`, `startRandomQueue()`, `startAlbum()`, `startArtist()`, `startSongRadio()`, `queueSort()` |
+| `android/feature/library/LibraryRepository.kt` + `LibraryPagingSources.kt` | Paged browse/search/history reads and starring/rating mutations; server-side sort/filter keys | `songs()`, `albums()`, `artists()`, `albumSongs()`, `artistSongs()`, `artistAlbums()`, `history()`, `genres()`, `similarSongs()`, `setStarred()`, `setRating()` |
+| `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt`, `MediaRow`, `SortMenu`, `PagingListFooter`, `ErrorState`, `EmptyState`, `LoadingState` |
 
 ---
 

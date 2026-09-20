@@ -1,6 +1,5 @@
 package com.ferrotune.core.network
 
-import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -14,24 +13,18 @@ class FerrotuneApiFactory @Inject constructor() {
     fun create(serverUrl: String, tokenProvider: (() -> String?)? = null): FerrotuneApi {
         val builder = OkHttpClient.Builder()
         if (tokenProvider != null) {
-            builder.addInterceptor(Interceptor { chain ->
-                val token = tokenProvider()
-                val request = if (token.isNullOrBlank()) {
-                    chain.request()
-                } else {
-                    chain.request().newBuilder()
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                }
-                chain.proceed(request)
-            })
+            builder.addInterceptor { chain ->
+                chain.proceed(chain.request().withBearerToken(tokenProvider()))
+            }
         }
+        return create(serverUrl, builder.build())
+    }
 
-        return Retrofit.Builder()
+    fun create(serverUrl: String, client: OkHttpClient): FerrotuneApi =
+        Retrofit.Builder()
             .baseUrl(serverUrl.trimEnd('/') + "/")
-            .client(builder.build())
+            .client(client)
             .addConverterFactory(FerrotuneJson.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(FerrotuneApi::class.java)
-    }
 }

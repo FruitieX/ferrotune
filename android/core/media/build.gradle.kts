@@ -35,6 +35,9 @@ kotlin {
 }
 
 dependencies {
+    api(project(":core:model"))
+    implementation(project(":core:network"))
+    implementation(project(":core:datastore"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.exoplayer)
