@@ -1,6 +1,7 @@
 package com.ferrotune.feature.library.data
 
 import androidx.paging.PagingSource
+import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.FerrotuneApi
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.dto.AuthLoginRequest
@@ -54,6 +55,18 @@ class LibraryPagingSourcesTest {
 
     private val provider = object : FerrotuneApiProvider {
         override suspend fun requireApi(): FerrotuneApi = api
+
+        override suspend fun requireAccount(): Account = Account(
+            id = "test",
+            label = "Test",
+            serverUrl = "http://localhost:4040",
+            username = "tester",
+            userId = 1L,
+            email = "",
+            isAdmin = false,
+            sessionToken = "token",
+            sessionExpiresAt = "",
+        )
     }
 
     @Test

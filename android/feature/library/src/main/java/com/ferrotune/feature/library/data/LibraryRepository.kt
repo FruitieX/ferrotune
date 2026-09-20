@@ -136,6 +136,8 @@ class LibraryRepository @Inject constructor(
     suspend fun similarSongs(songId: String, count: Int = 99): FerrotuneSimilarSongsResponse =
         apiProvider.requireApi().similarSongs(songId, count)
 
+    suspend fun activeServerUrl(): String = apiProvider.requireAccount().serverUrl
+
     suspend fun setStarred(
         songIds: List<String> = emptyList(),
         albumIds: List<String> = emptyList(),
