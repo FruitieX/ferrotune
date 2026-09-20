@@ -390,6 +390,21 @@ field fallbacks in components.
 | `NativeListeningSessionLifecycle.kt` | Pure native listening-session state machine for periodic updates, pause snapshots, and per-track finalization while the WebView sleeps. |
 | `WebViewPlaybackEventPolicy.kt` | Drops stale playback snapshots while the Android WebView is backgrounded; the plugin emits one current snapshot on resume. |
 
+### Native Android Modules (`android/`)
+
+The native client lives in `android/` and will replace the Tauri/WebView Android
+path (see `docs/NATIVE_ANDROID.md`). The playback engine moved to
+`android/core/media` in M1 and drops the JSObject/WebView bridge in favour of
+typed flows.
+
+| Module | Purpose | Key APIs |
+|--------|---------|----------|
+| `android/core/media/PlaybackRepository.kt` | App-scoped front end for `PlaybackService`; binds on first use, mirrors state to flows, exposes suspend commands | `state: StateFlow<PlaybackState>`, `events: SharedFlow<PlaybackEvent>`, `initSession()`, `startPlayback()`, `play()`, `pause()`, `nextTrack()`, `previousTrack()`, `seek()` |
+| `android/core/media/PlaybackEvent.kt` | Typed playback events (replaces JSON-over-WebView payloads) | `StateChanged`, `Progress`, `TrackChanged`, `PlaybackError`, `QueueStateChanged`, `StarToggled`, ... |
+| `android/feature/player/PlaybackSessionStarter.kt` | Connects a server playback session and starts queues for the active account | `startRandomQueue(size)` |
+| `android/core/datastore/AccountStore.kt` | Encrypted account persistence plus stable device identity | `accounts`, `activeAccount`, `upsert()`, `setActive()`, `clientId()` |
+| `android/core/network/FerrotuneApi.kt` | Retrofit native API surface bound to a server URL/token | `login()`, `me()`, `refresh()`, `logout()`, `connectSession()`, `startQueue()`, `randomSongs()` |
+
 ---
 
 ## Common Tasks

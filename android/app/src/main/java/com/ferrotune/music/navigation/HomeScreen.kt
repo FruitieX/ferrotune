@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ferrotune.core.model.Account
+import com.ferrotune.feature.player.DebugPlaybackCard
 
 @Composable
 fun HomeScreen(
@@ -46,11 +47,7 @@ fun HomeScreen(
             )
         }
         Spacer(Modifier.height(24.dp))
-        Text(
-            text = "Player and library coming next",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        DebugPlaybackCard()
         Spacer(Modifier.height(24.dp))
         OutlinedButton(onClick = onSwitchAccount) {
             Text("Switch account")

@@ -11,7 +11,7 @@ import javax.inject.Singleton
 @Singleton
 class FerrotuneApiFactory @Inject constructor() {
 
-    fun create(serverUrl: String, tokenProvider: (() -> String?)? = null): FerrotuneAuthApi {
+    fun create(serverUrl: String, tokenProvider: (() -> String?)? = null): FerrotuneApi {
         val builder = OkHttpClient.Builder()
         if (tokenProvider != null) {
             builder.addInterceptor(Interceptor { chain ->
@@ -32,6 +32,6 @@ class FerrotuneApiFactory @Inject constructor() {
             .client(builder.build())
             .addConverterFactory(FerrotuneJson.asConverterFactory("application/json".toMediaType()))
             .build()
-            .create(FerrotuneAuthApi::class.java)
+            .create(FerrotuneApi::class.java)
     }
 }
