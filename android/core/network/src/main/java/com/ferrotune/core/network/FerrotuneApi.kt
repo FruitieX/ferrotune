@@ -1,6 +1,12 @@
 package com.ferrotune.core.network
 
 import com.ferrotune.core.network.dto.AuthLoginRequest
+import com.ferrotune.core.network.dto.MoveInQueueRequest
+import com.ferrotune.core.network.dto.QueueParams
+import com.ferrotune.core.network.dto.QueueWindowParams
+import com.ferrotune.core.network.dto.RepeatModeRequest
+import com.ferrotune.core.network.dto.SessionParams
+import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.AuthLoginResponseDto
 import com.ferrotune.core.network.dto.AuthMeResponseDto
 import com.ferrotune.core.network.dto.AuthSessionRefreshResponseDto
@@ -21,6 +27,7 @@ import com.ferrotune.core.network.generated.ConnectSessionResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
+import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
 import com.ferrotune.core.network.generated.FerrotuneArtistResponse
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
@@ -48,6 +55,7 @@ import com.ferrotune.core.network.generated.PlaylistMembershipRequest
 import com.ferrotune.core.network.generated.PlaylistMembershipResponse
 import com.ferrotune.core.network.generated.PlaylistSharesResponse
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
+import com.ferrotune.core.network.generated.QueueSuccessResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
@@ -96,6 +104,30 @@ interface FerrotuneApi {
 
     @POST("api/queue/start")
     suspend fun startQueue(@Body request: StartQueueRequest): StartQueueResponse
+
+    @GET("api/queue")
+    suspend fun queue(@QueryMap params: Map<String, String>): GetQueueResponse
+
+    @GET("api/queue/current-window")
+    suspend fun queueWindow(@QueryMap params: Map<String, String>): GetQueueResponse
+
+    @DELETE("api/queue")
+    suspend fun clearQueue(@QueryMap params: Map<String, String>): QueueSuccessResponse
+
+    @DELETE("api/queue/{position}")
+    suspend fun removeFromQueue(
+        @Path("position") position: Long,
+        @QueryMap params: Map<String, String>,
+    ): QueueSuccessResponse
+
+    @POST("api/queue/move")
+    suspend fun moveInQueue(@Body request: MoveInQueueRequest): QueueSuccessResponse
+
+    @POST("api/queue/shuffle")
+    suspend fun toggleQueueShuffle(@Body request: ShuffleRequest): QueueSuccessResponse
+
+    @POST("api/queue/repeat")
+    suspend fun setQueueRepeatMode(@Body request: RepeatModeRequest): QueueSuccessResponse
 
     @GET("api/songs/random")
     suspend fun randomSongs(@Query("size") size: Int): FerrotuneRandomSongsResponse

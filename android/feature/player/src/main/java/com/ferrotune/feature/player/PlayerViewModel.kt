@@ -24,6 +24,8 @@ data class PlayerUiState(
     val durationMs: Long = 0,
     val queueIndex: Int = -1,
     val queueLength: Int = 0,
+    val isShuffled: Boolean = false,
+    val repeatMode: String = "off",
     val isStartingQueue: Boolean = false,
     val error: String? = null,
 ) {
@@ -53,6 +55,8 @@ class PlayerViewModel @Inject constructor(
             durationMs = playback.durationMs,
             queueIndex = playback.queueIndex,
             queueLength = playback.queueLength,
+            isShuffled = playback.isShuffled,
+            repeatMode = playback.repeatMode,
             isStartingQueue = starting,
             error = errorMessage,
         )
@@ -81,6 +85,21 @@ class PlayerViewModel @Inject constructor(
 
     fun previous() {
         viewModelScope.launch { repository.previousTrack() }
+    }
+
+    fun toggleShuffle() {
+        viewModelScope.launch {
+            repository.setShuffle(!uiState.value.isShuffled)
+        }
+    }
+
+    fun cycleRepeat() {
+        val next = when (uiState.value.repeatMode) {
+            "off" -> "all"
+            "all" -> "one"
+            else -> "off"
+        }
+        viewModelScope.launch { repository.setRepeatMode(next) }
     }
 
     fun seekToFraction(fraction: Float) {

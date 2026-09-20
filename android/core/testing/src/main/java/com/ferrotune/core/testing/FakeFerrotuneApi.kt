@@ -4,6 +4,12 @@ import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.FerrotuneApi
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.dto.AuthLoginRequest
+import com.ferrotune.core.network.dto.MoveInQueueRequest
+import com.ferrotune.core.network.dto.QueueParams
+import com.ferrotune.core.network.dto.QueueWindowParams
+import com.ferrotune.core.network.dto.RepeatModeRequest
+import com.ferrotune.core.network.dto.SessionParams
+import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.AuthLoginResponseDto
 import com.ferrotune.core.network.dto.AuthMeResponseDto
 import com.ferrotune.core.network.dto.AuthSessionRefreshResponseDto
@@ -25,6 +31,7 @@ import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
+import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.FerrotuneArtistResponse
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryResponse
@@ -51,6 +58,7 @@ import com.ferrotune.core.network.generated.PlaylistMembershipRequest
 import com.ferrotune.core.network.generated.PlaylistMembershipResponse
 import com.ferrotune.core.network.generated.PlaylistSharesResponse
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
+import com.ferrotune.core.network.generated.QueueSuccessResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
@@ -119,6 +127,27 @@ open class FakeFerrotuneApi(
         error("unused")
 
     override suspend fun startQueue(request: StartQueueRequest): StartQueueResponse = error("unused")
+
+    override suspend fun queue(params: Map<String, String>): GetQueueResponse = error("unused")
+
+    override suspend fun queueWindow(params: Map<String, String>): GetQueueResponse = error("unused")
+
+    override suspend fun clearQueue(params: Map<String, String>): QueueSuccessResponse =
+        error("unused")
+
+    override suspend fun removeFromQueue(
+        position: Long,
+        params: Map<String, String>,
+    ): QueueSuccessResponse = error("unused")
+
+    override suspend fun moveInQueue(request: MoveInQueueRequest): QueueSuccessResponse =
+        error("unused")
+
+    override suspend fun toggleQueueShuffle(request: ShuffleRequest): QueueSuccessResponse =
+        error("unused")
+
+    override suspend fun setQueueRepeatMode(request: RepeatModeRequest): QueueSuccessResponse =
+        error("unused")
     override suspend fun randomSongs(size: Int): FerrotuneRandomSongsResponse = error("unused")
     override suspend fun search(params: Map<String, String>): FerrotuneSearchResponse =
         onSearch(params)

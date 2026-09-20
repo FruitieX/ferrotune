@@ -49,7 +49,10 @@ data class PlaybackState(
     val muted: Boolean = false,
     val track: TrackInfo? = null,
     val queueIndex: Int = -1,
-    val queueLength: Int = 0
+    val queueLength: Int = 0,
+    val sessionId: String? = null,
+    val isShuffled: Boolean = false,
+    val repeatMode: String = "off"
 )
 
 /**

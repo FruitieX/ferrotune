@@ -153,6 +153,8 @@ class FerrotuneApiClient {
 
     fun getClientId(): String? = sessionConfig?.clientId
 
+    fun currentSessionId(): String? = sessionConfig?.sessionId
+
     fun updateSessionId(sessionId: String) {
         val config = sessionConfig
         if (config != null) {

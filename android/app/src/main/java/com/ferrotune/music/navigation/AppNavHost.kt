@@ -1,5 +1,7 @@
 package com.ferrotune.music.navigation
 
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -307,7 +309,13 @@ fun FerrotuneApp(
                         onOpenAlbum = { navController.navigate(Routes.album(it)) },
                     )
                 }
-                composable(Routes.NOW_PLAYING) {
+                composable(
+                    route = Routes.NOW_PLAYING,
+                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
+                    exitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                    popEnterTransition = { slideInVertically(initialOffsetY = { it }) },
+                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                ) {
                     NowPlayingScreen(onBack = { navController.popBackStack() })
                 }
             }

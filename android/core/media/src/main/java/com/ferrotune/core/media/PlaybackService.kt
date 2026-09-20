@@ -4190,7 +4190,10 @@ class PlaybackService : MediaSessionService() {
             muted = userVolume == 0f,
             track = currentTrack,
             queueIndex = queueIndex,
-            queueLength = queue.size
+            queueLength = queue.size,
+            sessionId = apiClient.currentSessionId(),
+            isShuffled = isShuffled,
+            repeatMode = repeatMode
         )
     }
 

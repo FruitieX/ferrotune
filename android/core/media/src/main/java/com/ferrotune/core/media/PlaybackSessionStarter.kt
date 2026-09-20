@@ -126,6 +126,10 @@ class PlaybackSessionStarter @Inject constructor(
         )
     }
 
+    override suspend fun playAtIndex(index: Int) = repository.playAtIndex(index)
+
+    override val state = repository.state
+
     private companion object {
         const val DEFAULT_RANDOM_QUEUE_SIZE = 50
         const val SOURCE_TYPE_OTHER = "other"

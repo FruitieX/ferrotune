@@ -429,6 +429,7 @@ typed flows.
 | `android/feature/playlists/SmartPlaylistRules.kt` | Smart playlist rule field/operator descriptors plus `SmartConditionDraft` ⇄ `SmartPlaylistConditionApi` value conversion | `ruleFields()`, `operatorsFor()`, `SmartConditionDraft.toApiCondition()`, `SmartPlaylistConditionApi.toDraft()` |
 | `android/feature/playlists/AddToPlaylistDialog.kt` | Overflow action + dialog for adding song IDs to an editable playlist; hosts its own Hilt VM so any feature can use it | `AddToPlaylistAction()`, `AddToPlaylistDialog()` |
 | `android/feature/home/HomeRepository.kt` | Home dashboard sections, stats, and listening review reads | `home()`, `stats()`, `listeningStats()`, `periodReview()` |
+| `android/feature/player/QueueRepository.kt` | Server-side queue window reads and edits for the queue sheet; mutations flow back through SSE | `loadQueue()`, `removeEntry()`, `clear()`, `moveEntry()`, `setShuffled()`, `setRepeatMode()`, `QueueSnapshot`, `QueueEntry` |
 | `android/core/network/paging/OffsetPagingSource.kt` | Shared offset-keyed Paging 3 base for endpoints that report totals | `OffsetPagingSource`, `DEFAULT_PAGE_SIZE` |
 | `android/core/testing/FakeFerrotuneApi.kt` | Shared `FerrotuneApi` test double with per-endpoint handler lambdas; consumed as `testImplementation(project(":core:testing"))` | `FakeFerrotuneApi`, `FakeApiProvider`, `testAccount()`, `FakePlaybackStarter` |
 | `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt`, `MediaRow`, `SortMenu`, `PagingListFooter`, `ErrorState`, `EmptyState`, `LoadingState` |

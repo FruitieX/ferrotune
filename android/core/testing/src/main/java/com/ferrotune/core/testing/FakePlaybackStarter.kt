@@ -1,7 +1,9 @@
 package com.ferrotune.core.testing
 
 import com.ferrotune.core.media.PlaybackStarter
+import com.ferrotune.core.media.PlaybackState
 import com.ferrotune.core.media.QueueStartSpec
+import kotlinx.coroutines.flow.MutableStateFlow
 
 data class AlbumStart(
     val albumId: String,
@@ -12,6 +14,13 @@ data class AlbumStart(
 class FakePlaybackStarter(private val failure: String? = null) : PlaybackStarter {
     val specs = mutableListOf<QueueStartSpec>()
     val albumStarts = mutableListOf<AlbumStart>()
+    val playedAtIndex = mutableListOf<Int>()
+    override val state = MutableStateFlow(PlaybackState())
+
+    override suspend fun playAtIndex(index: Int) {
+        failure?.let { throw IllegalStateException(it) }
+        playedAtIndex += index
+    }
 
     override suspend fun startQueue(spec: QueueStartSpec) {
         failure?.let { throw IllegalStateException(it) }

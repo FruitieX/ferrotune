@@ -1,9 +1,11 @@
 package com.ferrotune.feature.player
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -11,8 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,13 +29,25 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.gestures.detectDragGestures
+import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.inlineCoverModel
+import kotlin.math.abs
 
 @Composable
 fun NowPlayingScreen(
@@ -38,22 +56,83 @@ fun NowPlayingScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val haptics = LocalHapticFeedback.current
+    var queueOpen by remember { mutableStateOf(false) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .graphicsLayer { translationY = dragOffsetY }
+            .pointerInput(Unit) {
+                var totalX = 0f
+                var totalY = 0f
+                var vertical: Boolean? = null
+                detectDragGestures(
+                    onDragStart = {
+                        totalX = 0f
+                        totalY = 0f
+                        vertical = null
+                    },
+                    onDragEnd = {
+                        if (vertical == true) {
+                            if (totalY > 160.dp.toPx()) {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onBack()
+                            }
+                        } else if (abs(totalX) > 120.dp.toPx()) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (totalX > 0) viewModel.previous() else viewModel.next()
+                        }
+                        dragOffsetY = 0f
+                    },
+                    onDragCancel = { dragOffsetY = 0f },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        if (vertical == null && (abs(amount.x) > 2f || abs(amount.y) > 2f)) {
+                            vertical = abs(amount.y) >= abs(amount.x)
+                        }
+                        if (vertical == true) {
+                            totalY += amount.y
+                            dragOffsetY = totalY.coerceAtLeast(0f)
+                        } else {
+                            totalX += amount.x
+                        }
+                    },
+                )
+            }
             .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Close now playing")
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Close now playing",
+                )
             }
             Text(
                 text = "Now Playing",
                 style = MaterialTheme.typography.titleMedium,
             )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { queueOpen = true }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "Queue",
+                )
+            }
         }
+
+        Spacer(Modifier.height(24.dp))
+
+        CoverArt(
+            model = inlineCoverModel(state.track?.coverArtData) ?: state.track?.coverArtUrl,
+            contentDescription = state.track?.album,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f),
+        )
 
         Spacer(Modifier.weight(1f))
 
@@ -101,12 +180,23 @@ fun NowPlayingScreen(
             Text(formatDuration(state.durationMs), style = MaterialTheme.typography.labelSmall)
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
+            IconButton(onClick = viewModel::toggleShuffle) {
+                Icon(
+                    Icons.Filled.Shuffle,
+                    contentDescription = "Shuffle",
+                    tint = if (state.isShuffled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
             IconButton(onClick = viewModel::previous) {
                 Icon(
                     Icons.Filled.SkipPrevious,
@@ -132,9 +222,28 @@ fun NowPlayingScreen(
                     modifier = Modifier.size(40.dp),
                 )
             }
+            IconButton(onClick = viewModel::cycleRepeat) {
+                Icon(
+                    imageVector = if (state.repeatMode == "one") {
+                        Icons.Filled.RepeatOne
+                    } else {
+                        Icons.Filled.Repeat
+                    },
+                    contentDescription = "Repeat ${state.repeatMode}",
+                    tint = if (state.repeatMode == "off") {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
+            }
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (queueOpen) {
+        QueueSheet(onDismiss = { queueOpen = false })
     }
 }
 

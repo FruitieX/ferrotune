@@ -115,6 +115,8 @@ class PlaybackRepository @Inject constructor(
 
     suspend fun seek(positionMs: Long) = awaitService().seek(positionMs)
 
+    suspend fun playAtIndex(index: Int) = awaitService().playAtIndex(index)
+
     suspend fun setRepeatMode(mode: String) = awaitService().setRepeatMode(mode)
 
     suspend fun setShuffle(enabled: Boolean) = awaitService().autonomousToggleShuffle(enabled).await()

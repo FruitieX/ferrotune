@@ -1,5 +1,7 @@
 package com.ferrotune.core.media
 
+import kotlinx.coroutines.flow.StateFlow
+
 /**
  * Playback start surface used by UI features. Implemented by
  * [PlaybackSessionStarter]; extracted so ViewModels can be unit tested with a
@@ -22,9 +24,14 @@ interface PlaybackStarter {
         startSongId: String? = null,
     )
 
+
     suspend fun startArtist(
         artistId: String,
         sourceName: String? = null,
         startSongId: String? = null,
     )
+
+    suspend fun playAtIndex(index: Int)
+
+    val state: StateFlow<PlaybackState>
 }
