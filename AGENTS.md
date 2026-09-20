@@ -156,7 +156,23 @@ moon run android:test-unit        # JVM unit tests
 moon run android:lint             # Android lint
 moon run android:assemble-debug   # debug APK
 moon run android:install-debug    # install on a connected device/emulator
+moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 ```
+
+### Kotlin DTOs (`android/core/network/.../generated/`)
+
+Response DTOs are generated from the ts-rs TypeScript contracts
+(`client/src/lib/api/generated`) by
+`android/scripts/generate-kotlin-bindings.mjs` and committed. The TypeScript
+files are the wire-shape source of truth; the script indexes Rust structs only
+to recover numeric precision (i32 → `Int`, i64 → `Long`, f64 → `Double`).
+
+- After changing Rust response structs, run `moon run generate-bindings`
+  (Rust/ts-rs) and then `moon run android:generate-bindings`.
+- Never hand-edit generated files; CI fails when they drift from the TS
+  contracts.
+- Request/query structs that ts-rs does not export stay hand-written in
+  `android/core/network/.../dto/`.
 
 ---
 

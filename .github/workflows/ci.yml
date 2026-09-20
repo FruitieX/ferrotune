@@ -102,6 +102,10 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Android unit tests and lint
         run: nix develop .#android -c moon run android:test-unit android:lint
+      - name: Check Kotlin DTO bindings are current
+        run: |
+          nix develop .#android -c moon run android:generate-bindings
+          git diff --exit-code -- android/core/network/src/main/java/com/ferrotune/core/network/generated
       - name: Build debug APK
         run: nix develop .#android -c moon run android:assemble-debug
 

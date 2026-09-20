@@ -20,6 +20,22 @@ fileGroups:
 
 tasks:
   # ============================================================================
+  # CODE GENERATION
+  # ============================================================================
+
+  generate-bindings:
+    command: "bash scripts/generate-kotlin-bindings.sh"
+    inputs:
+      - "/client/src/lib/api/generated/**/*"
+      - "scripts/generate-kotlin-bindings.mjs"
+      - "scripts/generate-kotlin-bindings.sh"
+    outputs:
+      - "core/network/src/main/java/com/ferrotune/core/network/generated/**/*"
+    options:
+      cache: true
+      runInCI: false
+
+  # ============================================================================
   # BUILD
   # ============================================================================
 

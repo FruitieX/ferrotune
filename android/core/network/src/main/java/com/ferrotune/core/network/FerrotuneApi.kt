@@ -5,10 +5,10 @@ import com.ferrotune.core.network.dto.AuthLoginResponseDto
 import com.ferrotune.core.network.dto.AuthMeResponseDto
 import com.ferrotune.core.network.dto.AuthSessionRefreshResponseDto
 import com.ferrotune.core.network.dto.ConnectSessionRequest
-import com.ferrotune.core.network.dto.ConnectSessionResponseDto
-import com.ferrotune.core.network.dto.RandomSongsResponseDto
-import com.ferrotune.core.network.dto.StartQueueRequest
-import com.ferrotune.core.network.dto.StartQueueResponseDto
+import com.ferrotune.core.network.generated.ConnectSessionResponse
+import com.ferrotune.core.network.generated.FerrotuneRandomSongsResponse
+import com.ferrotune.core.network.generated.StartQueueRequest
+import com.ferrotune.core.network.generated.StartQueueResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
@@ -32,11 +32,11 @@ interface FerrotuneApi {
     suspend fun logout()
 
     @POST("api/sessions")
-    suspend fun connectSession(@Body request: ConnectSessionRequest): ConnectSessionResponseDto
+    suspend fun connectSession(@Body request: ConnectSessionRequest): ConnectSessionResponse
 
     @POST("api/queue/start")
-    suspend fun startQueue(@Body request: StartQueueRequest): StartQueueResponseDto
+    suspend fun startQueue(@Body request: StartQueueRequest): StartQueueResponse
 
     @GET("api/songs/random")
-    suspend fun randomSongs(@Query("size") size: Int): RandomSongsResponseDto
+    suspend fun randomSongs(@Query("size") size: Int): FerrotuneRandomSongsResponse
 }

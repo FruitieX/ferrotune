@@ -124,6 +124,7 @@
             androidSdk
             pkgs.jdk17
             pkgs.moon
+            pkgs.nodejs_24 # Kotlin DTO codegen (android:generate-bindings)
           ];
           ANDROID_HOME = "${androidSdk}/share/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";

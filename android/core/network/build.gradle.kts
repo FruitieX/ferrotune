@@ -28,7 +28,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core:model"))
-    implementation(libs.kotlinx.serialization.json)
+    api(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.retrofit)
     implementation(libs.retrofit.kotlinx.serialization)

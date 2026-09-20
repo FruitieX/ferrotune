@@ -7,7 +7,7 @@ import com.ferrotune.core.media.SessionConfig
 import com.ferrotune.core.network.FerrotuneApiFactory
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.ConnectSessionRequest
-import com.ferrotune.core.network.dto.StartQueueRequest
+import com.ferrotune.core.network.generated.StartQueueRequest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -42,8 +42,13 @@ class PlaybackSessionStarter @Inject constructor(
                     sourceType = SOURCE_TYPE_RANDOM,
                     sourceName = "Random songs",
                     startIndex = 0,
+                    shuffle = false,
                     songIds = songs.map { it.id },
+                    sources = emptyList(),
+                    inlineImages = null,
                     clientId = clientId,
+                    clientName = "ferrotune-mobile",
+                    keepPlaying = false,
                 )
             )
         }
@@ -61,8 +66,8 @@ class PlaybackSessionStarter @Inject constructor(
         )
 
         repository.startPlayback(
-            totalCount = queue.totalCount,
-            currentIndex = queue.currentIndex,
+            totalCount = queue.totalCount.toInt(),
+            currentIndex = queue.currentIndex.toInt(),
             isShuffled = queue.isShuffled,
             repeatMode = queue.repeatMode,
             sessionId = session.id,
