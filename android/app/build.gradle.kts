@@ -53,6 +53,7 @@ dependencies {
     implementation(project(":feature:auth"))
     implementation(project(":feature:library"))
     implementation(project(":feature:player"))
+    implementation(project(":feature:playlists"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

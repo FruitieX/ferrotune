@@ -53,6 +53,7 @@ import com.ferrotune.core.network.generated.PlaylistSongsResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
+import com.ferrotune.core.network.generated.ShareableUsersResponse
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
@@ -233,6 +234,8 @@ open class FakeFerrotuneApi(
     ): PlaylistMembershipResponse = error("unused")
 
     override suspend fun recentlyPlayedPlaylists(): RecentPlaylistsResponse = error("unused")
+
+    override suspend fun shareableUsers(): ShareableUsersResponse = error("unused")
 
     override suspend fun playlistShares(id: String): PlaylistSharesResponse = error("unused")
 

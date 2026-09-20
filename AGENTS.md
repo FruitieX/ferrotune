@@ -424,6 +424,10 @@ typed flows.
 | `android/core/network/QueryMap.kt` | Converts generated query DTOs into Retrofit `@QueryMap` parameters, omitting nulls | `toQueryMap()` |
 | `android/core/media/PlaybackSessionStarter.kt` | Connects a playback session and materializes queues (library, album, artist, genre, favorites, history, search, song radio, explicit song IDs) | `QueueStartSpec`, `startQueue()`, `startRandomQueue()`, `startAlbum()`, `startArtist()`, `startSongRadio()`, `queueSort()` |
 | `android/feature/library/LibraryRepository.kt` + `LibraryPagingSources.kt` | Paged browse/search/history reads and starring/rating mutations; server-side sort/filter keys | `songs()`, `albums()`, `artists()`, `albumSongs()`, `artistSongs()`, `artistAlbums()`, `history()`, `genres()`, `similarSongs()`, `setStarred()`, `setRating()` |
+| `android/feature/playlists/PlaylistRepository.kt` + `PlaylistPagingSources.kt` | Playlist folders, playlists, smart playlists, shares, membership, and song search | `folders()`, `createFolder()`, `updateFolder()`, `movePlaylist()`, `playlistSongs()`, `addSongs()`, `removeSongs()`, `moveEntry()`, `shares()`, `setShares()`, `smartPlaylists()`, `materializeSmartPlaylist()`, `searchSongs()` |
+| `android/feature/playlists/PlaylistFolderTree.kt` | Builds the folder hierarchy the playlist browser renders (position/name ordering, orphan fallback) | `buildPlaylistTree()`, `PlaylistFolderNode`, `PlaylistTree` |
+| `android/core/network/paging/OffsetPagingSource.kt` | Shared offset-keyed Paging 3 base for endpoints that report totals | `OffsetPagingSource`, `DEFAULT_PAGE_SIZE` |
+| `android/core/testing/FakeFerrotuneApi.kt` | Shared `FerrotuneApi` test double with per-endpoint handler lambdas; consumed as `testImplementation(project(":core:testing"))` | `FakeFerrotuneApi`, `FakeApiProvider`, `testAccount()` |
 | `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt`, `MediaRow`, `SortMenu`, `PagingListFooter`, `ErrorState`, `EmptyState`, `LoadingState` |
 
 ---

@@ -50,6 +50,7 @@ import com.ferrotune.core.network.generated.PlaylistSongsResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
+import com.ferrotune.core.network.generated.ShareableUsersResponse
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
@@ -269,6 +270,9 @@ interface FerrotuneApi {
 
     @GET("api/playlists/recently-played")
     suspend fun recentlyPlayedPlaylists(): RecentPlaylistsResponse
+
+    @GET("api/users/shareable")
+    suspend fun shareableUsers(): ShareableUsersResponse
 
     @GET("api/playlists/{id}/shares")
     suspend fun playlistShares(@Path("id") id: String): PlaylistSharesResponse

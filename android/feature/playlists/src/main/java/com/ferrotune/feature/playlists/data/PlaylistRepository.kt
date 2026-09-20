@@ -26,6 +26,7 @@ import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
 import com.ferrotune.core.network.generated.ShareEntry
+import com.ferrotune.core.network.generated.ShareableUser
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
 import com.ferrotune.core.network.generated.UpdatePlaylistRequest
@@ -146,6 +147,9 @@ class PlaylistRepository @Inject constructor(
     suspend fun shares(playlistId: String): PlaylistSharesResponse =
         apiProvider.requireApi().playlistShares(playlistId)
 
+    suspend fun shareableUsers(): List<ShareableUser> =
+        apiProvider.requireApi().shareableUsers().users
+
     suspend fun setShares(playlistId: String, shares: List<ShareEntry>): PlaylistSharesResponse =
         apiProvider.requireApi().setPlaylistShares(playlistId, SetPlaylistSharesRequest(shares))
 
@@ -197,6 +201,8 @@ class PlaylistRepository @Inject constructor(
         smartPlaylistId,
         MaterializeSmartPlaylistRequest(name = name, comment = comment),
     )
+
+    fun searchSongs(query: String) = SongSearchPagingSource(apiProvider, query)
 
     suspend fun activeServerUrl(): String = apiProvider.requireAccount().serverUrl
 

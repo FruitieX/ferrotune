@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,11 +40,15 @@ import com.ferrotune.feature.library.ui.SearchScreen
 import com.ferrotune.feature.library.ui.SongRadioScreen
 import com.ferrotune.feature.player.MiniPlayerBar
 import com.ferrotune.feature.player.NowPlayingScreen
+import com.ferrotune.feature.playlists.ui.PlaylistDetailScreen
+import com.ferrotune.feature.playlists.ui.PlaylistsScreen
+import com.ferrotune.feature.playlists.ui.SmartPlaylistDetailScreen
 
 object Routes {
     const val LOGIN = "login"
     const val HOME = "home"
     const val LIBRARY = "library"
+    const val PLAYLISTS = "playlists"
     const val SEARCH = "search"
     const val FAVORITES = "favorites"
     const val HISTORY = "history"
@@ -52,6 +57,8 @@ object Routes {
     const val ARTIST = "artist/{artistId}"
     const val GENRE = "genre/{genre}"
     const val SONG_RADIO = "song_radio/{songId}"
+    const val PLAYLIST = "playlist/{playlistId}"
+    const val SMART_PLAYLIST = "smart_playlist/{smartPlaylistId}"
 
     fun album(albumId: String) = "album/$albumId"
 
@@ -60,6 +67,10 @@ object Routes {
     fun genre(genre: String) = "genre/${java.net.URLEncoder.encode(genre, "UTF-8")}"
 
     fun songRadio(songId: String) = "song_radio/$songId"
+
+    fun playlist(playlistId: String) = "playlist/$playlistId"
+
+    fun smartPlaylist(smartPlaylistId: String) = "smart_playlist/$smartPlaylistId"
 }
 
 @Composable
@@ -82,6 +93,7 @@ fun FerrotuneApp(
     val currentRoute = backStackEntry?.destination?.route
     val showChrome = currentRoute == Routes.HOME ||
         currentRoute == Routes.LIBRARY ||
+        currentRoute == Routes.PLAYLISTS ||
         currentRoute == Routes.SEARCH
 
     LaunchedEffect(openNowPlaying) {
@@ -106,6 +118,12 @@ fun FerrotuneApp(
                         onClick = { navController.navigateTopLevel(Routes.LIBRARY) },
                         icon = { Icon(Icons.Filled.LibraryMusic, contentDescription = null) },
                         label = { Text("Library") },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.PLAYLISTS,
+                        onClick = { navController.navigateTopLevel(Routes.PLAYLISTS) },
+                        icon = { Icon(Icons.Filled.QueueMusic, contentDescription = null) },
+                        label = { Text("Playlists") },
                     )
                     NavigationBarItem(
                         selected = currentRoute == Routes.SEARCH,
@@ -155,6 +173,14 @@ fun FerrotuneApp(
                         onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
                         onOpenFavorites = { navController.navigate(Routes.FAVORITES) },
                         onOpenHistory = { navController.navigate(Routes.HISTORY) },
+                    )
+                }
+                composable(Routes.PLAYLISTS) {
+                    PlaylistsScreen(
+                        onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
+                        onOpenSmartPlaylist = {
+                            navController.navigate(Routes.smartPlaylist(it))
+                        },
                     )
                 }
                 composable(Routes.SEARCH) {
@@ -212,6 +238,27 @@ fun FerrotuneApp(
                     arguments = listOf(navArgument("songId") { type = NavType.StringType }),
                 ) {
                     SongRadioScreen(onBack = { navController.popBackStack() })
+                }
+                composable(
+                    route = Routes.PLAYLIST,
+                    arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
+                ) {
+                    PlaylistDetailScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
+                    )
+                }
+                composable(
+                    route = Routes.SMART_PLAYLIST,
+                    arguments = listOf(
+                        navArgument("smartPlaylistId") { type = NavType.StringType },
+                    ),
+                ) {
+                    SmartPlaylistDetailScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
+                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
+                    )
                 }
                 composable(Routes.NOW_PLAYING) {
                     NowPlayingScreen(onBack = { navController.popBackStack() })
