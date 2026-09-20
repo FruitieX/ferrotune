@@ -12,4 +12,17 @@ internal object OwnershipClaimGuard {
         if (nowElapsedRealtimeMs < claimMs) return false
         return nowElapsedRealtimeMs - claimMs <= graceMs
     }
+
+    fun shouldReclaimClearedOwnership(
+        ownerClientId: String?,
+        myClientId: String?,
+        wasOwner: Boolean,
+        playWhenReady: Boolean,
+        isPlaying: Boolean,
+    ): Boolean {
+        return ownerClientId == null &&
+            myClientId != null &&
+            wasOwner &&
+            (playWhenReady || isPlaying)
+    }
 }

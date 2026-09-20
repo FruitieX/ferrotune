@@ -40,4 +40,48 @@ class OwnershipClaimGuardTest {
             ),
         )
     }
+
+    @Test
+    fun reclaimsClearedOwnershipWhilePreviouslyOwnedPlaybackIsActive() {
+        assertTrue(
+            OwnershipClaimGuard.shouldReclaimClearedOwnership(
+                ownerClientId = null,
+                myClientId = "phone-client",
+                wasOwner = true,
+                playWhenReady = true,
+                isPlaying = true,
+            ),
+        )
+    }
+
+    @Test
+    fun doesNotReclaimWhenPlaybackWasNotOwnedOrIsInactive() {
+        assertFalse(
+            OwnershipClaimGuard.shouldReclaimClearedOwnership(
+                ownerClientId = "other-client",
+                myClientId = "phone-client",
+                wasOwner = true,
+                playWhenReady = true,
+                isPlaying = true,
+            ),
+        )
+        assertFalse(
+            OwnershipClaimGuard.shouldReclaimClearedOwnership(
+                ownerClientId = null,
+                myClientId = "phone-client",
+                wasOwner = false,
+                playWhenReady = true,
+                isPlaying = true,
+            ),
+        )
+        assertFalse(
+            OwnershipClaimGuard.shouldReclaimClearedOwnership(
+                ownerClientId = null,
+                myClientId = "phone-client",
+                wasOwner = true,
+                playWhenReady = false,
+                isPlaying = false,
+            ),
+        )
+    }
 }

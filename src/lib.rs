@@ -291,6 +291,22 @@ fn spawn_inactive_owner_cleanup(
             {
                 Ok(sessions) => {
                     for session in sessions {
+                        let owner_has_fresh_heartbeat = match session.owner_client_id.as_deref() {
+                            Some(owner_client_id) => {
+                                session_manager
+                                    .is_client_heartbeat_fresh(&session.id, owner_client_id)
+                                    .await
+                            }
+                            None => false,
+                        };
+                        if owner_has_fresh_heartbeat {
+                            tracing::debug!(
+                                "Keeping active owner for session {} despite stale playback marker",
+                                session.id
+                            );
+                            continue;
+                        }
+
                         if let Err(error) =
                             db::queries::clear_session_owner(&database, &session.id).await
                         {

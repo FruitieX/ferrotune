@@ -714,6 +714,20 @@ impl SessionManager {
             .is_some_and(|client| client.connection_count > 0)
     }
 
+    /// Check whether a client has sent a heartbeat within the SSE grace period.
+    ///
+    /// This is deliberately client-specific: a heartbeat from another client
+    /// in the same session must not keep an inactive owner alive.
+    pub async fn is_client_heartbeat_fresh(&self, session_id: &str, client_id: &str) -> bool {
+        let now = Instant::now();
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(session_id)
+            .and_then(|state| state.clients.get(client_id))
+            .and_then(|client| client.last_heartbeat_at)
+            .is_some_and(|timestamp| now.duration_since(timestamp) < HEARTBEAT_GRACE)
+    }
+
     /// Get the registered display client name for a connected client.
     pub async fn get_client_name(&self, session_id: &str, client_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
@@ -871,6 +885,44 @@ mod tests {
 
         assert!(!manager.is_client_connected("session-1", "client-1").await);
         assert!(manager.get_clients("session-1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fresh_owner_heartbeat_survives_transient_sse_disconnect() {
+        let manager = SessionManager::new();
+        manager
+            .register_client(
+                "session-1",
+                "client-1",
+                "ferrotune-mobile",
+                ConnectedClientMetadata {
+                    remote_ip: None,
+                    hostname: None,
+                    device_label: None,
+                },
+            )
+            .await;
+
+        assert!(
+            !manager
+                .is_client_heartbeat_fresh("session-1", "client-1")
+                .await
+        );
+        assert!(
+            !manager
+                .record_heartbeat("session-1", "client-1", Some("ferrotune-mobile"))
+                .await
+        );
+        assert!(
+            manager
+                .is_client_heartbeat_fresh("session-1", "client-1")
+                .await
+        );
+
+        // The SSE transport may disappear immediately after the heartbeat. The
+        // logical owner must remain available for the reconnecting client.
+        assert!(!manager.unregister_client("session-1", "client-1").await);
+        assert!(manager.is_client_connected("session-1", "client-1").await);
     }
 
     #[tokio::test]

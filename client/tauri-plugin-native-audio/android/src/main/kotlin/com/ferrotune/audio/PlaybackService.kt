@@ -1682,6 +1682,23 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
+        val shouldReclaimClearedOwnership = OwnershipClaimGuard.shouldReclaimClearedOwnership(
+            ownerClientId = event.ownerClientId,
+            myClientId = myClientId,
+            wasOwner = wasOwner,
+            playWhenReady = player.playWhenReady,
+            isPlaying = player.isPlaying,
+        )
+        if (shouldReclaimClearedOwnership) {
+            Log.w(TAG, "Session owner cleared during active native playback; reclaiming ownership")
+            claimNativeSessionOwnership(
+                reason = "owner cleared during active playback",
+                positionMs = player.currentPosition,
+                currentIndex = serverQueueIndex,
+            )
+            return
+        }
+
         sessionOwnerClientId = event.ownerClientId
         sessionOwnerClientName = event.ownerClientName
         nativeOwnsSession = isCurrentClientOwner
