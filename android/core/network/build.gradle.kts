@@ -27,7 +27,8 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":core:model"))
+    api(project(":core:model"))
+    implementation(project(":core:datastore"))
     api(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.retrofit)
