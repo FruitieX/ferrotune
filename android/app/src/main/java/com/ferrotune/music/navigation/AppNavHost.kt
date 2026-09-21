@@ -6,12 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,6 +29,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +66,8 @@ import com.ferrotune.feature.library.ui.LibraryScreen
 import com.ferrotune.feature.library.ui.SearchScreen
 import com.ferrotune.feature.library.ui.SongRadioScreen
 import com.ferrotune.feature.player.MiniPlayerBar
-import com.ferrotune.feature.player.NowPlayingScreen
+import com.ferrotune.feature.player.NowPlayingOverlay
+import com.ferrotune.feature.player.rememberNowPlayingSheetState
 import com.ferrotune.feature.playlists.ui.PlaylistDetailScreen
 import com.ferrotune.feature.playlists.ui.PlaylistsScreen
 import com.ferrotune.feature.playlists.ui.SmartPlaylistDetailScreen
@@ -78,7 +81,6 @@ object Routes {
     const val SEARCH = "search"
     const val FAVORITES = "favorites"
     const val HISTORY = "history"
-    const val NOW_PLAYING = "now_playing"
     const val ALBUM = "album/{albumId}"
     const val ARTIST = "artist/{artistId}"
     const val GENRE = "genre/{genre}"
@@ -172,14 +174,19 @@ private fun FerrotuneAppContent(
         currentRoute == Routes.PLAYLISTS ||
         currentRoute == Routes.SEARCH
 
+    val nowPlayingSheet = rememberNowPlayingSheetState()
+    var nowPlayingOpen by remember { mutableStateOf(false) }
+
     LaunchedEffect(openNowPlaying) {
         if (openNowPlaying) {
-            navController.navigate(Routes.NOW_PLAYING) { launchSingleTop = true }
+            nowPlayingOpen = true
             onOpenNowPlayingHandled()
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (showChrome) {
                 NavigationBar {
@@ -444,24 +451,28 @@ private fun FerrotuneAppContent(
                         onOpenAlbum = { navController.navigate(Routes.album(it)) },
                     )
                 }
-                composable(
-                    route = Routes.NOW_PLAYING,
-                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
-                    exitTransition = { slideOutVertically(targetOffsetY = { it }) },
-                    popEnterTransition = { slideInVertically(initialOffsetY = { it }) },
-                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
-                ) {
-                    NowPlayingScreen(onBack = { navController.popBackStack() })
-                }
             }
             if (showChrome) {
                 MiniPlayerBar(
-                    onOpenNowPlaying = {
-                        navController.navigate(Routes.NOW_PLAYING) { launchSingleTop = true }
+                    onOpenNowPlaying = { nowPlayingOpen = true },
+                    onExpandDrag = nowPlayingSheet::dragBy,
+                    onExpandDragEnd = {
+                        if (nowPlayingSheet.shouldCloseOnRelease()) {
+                            nowPlayingSheet.close()
+                        } else {
+                            nowPlayingOpen = true
+                        }
                     },
                 )
             }
         }
+    }
+
+        NowPlayingOverlay(
+            open = nowPlayingOpen,
+            state = nowPlayingSheet,
+            onOpenChange = { nowPlayingOpen = it },
+        )
     }
 
     state.switchError?.let { message ->

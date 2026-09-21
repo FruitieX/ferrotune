@@ -30,12 +30,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.WaveformBar
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import kotlin.math.abs
 
 @Composable
 fun MiniPlayerBar(
     onOpenNowPlaying: () -> Unit,
+    onExpandDrag: (Float) -> Unit,
+    onExpandDragEnd: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -53,29 +56,27 @@ fun MiniPlayerBar(
                 .clickable(onClick = onOpenNowPlaying)
                 .pointerInput(Unit) {
                     var totalX = 0f
-                    var totalY = 0f
                     var vertical: Boolean? = null
                     detectDragGestures(
                         onDragStart = {
                             totalX = 0f
-                            totalY = 0f
                             vertical = null
                         },
                         onDragEnd = {
                             if (vertical == true) {
-                                if (totalY < -48.dp.toPx()) onOpenNowPlaying()
+                                onExpandDragEnd()
                             } else if (abs(totalX) > 80.dp.toPx()) {
                                 if (totalX > 0) viewModel.previous() else viewModel.next()
                             }
                         },
-                        onDragCancel = {},
+                        onDragCancel = { onExpandDragEnd() },
                         onDrag = { change, amount ->
                             change.consume()
                             if (vertical == null && (abs(amount.x) > 2f || abs(amount.y) > 2f)) {
                                 vertical = abs(amount.y) >= abs(amount.x)
                             }
                             if (vertical == true) {
-                                totalY += amount.y
+                                onExpandDrag(amount.y)
                             } else {
                                 totalX += amount.x
                             }
@@ -128,13 +129,26 @@ fun MiniPlayerBar(
                     )
                 }
             }
-            LinearProgressIndicator(
-                progress = { state.progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
+            if (state.progressBarStyle == "waveform" && state.waveformHeights.isNotEmpty()) {
+                WaveformBar(
+                    heights = state.waveformHeights,
+                    progress = state.progressFraction,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 2.dp),
+                    height = 20.dp,
+                    barWidth = 2.dp,
+                    barGap = 2.dp,
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { state.progressFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp),
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+            }
         }
     }
 }

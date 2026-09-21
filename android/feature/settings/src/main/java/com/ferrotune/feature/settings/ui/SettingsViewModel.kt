@@ -81,6 +81,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { playbackSettingsRepository.setTranscodingBitrate(bitRateKbps) }
     }
 
+    fun setProgressBarStyle(style: String) {
+        viewModelScope.launch { playbackSettingsRepository.setProgressBarStyle(style) }
+    }
+
     fun setDownloadFormat(format: String) {
         viewModelScope.launch { downloadSettingsRepository.setFormat(format) }
     }

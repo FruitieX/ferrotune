@@ -41,6 +41,7 @@ import com.ferrotune.core.network.generated.FerrotunePlayHistoryResponse
 import com.ferrotune.core.network.generated.FerrotuneRandomSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSearchResponse
 import com.ferrotune.core.network.generated.FerrotuneSimilarSongsResponse
+import com.ferrotune.core.network.generated.WaveformResponse
 import com.ferrotune.core.network.generated.FerrotuneSongResponse
 import com.ferrotune.core.network.generated.FerrotuneStarredResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
@@ -185,6 +186,7 @@ open class FakeFerrotuneApi(
     ): CollectionSongsResponse = error("unused")
 
     override suspend fun song(id: String): FerrotuneSongResponse = error("unused")
+    override suspend fun waveform(id: String): WaveformResponse = error("unused")
     override suspend fun similarSongs(id: String, count: Int): FerrotuneSimilarSongsResponse =
         error("unused")
 

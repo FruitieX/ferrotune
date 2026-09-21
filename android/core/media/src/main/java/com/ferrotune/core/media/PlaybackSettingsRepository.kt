@@ -54,6 +54,8 @@ class PlaybackSettingsRepository @Inject constructor(
                     ?: DEFAULT_TRANSCODING_ENABLED,
                 transcodingBitrate = prefs.primitive("transcodingBitrate")?.intOrNull
                     ?: DEFAULT_TRANSCODING_BITRATE,
+                progressBarStyle = prefs.primitive("progress-bar-style")?.contentOrNull
+                    ?: DEFAULT_PROGRESS_BAR_STYLE,
             ),
         )
         loaded = true
@@ -86,6 +88,12 @@ class PlaybackSettingsRepository @Inject constructor(
         }
     }
 
+    suspend fun setProgressBarStyle(style: String) {
+        persist("progress-bar-style", JsonPrimitive(style)) {
+            it.copy(progressBarStyle = style)
+        }
+    }
+
     private suspend fun persist(
         key: String,
         value: JsonElement,
@@ -108,7 +116,9 @@ class PlaybackSettingsRepository @Inject constructor(
         const val DEFAULT_REPLAY_GAIN_OFFSET = 0f
         const val DEFAULT_TRANSCODING_ENABLED = true
         const val DEFAULT_TRANSCODING_BITRATE = 192
+        const val DEFAULT_PROGRESS_BAR_STYLE = "waveform"
         val REPLAY_GAIN_MODES = listOf("computed", "original", "disabled")
         val TRANSCODING_BITRATES = listOf(96, 128, 160, 192, 256, 320)
+        val PROGRESS_BAR_STYLES = listOf("waveform", "simple")
     }
 }

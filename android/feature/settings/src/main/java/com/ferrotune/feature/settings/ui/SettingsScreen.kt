@@ -252,6 +252,13 @@ fun SettingsScreen(
                         onSelect = viewModel::setTranscodingBitrate,
                     )
                 }
+                ChoiceRow(
+                    label = "Progress bar",
+                    options = PlaybackSettingsRepository.PROGRESS_BAR_STYLES,
+                    selected = playback.progressBarStyle,
+                    optionLabel = { style -> if (style == "waveform") "Waveform" else "Simple" },
+                    onSelect = viewModel::setProgressBarStyle,
+                )
             }
 
             item {

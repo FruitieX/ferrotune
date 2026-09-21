@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.media.PlaybackEvent
 import com.ferrotune.core.media.PlaybackRepository
+import com.ferrotune.core.media.PlaybackSettingsRepository
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackStatus
 import com.ferrotune.core.media.TrackInfo
+import com.ferrotune.core.media.WaveformRepository
 import com.ferrotune.core.media.cast.CastConnectionState
 import com.ferrotune.core.media.cast.CastManager
 import com.ferrotune.core.media.cast.CastMediaStatus
@@ -16,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -33,6 +37,8 @@ data class PlayerUiState(
     val error: String? = null,
     val cast: CastConnectionState = CastConnectionState(),
     val castStatus: CastMediaStatus? = null,
+    val progressBarStyle: String = "waveform",
+    val waveformHeights: List<Float> = emptyList(),
 ) {
     val progressFraction: Float
         get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
@@ -43,14 +49,17 @@ class PlayerViewModel @Inject constructor(
     private val repository: PlaybackRepository,
     private val sessionStarter: PlaybackStarter,
     private val castManager: CastManager,
+    private val playbackSettingsRepository: PlaybackSettingsRepository,
+    private val waveformRepository: WaveformRepository,
 ) : ViewModel() {
 
     private var castQueueLoaded = false
 
     private val isStartingQueue = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
+    private val waveformHeights = MutableStateFlow<List<Float>>(emptyList())
 
-    val uiState: StateFlow<PlayerUiState> = combine(
+    private val coreState: StateFlow<PlayerUiState> = combine(
         repository.state,
         isStartingQueue,
         error,
@@ -78,9 +87,35 @@ class PlayerViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
 
+    val uiState: StateFlow<PlayerUiState> = combine(
+        coreState,
+        playbackSettingsRepository.settings,
+        waveformHeights,
+    ) { state, settings, heights ->
+        state.copy(
+            progressBarStyle = settings.progressBarStyle,
+            waveformHeights = heights,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
+
     init {
         repository.ensureBound()
         castManager.initialize()
+        viewModelScope.launch {
+            runCatching { playbackSettingsRepository.ensureLoaded() }
+        }
+        viewModelScope.launch {
+            repository.state
+                .map { it.track?.id }
+                .distinctUntilChanged()
+                .collect { songId ->
+                    waveformHeights.value = if (songId == null) {
+                        emptyList()
+                    } else {
+                        waveformRepository.heights(songId)
+                    }
+                }
+        }
         viewModelScope.launch {
             castManager.state.collect { cast ->
                 if (cast.isConnected && !castQueueLoaded) {

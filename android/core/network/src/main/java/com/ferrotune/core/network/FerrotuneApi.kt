@@ -82,6 +82,7 @@ import com.ferrotune.core.network.generated.TransferPlaylistOwnershipRequest
 import com.ferrotune.core.network.generated.UnmatchEntryRequest
 import com.ferrotune.core.network.generated.UpdatePlaylistRequest
 import com.ferrotune.core.network.generated.UpdateSmartPlaylistRequest
+import com.ferrotune.core.network.generated.WaveformResponse
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -185,6 +186,9 @@ interface FerrotuneApi {
         @Path("id") id: String,
         @Query("count") count: Int,
     ): FerrotuneSimilarSongsResponse
+
+    @GET("api/songs/{id}/waveform")
+    suspend fun waveform(@Path("id") id: String): WaveformResponse
 
     @GET("api/songs/ids")
     suspend fun songIds(@QueryMap params: Map<String, String>): SongIdsResponse

@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -36,7 +38,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,24 +46,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.gestures.detectDragGestures
-import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.CoverArt
-import com.ferrotune.core.designsystem.components.RatingStars
+import com.ferrotune.core.designsystem.components.WaveformBar
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.theme.seedGradient
-import kotlin.math.abs
 
 @Composable
 fun NowPlayingScreen(
@@ -71,16 +65,14 @@ fun NowPlayingScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val haptics = LocalHapticFeedback.current
     var queueOpen by remember { mutableStateOf(false) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val darkTheme = isSystemInDarkTheme()
     val backdrop = seedGradient(state.track?.id ?: state.track?.title, darkTheme)
-    val actionsViewModel: SongActionsViewModel = hiltViewModel()
 
     Box(
         modifier = modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
             .background(
                 Brush.verticalGradient(
                     listOf(
@@ -92,46 +84,9 @@ fun NowPlayingScreen(
             ),
     ) {
         Column(
-        modifier = modifier
-            .fillMaxSize()
-            .graphicsLayer { translationY = dragOffsetY }
-            .pointerInput(Unit) {
-                var totalX = 0f
-                var totalY = 0f
-                var vertical: Boolean? = null
-                detectDragGestures(
-                    onDragStart = {
-                        totalX = 0f
-                        totalY = 0f
-                        vertical = null
-                    },
-                    onDragEnd = {
-                        if (vertical == true) {
-                            if (totalY > 160.dp.toPx()) {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onBack()
-                            }
-                        } else if (abs(totalX) > 120.dp.toPx()) {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (totalX > 0) viewModel.previous() else viewModel.next()
-                        }
-                        dragOffsetY = 0f
-                    },
-                    onDragCancel = { dragOffsetY = 0f },
-                    onDrag = { change, amount ->
-                        change.consume()
-                        if (vertical == null && (abs(amount.x) > 2f || abs(amount.y) > 2f)) {
-                            vertical = abs(amount.y) >= abs(amount.x)
-                        }
-                        if (vertical == true) {
-                            totalY += amount.y
-                            dragOffsetY = totalY.coerceAtLeast(0f)
-                        } else {
-                            totalX += amount.x
-                        }
-                    },
-                )
-            }
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -216,17 +171,9 @@ fun NowPlayingScreen(
             val flags = rememberSongFlags(
                 songId = track.id,
                 starred = track.starred != null,
-                rating = track.userRating ?: 0,
             )
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SongStarButton(songId = track.id, flags = flags, iconSize = 26.dp)
-                Spacer(Modifier.width(12.dp))
-                RatingStars(
-                    rating = flags.rating,
-                    onRate = { actionsViewModel.setRating(track.id, it, flags) },
-                )
-            }
+            SongFavoriteButton(songId = track.id, flags = flags, iconSize = 26.dp)
         }
 
         Spacer(Modifier.weight(1f))
@@ -241,11 +188,22 @@ fun NowPlayingScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        Slider(
-            value = state.progressFraction,
-            onValueChange = viewModel::seekToFraction,
-            enabled = state.durationMs > 0,
-        )
+        if (state.progressBarStyle == "waveform" && state.waveformHeights.isNotEmpty()) {
+            WaveformBar(
+                heights = state.waveformHeights,
+                progress = state.progressFraction,
+                onSeek = viewModel::seekToFraction,
+                height = 40.dp,
+                barWidth = 3.dp,
+                barGap = 2.dp,
+            )
+        } else {
+            Slider(
+                value = state.progressFraction,
+                onValueChange = viewModel::seekToFraction,
+                enabled = state.durationMs > 0,
+            )
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatDuration(state.positionMs), style = MaterialTheme.typography.labelSmall)
             Text(formatDuration(state.durationMs), style = MaterialTheme.typography.labelSmall)
