@@ -2,7 +2,6 @@ package com.ferrotune.feature.library.data
 
 import androidx.paging.PagingSource
 import com.ferrotune.core.network.FerrotuneApiProvider
-import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
@@ -21,7 +20,7 @@ import javax.inject.Singleton
 
 /**
  * Read access to the library: paged browse lists, details, favorites,
- * history, and the starring/rating mutations that back them.
+ * history, and the favorite mutations that back them.
  */
 @Singleton
 class LibraryRepository @Inject constructor(
@@ -39,6 +38,7 @@ class LibraryRepository @Inject constructor(
         SearchParams(
             query = query,
             songSort = sort.apiValue,
+            inlineImages = INLINE_IMAGES,
             songSortDir = sortDir.apiValue,
             starredOnly = starredOnly.takeIf { it },
             genre = genre,
@@ -57,6 +57,7 @@ class LibraryRepository @Inject constructor(
         SearchParams(
             query = query,
             albumSort = sort.apiValue,
+            inlineImages = INLINE_IMAGES,
             albumSortDir = sortDir.apiValue,
             starredOnly = starredOnly.takeIf { it },
             albumFilter = filter,
@@ -74,6 +75,7 @@ class LibraryRepository @Inject constructor(
         SearchParams(
             query = query,
             artistSort = sort.apiValue,
+            inlineImages = INLINE_IMAGES,
             artistSortDir = sortDir.apiValue,
             starredOnly = starredOnly.takeIf { it },
             artistFilter = filter,
@@ -149,11 +151,8 @@ class LibraryRepository @Inject constructor(
         if (starred) api.star(request) else api.unstar(request)
     }
 
-    suspend fun setRating(songId: String, rating: Int) {
-        apiProvider.requireApi().setRating(RatingRequest(id = songId, rating = rating))
-    }
-
     companion object {
         const val MATCH_ALL = "*"
+        const val INLINE_IMAGES = "medium"
     }
 }

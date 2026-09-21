@@ -97,6 +97,7 @@ class HistoryPagingSource(
             mapOf(
                 "offset" to offset.toString(),
                 "size" to count.toString(),
+                "inlineImages" to "medium",
             )
         )
         return PageResult(response.entry, response.total)
