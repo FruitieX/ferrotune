@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import com.ferrotune.core.media.cast.CastMediaItem
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -141,6 +142,8 @@ class PlaybackRepository @Inject constructor(
             awaitService().updateSettings(settings)
         }
     }
+
+    suspend fun castMediaItems(): List<CastMediaItem> = awaitService().castMediaItems()
 
     suspend fun refreshState(): PlaybackState = awaitService().getState().also { _state.value = it }
 

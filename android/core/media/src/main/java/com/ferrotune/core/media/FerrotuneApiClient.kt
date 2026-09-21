@@ -116,7 +116,17 @@ class FerrotuneApiClient {
         private const val CLIENT_NAME = "ferrotune-mobile"
         private const val API_VERSION = "1.16.1"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /** Server URL tokens live for 4 hours; refresh well before expiry. */
+        private const val URL_TOKEN_TTL_MS = 3L * 60L * 60L * 1000L
+        private const val URL_TOKEN_REFRESH_MARGIN_MS = 10L * 60L * 1000L
     }
+
+    @Volatile
+    private var mediaUrlToken: String? = null
+
+    @Volatile
+    private var mediaUrlTokenExpiresAtMs: Long = 0L
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -246,6 +256,63 @@ class FerrotuneApiClient {
         uriBuilder.appendQueryParameter("size", size.toString())
         return uriBuilder.build().toString()
     }
+
+    /**
+     * Fetch a media-scoped URL token so URLs handed to external players (e.g.
+     * the Cast receiver) can authenticate without a Bearer header. Cached
+     * until shortly before expiry; returns null when no session is available.
+     */
+    fun ensureMediaUrlToken(forceRefresh: Boolean = false): String? {
+        val config = getConfig()
+        if (config.serverUrl.isBlank() || config.sessionToken == null) return null
+        val now = System.currentTimeMillis()
+        val cached = mediaUrlToken
+        if (!forceRefresh && cached != null && mediaUrlTokenExpiresAtMs - now > URL_TOKEN_REFRESH_MARGIN_MS) {
+            return cached
+        }
+        return try {
+            val body = JSONObject().put("scope", "media").toString()
+            val request = Request.Builder()
+                .url(buildApiUrl("/api/auth/url-token"))
+                .post(body.toRequestBody(JSON_MEDIA_TYPE))
+                .also { addAuthHeaders(it) }
+                .build()
+            executeRequest(request) { responseBody ->
+                val token = JSONObject(responseBody).getString("urlToken")
+                mediaUrlToken = token
+                mediaUrlTokenExpiresAtMs = now + URL_TOKEN_TTL_MS
+                token
+            }
+        } catch (e: Exception) {
+            NativeAudioLogger.warn(
+                TAG,
+                "url_token_failed",
+                "Failed to fetch media URL token",
+                throwable = e,
+            )
+            null
+        }
+    }
+
+    /**
+     * Build a stream URL for an external player (Cast), authenticating via the
+     * media URL token query parameter.
+     */
+    fun buildCastStreamUrl(
+        songId: String,
+        settings: PlaybackSettings,
+        urlToken: String?,
+    ): String = appendUrlToken(buildStreamUrl(songId, settings), urlToken)
+
+    /**
+     * Build a cover art URL for an external player (Cast), authenticating via
+     * the media URL token query parameter.
+     */
+    fun buildCastCoverArtUrl(
+        coverArtId: String,
+        size: Int,
+        urlToken: String?,
+    ): String = appendUrlToken(buildCoverArtUrl(coverArtId, size), urlToken)
 
     /**
      * Build a stream URL for offline download.

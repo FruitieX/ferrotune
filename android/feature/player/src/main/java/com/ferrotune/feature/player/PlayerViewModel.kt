@@ -7,6 +7,9 @@ import com.ferrotune.core.media.PlaybackRepository
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackStatus
 import com.ferrotune.core.media.TrackInfo
+import com.ferrotune.core.media.cast.CastConnectionState
+import com.ferrotune.core.media.cast.CastManager
+import com.ferrotune.core.media.cast.CastMediaStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +31,8 @@ data class PlayerUiState(
     val repeatMode: String = "off",
     val isStartingQueue: Boolean = false,
     val error: String? = null,
+    val cast: CastConnectionState = CastConnectionState(),
+    val castStatus: CastMediaStatus? = null,
 ) {
     val progressFraction: Float
         get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
@@ -37,7 +42,10 @@ data class PlayerUiState(
 class PlayerViewModel @Inject constructor(
     private val repository: PlaybackRepository,
     private val sessionStarter: PlaybackStarter,
+    private val castManager: CastManager,
 ) : ViewModel() {
+
+    private var castQueueLoaded = false
 
     private val isStartingQueue = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
@@ -46,24 +54,43 @@ class PlayerViewModel @Inject constructor(
         repository.state,
         isStartingQueue,
         error,
-    ) { playback, starting, errorMessage ->
+        castManager.state,
+        castManager.status,
+    ) { playback, starting, errorMessage, cast, castStatus ->
         PlayerUiState(
             track = playback.track,
-            isPlaying = playback.status == PlaybackStatus.PLAYING,
+            isPlaying = if (cast.isConnected) castStatus.isPlaying else playback.status == PlaybackStatus.PLAYING,
             isBuffering = playback.status == PlaybackStatus.BUFFERING,
-            positionMs = playback.positionMs,
-            durationMs = playback.durationMs,
+            positionMs = if (cast.isConnected) castStatus.positionMs else playback.positionMs,
+            durationMs = if (cast.isConnected) {
+                castStatus.durationMs.takeIf { it > 0 } ?: playback.durationMs
+            } else {
+                playback.durationMs
+            },
             queueIndex = playback.queueIndex,
             queueLength = playback.queueLength,
             isShuffled = playback.isShuffled,
             repeatMode = playback.repeatMode,
             isStartingQueue = starting,
             error = errorMessage,
+            cast = cast,
+            castStatus = castStatus.takeIf { cast.isConnected },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
 
     init {
         repository.ensureBound()
+        castManager.initialize()
+        viewModelScope.launch {
+            castManager.state.collect { cast ->
+                if (cast.isConnected && !castQueueLoaded) {
+                    castQueueLoaded = true
+                    loadCastQueue()
+                } else if (!cast.isConnected) {
+                    castQueueLoaded = false
+                }
+            }
+        }
         viewModelScope.launch {
             repository.events.collect { event ->
                 if (event is PlaybackEvent.PlaybackError) {
@@ -74,16 +101,28 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun togglePlayPause() {
+        if (castManager.state.value.isConnected) {
+            if (castManager.status.value.isPlaying) castManager.pause() else castManager.play()
+            return
+        }
         viewModelScope.launch {
             if (uiState.value.isPlaying) repository.pause() else repository.play()
         }
     }
 
     fun next() {
+        if (castManager.state.value.isConnected) {
+            castManager.next()
+            return
+        }
         viewModelScope.launch { repository.nextTrack() }
     }
 
     fun previous() {
+        if (castManager.state.value.isConnected) {
+            castManager.previous()
+            return
+        }
         viewModelScope.launch { repository.previousTrack() }
     }
 
@@ -105,9 +144,32 @@ class PlayerViewModel @Inject constructor(
     fun seekToFraction(fraction: Float) {
         val durationMs = uiState.value.durationMs
         if (durationMs <= 0) return
-        viewModelScope.launch {
-            repository.seek((fraction.coerceIn(0f, 1f) * durationMs).toLong())
+        val positionMs = (fraction.coerceIn(0f, 1f) * durationMs).toLong()
+        if (castManager.state.value.isConnected) {
+            castManager.seek(positionMs)
+            return
         }
+        viewModelScope.launch { repository.seek(positionMs) }
+    }
+
+    fun disconnectCast() {
+        castManager.endSession()
+    }
+
+    private suspend fun loadCastQueue() {
+        val items = repository.castMediaItems()
+        if (items.isEmpty()) return
+        val playback = repository.state.value
+        val index = items
+            .indexOfFirst { it.songId == playback.track?.id }
+            .takeIf { it >= 0 }
+            ?: 0
+        castManager.loadQueue(
+            items = items,
+            startIndex = index,
+            startTimeMs = playback.positionMs,
+            repeatMode = playback.repeatMode,
+        )
     }
 
     fun startRandomPlayback(size: Int = 50) {

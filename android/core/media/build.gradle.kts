@@ -44,6 +44,8 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.datasource)
     implementation(libs.androidx.media3.database)
+    api(libs.play.services.cast.framework)
+    api(libs.androidx.mediarouter)
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
     implementation(libs.kotlinx.coroutines.android)

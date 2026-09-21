@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Pause
@@ -111,11 +112,31 @@ fun NowPlayingScreen(
                     contentDescription = "Close now playing",
                 )
             }
-            Text(
-                text = "Now Playing",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Column {
+                Text(
+                    text = "Now Playing",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (state.cast.isConnected) {
+                    Text(
+                        text = "Casting to ${state.cast.deviceName ?: "device"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
+            if (state.cast.isConnected) {
+                IconButton(onClick = viewModel::disconnectCast) {
+                    Icon(
+                        Icons.Filled.CastConnected,
+                        contentDescription = "Disconnect Cast",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            } else if (state.cast.available) {
+                CastRouteButton(modifier = Modifier.padding(horizontal = 4.dp))
+            }
             IconButton(onClick = { queueOpen = true }) {
                 Icon(
                     Icons.AutoMirrored.Filled.QueueMusic,

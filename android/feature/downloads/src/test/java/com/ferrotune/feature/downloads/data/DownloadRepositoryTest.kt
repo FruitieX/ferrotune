@@ -214,7 +214,11 @@ class DownloadRepositoryTest {
             dao.containerSongIds(containerId),
         )
         assertEquals(2, dao.songs.value.size)
-        assertTrue(containerId in repository.downloadedContainerIds.value)
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                repository.downloadedContainerIds.first { containerId in it }
+            }
+        }
     }
 
     @Test

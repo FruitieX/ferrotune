@@ -73,6 +73,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.ferrotune.core.media.cast.CastMediaItem
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -84,6 +85,8 @@ import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -4317,6 +4320,29 @@ class PlaybackService : MediaSessionService() {
                 NotificationManager.IMPORTANCE_LOW,
             )
         )
+    }
+
+    /**
+     * Snapshot of the current queue prepared for the Cast receiver: stream and
+     * cover-art URLs carry a media-scoped URL token so the receiver can fetch
+     * them without the phone Bearer session.
+     */
+    suspend fun castMediaItems(): List<CastMediaItem> {
+        if (queue.isEmpty()) return emptyList()
+        val urlToken = withContext(Dispatchers.IO) { apiClient.ensureMediaUrlToken() }
+        return queue.mapIndexed { index, track ->
+            CastMediaItem(
+                songId = track.id,
+                url = appendUrlToken(track.url, urlToken),
+                contentType = castContentType(track.url),
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                coverArtUrl = track.coverArtUrl?.let { appendUrlToken(it, urlToken) },
+                durationMs = track.durationMs,
+                position = queueOffset + index,
+            )
+        }
     }
 
     private fun setCurrentTrack(track: TrackInfo?) {
