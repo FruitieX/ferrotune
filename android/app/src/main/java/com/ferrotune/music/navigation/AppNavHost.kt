@@ -34,6 +34,7 @@ import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.home.ui.HomeScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
+import com.ferrotune.feature.settings.ui.SettingsScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.home.ui.StatsScreen
 import com.ferrotune.feature.library.ui.AlbumDetailScreen
@@ -70,6 +71,7 @@ object Routes {
     const val STATS = "stats"
     const val REVIEW = "review"
     const val DOWNLOADS = "downloads"
+    const val SETTINGS = "settings"
 
     fun album(albumId: String) = "album/$albumId"
 
@@ -185,6 +187,7 @@ fun FerrotuneApp(
                         onOpenStats = { navController.navigate(Routes.STATS) },
                         onOpenReview = { navController.navigate(Routes.REVIEW) },
                         onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
+                        onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                     )
                 }
                 composable(Routes.LIBRARY) {
@@ -304,6 +307,20 @@ fun FerrotuneApp(
                 }
                 composable(Routes.DOWNLOADS) {
                     DownloadsScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Routes.SETTINGS) {
+                    SettingsScreen(
+                        accountLabel = state.activeAccount?.label,
+                        serverUrl = state.activeAccount?.serverUrl,
+                        username = state.activeAccount?.username,
+                        onBack = { navController.popBackStack() },
+                        onSignOut = {
+                            viewModel.signOutLocally()
+                            navController.navigate(Routes.LOGIN) {
+                                popUpTo(Routes.HOME) { inclusive = true }
+                            }
+                        },
+                    )
                 }
                 composable(Routes.STATS) {
                     StatsScreen(onBack = { navController.popBackStack() })

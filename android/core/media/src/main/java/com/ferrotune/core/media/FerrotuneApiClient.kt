@@ -31,6 +31,11 @@ data class SessionConfig(
 /**
  * Playback settings that affect how tracks are prepared.
  */
+/** Applies playback settings to the live engine; implemented by PlaybackRepository. */
+interface PlaybackSettingsApplier {
+    suspend fun applySettings(settings: PlaybackSettings)
+}
+
 data class PlaybackSettings(
     val replayGainMode: String = "disabled",
     val replayGainOffset: Float = 0f,

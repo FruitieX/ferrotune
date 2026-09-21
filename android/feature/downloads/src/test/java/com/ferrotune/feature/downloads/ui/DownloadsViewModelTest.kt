@@ -36,11 +36,6 @@ class DownloadsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun settings(repository: DownloadRepository) = DownloadSettingsRepository(
-        FakeApiProvider(FakeDownloadApi()),
-        FakeDownloadEngine(),
-    )
-
     private fun repository(
         engine: FakeDownloadEngine = FakeDownloadEngine(),
         dao: FakeDownloadDao = FakeDownloadDao(),
@@ -54,7 +49,7 @@ class DownloadsViewModelTest {
         val repository = repository()
         repository.downloadAlbum("album-1", "Album", null)
         val starter = FakePlaybackStarter()
-        val viewModel = DownloadsViewModel(repository, settings(repository), starter)
+        val viewModel = DownloadsViewModel(repository, starter)
 
         viewModel.play("album-1-2")
 
@@ -68,7 +63,7 @@ class DownloadsViewModelTest {
         val engine = FakeDownloadEngine()
         val repository = repository(engine)
         repository.downloadAlbum("album-1", "Album", null)
-        val viewModel = DownloadsViewModel(repository, settings(repository), FakePlaybackStarter())
+        val viewModel = DownloadsViewModel(repository, FakePlaybackStarter())
 
         viewModel.removeSong("album-1-1")
 

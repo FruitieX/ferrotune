@@ -1,0 +1,69 @@
+package com.ferrotune.feature.settings.ui
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.media.PlaybackSettings
+import com.ferrotune.core.media.PlaybackSettingsRepository
+import com.ferrotune.feature.downloads.data.DownloadSettings
+import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val playbackSettingsRepository: PlaybackSettingsRepository,
+    private val downloadSettingsRepository: DownloadSettingsRepository,
+) : ViewModel() {
+
+    val playbackSettings: StateFlow<PlaybackSettings> = playbackSettingsRepository.settings
+    val downloadSettings: StateFlow<DownloadSettings> = downloadSettingsRepository.settings
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message
+
+    init {
+        viewModelScope.launch {
+            runCatching { playbackSettingsRepository.load() }
+                .onFailure { _message.value = "Could not load playback settings" }
+        }
+        viewModelScope.launch {
+            runCatching { downloadSettingsRepository.load() }
+                .onFailure { _message.value = "Could not load download settings" }
+        }
+    }
+
+    fun setReplayGainMode(mode: String) {
+        viewModelScope.launch { playbackSettingsRepository.setReplayGainMode(mode) }
+    }
+
+    fun setReplayGainOffset(offsetDb: Float) {
+        viewModelScope.launch { playbackSettingsRepository.setReplayGainOffset(offsetDb) }
+    }
+
+    fun setTranscodingEnabled(enabled: Boolean) {
+        viewModelScope.launch { playbackSettingsRepository.setTranscodingEnabled(enabled) }
+    }
+
+    fun setTranscodingBitrate(bitRateKbps: Int) {
+        viewModelScope.launch { playbackSettingsRepository.setTranscodingBitrate(bitRateKbps) }
+    }
+
+    fun setDownloadFormat(format: String) {
+        viewModelScope.launch { downloadSettingsRepository.setFormat(format) }
+    }
+
+    fun setDownloadBitRate(bitRateKbps: Int) {
+        viewModelScope.launch { downloadSettingsRepository.setBitRate(bitRateKbps) }
+    }
+
+    fun setDownloadWifiOnly(wifiOnly: Boolean) {
+        viewModelScope.launch { downloadSettingsRepository.setWifiOnly(wifiOnly) }
+    }
+
+    fun dismissMessage() {
+        _message.value = null
+    }
+}

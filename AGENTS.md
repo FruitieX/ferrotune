@@ -415,7 +415,8 @@ typed flows.
 
 | Module | Purpose | Key APIs |
 |--------|---------|----------|
-| `android/core/media/PlaybackRepository.kt` | App-scoped front end for `PlaybackService`; binds on first use, mirrors state to flows, exposes suspend commands | `state: StateFlow<PlaybackState>`, `events: SharedFlow<PlaybackEvent>`, `initSession()`, `startPlayback()`, `play()`, `pause()`, `nextTrack()`, `previousTrack()`, `seek()` |
+| `android/core/media/PlaybackRepository.kt` | App-scoped front end for `PlaybackService`; binds on first use, mirrors state to flows, exposes suspend commands | `state: StateFlow<PlaybackState>`, `events: SharedFlow<PlaybackEvent>`, `initSession()`, `startPlayback()`, `play()`, `pause()`, `nextTrack()`, `previousTrack()`, `seek()`, `applySettings()` |
+| `android/core/media/PlaybackSettingsRepository.kt` | Server-synced playback preferences (ReplayGain mode/offset, transcoding enabled/bitrate) applied to the engine via `PlaybackSettingsApplier`; defaults computed/0/computed/192 | `settings: StateFlow<PlaybackSettings>`, `ensureLoaded()`, `load()`, `invalidate()`, `setReplayGainMode()`, `setReplayGainOffset()`, `setTranscodingEnabled()`, `setTranscodingBitrate()` |
 | `android/core/media/PlaybackEvent.kt` | Typed playback events (replaces JSON-over-WebView payloads) | `StateChanged`, `Progress`, `TrackChanged`, `PlaybackError`, `QueueStateChanged`, `StarToggled`, ... |
 | `android/feature/player/PlaybackSessionStarter.kt` | Connects a server playback session and starts queues for the active account | `startRandomQueue(size)` |
 | `android/core/datastore/AccountStore.kt` | Encrypted account persistence plus stable device identity | `accounts`, `activeAccount`, `upsert()`, `setActive()`, `clientId()` |
@@ -437,7 +438,8 @@ typed flows.
 | `android/feature/downloads/DownloadRepository.kt` | Download state (engine snapshot + events) and persisted song/container metadata; container downloads page through album/playlist/smart-playlist APIs | `enqueueSong()`, `downloadAlbum()`, `downloadPlaylist()`, `downloadSmartPlaylist()`, `removeSong()`, `removeContainer()`, `clearAll()`, `downloadedSongIds`, `downloadedContainerIds` |
 | `android/feature/downloads/DownloadSettingsRepository.kt` | Server-synced download preferences (`downloadFormat`, `downloadBitrate`, `downloadWifiOnly`) applied to the engine; defaults opus/128/no restriction | `settings: StateFlow<DownloadSettings>`, `ensureLoaded()`, `setFormat()`, `setBitRate()`, `setWifiOnly()` |
 | `android/feature/downloads/OfflineQueue.kt` | Builds `GetQueueResponse` from Room metadata and implements `OfflineQueueSource` (container order, start-song index; non-container sources fail gracefully like the web materializer) | `materializeOfflineQueue()`, `RoomOfflineQueueSource` |
-| `android/feature/downloads/ui/` | Downloads screen (songs + saved containers, download settings, pause/resume/clear all), `SongDownloadAction` row icon, `ContainerDownloadAction` top-bar action | `DownloadsScreen`, `SongDownloadAction`, `ContainerDownloadAction`, `ContainerDownloadType` |
+| `android/feature/downloads/ui/` | Downloads screen (songs + saved containers, pause/resume/clear all), `SongDownloadAction` row icon, `ContainerDownloadAction` top-bar action | `DownloadsScreen`, `SongDownloadAction`, `ContainerDownloadAction`, `ContainerDownloadType` |
+| `android/feature/settings/ui/` | Settings screen: account info/sign-out, playback (ReplayGain, transcoding), downloads (format/bitrate/Wi-Fi only) | `SettingsScreen`, `SettingsViewModel` |
 | `android/core/testing/FakeFerrotuneApi.kt` | Shared `FerrotuneApi` test double with per-endpoint handler lambdas; consumed as `testImplementation(project(":core:testing"))` | `FakeFerrotuneApi`, `FakeApiProvider`, `testAccount()`, `FakePlaybackStarter` |
 | `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt`, `MediaRow`, `SortMenu`, `PagingListFooter`, `ErrorState`, `EmptyState`, `LoadingState` |
 

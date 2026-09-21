@@ -1,6 +1,8 @@
 package com.ferrotune.core.media.di
 
+import com.ferrotune.core.media.PlaybackRepository
 import com.ferrotune.core.media.PlaybackSessionStarter
+import com.ferrotune.core.media.PlaybackSettingsApplier
 import com.ferrotune.core.media.PlaybackStarter
 import dagger.Binds
 import dagger.Module
@@ -14,4 +16,8 @@ abstract class PlaybackModule {
     @Binds
     @Singleton
     abstract fun bindPlaybackStarter(impl: PlaybackSessionStarter): PlaybackStarter
+
+    @Binds
+    @Singleton
+    abstract fun bindPlaybackSettingsApplier(impl: PlaybackRepository): PlaybackSettingsApplier
 }

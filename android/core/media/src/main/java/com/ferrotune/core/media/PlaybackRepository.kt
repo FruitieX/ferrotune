@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 @Singleton
 class PlaybackRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : PlaybackSettingsApplier {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val bindRequested = AtomicBoolean(false)
     private val serviceReady = CompletableDeferred<PlaybackService>()
@@ -41,12 +41,16 @@ class PlaybackRepository @Inject constructor(
     private val _events = MutableSharedFlow<PlaybackEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<PlaybackEvent> = _events.asSharedFlow()
 
+    @Volatile
+    private var currentSettings: PlaybackSettings = PlaybackSettings()
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val service = (binder as? PlaybackService.LocalBinder)?.getService() ?: return
             if (!serviceReady.isCompleted) {
                 serviceReady.complete(service)
             }
+            service.updateSettings(currentSettings)
             _state.value = service.getState()
             scope.launch {
                 service.events.collect { event ->
@@ -75,6 +79,7 @@ class PlaybackRepository @Inject constructor(
     }
 
     suspend fun initSession(config: SessionConfig, settings: PlaybackSettings) {
+        currentSettings = settings
         val service = awaitService()
         service.initSession(config)
         service.updateSettings(settings)
@@ -130,7 +135,12 @@ class PlaybackRepository @Inject constructor(
 
     suspend fun updateStarredState(starred: Boolean) = awaitService().updateStarredState(starred)
 
-    suspend fun updateSettings(settings: PlaybackSettings) = awaitService().updateSettings(settings)
+    override suspend fun applySettings(settings: PlaybackSettings) {
+        currentSettings = settings
+        if (serviceReady.isCompleted) {
+            awaitService().updateSettings(settings)
+        }
+    }
 
     suspend fun refreshState(): PlaybackState = awaitService().getState().also { _state.value = it }
 

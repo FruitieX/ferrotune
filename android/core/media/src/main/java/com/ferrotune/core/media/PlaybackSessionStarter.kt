@@ -39,6 +39,7 @@ class PlaybackSessionStarter @Inject constructor(
     private val accountStore: AccountStore,
     private val repository: PlaybackRepository,
     private val offlineQueueSource: OfflineQueueSource,
+    private val playbackSettingsRepository: PlaybackSettingsRepository,
 ) : PlaybackStarter {
     override suspend fun startQueue(spec: QueueStartSpec) {
         val account = accountStore.activeAccount.first()
@@ -69,7 +70,7 @@ class PlaybackSessionStarter @Inject constructor(
                 sessionId = session.id,
                 clientId = clientId,
             ),
-            settings = PlaybackSettings(),
+            settings = playbackSettingsRepository.ensureLoaded(),
         )
         repository.startPlayback(
             totalCount = queue.totalCount.toInt(),
@@ -93,6 +94,7 @@ class PlaybackSessionStarter @Inject constructor(
             startSongId = spec.startSongId,
         ) ?: return false
         if (response.totalCount == 0) return false
+        repository.applySettings(playbackSettingsRepository.ensureLoaded())
         repository.startOfflinePlayback(response, playWhenReady = true)
         return true
     }
