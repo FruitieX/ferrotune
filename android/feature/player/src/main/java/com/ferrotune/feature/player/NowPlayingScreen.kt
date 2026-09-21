@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -54,7 +55,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.gestures.detectDragGestures
+import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.RatingStars
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.theme.seedGradient
 import kotlin.math.abs
@@ -71,6 +76,7 @@ fun NowPlayingScreen(
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val darkTheme = isSystemInDarkTheme()
     val backdrop = seedGradient(state.track?.id ?: state.track?.title, darkTheme)
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
 
     Box(
         modifier = modifier
@@ -204,6 +210,23 @@ fun NowPlayingScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        state.track?.let { track ->
+            val flags = rememberSongFlags(
+                songId = track.id,
+                starred = track.starred != null,
+                rating = track.userRating ?: 0,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SongStarButton(songId = track.id, flags = flags, iconSize = 26.dp)
+                Spacer(Modifier.width(12.dp))
+                RatingStars(
+                    rating = flags.rating,
+                    onRate = { actionsViewModel.setRating(track.id, it, flags) },
+                )
+            }
         }
 
         Spacer(Modifier.weight(1f))

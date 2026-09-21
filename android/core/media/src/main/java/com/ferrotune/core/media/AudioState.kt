@@ -14,7 +14,9 @@ data class TrackInfo(
     val coverArtUrl: String?,
     val coverArtData: String? = null,
     val durationMs: Long,
-    val replayGainDb: Float? = null
+    val replayGainDb: Float? = null,
+    val starred: String? = null,
+    val userRating: Int? = null,
 )
 
 /**
