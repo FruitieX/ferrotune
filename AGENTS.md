@@ -159,6 +159,11 @@ moon run android:install-debug    # install on a connected device/emulator
 moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 ```
 
+`android:install-debug` installs through the platform-tools `adb` and honors
+`ANDROID_ADB_SERVER_ADDRESS` (and `ANDROID_SERIAL`) from the environment, so a
+remote adb server works; Gradle's own `installDebug` cannot see remote
+devices and is no longer used.
+
 The native app intentionally installs side by side with the legacy Tauri
 Android app during the transition: it uses `applicationId
 com.ferrotune.music.native` and label "Ferrotune Native", and any

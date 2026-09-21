@@ -70,7 +70,8 @@ tasks:
       runInCI: true
 
   install-debug:
-    command: "./gradlew :app:installDebug"
+    command: "bash scripts/install-debug.sh"
+    deps: ["assemble-debug"]
     options:
       cache: false
       runInCI: false
