@@ -24,6 +24,8 @@
         platforms-android-35
         platforms-android-36
         ndk-27-2-12479018
+        emulator
+        system-images-android-36-google-apis-x86-64
       ]);
 
       rustToolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
