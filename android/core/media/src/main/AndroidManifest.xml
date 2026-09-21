@@ -25,7 +25,7 @@
     <application>
         <provider
             android:name=".ArtworkContentProvider"
-            android:authorities="com.ferrotune.core.media.artwork"
+            android:authorities="${applicationId}.artwork"
             android:exported="true"
             android:grantUriPermissions="true" />
 

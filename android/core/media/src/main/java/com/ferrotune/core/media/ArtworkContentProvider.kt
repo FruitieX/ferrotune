@@ -2,6 +2,7 @@ package com.ferrotune.core.media
 
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Context
 import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.net.Uri
@@ -79,7 +80,13 @@ class ArtworkContentProvider : ContentProvider() {
     }
 
     companion object {
-        const val ARTWORK_CONTENT_AUTHORITY = "com.ferrotune.core.media.artwork"
+        /**
+         * Provider authority is derived from the installed application id so
+         * the native app can be installed side by side with the legacy
+         * Tauri app without authority collisions.
+         */
+        fun authority(context: Context): String = "${context.packageName}.artwork"
+
         const val ARTWORK_CACHE_DIR_NAME = "notification-artwork"
         private const val ARTWORK_MIME_TYPE = "image/jpeg"
         private val ARTWORK_FILE_NAME_REGEX = Regex("[a-f0-9]{64}\\.jpg")

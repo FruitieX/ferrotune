@@ -438,6 +438,13 @@ enforcing early.
 
 ### 6.3 What gets deleted (web/tauri side)
 
+> **Transition note:** the cutover below is deferred until the native app has
+> been verified on a physical device. During the transition both apps are
+> installed side by side: the native build ships as
+> `com.ferrotune.music.native` ("Ferrotune Native") and derives its provider
+> authorities from the application id, so it does not collide with the Tauri
+> app (`com.ferrotune.music`). No data is shared or migrated between them.
+
 - `client/tauri-plugin-native-audio/**` entirely (after the move).
 - `client/src-tauri`: plugin dependency + `tauri_plugin_native_audio::init()`,
   `append_invoke_initialization_script` Android flag, `tauri.android-*.conf.json`,
@@ -532,7 +539,8 @@ Complexity: S ≈ days, M ≈ 1–2 weeks, L ≈ 2–4 weeks, XL ≈ 4+ weeks.
 | M3 | Playlists & dashboard | Playlists/folders/detail/edit/shares/smart + home/stats/review | Create/edit/reorder/share playlist; home sections render; offline membership sync | 3 wk |
 | M4 | Player polish | Fullscreen player, gestures, queue sheet, transitions, haptics, progress styles | Gesture checklist passes on device; queue edits reflected via SSE | 2–3 wk |
 | M5 | Offline & downloads | Download service move, materializer, Room, downloads UI/library, offline mode | Airplane-mode playback of a downloaded album/playlist; download management UI | 2 wk |
-| M6 | Settings, Cast, cutover | Settings screens, Cast UI, process death/error hardening, a11y, delete Tauri Android path + web native branches, CI/signing/docs | `moon run pre-ci` green; release APK upgrades the Tauri install; Tauri Android code gone | 3 wk |
+| M6 | Settings, Cast, hardening | Settings screens, Cast UI, process death/error hardening, a11y, side-by-side release | `moon run pre-ci` green; native release APK installs alongside the Tauri app (`com.ferrotune.music.native`, "Ferrotune Native") | 3 wk |
+| M7 | Cutover (deferred) | Delete Tauri Android path + web native branches, CI/signing/docs | Native app verified on device first; Tauri Android code gone | 1–2 wk |
 
 Total ≈ 17–19 focused weeks optimistic; **20–30 engineer-weeks** with hardening
 and rework. Milestones M1/M4 are the highest-value proof points early.
@@ -549,7 +557,7 @@ and rework. Milestones M1/M4 are the highest-value proof points early.
 | DTO drift / codegen brittleness | Medium | Extend ts-rs exports, converter + fixture round-trip tests, CI drift check; hand-written layer is only request/query params |
 | Loss of 1,229-LOC Playwright Android suite | Medium | Replace with Compose UI tests + Hurl-seeded emulator integration + ADB smoke; do not port WebView selectors |
 | Two API stacks during transition (`FerrotuneApiClient` vs Retrofit) | Low–Med | Single `SessionStore`/interceptor; fold client in a follow-up milestone |
-| Release continuity (upgrade in place) | Low | Same `applicationId`, keystore, higher `versionCode`; test upgrade from Tauri build |
+| Release continuity | Low | Transition ships side by side under `com.ferrotune.music.native`; keep the keystore and raise `versionCode` when the cutover eventually reuses `com.ferrotune.music` |
 | Cleartext self-hosted servers blocked | Low | Network security config allowing user-entered cleartext hosts |
 | Process death / OEM battery killers | Low–Med | Media3 service handles playback; UI state restoration; optional battery prompt + docs |
 | Multi-account cache bleed | Low–Med | Account-scoped Room/DataStore + clear Coil caches on swap; tests for swap sequences |

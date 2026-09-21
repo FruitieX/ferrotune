@@ -159,6 +159,14 @@ moon run android:install-debug    # install on a connected device/emulator
 moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 ```
 
+The native app intentionally installs side by side with the legacy Tauri
+Android app during the transition: it uses `applicationId
+com.ferrotune.music.native` and label "Ferrotune Native", and any
+`ContentProvider` authority must be derived from the application id (see
+`ArtworkContentProvider.authority(context)`) instead of a hardcoded package
+name. The Tauri Android path stays until the native app has been verified on a
+device.
+
 ### Kotlin DTOs (`android/core/network/.../generated/`)
 
 Response DTOs are generated from the ts-rs TypeScript contracts

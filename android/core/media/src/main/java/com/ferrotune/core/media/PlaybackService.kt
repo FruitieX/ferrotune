@@ -4490,7 +4490,7 @@ class PlaybackService : MediaSessionService() {
 
             Uri.Builder()
                 .scheme("content")
-                .authority(ArtworkContentProvider.ARTWORK_CONTENT_AUTHORITY)
+                .authority(ArtworkContentProvider.authority(this))
                 .appendPath(ArtworkContentProvider.ARTWORK_CACHE_DIR_NAME)
                 .appendPath(fileName)
                 .build()
