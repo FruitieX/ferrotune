@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,13 +52,16 @@ import androidx.paging.cachedIn
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionSource
+import com.ferrotune.core.actions.CollectionTarget
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionState
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
@@ -309,7 +313,6 @@ internal fun PagedSongList(
                 val flags = rememberSongFlags(
                     songId = song.id,
                     starred = song.starred != null,
-                    rating = song.userRating ?: 0,
                 )
                 var menuExpanded by remember { mutableStateOf(false) }
                 MediaRow(
@@ -321,9 +324,17 @@ internal fun PagedSongList(
                     isSelectionActive = selection?.isActive == true,
                     isSelected = song.id in (selection?.selectedIds ?: emptySet()),
                     onToggleSelection = selection?.let { { it.toggle(song.id) } },
-                    onLongClick = selection?.let { { it.select(song.id) } },
+                    onLongClick = selection?.let { state ->
+                        {
+                            if (state.isActive) {
+                                state.toggle(song.id)
+                            } else {
+                                menuExpanded = true
+                            }
+                        }
+                    },
                     trailing = {
-                        SongStarButton(songId = song.id, flags = flags)
+                        SongFavoriteButton(songId = song.id, flags = flags)
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
                                 Icon(Icons.Filled.MoreVert, contentDescription = "More")
@@ -334,6 +345,7 @@ internal fun PagedSongList(
                                 songId = song.id,
                                 flags = flags,
                                 onOpenSongRadio = { onOpenSongRadio(song.id) },
+                                onStartSelection = selection?.let { { it.select(song.id) } },
                                 extraItems = {
                                     if (onAddToPlaylist != null) {
                                         AddToPlaylistMenuItem(
@@ -397,13 +409,30 @@ internal fun PagedAlbumGrid(
                 key = items.itemKey { it.id },
             ) { index ->
                 val album = items[index] ?: return@items
-                MediaCard(
-                    title = album.name,
-                    subtitle = album.artist,
-                    seed = album.id,
-                    coverModel = inlineCoverModel(album.coverArtData),
-                    onClick = { onOpenAlbum(album.id) },
-                )
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    MediaCard(
+                        title = album.name,
+                        subtitle = album.artist,
+                        seed = album.id,
+                        coverModel = inlineCoverModel(album.coverArtData),
+                        onClick = { onOpenAlbum(album.id) },
+                        onLongClick = { menuExpanded = true },
+                    )
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        CollectionMenuItems(
+                            target = CollectionTarget(
+                                sourceType = CollectionSource.ALBUM,
+                                sourceId = album.id,
+                                name = album.name,
+                            ),
+                            onDismiss = { menuExpanded = false },
+                        )
+                    }
+                }
             }
         }
     }
@@ -432,14 +461,31 @@ internal fun PagedArtistList(
                 key = items.itemKey { it.id },
             ) { index ->
                 val artist = items[index] ?: return@items
-                MediaRow(
-                    title = artist.name,
-                    subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
-                    coverModel = inlineCoverModel(artist.coverArtData),
-                    coverShape = CircleShape,
-                    coverSeed = artist.id,
-                    onClick = { onOpenArtist(artist.id) },
-                )
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    MediaRow(
+                        title = artist.name,
+                        subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
+                        coverModel = inlineCoverModel(artist.coverArtData),
+                        coverShape = CircleShape,
+                        coverSeed = artist.id,
+                        onClick = { onOpenArtist(artist.id) },
+                        onLongClick = { menuExpanded = true },
+                    )
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        CollectionMenuItems(
+                            target = CollectionTarget(
+                                sourceType = CollectionSource.ARTIST,
+                                sourceId = artist.id,
+                                name = artist.name,
+                            ),
+                            onDismiss = { menuExpanded = false },
+                        )
+                    }
+                }
             }
             item {
                 PagingListFooter(isLoading = items.loadState.append is LoadState.Loading)

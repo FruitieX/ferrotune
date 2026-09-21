@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +44,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionSource
+import com.ferrotune.core.actions.CollectionTarget
+import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.AccountSwitcherDialog
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.ErrorState
@@ -95,6 +101,7 @@ fun HomeScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         modifier = modifier,
         topBar = {
             TopAppBar(
@@ -487,28 +494,56 @@ private fun ContinueListeningRow(
                     }
                     coverId?.let { coverArtUrl(serverUrl = base, coverArtId = it, size = "small") }
                 }
-            ShelfCard(
-                title = name,
-                subtitle = entry.type.toLabel(),
-                coverModel = coverModel,
-                seed = name,
-                onClick = {
-                    when {
-                        entry.type == HomeViewModel.SOURCE_TYPE_ALBUM && album != null ->
-                            onOpenAlbum(album.id)
+            val sourceType = when (entry.type) {
+                HomeViewModel.SOURCE_TYPE_ALBUM -> CollectionSource.ALBUM
+                HomeViewModel.SOURCE_TYPE_SMART_PLAYLIST -> CollectionSource.SMART_PLAYLIST
+                HomeViewModel.SOURCE_TYPE_PLAYLIST -> CollectionSource.PLAYLIST
+                else -> null
+            }
+            val sourceId = album?.id ?: playlist?.id
+            var menuExpanded by remember { mutableStateOf(false) }
+            Box {
+                ShelfCard(
+                    title = name,
+                    subtitle = entry.type.toLabel(),
+                    coverModel = coverModel,
+                    seed = name,
+                    onClick = {
+                        when {
+                            entry.type == HomeViewModel.SOURCE_TYPE_ALBUM && album != null ->
+                                onOpenAlbum(album.id)
 
-                        entry.type == HomeViewModel.SOURCE_TYPE_SMART_PLAYLIST &&
-                            playlist != null ->
-                            onOpenSmartPlaylist(playlist.id)
+                            entry.type == HomeViewModel.SOURCE_TYPE_SMART_PLAYLIST &&
+                                playlist != null ->
+                                onOpenSmartPlaylist(playlist.id)
 
-                        entry.type == HomeViewModel.SOURCE_TYPE_PLAYLIST &&
-                            playlist != null ->
-                            onOpenPlaylist(playlist.id)
+                            entry.type == HomeViewModel.SOURCE_TYPE_PLAYLIST &&
+                                playlist != null ->
+                                onOpenPlaylist(playlist.id)
 
-                        else -> onClick(entry)
+                            else -> onClick(entry)
+                        }
+                    },
+                    onLongClick = {
+                        if (sourceType != null && sourceId != null) menuExpanded = true
+                    },
+                )
+                if (sourceType != null && sourceId != null) {
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        CollectionMenuItems(
+                            target = CollectionTarget(
+                                sourceType = sourceType,
+                                sourceId = sourceId,
+                                name = name,
+                            ),
+                            onDismiss = { menuExpanded = false },
+                        )
                     }
-                },
-            )
+                }
+            }
         }
     }
 }
@@ -524,16 +559,33 @@ private fun AlbumRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(albums, key = { it.id }) { album ->
-            ShelfCard(
-                title = album.name,
-                subtitle = album.artist,
-                seed = album.id,
-                coverModel = inlineCoverModel(album.coverArtData)
-                    ?: serverUrl?.let {
-                        coverArtUrl(serverUrl = it, coverArtId = album.id, size = "small")
-                    },
-                onClick = { onOpenAlbum(album.id) },
-            )
+            var menuExpanded by remember { mutableStateOf(false) }
+            Box {
+                ShelfCard(
+                    title = album.name,
+                    subtitle = album.artist,
+                    seed = album.id,
+                    coverModel = inlineCoverModel(album.coverArtData)
+                        ?: serverUrl?.let {
+                            coverArtUrl(serverUrl = it, coverArtId = album.id, size = "small")
+                        },
+                    onClick = { onOpenAlbum(album.id) },
+                    onLongClick = { menuExpanded = true },
+                )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    CollectionMenuItems(
+                        target = CollectionTarget(
+                            sourceType = CollectionSource.ALBUM,
+                            sourceId = album.id,
+                            name = album.name,
+                        ),
+                        onDismiss = { menuExpanded = false },
+                    )
+                }
+            }
         }
     }
 }
@@ -548,14 +600,28 @@ private fun SongRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(songs, key = { it.id }) { song ->
-            ShelfCard(
-                title = song.title,
-                subtitle = song.artist,
-                seed = song.id,
-                coverModel = inlineCoverModel(song.coverArtData),
-                onClick = { onPlay(song) },
-                onPlay = { onPlay(song) },
+            var menuExpanded by remember { mutableStateOf(false) }
+            val flags = rememberSongFlags(
+                songId = song.id,
+                starred = song.starred != null,
             )
+            Box {
+                ShelfCard(
+                    title = song.title,
+                    subtitle = song.artist,
+                    seed = song.id,
+                    coverModel = inlineCoverModel(song.coverArtData),
+                    onClick = { onPlay(song) },
+                    onPlay = { onPlay(song) },
+                    onLongClick = { menuExpanded = true },
+                )
+                SongRowMenu(
+                    expanded = menuExpanded,
+                    onDismiss = { menuExpanded = false },
+                    songId = song.id,
+                    flags = flags,
+                )
+            }
         }
     }
 }

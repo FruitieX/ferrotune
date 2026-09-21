@@ -56,7 +56,7 @@ import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionState
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.formatDuration
@@ -458,7 +458,6 @@ private fun PlaylistEntryRow(
         val flags = rememberSongFlags(
             songId = song.id,
             starred = song.starred != null,
-            rating = song.userRating ?: 0,
         )
         MediaRow(
             title = song.title,
@@ -469,9 +468,15 @@ private fun PlaylistEntryRow(
             isSelectionActive = selection.isActive,
             isSelected = song.id in selection.selectedIds,
             onToggleSelection = { selection.toggle(song.id) },
-            onLongClick = { selection.select(song.id) },
+            onLongClick = {
+                if (selection.isActive) {
+                    selection.toggle(song.id)
+                } else {
+                    menuExpanded = true
+                }
+            },
             trailing = {
-                SongStarButton(songId = song.id, flags = flags)
+                SongFavoriteButton(songId = song.id, flags = flags)
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Entry menu")
@@ -484,6 +489,7 @@ private fun PlaylistEntryRow(
                             songId = song.id,
                             flags = flags,
                             onOpenSongRadio = onOpenSongRadio,
+                            onStartSelection = { selection.select(song.id) },
                             onDismiss = { menuExpanded = false },
                             extraItems = {
                             if (canEdit) {

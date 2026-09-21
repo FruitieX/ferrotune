@@ -1,5 +1,6 @@
 package com.ferrotune.feature.library.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -35,9 +36,12 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongFavoriteButton
+import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.DetailHeader
@@ -170,22 +174,42 @@ fun GenreDetailScreen(
                         key = songs.itemKey { it.id },
                     ) { index ->
                         val song = songs[index] ?: return@items
+                        val flags = rememberSongFlags(
+                            songId = song.id,
+                            starred = song.starred != null,
+                        )
+                        var menuExpanded by remember { mutableStateOf(false) }
                         MediaRow(
                             title = song.title,
                             subtitle = listOfNotNull(song.artist, song.album)
                                 .joinToString(" • "),
                             coverModel = inlineCoverModel(song.coverArtData),
+                            coverSeed = song.id,
                             onClick = { viewModel.play(song.id) },
                             isSelectionActive = selection.isActive,
                             isSelected = song.id in selection.selectedIds,
                             onToggleSelection = { selection.toggle(song.id) },
-                            onLongClick = { selection.select(song.id) },
-                            trailing = {
-                                IconButton(onClick = { onOpenSongRadio(song.id) }) {
-                                    Icon(Icons.Filled.Radio, contentDescription = "Song radio")
+                            onLongClick = {
+                                if (selection.isActive) {
+                                    selection.toggle(song.id)
+                                } else {
+                                    menuExpanded = true
                                 }
-                                    AddToPlaylistAction(songIds = listOf(song.id))
-                            SongDownloadAction(songId = song.id)
+                            },
+                            trailing = {
+                                Box {
+                                    SongFavoriteButton(songId = song.id, flags = flags)
+                                    SongRowMenu(
+                                        expanded = menuExpanded,
+                                        onDismiss = { menuExpanded = false },
+                                        songId = song.id,
+                                        flags = flags,
+                                        onOpenSongRadio = { onOpenSongRadio(song.id) },
+                                        onStartSelection = { selection.select(song.id) },
+                                    )
+                                }
+                                AddToPlaylistAction(songIds = listOf(song.id))
+                                SongDownloadAction(songId = song.id)
                             },
                         )
                     }

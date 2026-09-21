@@ -49,7 +49,7 @@ import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.ConfirmDialog
@@ -270,7 +270,6 @@ fun SmartPlaylistDetailScreen(
                         val flags = rememberSongFlags(
                             songId = song.id,
                             starred = song.starred != null,
-                            rating = song.userRating ?: 0,
                         )
                         var menuExpanded by remember { mutableStateOf(false) }
                         MediaRow(
@@ -283,9 +282,15 @@ fun SmartPlaylistDetailScreen(
                             isSelectionActive = selection.isActive,
                             isSelected = song.id in selection.selectedIds,
                             onToggleSelection = { selection.toggle(song.id) },
-                            onLongClick = { selection.select(song.id) },
+                            onLongClick = {
+                                if (selection.isActive) {
+                                    selection.toggle(song.id)
+                                } else {
+                                    menuExpanded = true
+                                }
+                            },
                             trailing = {
-                                SongStarButton(songId = song.id, flags = flags)
+                                SongFavoriteButton(songId = song.id, flags = flags)
                                 Box {
                                     IconButton(onClick = { menuExpanded = true }) {
                                         Icon(Icons.Filled.MoreVert, contentDescription = "More")
@@ -296,6 +301,7 @@ fun SmartPlaylistDetailScreen(
                                         songId = song.id,
                                         flags = flags,
                                         onOpenSongRadio = { onOpenSongRadio(song.id) },
+                                        onStartSelection = { selection.select(song.id) },
                                         extraItems = {
                                             SongDownloadMenuItem(
                                                 songId = song.id,

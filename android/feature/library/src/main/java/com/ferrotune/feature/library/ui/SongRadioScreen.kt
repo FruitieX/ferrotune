@@ -1,6 +1,7 @@
 package com.ferrotune.feature.library.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Spacer
@@ -34,9 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongFavoriteButton
+import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.DetailHeader
@@ -47,6 +51,8 @@ import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.SectionHeader
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
+import com.ferrotune.feature.downloads.ui.SongDownloadAction
+import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
 
 @Composable
@@ -168,16 +174,42 @@ fun SongRadioScreen(
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(state.similar, key = { it.id }) { song ->
+                            val flags = rememberSongFlags(
+                                songId = song.id,
+                                starred = song.starred != null,
+                            )
+                            var menuExpanded by remember { mutableStateOf(false) }
                             MediaRow(
                                 title = song.title,
                                 subtitle = listOfNotNull(song.artist, song.album)
                                     .joinToString(" • "),
                                 coverModel = inlineCoverModel(song.coverArtData),
+                                coverSeed = song.id,
                                 onClick = { viewModel.play(song.id) },
                                 isSelectionActive = selection.isActive,
                                 isSelected = song.id in selection.selectedIds,
                                 onToggleSelection = { selection.toggle(song.id) },
-                                onLongClick = { selection.select(song.id) },
+                                onLongClick = {
+                                    if (selection.isActive) {
+                                        selection.toggle(song.id)
+                                    } else {
+                                        menuExpanded = true
+                                    }
+                                },
+                                trailing = {
+                                    Box {
+                                        SongFavoriteButton(songId = song.id, flags = flags)
+                                        SongRowMenu(
+                                            expanded = menuExpanded,
+                                            onDismiss = { menuExpanded = false },
+                                            songId = song.id,
+                                            flags = flags,
+                                            onStartSelection = { selection.select(song.id) },
+                                        )
+                                    }
+                                    AddToPlaylistAction(songIds = listOf(song.id))
+                                    SongDownloadAction(songId = song.id)
+                                },
                             )
                         }
                     }

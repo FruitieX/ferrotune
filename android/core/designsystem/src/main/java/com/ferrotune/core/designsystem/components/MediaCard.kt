@@ -1,6 +1,8 @@
 package com.ferrotune.core.designsystem.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.dp
  * Vertical artwork card used by home shelves and library grids: rounded cover,
  * bold title, muted subtitle, and an optional floating play button.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaCard(
     title: String,
@@ -41,10 +44,11 @@ fun MediaCard(
     coverShape: Shape = RoundedCornerShape(12.dp),
     circularCover: Boolean = false,
     onPlay: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Column(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box {
@@ -84,7 +88,7 @@ fun MediaCard(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (!subtitle.isNullOrBlank()) {
@@ -113,6 +117,7 @@ fun ShelfCard(
     seed: String? = null,
     circularCover: Boolean = false,
     onPlay: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     MediaCard(
         title = title,
@@ -123,5 +128,6 @@ fun ShelfCard(
         seed = seed,
         circularCover = circularCover,
         onPlay = onPlay,
+        onLongClick = onLongClick,
     )
 }

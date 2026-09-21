@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,13 +49,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionSource
+import com.ferrotune.core.actions.CollectionTarget
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionState
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.EmptyState
@@ -133,6 +138,7 @@ fun LibraryScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         modifier = modifier,
         topBar = {
             if (selection.isActive) {
@@ -231,6 +237,7 @@ fun LibraryScreen(
                     },
                     onToggleDirection = viewModel::toggleAlbumSortDir,
                     onOpenAlbum = onOpenAlbum,
+                    onOpenArtist = onOpenArtist,
                     items = viewModel.albums.collectAsLazyPagingItems(),
                 )
 
@@ -328,7 +335,6 @@ private fun SongsTab(
                     val flags = rememberSongFlags(
                         songId = song.id,
                         starred = song.starred != null,
-                        rating = song.userRating ?: 0,
                     )
                     var menuExpanded by remember { mutableStateOf(false) }
                     MediaRow(
@@ -340,9 +346,15 @@ private fun SongsTab(
                         isSelectionActive = selection.isActive,
                         isSelected = song.id in selection.selectedIds,
                         onToggleSelection = { selection.toggle(song.id) },
-                        onLongClick = { selection.select(song.id) },
+                        onLongClick = {
+                            if (selection.isActive) {
+                                selection.toggle(song.id)
+                            } else {
+                                menuExpanded = true
+                            }
+                        },
                         trailing = {
-                            SongStarButton(songId = song.id, flags = flags)
+                            SongFavoriteButton(songId = song.id, flags = flags)
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
                                     Icon(Icons.Filled.MoreVert, contentDescription = "More")
@@ -353,6 +365,7 @@ private fun SongsTab(
                                     songId = song.id,
                                     flags = flags,
                                     onOpenSongRadio = { onOpenSongRadio(song.id) },
+                                    onStartSelection = { selection.select(song.id) },
                                     extraItems = {
                                         AddToPlaylistMenuItem(
                                             onClick = {
@@ -387,6 +400,7 @@ private fun AlbumsTab(
     onSelectSort: (String) -> Unit,
     onToggleDirection: () -> Unit,
     onOpenAlbum: (String) -> Unit,
+    onOpenArtist: (String) -> Unit,
     items: androidx.paging.compose.LazyPagingItems<AlbumResponse>,
     modifier: Modifier = Modifier,
 ) {
@@ -437,13 +451,31 @@ private fun AlbumsTab(
                     key = items.itemKey { it.id },
                 ) { index ->
                     val album = items[index] ?: return@items
-                    MediaCard(
-                        title = album.name,
-                        subtitle = album.artist,
-                        seed = album.id,
-                        coverModel = inlineCoverModel(album.coverArtData),
-                        onClick = { onOpenAlbum(album.id) },
-                    )
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        MediaCard(
+                            title = album.name,
+                            subtitle = album.artist,
+                            seed = album.id,
+                            coverModel = inlineCoverModel(album.coverArtData),
+                            onClick = { onOpenAlbum(album.id) },
+                            onLongClick = { menuExpanded = true },
+                        )
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            CollectionMenuItems(
+                                target = CollectionTarget(
+                                    sourceType = CollectionSource.ALBUM,
+                                    sourceId = album.id,
+                                    name = album.name,
+                                ),
+                                onDismiss = { menuExpanded = false },
+                                onGoToArtist = { onOpenArtist(album.artistId) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -493,14 +525,31 @@ private fun ArtistsTab(
                     key = items.itemKey { it.id },
                 ) { index ->
                     val artist = items[index] ?: return@items
-                    MediaRow(
-                        title = artist.name,
-                        subtitle = artistCounts(artist),
-                        coverModel = inlineCoverModel(artist.coverArtData),
-                        coverShape = CircleShape,
-                        coverSeed = artist.id,
-                        onClick = { onOpenArtist(artist.id) },
-                    )
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        MediaRow(
+                            title = artist.name,
+                            subtitle = artistCounts(artist),
+                            coverModel = inlineCoverModel(artist.coverArtData),
+                            coverShape = CircleShape,
+                            coverSeed = artist.id,
+                            onClick = { onOpenArtist(artist.id) },
+                            onLongClick = { menuExpanded = true },
+                        )
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            CollectionMenuItems(
+                                target = CollectionTarget(
+                                    sourceType = CollectionSource.ARTIST,
+                                    sourceId = artist.id,
+                                    name = artist.name,
+                                ),
+                                onDismiss = { menuExpanded = false },
+                            )
+                        }
+                    }
                 }
                 item {
                     PagingListFooter(

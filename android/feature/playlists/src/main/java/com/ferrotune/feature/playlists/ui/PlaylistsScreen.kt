@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -41,6 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.actions.CollectionActionsViewModel
+import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionSource
+import com.ferrotune.core.actions.CollectionTarget
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
@@ -79,6 +84,7 @@ fun PlaylistsScreen(
     var addMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         modifier = modifier,
         topBar = {
             TopAppBar(
@@ -325,21 +331,42 @@ private fun RecentPlaylistsRow(
     ) {
         items(entries, key = { "${it.playlistType}-${it.id}" }) { entry ->
             val isSmart = entry.playlistType == "smartPlaylist"
-            ShelfCard(
-                title = entry.name,
-                subtitle = if (isSmart) "Smart playlist" else "Playlist",
-                seed = entry.id,
-                coverModel = serverUrl?.let {
-                    coverArtUrl(
-                        serverUrl = it,
-                        coverArtId = if (isSmart) "sp-${entry.id}" else entry.id,
-                        size = "small",
+            var menuExpanded by remember { mutableStateOf(false) }
+            Box {
+                ShelfCard(
+                    title = entry.name,
+                    subtitle = if (isSmart) "Smart playlist" else "Playlist",
+                    seed = entry.id,
+                    coverModel = serverUrl?.let {
+                        coverArtUrl(
+                            serverUrl = it,
+                            coverArtId = if (isSmart) "sp-${entry.id}" else entry.id,
+                            size = "small",
+                        )
+                    },
+                    onClick = {
+                        if (isSmart) onOpenSmartPlaylist(entry.id) else onOpenPlaylist(entry.id)
+                    },
+                    onLongClick = { menuExpanded = true },
+                )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    CollectionMenuItems(
+                        target = CollectionTarget(
+                            sourceType = if (isSmart) {
+                                CollectionSource.SMART_PLAYLIST
+                            } else {
+                                CollectionSource.PLAYLIST
+                            },
+                            sourceId = entry.id,
+                            name = entry.name,
+                        ),
+                        onDismiss = { menuExpanded = false },
                     )
-                },
-                onClick = {
-                    if (isSmart) onOpenSmartPlaylist(entry.id) else onOpenPlaylist(entry.id)
-                },
-            )
+                }
+            }
         }
     }
 }
@@ -352,25 +379,54 @@ private fun SmartPlaylistRow(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
 ) {
-    MediaRow(
-        title = smartPlaylist.name,
-        subtitle = listOfNotNull(
-            "Smart playlist",
-            smartPlaylist.songCount?.let { "$it songs" },
-        ).joinToString(" • "),
-        coverModel = serverUrl?.let {
-            coverArtUrl(serverUrl = it, coverArtId = "sp-${smartPlaylist.id}", size = "small")
-        },
-        onClick = onOpen,
-        trailing = {
-            IconButton(onClick = onPlay) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
-            }
-            IconButton(onClick = onShuffle) {
-                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle")
-            }
-        },
+    var menuExpanded by remember { mutableStateOf(false) }
+    val collectionActions: CollectionActionsViewModel = hiltViewModel()
+    val target = CollectionTarget(
+        sourceType = CollectionSource.SMART_PLAYLIST,
+        sourceId = smartPlaylist.id,
+        name = smartPlaylist.name,
     )
+    Box {
+        MediaRow(
+            title = smartPlaylist.name,
+            subtitle = listOfNotNull(
+                "Smart playlist",
+                smartPlaylist.songCount?.let { "$it songs" },
+            ).joinToString(" • "),
+            coverModel = serverUrl?.let {
+                coverArtUrl(serverUrl = it, coverArtId = "sp-${smartPlaylist.id}", size = "small")
+            },
+            onClick = onOpen,
+            onLongClick = { menuExpanded = true },
+            trailing = {
+                IconButton(onClick = onPlay) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
+                }
+                IconButton(onClick = onShuffle) {
+                    Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle")
+                }
+            },
+        )
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Play next") },
+                onClick = {
+                    menuExpanded = false
+                    collectionActions.playNext(target)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Add to queue") },
+                onClick = {
+                    menuExpanded = false
+                    collectionActions.addToQueue(target)
+                },
+            )
+        }
+    }
 }
 
 @Composable
@@ -385,6 +441,12 @@ private fun PlaylistRow(
     onDelete: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val collectionActions: CollectionActionsViewModel = hiltViewModel()
+    val target = CollectionTarget(
+        sourceType = CollectionSource.PLAYLIST,
+        sourceId = playlist.id,
+        name = playlist.name,
+    )
 
     MediaRow(
         title = playlist.name,
@@ -396,6 +458,7 @@ private fun PlaylistRow(
             ?.takeIf { playlist.songCount > 0 }
             ?.let { coverArtUrl(serverUrl = it, coverArtId = playlist.id, size = "small") },
         onClick = onOpen,
+        onLongClick = { menuExpanded = true },
         trailing = {
             IconButton(onClick = onPlay) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
@@ -408,6 +471,20 @@ private fun PlaylistRow(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Play next") },
+                        onClick = {
+                            menuExpanded = false
+                            collectionActions.playNext(target)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to queue") },
+                        onClick = {
+                            menuExpanded = false
+                            collectionActions.addToQueue(target)
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Shuffle") },
                         onClick = {
