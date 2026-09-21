@@ -22,6 +22,7 @@ import com.ferrotune.core.network.dto.ReorderPlaylistRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
+import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
 import com.ferrotune.core.network.generated.BatchMatchEntriesRequest
 import com.ferrotune.core.network.generated.BatchMatchEntriesResponse
@@ -135,6 +136,9 @@ open class FakeFerrotuneApi(
 
     override suspend fun startQueue(request: StartQueueRequest): StartQueueResponse = error("unused")
 
+    override suspend fun addToQueue(request: AddToQueueRequest): QueueSuccessResponse =
+        error("unused")
+
     override suspend fun queue(params: Map<String, String>): GetQueueResponse = error("unused")
 
     override suspend fun queueWindow(params: Map<String, String>): GetQueueResponse = error("unused")
@@ -186,9 +190,9 @@ open class FakeFerrotuneApi(
         error("unused")
 
     override suspend fun starred(): FerrotuneStarredResponse = error("unused")
-    override suspend fun star(request: StarRequest) = error("unused")
-    override suspend fun unstar(request: StarRequest) = error("unused")
-    override suspend fun setRating(request: RatingRequest) = error("unused")
+    override suspend fun star(request: StarRequest): Unit = error("unused")
+    override suspend fun unstar(request: StarRequest): Unit = error("unused")
+    override suspend fun setRating(request: RatingRequest): Unit = error("unused")
 
     override suspend fun home(params: Map<String, String>): HomePageResponse = error("unused")
     override suspend fun continueListening(

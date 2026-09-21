@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -140,5 +141,22 @@ fun AddToPlaylistDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Close") }
         },
+    )
+}
+
+/**
+ * Menu-item variant of [AddToPlaylistAction] for shared row overflow menus.
+ * The caller owns the dialog state and renders [AddToPlaylistDialog] itself.
+ */
+@Composable
+fun AddToPlaylistMenuItem(
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text("Add to playlist") },
+        leadingIcon = {
+            Icon(Icons.Filled.PlaylistAdd, contentDescription = null)
+        },
+        onClick = onClick,
     )
 }

@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +32,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +45,10 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
@@ -49,9 +59,11 @@ import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
-import com.ferrotune.feature.downloads.ui.SongDownloadAction
-import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.coverArtUrl
+import com.ferrotune.core.network.generated.QueueSourceRequest
+import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
+import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
+import com.ferrotune.feature.playlists.ui.AddToPlaylistMenuItem
 
 @Composable
 fun AlbumDetailScreen(
@@ -64,6 +76,9 @@ fun AlbumDetailScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val songs = viewModel.songs.collectAsLazyPagingItems()
     val snackbarHostState = remember { SnackbarHostState() }
+    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
 
     LaunchedEffect(state.playbackError) {
         state.playbackError?.let {
@@ -96,6 +111,40 @@ fun AlbumDetailScreen(
                             name = album.name,
                             coverArtId = album.coverArt,
                         )
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                            ) {
+                                val source = QueueSourceRequest(
+                                    sourceType = "album",
+                                    sourceId = album.id,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Play next") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.PlaylistPlay, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        actionsViewModel.playNextSources(listOf(source))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Add to queue") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Add, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        actionsViewModel.addSourcesToQueue(listOf(source))
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
             )
@@ -153,9 +202,18 @@ fun AlbumDetailScreen(
                     items = songs,
                     onPlaySong = { viewModel.play(it) },
                     onOpenSongRadio = onOpenSongRadio,
+                    onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
                 )
             }
         }
+    }
+
+    addToPlaylistSongIds?.let { songIds ->
+        AddToPlaylistDialog(
+            songIds = songIds,
+            onDismiss = { addToPlaylistSongIds = null },
+            onAdded = { addToPlaylistSongIds = null },
+        )
     }
 }
 
@@ -164,6 +222,7 @@ private fun AlbumSongList(
     items: LazyPagingItems<com.ferrotune.core.network.generated.SongResponse>,
     onPlaySong: (String) -> Unit,
     onOpenSongRadio: (String) -> Unit,
+    onAddToPlaylist: (String) -> Unit,
 ) {
     when {
         items.loadState.refresh is LoadState.Error -> ErrorState(
@@ -183,20 +242,47 @@ private fun AlbumSongList(
                 key = items.itemKey { it.id },
             ) { index ->
                 val song = items[index] ?: return@items
+                val flags = rememberSongFlags(
+                    songId = song.id,
+                    starred = song.starred != null,
+                    rating = song.userRating ?: 0,
+                )
+                var menuExpanded by remember { mutableStateOf(false) }
                 MediaRow(
                     title = song.title,
                     subtitle = listOfNotNull(
                         song.track?.toString()?.let { "Track $it" },
                         song.artist,
                     ).joinToString(" • "),
-                    coverModel = null,
+                    coverModel = inlineCoverModel(song.coverArtData),
+                    coverSeed = song.id,
                     onClick = { onPlaySong(song.id) },
                     trailing = {
-                        IconButton(onClick = { onOpenSongRadio(song.id) }) {
-                            Icon(Icons.Filled.Radio, contentDescription = "Song radio")
+                        SongStarButton(songId = song.id, flags = flags)
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            }
+                            SongRowMenu(
+                                expanded = menuExpanded,
+                                onDismiss = { menuExpanded = false },
+                                songId = song.id,
+                                flags = flags,
+                                onOpenSongRadio = { onOpenSongRadio(song.id) },
+                                extraItems = {
+                                    AddToPlaylistMenuItem(
+                                        onClick = {
+                                            menuExpanded = false
+                                            onAddToPlaylist(song.id)
+                                        },
+                                    )
+                                    SongDownloadMenuItem(
+                                        songId = song.id,
+                                        onClick = { menuExpanded = false },
+                                    )
+                                },
+                            )
                         }
-                            AddToPlaylistAction(songIds = listOf(song.id))
-                            SongDownloadAction(songId = song.id)
                     },
                 )
             }

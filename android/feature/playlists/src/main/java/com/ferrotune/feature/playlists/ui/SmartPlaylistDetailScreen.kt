@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,6 +42,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
@@ -55,6 +57,7 @@ import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
+import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 
 @Composable
@@ -213,17 +216,37 @@ fun SmartPlaylistDetailScreen(
                         key = songs.itemKey { it.id },
                     ) { index ->
                         val song = songs[index] ?: return@items
+                        val flags = rememberSongFlags(
+                            songId = song.id,
+                            starred = song.starred != null,
+                            rating = song.userRating ?: 0,
+                        )
+                        var menuExpanded by remember { mutableStateOf(false) }
                         MediaRow(
                             title = song.title,
                             subtitle = listOfNotNull(song.artist, song.album)
                                 .joinToString(" • "),
                             coverModel = inlineCoverModel(song.coverArtData),
+                            coverSeed = song.id,
                             onClick = { viewModel.play(startSongId = song.id) },
                             trailing = {
-                                IconButton(onClick = { onOpenSongRadio(song.id) }) {
-                                    Icon(
-                                        Icons.Filled.Radio,
-                                        contentDescription = "Song radio",
+                                SongStarButton(songId = song.id, flags = flags)
+                                Box {
+                                    IconButton(onClick = { menuExpanded = true }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                    }
+                                    SongRowMenu(
+                                        expanded = menuExpanded,
+                                        onDismiss = { menuExpanded = false },
+                                        songId = song.id,
+                                        flags = flags,
+                                        onOpenSongRadio = { onOpenSongRadio(song.id) },
+                                        extraItems = {
+                                            SongDownloadMenuItem(
+                                                songId = song.id,
+                                                onClick = { menuExpanded = false },
+                                            )
+                                        },
                                     )
                                 }
                             },

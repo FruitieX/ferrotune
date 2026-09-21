@@ -1,6 +1,7 @@
 package com.ferrotune.core.media
 
 import com.ferrotune.core.network.FerrotuneJson
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -67,5 +68,39 @@ class PlaybackSessionStarterTest {
         assertTrue(json.contains("\"startIndex\":3"))
         assertTrue(json.contains("\"shuffle\":true"))
         assertFalse(json.contains("\"songIds\":["))
+    }
+
+    @Test
+    fun `queue add next sends next position with current index`() {
+        val request = buildAddToQueueRequest(
+            spec = QueueAddSpec(songIds = listOf("song-1", "song-2")),
+            sessionId = "session-1",
+            position = QueueAddPosition.NEXT,
+            currentIndex = 4L,
+        )
+
+        assertEquals("session-1", request.sessionId)
+        assertEquals(listOf("song-1", "song-2"), request.songIds)
+        assertEquals(JsonPrimitive("next"), request.position)
+        assertEquals(4L, request.currentIndex)
+        assertTrue(request.sources.isEmpty())
+    }
+
+    @Test
+    fun `queue add end sends sources without song ids`() {
+        val request = buildAddToQueueRequest(
+            spec = QueueAddSpec(
+                sources = listOf(QueueSourceRequest(sourceType = "album", sourceId = "album-1")),
+            ),
+            sessionId = "session-1",
+            position = QueueAddPosition.END,
+            currentIndex = null,
+        )
+
+        assertEquals(JsonPrimitive("end"), request.position)
+        assertNull(request.currentIndex)
+        assertTrue(request.songIds.isEmpty())
+        assertEquals("album", request.sources.single().sourceType)
+        assertEquals("album-1", request.sources.single().sourceId)
     }
 }

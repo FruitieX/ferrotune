@@ -1,6 +1,22 @@
 package com.ferrotune.core.media
 
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import kotlinx.coroutines.flow.StateFlow
+
+/** Where newly added queue entries land relative to the current track. */
+enum class QueueAddPosition {
+    NEXT,
+    END,
+}
+
+/**
+ * Songs to append to the active queue, either as explicit ids or as collection
+ * descriptors the server materializes.
+ */
+data class QueueAddSpec(
+    val songIds: List<String> = emptyList(),
+    val sources: List<QueueSourceRequest> = emptyList(),
+)
 
 /**
  * Playback start surface used by UI features. Implemented by
@@ -9,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface PlaybackStarter {
     suspend fun startQueue(spec: QueueStartSpec)
+
+    suspend fun addToQueue(spec: QueueAddSpec, position: QueueAddPosition)
 
     suspend fun startRandomQueue(size: Int = 50)
 

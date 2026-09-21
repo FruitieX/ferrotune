@@ -47,6 +47,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionsMenuContent
+import com.ferrotune.core.actions.SongStarButton
+import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.formatDuration
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.DetailHeader
@@ -371,12 +374,19 @@ private fun PlaylistEntryRow(
     val song = entry.song
 
     if (song != null) {
+        val flags = rememberSongFlags(
+            songId = song.id,
+            starred = song.starred != null,
+            rating = song.userRating ?: 0,
+        )
         MediaRow(
             title = song.title,
             subtitle = listOfNotNull(song.artist, song.album).joinToString(" • "),
             coverModel = inlineCoverModel(song.coverArtData),
+            coverSeed = song.id,
             onClick = onPlay,
             trailing = {
+                SongStarButton(songId = song.id, flags = flags)
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Entry menu")
@@ -385,43 +395,37 @@ private fun PlaylistEntryRow(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Play") },
-                            onClick = {
-                                menuExpanded = false
-                                onPlay()
+                        SongActionsMenuContent(
+                            songId = song.id,
+                            flags = flags,
+                            onOpenSongRadio = onOpenSongRadio,
+                            onDismiss = { menuExpanded = false },
+                            extraItems = {
+                            if (canEdit) {
+                                DropdownMenuItem(
+                                    text = { Text("Move up") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onMoveUp()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Move down") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onMoveDown()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Remove") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onRemove()
+                                    },
+                                )
+                                }
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text("Song radio") },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenSongRadio()
-                            },
-                        )
-                        if (canEdit) {
-                            DropdownMenuItem(
-                                text = { Text("Move up") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onMoveUp()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Move down") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onMoveDown()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Remove") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onRemove()
-                                },
-                            )
-                        }
                     }
                 }
             },

@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.ferrotune.feature.library"
+    namespace = "com.ferrotune.core.actions"
     compileSdk = 36
 
     defaultConfig {
@@ -34,27 +34,16 @@ kotlin {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:network"))
-    implementation(project(":core:datastore"))
     implementation(project(":core:designsystem"))
-    implementation(project(":core:actions"))
     implementation(project(":core:media"))
-    implementation(project(":feature:downloads"))
-    implementation(project(":feature:playlists"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.navigation.compose)
-    implementation(libs.androidx.paging.runtime)
-    implementation(libs.androidx.paging.compose)
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network.okhttp)
-    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 

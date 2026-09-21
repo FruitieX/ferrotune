@@ -69,3 +69,34 @@ fun SongDownloadAction(
         }
     }
 }
+
+/**
+ * Menu-item variant of [SongDownloadAction] for shared row overflow menus.
+ */
+@Composable
+fun SongDownloadMenuItem(
+    songId: String,
+    onClick: () -> Unit,
+    viewModel: DownloadActionViewModel = hiltViewModel(),
+) {
+    val downloadedIds by viewModel.downloadedSongIds.collectAsStateWithLifecycle()
+    val isDownloaded = songId in downloadedIds
+
+    androidx.compose.material3.DropdownMenuItem(
+        text = { Text(if (isDownloaded) "Remove download" else "Download") },
+        leadingIcon = {
+            Icon(
+                imageVector = if (isDownloaded) {
+                    Icons.Filled.DownloadDone
+                } else {
+                    Icons.Filled.Download
+                },
+                contentDescription = null,
+            )
+        },
+        onClick = {
+            onClick()
+            viewModel.toggleSong(songId)
+        },
+    )
+}

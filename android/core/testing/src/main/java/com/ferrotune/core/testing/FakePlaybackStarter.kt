@@ -2,6 +2,8 @@ package com.ferrotune.core.testing
 
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackState
+import com.ferrotune.core.media.QueueAddPosition
+import com.ferrotune.core.media.QueueAddSpec
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.GetQueueResponse
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,13 @@ class FakePlaybackStarter(private val failure: String? = null) : PlaybackStarter
     override suspend fun startQueue(spec: QueueStartSpec) {
         failure?.let { throw IllegalStateException(it) }
         specs += spec
+    }
+
+    val queueAdds = mutableListOf<Pair<QueueAddSpec, QueueAddPosition>>()
+
+    override suspend fun addToQueue(spec: QueueAddSpec, position: QueueAddPosition) {
+        failure?.let { throw IllegalStateException(it) }
+        queueAdds += spec to position
     }
 
     override suspend fun startRandomQueue(size: Int) = Unit

@@ -4,6 +4,7 @@ import com.ferrotune.core.datastore.AccountStore
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.ConnectSessionRequest
+import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import com.ferrotune.core.network.generated.StartQueueResponse
 import javax.inject.Inject
@@ -99,6 +100,22 @@ class PlaybackSessionStarter @Inject constructor(
         return true
     }
 
+    override suspend fun addToQueue(spec: QueueAddSpec, position: QueueAddPosition) {
+        check(spec.songIds.isNotEmpty() || spec.sources.isNotEmpty()) {
+            "Queue add requires song ids or sources"
+        }
+        val sessionId = repository.state.value.sessionId
+            ?: throw IllegalStateException("No active playback session")
+        val currentIndex = repository.state.value.queueIndex.takeIf { it >= 0 }?.toLong()
+        val request = buildAddToQueueRequest(
+            spec = spec,
+            sessionId = sessionId,
+            position = position,
+            currentIndex = currentIndex,
+        )
+        apiCall { apiProvider.requireApi().addToQueue(request) }
+    }
+
     override suspend fun startRandomQueue(size: Int) {
         val songs = apiCall { apiProvider.requireApi().randomSongs(size) }.song
         check(songs.isNotEmpty()) { "Server returned no songs" }
@@ -190,6 +207,26 @@ internal fun buildStartQueueRequest(
     clientId = clientId,
     clientName = CLIENT_NAME,
     keepPlaying = spec.keepPlaying,
+)
+
+internal fun buildAddToQueueRequest(
+    spec: QueueAddSpec,
+    sessionId: String,
+    position: QueueAddPosition,
+    currentIndex: Long?,
+): AddToQueueRequest = AddToQueueRequest(
+    sessionId = sessionId,
+    songIds = spec.songIds,
+    position = JsonPrimitive(
+        when (position) {
+            QueueAddPosition.NEXT -> "next"
+            QueueAddPosition.END -> "end"
+        },
+    ),
+    currentIndex = currentIndex,
+    sourceType = null,
+    sourceId = null,
+    sources = spec.sources,
 )
 
 fun queueSort(field: String, direction: String): Map<String, JsonElement> =

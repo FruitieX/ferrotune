@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -30,6 +33,7 @@ import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
+import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
@@ -157,6 +161,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
 
     Scaffold(
         modifier = modifier,
@@ -200,6 +205,7 @@ fun SearchScreen(
                         items = viewModel.songs.collectAsLazyPagingItems(),
                         onPlaySong = viewModel::playSong,
                         onOpenSongRadio = onOpenSongRadio,
+                        onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
                     )
 
                     SearchTab.ALBUMS -> PagedAlbumGrid(
@@ -214,6 +220,14 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    addToPlaylistSongIds?.let { songIds ->
+        AddToPlaylistDialog(
+            songIds = songIds,
+            onDismiss = { addToPlaylistSongIds = null },
+            onAdded = { addToPlaylistSongIds = null },
+        )
     }
 }
 

@@ -19,6 +19,7 @@ import com.ferrotune.core.network.dto.ReorderPlaylistRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
+import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
 import com.ferrotune.core.network.generated.BatchMatchEntriesRequest
 import com.ferrotune.core.network.generated.BatchMatchEntriesResponse
@@ -111,6 +112,9 @@ interface FerrotuneApi {
 
     @POST("api/queue/start")
     suspend fun startQueue(@Body request: StartQueueRequest): StartQueueResponse
+
+    @POST("api/queue/add")
+    suspend fun addToQueue(@Body request: AddToQueueRequest): QueueSuccessResponse
 
     @GET("api/queue")
     suspend fun queue(@QueryMap params: Map<String, String>): GetQueueResponse
