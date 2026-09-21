@@ -104,7 +104,7 @@ function buildRustIndex() {
       const renameAll = renameAllMatch ? renameAllMatch[1] : null;
 
       const fields = new Map();
-      for (const rawField of splitTopLevel(body)) {
+      for (const rawField of splitTopLevel(body.replace(/\/\/[^\n]*/g, ""))) {
         const fieldAttributes = [
           ...rawField.matchAll(/#\[([^\]]*)\]/g),
         ].map((m) => m[1]);
@@ -125,7 +125,11 @@ function buildRustIndex() {
           );
           if (renameMatch) wireName = renameMatch[1];
         }
-        fields.set(wireName, { type: rustType, flatten });
+        fields.set(wireName, {
+          type: rustType,
+          flatten,
+          attributes: fieldAttributes,
+        });
       }
 
       const existing = structs.get(structName);
@@ -150,7 +154,7 @@ function resolveRustField(rustIndex, structName, wireName, seen = new Set()) {
   const struct = rustIndex.get(structName);
   if (!struct) return null;
   const direct = struct.fields.get(wireName);
-  if (direct) return direct.type;
+  if (direct) return direct;
   for (const field of struct.fields.values()) {
     if (!field.flatten) continue;
     const flattened = field.type
@@ -350,6 +354,22 @@ function enumEntryName(value) {
   return /^\d/.test(safe) ? `VALUE_${safe}` : safe;
 }
 
+function skippedFieldDefault(rustField) {
+  if (!rustField) return null;
+  const skipped = rustField.attributes.some((attribute) =>
+    /skip_serializing_if\s*=/.test(attribute)
+  );
+  if (!skipped) return null;
+  const normalized = rustField.type.replace(/\s+/g, "");
+  if (normalized.startsWith("Option<")) return { default: " = null", nullable: true };
+  if (/^(Vec|List)</.test(normalized)) return { default: " = emptyList()" };
+  if (/^(HashMap|BTreeMap)</.test(normalized)) return { default: " = emptyMap()" };
+  if (normalized === "bool") return { default: " = false" };
+  if (normalized === "String") return { default: ' = ""' };
+  if (/^(i|u|f)\d+$|^usize$|^isize$/.test(normalized)) return { default: " = 0" };
+  return null;
+}
+
 function emitKotlin(types, generatedNames, rustIndex) {
   const files = [];
   for (const type of types) {
@@ -375,8 +395,9 @@ function emitKotlin(types, generatedNames, rustIndex) {
         warn(`${type.name}: no matching Rust struct, precision may be guessed`);
       }
       const fields = type.fields.map((field) => {
-        const rustType = resolveRustField(rustIndex, type.name, field.name);
-        if (!rustType) {
+        const rustField = resolveRustField(rustIndex, type.name, field.name);
+        const rustType = rustField?.type;
+        if (!rustField) {
           warn(`${type.name}.${field.name}: no Rust field match`);
         }
         const normalizedRust = (rustType ?? "").replace(/\s+/g, "");
@@ -396,14 +417,16 @@ function emitKotlin(types, generatedNames, rustIndex) {
           generatedNames,
           `${type.name}.${field.name}`
         );
-        const nullable = field.optional || isNullable(field.tsType);
+        const skip = skippedFieldDefault(rustField);
+        const nullable =
+          field.optional || isNullable(field.tsType) || Boolean(skip?.nullable);
         const fieldType =
           nullable && !mapped.endsWith("?") ? `${mapped}?` : mapped;
         if (fieldType.includes("JsonElement")) imports.add("kotlinx.serialization.json.JsonElement");
         return {
           name: field.name,
           type: fieldType,
-          default: nullable ? " = null" : "",
+          default: skip ? skip.default : nullable ? " = null" : "",
         };
       });
 

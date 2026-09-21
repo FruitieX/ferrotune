@@ -8,9 +8,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class FerrotuneSearchContent(
-    val artist: List<ArtistResponse>,
-    val album: List<AlbumResponse>,
-    val song: List<SongResponse>,
+    val artist: List<ArtistResponse> = emptyList(),
+    val album: List<AlbumResponse> = emptyList(),
+    val song: List<SongResponse> = emptyList(),
     val artistTotal: Long? = null,
     val albumTotal: Long? = null,
     val songTotal: Long? = null,

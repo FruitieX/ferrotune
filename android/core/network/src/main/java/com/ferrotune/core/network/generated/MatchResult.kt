@@ -10,5 +10,5 @@ import kotlinx.serialization.Serializable
 data class MatchResult(
     val song: SongMatchEntry? = null,
     val score: Double,
-    val fromDictionary: Boolean? = null,
+    val fromDictionary: Boolean? = false,
 )

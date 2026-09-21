@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class FerrotuneStarredResponse(
-    val artists: List<ArtistResponse>,
-    val albums: List<AlbumResponse>,
-    val songs: List<SongResponse>,
+    val artists: List<ArtistResponse> = emptyList(),
+    val albums: List<AlbumResponse> = emptyList(),
+    val songs: List<SongResponse> = emptyList(),
 )

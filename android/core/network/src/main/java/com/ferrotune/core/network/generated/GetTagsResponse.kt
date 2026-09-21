@@ -14,5 +14,5 @@ data class GetTagsResponse(
     val editingEnabled: Boolean,
     val tagType: String? = null,
     val tags: List<TagEntry>,
-    val additionalTags: List<AdditionalTagBlock>,
+    val additionalTags: List<AdditionalTagBlock> = emptyList(),
 )
