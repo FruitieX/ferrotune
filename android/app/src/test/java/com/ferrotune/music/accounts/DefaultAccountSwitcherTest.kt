@@ -1,17 +1,14 @@
 package com.ferrotune.music.accounts
 
-import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.AccountApiFactory
 import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.AccountSwitchResult
 import com.ferrotune.core.network.PlaybackSessionResetter
+import com.ferrotune.core.testing.FakeAccounts
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.network.dto.AuthSessionRefreshResponseDto
 import java.io.IOException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -141,33 +138,4 @@ class DefaultAccountSwitcherTest {
         }
     }
 
-    private class FakeAccounts(
-        initial: List<Account>,
-        activeId: String?,
-    ) : Accounts {
-        private val _accounts = MutableStateFlow(initial)
-        private val _activeId = MutableStateFlow(activeId)
-
-        override val accounts: StateFlow<List<Account>> = _accounts
-        override val activeAccountId: StateFlow<String?> = _activeId
-        override val activeAccount = combine(_accounts, _activeId) { accounts, id ->
-            accounts.firstOrNull { it.id == id }
-        }
-
-        override suspend fun upsert(account: Account) {
-            _accounts.value = listOf(account) + _accounts.value.filterNot { it.id == account.id }
-            _activeId.value = account.id
-        }
-
-        override suspend fun setActive(accountId: String?) {
-            _activeId.value = accountId
-        }
-
-        override suspend fun remove(accountId: String) {
-            _accounts.value = _accounts.value.filterNot { it.id == accountId }
-            if (_activeId.value == accountId) {
-                _activeId.value = null
-            }
-        }
-    }
 }

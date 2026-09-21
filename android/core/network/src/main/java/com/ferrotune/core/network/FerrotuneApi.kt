@@ -24,6 +24,7 @@ import com.ferrotune.core.network.generated.BatchMatchEntriesRequest
 import com.ferrotune.core.network.generated.BatchMatchEntriesResponse
 import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.ConnectSessionResponse
+import com.ferrotune.core.network.generated.DiscoveryResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
@@ -39,6 +40,7 @@ import com.ferrotune.core.network.generated.FerrotuneSimilarSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSongResponse
 import com.ferrotune.core.network.generated.FerrotuneStarredResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
+import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.HomePageResponse
 import com.ferrotune.core.network.generated.ImportPlaylistRequest
 import com.ferrotune.core.network.generated.ImportPlaylistResponse
@@ -46,6 +48,7 @@ import com.ferrotune.core.network.generated.ListeningStatsResponse
 import com.ferrotune.core.network.generated.LogListeningResponse
 import com.ferrotune.core.network.generated.MatchMissingEntryRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
+import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
 import com.ferrotune.core.network.generated.MusicFoldersResponse
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
@@ -201,6 +204,21 @@ interface FerrotuneApi {
     suspend fun continueListening(
         @QueryMap params: Map<String, String>,
     ): HomeContinueListeningSection
+
+    @GET("api/songs/most-played-recently")
+    suspend fun mostPlayedRecently(
+        @QueryMap params: Map<String, String>,
+    ): MostPlayedRecentlyResponse
+
+    @GET("api/songs/forgotten-favorites")
+    suspend fun forgottenFavorites(
+        @QueryMap params: Map<String, String>,
+    ): HomeForgottenFavoritesSection
+
+    @GET("api/discovery/similar-songs")
+    suspend fun discoverySimilarSongs(
+        @QueryMap params: Map<String, String>,
+    ): DiscoveryResponse
 
     @GET("api/stats")
     suspend fun stats(): StatsResponse

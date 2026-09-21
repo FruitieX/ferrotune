@@ -27,4 +27,5 @@ dependencies {
     api(project(":core:model"))
     api(project(":core:network"))
     api(project(":core:media"))
+    api(project(":core:datastore"))
 }

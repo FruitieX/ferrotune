@@ -228,6 +228,10 @@ val DEFAULT_HOME_SECTIONS: List<HomeSectionConfig> = listOf(
     ),
 )
 
+fun defaultHomeSection(kind: HomeSectionKind): HomeSectionConfig =
+    DEFAULT_HOME_SECTIONS.firstOrNull { it.kind == kind }
+        ?: HomeSectionConfig(id = kind.apiValue, kind = kind)
+
 fun createPlaylistHomeSection(
     playlistId: String,
     playlistName: String,

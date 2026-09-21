@@ -37,6 +37,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.home.ui.HomeScreen
+import com.ferrotune.feature.home.ui.HomeLinkTarget
+import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.theme.FerrotuneTheme
@@ -78,6 +80,9 @@ object Routes {
     const val REVIEW = "review"
     const val DOWNLOADS = "downloads"
     const val SETTINGS = "settings"
+    const val HOME_SECTION = "home_section/{sectionId}"
+
+    fun homeSection(sectionId: String) = "home_section/$sectionId"
 
     fun album(albumId: String) = "album/$albumId"
 
@@ -224,6 +229,24 @@ private fun FerrotuneAppContent(
                                 popUpTo(Routes.HOME) { inclusive = true }
                             }
                         },
+                        onOpenLink = { target ->
+                            when (target) {
+                                HomeLinkTarget.Favorites ->
+                                    navController.navigate(Routes.FAVORITES)
+
+                                HomeLinkTarget.History ->
+                                    navController.navigate(Routes.HISTORY)
+
+                                is HomeLinkTarget.Section ->
+                                    navController.navigate(Routes.homeSection(target.sectionId))
+
+                                is HomeLinkTarget.Playlist ->
+                                    navController.navigate(Routes.playlist(target.id))
+
+                                is HomeLinkTarget.SmartPlaylist ->
+                                    navController.navigate(Routes.smartPlaylist(target.id))
+                            }
+                        },
                         onOpenAlbum = { navController.navigate(Routes.album(it)) },
                         onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
                         onOpenSmartPlaylist = {
@@ -233,6 +256,19 @@ private fun FerrotuneAppContent(
                         onOpenReview = { navController.navigate(Routes.REVIEW) },
                         onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
                         onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    )
+                }
+                composable(
+                    route = Routes.HOME_SECTION,
+                    arguments = listOf(navArgument("sectionId") { type = NavType.StringType }),
+                ) {
+                    HomeSectionDetailScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
+                        onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
+                        onOpenSmartPlaylist = {
+                            navController.navigate(Routes.smartPlaylist(it))
+                        },
                     )
                 }
                 composable(Routes.LIBRARY) {

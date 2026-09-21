@@ -27,6 +27,7 @@ import com.ferrotune.core.network.generated.BatchMatchEntriesRequest
 import com.ferrotune.core.network.generated.BatchMatchEntriesResponse
 import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.ConnectSessionResponse
+import com.ferrotune.core.network.generated.DiscoveryResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
@@ -42,6 +43,7 @@ import com.ferrotune.core.network.generated.FerrotuneSimilarSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSongResponse
 import com.ferrotune.core.network.generated.FerrotuneStarredResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
+import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.HomePageResponse
 import com.ferrotune.core.network.generated.ImportPlaylistRequest
 import com.ferrotune.core.network.generated.ImportPlaylistResponse
@@ -51,6 +53,7 @@ import com.ferrotune.core.network.generated.MatchMissingEntryRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
+import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
 import com.ferrotune.core.network.generated.MusicFoldersResponse
 import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.PeriodReviewResponse
@@ -191,6 +194,18 @@ open class FakeFerrotuneApi(
     override suspend fun continueListening(
         params: Map<String, String>,
     ): HomeContinueListeningSection = error("unused")
+
+    override suspend fun mostPlayedRecently(
+        params: Map<String, String>,
+    ): MostPlayedRecentlyResponse = error("unused")
+
+    override suspend fun forgottenFavorites(
+        params: Map<String, String>,
+    ): HomeForgottenFavoritesSection = error("unused")
+
+    override suspend fun discoverySimilarSongs(
+        params: Map<String, String>,
+    ): DiscoveryResponse = error("unused")
 
     override suspend fun stats(): StatsResponse = error("unused")
     override suspend fun listeningStats(): ListeningStatsResponse = error("unused")
