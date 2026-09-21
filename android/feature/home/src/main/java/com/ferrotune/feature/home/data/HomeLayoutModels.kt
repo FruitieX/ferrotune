@@ -1,7 +1,9 @@
 package com.ferrotune.feature.home.data
 
-import java.time.Instant
-import java.time.temporal.ChronoUnit
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -321,8 +323,15 @@ fun encodeHomeSections(sections: List<HomeSectionConfig>): JsonArray = JsonArray
     },
 )
 
-fun mostPlayedRecentlySince(days: Int, now: Instant = Instant.now()): String =
-    now.minus(maxOf(1, days).toLong(), ChronoUnit.DAYS).toString()
+/** ISO-8601 instant `days` ago, matching the web client's `toISOString()`. */
+fun mostPlayedRecentlySince(days: Int, nowMillis: Long = System.currentTimeMillis()): String {
+    val sinceMillis = nowMillis - maxOf(1, days) * MILLIS_PER_DAY
+    val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+    format.timeZone = TimeZone.getTimeZone("UTC")
+    return format.format(Date(sinceMillis))
+}
+
+private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 
 private fun JsonObject.string(key: String): String? =
     (this[key] as? JsonPrimitive)?.contentOrNull

@@ -3,6 +3,7 @@ package com.ferrotune.feature.settings.data
 import com.ferrotune.core.designsystem.theme.AccentColors
 import com.ferrotune.core.designsystem.theme.OklchColor
 import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +31,7 @@ data class AccentState(
 @Singleton
 class AccentSettingsRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
-) {
+) : AccountScopedPreferences {
     private val _state = MutableStateFlow(AccentState())
     val state: StateFlow<AccentState> = _state.asStateFlow()
 
@@ -64,7 +65,7 @@ class AccentSettingsRepository @Inject constructor(
         loaded = true
     }
 
-    fun invalidate() {
+    override fun invalidate() {
         loaded = false
     }
 

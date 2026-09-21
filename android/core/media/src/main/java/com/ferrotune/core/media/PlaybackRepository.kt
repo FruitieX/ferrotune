@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import com.ferrotune.core.media.cast.CastMediaItem
+import com.ferrotune.core.network.PlaybackSessionResetter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -31,7 +32,7 @@ import kotlinx.coroutines.launch
 @Singleton
 class PlaybackRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-) : PlaybackSettingsApplier {
+) : PlaybackSettingsApplier, PlaybackSessionResetter {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val bindRequested = AtomicBoolean(false)
     private val serviceReady = CompletableDeferred<PlaybackService>()
@@ -114,6 +115,13 @@ class PlaybackRepository @Inject constructor(
     suspend fun pause() = awaitService().pause()
 
     suspend fun stop() = awaitService().stop()
+
+    /** Stops playback and drops the server session (used on account switch). */
+    override suspend fun resetSession() {
+        val service = awaitService()
+        service.stop()
+        service.resetSession()
+    }
 
     suspend fun nextTrack() = awaitService().nextTrack()
 

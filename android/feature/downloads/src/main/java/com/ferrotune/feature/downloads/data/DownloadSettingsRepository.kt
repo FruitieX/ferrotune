@@ -2,6 +2,7 @@ package com.ferrotune.feature.downloads.data
 
 import com.ferrotune.core.media.DownloadEngine
 import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.generated.SetPreferenceRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,7 +40,7 @@ data class DownloadSettings(
 class DownloadSettingsRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
     private val engine: DownloadEngine,
-) {
+) : AccountScopedPreferences {
     private val _settings = MutableStateFlow(DownloadSettings())
     val settings: StateFlow<DownloadSettings> = _settings.asStateFlow()
 
@@ -80,7 +81,7 @@ class DownloadSettingsRepository @Inject constructor(
         persist("downloadWifiOnly", JsonPrimitive(wifiOnly)) { it.copy(wifiOnly = wifiOnly) }
     }
 
-    fun invalidate() {
+    override fun invalidate() {
         loaded = false
     }
 

@@ -1,6 +1,7 @@
 package com.ferrotune.feature.home.data
 
 import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.generated.SetPreferenceRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,7 +18,7 @@ import kotlinx.serialization.json.JsonArray
 @Singleton
 class HomeLayoutPreferencesRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
-) {
+) : AccountScopedPreferences {
     private val _tiles = MutableStateFlow(DEFAULT_HOME_TILES)
     val tiles: StateFlow<List<HomeTileConfig>> = _tiles.asStateFlow()
 
@@ -42,7 +43,7 @@ class HomeLayoutPreferencesRepository @Inject constructor(
         loaded = true
     }
 
-    fun invalidate() {
+    override fun invalidate() {
         loaded = false
     }
 

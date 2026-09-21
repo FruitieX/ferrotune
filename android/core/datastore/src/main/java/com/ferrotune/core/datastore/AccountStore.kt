@@ -26,20 +26,22 @@ private val Context.accountDataStore: DataStore<Preferences> by preferencesDataS
 @Singleton
 class AccountStore @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : Accounts {
     private val json = Json { ignoreUnknownKeys = true }
 
-    val accounts: Flow<List<Account>> = context.accountDataStore.data.map { preferences ->
+    override val accounts: Flow<List<Account>> = context.accountDataStore.data.map { preferences ->
         preferences[ACCOUNTS_KEY]?.let(::decodeAccounts) ?: emptyList()
     }
 
-    val activeAccountId: Flow<String?> = context.accountDataStore.data.map { it[ACTIVE_KEY] }
+    override val activeAccountId: Flow<String?> =
+        context.accountDataStore.data.map { it[ACTIVE_KEY] }
 
-    val activeAccount: Flow<Account?> = combine(accounts, activeAccountId) { accounts, activeId ->
-        accounts.firstOrNull { it.id == activeId }
-    }
+    override val activeAccount: Flow<Account?> =
+        combine(accounts, activeAccountId) { accounts, activeId ->
+            accounts.firstOrNull { it.id == activeId }
+        }
 
-    suspend fun upsert(account: Account) {
+    override suspend fun upsert(account: Account) {
         context.accountDataStore.edit { preferences ->
             val current = preferences[ACCOUNTS_KEY]?.let(::decodeAccounts) ?: emptyList()
             val updated = listOf(account) + current.filterNot { it.id == account.id }
@@ -48,7 +50,7 @@ class AccountStore @Inject constructor(
         }
     }
 
-    suspend fun setActive(accountId: String?) {
+    override suspend fun setActive(accountId: String?) {
         context.accountDataStore.edit { preferences ->
             if (accountId == null) {
                 preferences.remove(ACTIVE_KEY)
@@ -58,7 +60,7 @@ class AccountStore @Inject constructor(
         }
     }
 
-    suspend fun remove(accountId: String) {
+    override suspend fun remove(accountId: String) {
         context.accountDataStore.edit { preferences ->
             val current = preferences[ACCOUNTS_KEY]?.let(::decodeAccounts) ?: emptyList()
             preferences[ACCOUNTS_KEY] = encodeAccounts(current.filterNot { it.id == accountId })

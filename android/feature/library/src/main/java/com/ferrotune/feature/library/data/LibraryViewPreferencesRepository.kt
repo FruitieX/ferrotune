@@ -1,6 +1,7 @@
 package com.ferrotune.feature.library.data
 
 import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.generated.SetPreferenceRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,7 +46,7 @@ data class SortConfig(val field: String, val direction: String)
 @Singleton
 class LibraryViewPreferencesRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
-) {
+) : AccountScopedPreferences {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _sort = MutableStateFlow(LibrarySortConfig())
@@ -68,7 +69,7 @@ class LibraryViewPreferencesRepository @Inject constructor(
         loaded = true
     }
 
-    fun invalidate() {
+    override fun invalidate() {
         loaded = false
     }
 

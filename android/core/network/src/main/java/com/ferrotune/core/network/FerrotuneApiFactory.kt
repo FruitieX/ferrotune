@@ -8,7 +8,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class FerrotuneApiFactory @Inject constructor() {
+class FerrotuneApiFactory @Inject constructor() : AccountApiFactory {
+
+    override fun create(serverUrl: String, sessionToken: String): FerrotuneApi =
+        create(serverUrl, tokenProvider = { sessionToken })
 
     fun create(serverUrl: String, tokenProvider: (() -> String?)? = null): FerrotuneApi {
         val builder = OkHttpClient.Builder()

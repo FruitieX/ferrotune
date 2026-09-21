@@ -1,6 +1,7 @@
 package com.ferrotune.core.media
 
 import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.generated.SetPreferenceRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,7 +26,7 @@ import kotlinx.serialization.json.intOrNull
 class PlaybackSettingsRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
     private val settingsApplier: PlaybackSettingsApplier,
-) {
+) : AccountScopedPreferences {
     private val _settings = MutableStateFlow(PlaybackSettings())
     val settings: StateFlow<PlaybackSettings> = _settings.asStateFlow()
 
@@ -59,7 +60,7 @@ class PlaybackSettingsRepository @Inject constructor(
     }
 
     /** Drops the cache so the next [ensureLoaded] re-reads for a new account. */
-    fun invalidate() {
+    override fun invalidate() {
         loaded = false
     }
 

@@ -38,6 +38,7 @@ import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.home.ui.HomeScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
+import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.theme.FerrotuneTheme
 import com.ferrotune.feature.settings.ui.SettingsScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
@@ -213,7 +214,11 @@ private fun FerrotuneAppContent(
                 composable(Routes.HOME) {
                     HomeScreen(
                         accountLabel = state.activeAccount?.label,
-                        onSwitchAccount = {
+                        accounts = state.accounts,
+                        activeAccountId = state.activeAccount?.id,
+                        onSwitchAccount = viewModel::switchAccount,
+                        onAddAccount = { navController.navigate(Routes.LOGIN) },
+                        onSignOut = {
                             viewModel.signOutLocally()
                             navController.navigate(Routes.LOGIN) {
                                 popUpTo(Routes.HOME) { inclusive = true }
@@ -353,6 +358,10 @@ private fun FerrotuneAppContent(
                         accountLabel = state.activeAccount?.label,
                         serverUrl = state.activeAccount?.serverUrl,
                         username = state.activeAccount?.username,
+                        accounts = state.accounts,
+                        activeAccountId = state.activeAccount?.id,
+                        onSwitchAccount = viewModel::switchAccount,
+                        onAddAccount = { navController.navigate(Routes.LOGIN) },
                         onBack = { navController.popBackStack() },
                         onSignOut = {
                             viewModel.signOutLocally()
@@ -390,6 +399,16 @@ private fun FerrotuneAppContent(
                 )
             }
         }
+    }
+
+    state.switchError?.let { message ->
+        ConfirmDialog(
+            title = "Account switch failed",
+            message = message,
+            confirmLabel = "OK",
+            onDismiss = viewModel::dismissSwitchError,
+            onConfirm = viewModel::dismissSwitchError,
+        )
     }
 }
 

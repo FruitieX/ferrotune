@@ -35,9 +35,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.designsystem.components.AccountSwitcherDialog
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ContinueListeningEntry
@@ -47,7 +49,11 @@ import com.ferrotune.core.designsystem.components.ConfirmDialog
 @Composable
 fun HomeScreen(
     accountLabel: String?,
-    onSwitchAccount: () -> Unit,
+    accounts: List<Account>,
+    activeAccountId: String?,
+    onSwitchAccount: (String) -> Unit,
+    onAddAccount: () -> Unit,
+    onSignOut: () -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onOpenSmartPlaylist: (String) -> Unit,
@@ -60,6 +66,20 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var menuExpanded by remember { mutableStateOf(false) }
+    var accountsDialogVisible by remember { mutableStateOf(false) }
+
+    if (accountsDialogVisible) {
+        AccountSwitcherDialog(
+            accounts = accounts,
+            activeAccountId = activeAccountId,
+            onSelect = onSwitchAccount,
+            onAddAccount = {
+                accountsDialogVisible = false
+                onAddAccount()
+            },
+            onDismiss = { accountsDialogVisible = false },
+        )
+    }
 
     Scaffold(
         modifier = modifier,
@@ -103,10 +123,17 @@ fun HomeScreen(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("Switch account") },
+                            text = { Text("Accounts") },
                             onClick = {
                                 menuExpanded = false
-                                onSwitchAccount()
+                                accountsDialogVisible = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Sign out") },
+                            onClick = {
+                                menuExpanded = false
+                                onSignOut()
                             },
                         )
                     }

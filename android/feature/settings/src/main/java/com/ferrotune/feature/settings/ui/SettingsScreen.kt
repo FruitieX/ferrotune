@@ -15,12 +15,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.media.PlaybackSettings
+import com.ferrotune.core.model.Account
 import com.ferrotune.core.media.PlaybackSettingsRepository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,6 +58,10 @@ fun SettingsScreen(
     accountLabel: String?,
     serverUrl: String?,
     username: String?,
+    accounts: List<Account>,
+    activeAccountId: String?,
+    onSwitchAccount: (String) -> Unit,
+    onAddAccount: () -> Unit,
     onBack: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
@@ -100,12 +107,27 @@ fun SettingsScreen(
                         Text(listOfNotNull(serverUrl, username).joinToString(" · "))
                     },
                 )
+                accounts
+                    .filter { it.id != activeAccountId }
+                    .forEach { account ->
+                        ListItem(
+                            headlineContent = { Text(account.label) },
+                            supportingContent = { Text(account.serverUrl) },
+                            trailingContent = {
+                                TextButton(onClick = { onSwitchAccount(account.id) }) {
+                                    Text("Switch")
+                                }
+                            },
+                        )
+                    }
                 Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Button(onClick = onSignOut) { Text("Sign out") }
+                    Button(onClick = onAddAccount) { Text("Add account") }
+                    OutlinedButton(onClick = onSignOut) { Text("Sign out") }
                 }
             }
 
