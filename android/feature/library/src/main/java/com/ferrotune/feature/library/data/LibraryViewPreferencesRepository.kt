@@ -36,7 +36,11 @@ data class SortConfig(val field: String, val direction: String)
 
 /**
  * Server-synced library view preferences (per-tab sort field and direction),
- * stored as JSON under the `library-sort` preference key.
+ * stored as JSON under the native-only `library-sort-native` preference key.
+ *
+ * The shared `library-sort` key is owned by the web/Tauri client, which stores
+ * a single `{field, direction}` config there; writing the per-tab shape to it
+ * would break that client's sort state.
  */
 @Singleton
 class LibraryViewPreferencesRepository @Inject constructor(
@@ -59,7 +63,7 @@ class LibraryViewPreferencesRepository @Inject constructor(
 
     suspend fun load() {
         val prefs = apiProvider.requireApi().preferences().preferences
-        val raw = (prefs["library-sort"] as? JsonPrimitive)?.contentOrNull
+        val raw = (prefs[PREFERENCE_KEY] as? JsonPrimitive)?.contentOrNull
         _sort.value = raw?.let(::parse) ?: LibrarySortConfig()
         loaded = true
     }
@@ -82,7 +86,7 @@ class LibraryViewPreferencesRepository @Inject constructor(
 
     private suspend fun persist(config: LibrarySortConfig) {
         apiProvider.requireApi().setPreference(
-            "library-sort",
+            PREFERENCE_KEY,
             SetPreferenceRequest(JsonPrimitive(encode(config))),
         )
         _sort.value = config
@@ -121,4 +125,8 @@ class LibraryViewPreferencesRepository @Inject constructor(
         direction = (element?.get("direction") as? JsonPrimitive)?.contentOrNull
             ?: defaultDirection,
     )
+
+    companion object {
+        const val PREFERENCE_KEY = "library-sort-native"
+    }
 }

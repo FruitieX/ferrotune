@@ -15,6 +15,7 @@ class LibraryViewPreferencesRepositoryTest {
 
     private class FakePreferencesApi : FakeFerrotuneApi() {
         val preferenceValues = mutableMapOf<String, JsonElement>()
+        val writtenKeys = mutableListOf<String>()
 
         override suspend fun preferences(): PreferencesResponse = PreferencesResponse(
             accentColor = "rust",
@@ -25,6 +26,7 @@ class LibraryViewPreferencesRepositoryTest {
             key: String,
             request: SetPreferenceRequest,
         ): GetPreferenceResponse {
+            writtenKeys.add(key)
             preferenceValues[key] = request.value
             return GetPreferenceResponse(key = key, value = request.value)
         }
@@ -45,7 +47,7 @@ class LibraryViewPreferencesRepositoryTest {
     @Test
     fun `load parses stored per-tab sort preferences`() = runTest {
         val api = FakePreferencesApi().apply {
-            preferenceValues["library-sort"] = JsonPrimitive(
+            preferenceValues[LibraryViewPreferencesRepository.PREFERENCE_KEY] = JsonPrimitive(
                 """
                 {"songs":{"field":"playCount","direction":"desc"},
                  "albums":{"field":"year","direction":"desc"},
@@ -67,7 +69,8 @@ class LibraryViewPreferencesRepositoryTest {
     @Test
     fun `malformed preference falls back to defaults`() = runTest {
         val api = FakePreferencesApi().apply {
-            preferenceValues["library-sort"] = JsonPrimitive("not json")
+            preferenceValues[LibraryViewPreferencesRepository.PREFERENCE_KEY] =
+                JsonPrimitive("not json")
         }
         val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
 
@@ -79,7 +82,7 @@ class LibraryViewPreferencesRepositoryTest {
     @Test
     fun `unknown sort fields fall back to defaults`() = runTest {
         val api = FakePreferencesApi().apply {
-            preferenceValues["library-sort"] = JsonPrimitive(
+            preferenceValues[LibraryViewPreferencesRepository.PREFERENCE_KEY] = JsonPrimitive(
                 """{"songs":{"field":"nonsense","direction":"sideways"}}""",
             )
         }
@@ -100,7 +103,8 @@ class LibraryViewPreferencesRepositoryTest {
         repository.setAlbumSort(AlbumSort.SONG_COUNT, SortDir.DESC)
         repository.setArtistSort(ArtistSort.LAST_PLAYED, SortDir.DESC)
 
-        val stored = api.preferenceValues["library-sort"] as JsonPrimitive
+        val stored =
+            api.preferenceValues[LibraryViewPreferencesRepository.PREFERENCE_KEY] as JsonPrimitive
         val text = stored.content
         assertEquals(true, text.contains("\"dateAdded\""))
         assertEquals(true, text.contains("\"songCount\""))
@@ -109,5 +113,23 @@ class LibraryViewPreferencesRepositoryTest {
         assertEquals(SortDir.DESC, repository.sort.value.songDir())
         assertEquals(AlbumSort.SONG_COUNT, repository.sort.value.albumSort())
         assertEquals(ArtistSort.LAST_PLAYED, repository.sort.value.artistSort())
+    }
+
+    @Test
+    fun `ignores and never writes the web-owned library-sort key`() = runTest {
+        val api = FakePreferencesApi().apply {
+            preferenceValues["library-sort"] = JsonPrimitive(
+                """{"field":"playCount","direction":"desc"}""",
+            )
+        }
+        val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
+
+        repository.load()
+        assertEquals(SongSort.TITLE, repository.sort.value.songSort())
+        assertEquals(SortDir.ASC, repository.sort.value.songDir())
+
+        repository.setSongSort(SongSort.ALBUM, SortDir.DESC)
+
+        assertEquals(listOf(LibraryViewPreferencesRepository.PREFERENCE_KEY), api.writtenKeys)
     }
 }
