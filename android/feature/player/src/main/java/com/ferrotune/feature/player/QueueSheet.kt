@@ -10,14 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -36,11 +38,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.feature.player.data.QueueEntry
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,7 +151,7 @@ fun QueueSheet(
                 )
 
                 else -> LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
-                    items(state.entries, key = { it.entryId }) { entry ->
+                    itemsIndexed(state.entries, key = { _, it -> it.entryId }) { _, entry ->
                         QueueRow(
                             entry = entry,
                             isCurrent = entry.position.toInt() == state.currentIndex,
@@ -151,6 +159,7 @@ fun QueueSheet(
                             onMoveUp = { viewModel.moveUp(entry) },
                             onMoveDown = { viewModel.moveDown(entry) },
                             onRemove = { viewModel.remove(entry.position) },
+                            onMove = { slots -> viewModel.move(entry, slots) },
                         )
                     }
                 }
@@ -167,23 +176,70 @@ private fun QueueRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
+    onMove: (Int) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var rowHeightPx by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer {
+                if (dragging) {
+                    translationY = dragOffsetY
+                    shadowElevation = 8.dp.toPx()
+                }
+            }
+            .onSizeChanged { rowHeightPx = it.height.toFloat() }
             .background(
-                if (isCurrent) {
+                if (dragging) {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                } else if (isCurrent) {
                     MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                 } else {
                     Color.Transparent
                 },
             )
             .clickable(onClick = onJump)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Icon(
+            imageVector = Icons.Filled.DragHandle,
+            contentDescription = "Reorder ${entry.song.title}",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(24.dp)
+                .pointerInput(entry.entryId) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            dragging = true
+                            dragOffsetY = 0f
+                        },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            dragOffsetY += amount.y
+                        },
+                        onDragEnd = {
+                            val slots = if (rowHeightPx > 0f) {
+                                (dragOffsetY / rowHeightPx).roundToInt()
+                            } else {
+                                0
+                            }
+                            dragging = false
+                            dragOffsetY = 0f
+                            onMove(slots)
+                        },
+                        onDragCancel = {
+                            dragging = false
+                            dragOffsetY = 0f
+                        },
+                    )
+                },
+        )
         CoverArt(
             model = inlineCoverModel(entry.song.coverArtData),
             contentDescription = null,

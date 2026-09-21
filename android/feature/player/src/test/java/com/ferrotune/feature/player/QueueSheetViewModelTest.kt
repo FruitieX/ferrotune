@@ -90,4 +90,27 @@ class QueueSheetViewModelTest {
         viewModel.cycleRepeat()
         assertEquals("all", api.repeatRequest?.mode)
     }
+
+    @Test
+    fun `drag move maps slot deltas onto queue positions`() {
+        val api = FakeQueueApi()
+        val viewModel = viewModel(api)
+        val entry = viewModel.uiState.value.entries.first { it.position == 1L }
+
+        viewModel.move(entry, -1)
+
+        assertEquals(1L, api.moveRequest?.fromPosition)
+        assertEquals(0L, api.moveRequest?.toPosition)
+    }
+
+    @Test
+    fun `drag move clamps at the start of the queue`() {
+        val api = FakeQueueApi()
+        val viewModel = viewModel(api)
+        val entry = viewModel.uiState.value.entries.first { it.position == 0L }
+
+        viewModel.move(entry, -3)
+
+        assertEquals(null, api.moveRequest)
+    }
 }

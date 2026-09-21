@@ -107,6 +107,13 @@ class QueueSheetViewModel @Inject constructor(
         }
     }
 
+    /** Moves [entry] by [slots] positions (negative = up) for drag & drop. */
+    fun move(entry: QueueEntry, slots: Int) {
+        val target = (entry.position + slots).coerceAtLeast(0)
+        if (target == entry.position) return
+        mutate { session -> queueRepository.moveEntry(session, entry.position, target) }
+    }
+
     fun toggleShuffle() {
         val state = _uiState.value
         mutate { session -> queueRepository.setShuffled(session, !state.isShuffled) }
