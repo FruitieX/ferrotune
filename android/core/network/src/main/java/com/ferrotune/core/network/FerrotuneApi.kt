@@ -72,6 +72,9 @@ import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
 import com.ferrotune.core.network.generated.SongPlaylistsResponse
+import com.ferrotune.core.network.generated.SongIdsResponse
+import com.ferrotune.core.network.generated.SourceSongIdsResponse
+import com.ferrotune.core.network.generated.SourceSongsRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import com.ferrotune.core.network.generated.StartQueueResponse
 import com.ferrotune.core.network.generated.StatsResponse
@@ -182,6 +185,12 @@ interface FerrotuneApi {
         @Path("id") id: String,
         @Query("count") count: Int,
     ): FerrotuneSimilarSongsResponse
+
+    @GET("api/songs/ids")
+    suspend fun songIds(@QueryMap params: Map<String, String>): SongIdsResponse
+
+    @POST("api/sources/song-ids")
+    suspend fun sourceSongIds(@Body request: SourceSongsRequest): SourceSongIdsResponse
 
     @GET("api/genres")
     suspend fun genres(): FerrotuneGenresResponse

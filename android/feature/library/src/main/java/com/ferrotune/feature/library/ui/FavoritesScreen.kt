@@ -16,7 +16,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,9 +51,15 @@ import androidx.paging.cachedIn
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongSelectionActionBar
+import com.ferrotune.core.actions.SongSelectionState
+import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.SongStarButton
 import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
@@ -65,7 +73,9 @@ import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
 import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
 import com.ferrotune.feature.playlists.ui.AddToPlaylistMenuItem
@@ -149,6 +159,10 @@ fun FavoritesScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    val selection = rememberSongSelectionState()
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
+    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
+    val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.playbackError) {
         state.playbackError?.let {
@@ -160,14 +174,52 @@ fun FavoritesScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = { Text("Favorites") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
+            if (selection.isActive) {
+                SongSelectionTopBar(
+                    selectedCount = selection.count,
+                    onClose = selection::clear,
+                    onSelectAll = if (state.tab == FavoritesTab.SONGS) {
+                        {
+                            actionsViewModel.loadAllIds(
+                                sources = listOf(
+                                    QueueSourceRequest(sourceType = "favorites", sourceId = null),
+                                ),
+                                onLoaded = selection::replace,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    selectingAll = selectingAll,
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Favorites") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            }
+        },
+        bottomBar = {
+            if (selection.isActive) {
+                SongSelectionActionBar(
+                    selectedIds = selection.selectedIds.toList(),
+                    onClearSelection = selection::clear,
+                    extraActions = { ids ->
+                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                            addToPlaylistSongIds = ids
+                        }
+                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                            downloadViewModel.downloadSongs(ids)
+                            selection.clear()
+                        }
+                    },
+                    viewModel = actionsViewModel,
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -180,7 +232,10 @@ fun FavoritesScreen(
                 FavoritesTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == state.tab,
-                        onClick = { viewModel.selectTab(tab) },
+                        onClick = {
+                            selection.clear()
+                            viewModel.selectTab(tab)
+                        },
                         text = { Text(tab.label()) },
                     )
                 }
@@ -191,6 +246,7 @@ fun FavoritesScreen(
                     onPlaySong = viewModel::playSong,
                     onOpenSongRadio = onOpenSongRadio,
                     onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
+                    selection = selection,
                 )
 
                 FavoritesTab.ALBUMS -> PagedAlbumGrid(
@@ -210,7 +266,10 @@ fun FavoritesScreen(
         AddToPlaylistDialog(
             songIds = songIds,
             onDismiss = { addToPlaylistSongIds = null },
-            onAdded = { addToPlaylistSongIds = null },
+            onAdded = {
+                addToPlaylistSongIds = null
+                selection.clear()
+            },
         )
     }
 }
@@ -227,6 +286,7 @@ internal fun PagedSongList(
     onPlaySong: (String) -> Unit,
     onOpenSongRadio: (String) -> Unit,
     onAddToPlaylist: ((String) -> Unit)? = null,
+    selection: SongSelectionState? = null,
 ) {
     when {
         items.loadState.refresh is LoadState.Error -> ErrorState(
@@ -258,6 +318,10 @@ internal fun PagedSongList(
                     coverModel = inlineCoverModel(song.coverArtData),
                     coverSeed = song.id,
                     onClick = { onPlaySong(song.id) },
+                    isSelectionActive = selection?.isActive == true,
+                    isSelected = song.id in (selection?.selectedIds ?: emptySet()),
+                    onToggleSelection = selection?.let { { it.toggle(song.id) } },
+                    onLongClick = selection?.let { { it.select(song.id) } },
                     trailing = {
                         SongStarButton(songId = song.id, flags = flags)
                         Box {

@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -47,8 +49,13 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongSelectionActionBar
+import com.ferrotune.core.actions.SongSelectionState
+import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.SongStarButton
 import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
@@ -59,6 +66,7 @@ import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
+import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
@@ -79,6 +87,12 @@ fun AlbumDetailScreen(
     var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
     var menuExpanded by remember { mutableStateOf(false) }
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
+    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
+    val selection = rememberSongSelectionState()
+    val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
+    val albumSource = state.album?.let {
+        listOf(QueueSourceRequest(sourceType = "album", sourceId = it.id))
+    }
 
     LaunchedEffect(state.playbackError) {
         state.playbackError?.let {
@@ -90,7 +104,22 @@ fun AlbumDetailScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            if (selection.isActive) {
+                SongSelectionTopBar(
+                    selectedCount = selection.count,
+                    onClose = selection::clear,
+                    onSelectAll = albumSource?.let { sources ->
+                        {
+                            actionsViewModel.loadAllIds(
+                                sources = sources,
+                                onLoaded = selection::replace,
+                            )
+                        }
+                    },
+                    selectingAll = selectingAll,
+                )
+            } else {
+                TopAppBar(
                 title = {
                     Text(
                         text = state.album?.name ?: "Album",
@@ -148,6 +177,25 @@ fun AlbumDetailScreen(
                     }
                 },
             )
+            }
+        },
+        bottomBar = {
+            if (selection.isActive) {
+                SongSelectionActionBar(
+                    selectedIds = selection.selectedIds.toList(),
+                    onClearSelection = selection::clear,
+                    extraActions = { ids ->
+                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                            addToPlaylistSongIds = ids
+                        }
+                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                            downloadViewModel.downloadSongs(ids)
+                            selection.clear()
+                        }
+                    },
+                    viewModel = actionsViewModel,
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -203,6 +251,7 @@ fun AlbumDetailScreen(
                     onPlaySong = { viewModel.play(it) },
                     onOpenSongRadio = onOpenSongRadio,
                     onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
+                    selection = selection,
                 )
             }
         }
@@ -212,7 +261,10 @@ fun AlbumDetailScreen(
         AddToPlaylistDialog(
             songIds = songIds,
             onDismiss = { addToPlaylistSongIds = null },
-            onAdded = { addToPlaylistSongIds = null },
+            onAdded = {
+                addToPlaylistSongIds = null
+                selection.clear()
+            },
         )
     }
 }
@@ -223,6 +275,7 @@ private fun AlbumSongList(
     onPlaySong: (String) -> Unit,
     onOpenSongRadio: (String) -> Unit,
     onAddToPlaylist: (String) -> Unit,
+    selection: SongSelectionState,
 ) {
     when {
         items.loadState.refresh is LoadState.Error -> ErrorState(
@@ -257,6 +310,10 @@ private fun AlbumSongList(
                     coverModel = inlineCoverModel(song.coverArtData),
                     coverSeed = song.id,
                     onClick = { onPlaySong(song.id) },
+                    isSelectionActive = selection.isActive,
+                    isSelected = song.id in selection.selectedIds,
+                    onToggleSelection = { selection.toggle(song.id) },
+                    onLongClick = { selection.select(song.id) },
                     trailing = {
                         SongStarButton(songId = song.id, flags = flags)
                         Box {

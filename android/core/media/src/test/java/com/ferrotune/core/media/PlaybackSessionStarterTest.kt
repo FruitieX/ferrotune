@@ -103,4 +103,34 @@ class PlaybackSessionStarterTest {
         assertEquals("album", request.sources.single().sourceType)
         assertEquals("album-1", request.sources.single().sourceId)
     }
+
+    @Test
+    fun `queue add without a session starts an other queue from song ids`() {
+        val spec = queueStartSpecForAdd(QueueAddSpec(songIds = listOf("song-1", "song-2")))
+
+        assertEquals(QUEUE_SOURCE_OTHER, spec.sourceType)
+        assertEquals(listOf("song-1", "song-2"), spec.songIds)
+        assertTrue(spec.sources.isEmpty())
+    }
+
+    @Test
+    fun `queue add without a session keeps collection sources`() {
+        val sources = listOf(QueueSourceRequest(sourceType = "album", sourceId = "album-1"))
+
+        val spec = queueStartSpecForAdd(QueueAddSpec(sources = sources))
+
+        assertEquals(QUEUE_SOURCE_OTHER, spec.sourceType)
+        assertNull(spec.songIds)
+        assertEquals(sources, spec.sources)
+    }
+
+    @Test
+    fun `start queue request carries collection sources`() {
+        val sources = listOf(QueueSourceRequest(sourceType = "playlist", sourceId = "playlist-1"))
+        val spec = QueueStartSpec(sourceType = QUEUE_SOURCE_OTHER, sources = sources)
+
+        val request = buildStartQueueRequest(spec, sessionId = "session-1", clientId = "client-1")
+
+        assertEquals(sources, request.sources)
+    }
 }

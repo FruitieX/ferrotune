@@ -75,6 +75,9 @@ import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
 import com.ferrotune.core.network.generated.SongPlaylistsResponse
+import com.ferrotune.core.network.generated.SongIdsResponse
+import com.ferrotune.core.network.generated.SourceSongIdsResponse
+import com.ferrotune.core.network.generated.SourceSongsRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import com.ferrotune.core.network.generated.StartQueueResponse
 import com.ferrotune.core.network.generated.StatsResponse
@@ -183,6 +186,12 @@ open class FakeFerrotuneApi(
 
     override suspend fun song(id: String): FerrotuneSongResponse = error("unused")
     override suspend fun similarSongs(id: String, count: Int): FerrotuneSimilarSongsResponse =
+        error("unused")
+
+    override suspend fun songIds(params: Map<String, String>): SongIdsResponse =
+        error("unused")
+
+    override suspend fun sourceSongIds(request: SourceSongsRequest): SourceSongIdsResponse =
         error("unused")
 
     override suspend fun genres(): FerrotuneGenresResponse = onGenres()

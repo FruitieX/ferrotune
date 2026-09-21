@@ -34,6 +34,14 @@ class DownloadActionViewModel @Inject constructor(
         }
     }
 
+    /** Enqueues every not-yet-downloaded song in a bulk selection. */
+    fun downloadSongs(songIds: List<String>) {
+        viewModelScope.launch {
+            val downloaded = downloadedSongIds.value
+            songIds.filterNot { it in downloaded }.forEach { repository.enqueueSong(it) }
+        }
+    }
+
     fun downloadAlbum(albumId: String, name: String, coverArtId: String?) = withBusy(albumId) {
         repository.downloadAlbum(albumId, name, coverArtId)
     }

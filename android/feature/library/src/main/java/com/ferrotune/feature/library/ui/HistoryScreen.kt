@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -17,7 +19,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -31,6 +35,11 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongSelectionActionBar
+import com.ferrotune.core.actions.SongSelectionTopBar
+import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
@@ -39,9 +48,12 @@ import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
+import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.feature.downloads.ui.SongDownloadAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
+import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -100,6 +112,11 @@ fun HistoryScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val entries = viewModel.entries.collectAsLazyPagingItems()
     val snackbarHostState = remember { SnackbarHostState() }
+    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    val selection = rememberSongSelectionState()
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
+    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
+    val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.playbackError) {
         state.playbackError?.let {
@@ -111,14 +128,48 @@ fun HistoryScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = { Text("History") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
+            if (selection.isActive) {
+                SongSelectionTopBar(
+                    selectedCount = selection.count,
+                    onClose = selection::clear,
+                    onSelectAll = {
+                        actionsViewModel.loadAllIds(
+                            sources = listOf(
+                                QueueSourceRequest(sourceType = "history", sourceId = null),
+                            ),
+                            onLoaded = selection::replace,
+                        )
+                    },
+                    selectingAll = selectingAll,
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("History") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            }
+        },
+        bottomBar = {
+            if (selection.isActive) {
+                SongSelectionActionBar(
+                    selectedIds = selection.selectedIds.toList(),
+                    onClearSelection = selection::clear,
+                    extraActions = { ids ->
+                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                            addToPlaylistSongIds = ids
+                        }
+                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                            downloadViewModel.downloadSongs(ids)
+                            selection.clear()
+                        }
+                    },
+                    viewModel = actionsViewModel,
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -158,6 +209,10 @@ fun HistoryScreen(
                         ).joinToString(" • "),
                         coverModel = inlineCoverModel(entry.coverArtData),
                         onClick = { viewModel.play(entry.id) },
+                        isSelectionActive = selection.isActive,
+                        isSelected = entry.id in selection.selectedIds,
+                        onToggleSelection = { selection.toggle(entry.id) },
+                        onLongClick = { selection.select(entry.id) },
                         trailing = {
                             IconButton(onClick = { onOpenSongRadio(entry.id) }) {
                                 Icon(Icons.Filled.Radio, contentDescription = "Song radio")
@@ -172,5 +227,16 @@ fun HistoryScreen(
                 }
             }
         }
+    }
+
+    addToPlaylistSongIds?.let { songIds ->
+        AddToPlaylistDialog(
+            songIds = songIds,
+            onDismiss = { addToPlaylistSongIds = null },
+            onAdded = {
+                addToPlaylistSongIds = null
+                selection.clear()
+            },
+        )
     }
 }

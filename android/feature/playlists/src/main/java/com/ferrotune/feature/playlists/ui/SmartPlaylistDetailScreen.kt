@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
@@ -42,9 +44,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongSelectionActionBar
+import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.SongStarButton
 import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
@@ -55,8 +62,10 @@ import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
+import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 
@@ -73,6 +82,14 @@ fun SmartPlaylistDetailScreen(
     val songs = viewModel.songs.collectAsLazyPagingItems()
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    val selection = rememberSongSelectionState()
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
+    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
+    val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
+    val smartSource = state.smartPlaylist?.let {
+        listOf(QueueSourceRequest(sourceType = "smartPlaylist", sourceId = it.id))
+    }
 
     LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
@@ -84,7 +101,22 @@ fun SmartPlaylistDetailScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            if (selection.isActive) {
+                SongSelectionTopBar(
+                    selectedCount = selection.count,
+                    onClose = selection::clear,
+                    onSelectAll = smartSource?.let { sources ->
+                        {
+                            actionsViewModel.loadAllIds(
+                                sources = sources,
+                                onLoaded = selection::replace,
+                            )
+                        }
+                    },
+                    selectingAll = selectingAll,
+                )
+            } else {
+                TopAppBar(
                 title = { Text(state.smartPlaylist?.name ?: "Smart playlist") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -140,6 +172,25 @@ fun SmartPlaylistDetailScreen(
                     }
                 },
             )
+            }
+        },
+        bottomBar = {
+            if (selection.isActive) {
+                SongSelectionActionBar(
+                    selectedIds = selection.selectedIds.toList(),
+                    onClearSelection = selection::clear,
+                    extraActions = { ids ->
+                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                            addToPlaylistSongIds = ids
+                        }
+                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                            downloadViewModel.downloadSongs(ids)
+                            selection.clear()
+                        }
+                    },
+                    viewModel = actionsViewModel,
+                )
+            }
         },
     ) { padding ->
         when {
@@ -229,6 +280,10 @@ fun SmartPlaylistDetailScreen(
                             coverModel = inlineCoverModel(song.coverArtData),
                             coverSeed = song.id,
                             onClick = { viewModel.play(startSongId = song.id) },
+                            isSelectionActive = selection.isActive,
+                            isSelected = song.id in selection.selectedIds,
+                            onToggleSelection = { selection.toggle(song.id) },
+                            onLongClick = { selection.select(song.id) },
                             trailing = {
                                 SongStarButton(songId = song.id, flags = flags)
                                 Box {
@@ -278,6 +333,17 @@ fun SmartPlaylistDetailScreen(
             onConfirm = {
                 showDeleteDialog = false
                 viewModel.deleteSmartPlaylist()
+            },
+        )
+    }
+
+    addToPlaylistSongIds?.let { songIds ->
+        AddToPlaylistDialog(
+            songIds = songIds,
+            onDismiss = { addToPlaylistSongIds = null },
+            onAdded = {
+                addToPlaylistSongIds = null
+                selection.clear()
             },
         )
     }

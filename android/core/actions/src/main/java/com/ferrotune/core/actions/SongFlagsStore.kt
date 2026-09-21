@@ -17,6 +17,26 @@ data class SongFlags(
 )
 
 /**
+ * Partial optimistic change for one song. `null` fields fall through to the
+ * server-provided [SongFlags], so bulk starring never clobbers a rating that
+ * has not been loaded yet.
+ */
+data class SongFlagsOverride(
+    val starred: Boolean? = null,
+    val rating: Int? = null,
+) {
+    fun mergedWith(base: SongFlags): SongFlags = SongFlags(
+        starred = starred ?: base.starred,
+        rating = rating ?: base.rating,
+    )
+
+    /** True once [base] already reflects every overridden field. */
+    fun isSatisfiedBy(base: SongFlags): Boolean =
+        (starred == null || starred == base.starred) &&
+            (rating == null || rating == base.rating)
+}
+
+/**
  * App-scoped optimistic overlay for song star/rating state. Server responses
  * carry the authoritative values; this store lets every screen show an
  * immediate result and rolls back if the mutation fails.
@@ -25,39 +45,51 @@ data class SongFlags(
 class SongFlagsStore @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
 ) {
-    private val _overrides = MutableStateFlow<Map<String, SongFlags>>(emptyMap())
-    val overrides: StateFlow<Map<String, SongFlags>> = _overrides.asStateFlow()
+    private val _overrides = MutableStateFlow<Map<String, SongFlagsOverride>>(emptyMap())
+    val overrides: StateFlow<Map<String, SongFlagsOverride>> = _overrides.asStateFlow()
 
-    /** Optimistic value for [songId], or null when the server value should win. */
-    fun flagsFor(songId: String): SongFlags? = _overrides.value[songId]
+    /** Optimistic change for [songId], or null when the server value should win. */
+    fun overrideFor(songId: String): SongFlagsOverride? = _overrides.value[songId]
 
     suspend fun setStarred(songId: String, starred: Boolean, base: SongFlags) {
-        update(songId, base.copy(starred = starred))
+        val previous = _overrides.value
+        update(songId, (previous[songId] ?: SongFlagsOverride()).copy(starred = starred))
         try {
-            apiCall {
-                val request = StarRequest(id = listOf(songId))
-                if (starred) {
-                    apiProvider.requireApi().star(request)
-                } else {
-                    apiProvider.requireApi().unstar(request)
-                }
-            }
+            starRequest(starred, listOf(songId))
         } catch (e: Exception) {
-            update(songId, base)
+            restore(previous, listOf(songId))
+            throw e
+        }
+    }
+
+    /** Stars/unstars many songs in one request; reverts all on failure. */
+    suspend fun setStarredBulk(songIds: List<String>, starred: Boolean) {
+        if (songIds.isEmpty()) return
+        val previous = _overrides.value
+        val updated = previous.toMutableMap()
+        for (songId in songIds) {
+            updated[songId] = (previous[songId] ?: SongFlagsOverride()).copy(starred = starred)
+        }
+        _overrides.value = updated
+        try {
+            starRequest(starred, songIds)
+        } catch (e: Exception) {
+            restore(previous, songIds)
             throw e
         }
     }
 
     suspend fun setRating(songId: String, rating: Int, base: SongFlags) {
+        val previous = _overrides.value
         val clamped = rating.coerceIn(0, MAX_RATING)
-        update(songId, base.copy(rating = clamped))
+        update(songId, (previous[songId] ?: SongFlagsOverride()).copy(rating = clamped))
         try {
             apiCall {
                 apiProvider.requireApi()
                     .setRating(RatingRequest(id = songId, rating = clamped))
             }
         } catch (e: Exception) {
-            update(songId, base)
+            restore(previous, listOf(songId))
             throw e
         }
     }
@@ -71,8 +103,28 @@ class SongFlagsStore @Inject constructor(
         _overrides.value = emptyMap()
     }
 
-    private fun update(songId: String, flags: SongFlags) {
-        _overrides.value = _overrides.value + (songId to flags)
+    private suspend fun starRequest(starred: Boolean, songIds: List<String>) {
+        apiCall {
+            val request = StarRequest(id = songIds)
+            if (starred) {
+                apiProvider.requireApi().star(request)
+            } else {
+                apiProvider.requireApi().unstar(request)
+            }
+        }
+    }
+
+    private fun update(songId: String, override: SongFlagsOverride) {
+        _overrides.value = _overrides.value + (songId to override)
+    }
+
+    private fun restore(previous: Map<String, SongFlagsOverride>, songIds: List<String>) {
+        val reverted = _overrides.value.toMutableMap()
+        for (songId in songIds) {
+            val before = previous[songId]
+            if (before == null) reverted.remove(songId) else reverted[songId] = before
+        }
+        _overrides.value = reverted
     }
 
     companion object {

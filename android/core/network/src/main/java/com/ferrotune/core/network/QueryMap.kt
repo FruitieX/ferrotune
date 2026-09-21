@@ -11,8 +11,7 @@ import kotlinx.serialization.serializer
  * Null fields are omitted; primitives are rendered with their JSON scalar
  * representation so numbers and booleans match the server's expectations.
  */
-inline fun <reified T> T.toQueryMap(): Map<String, String> {
-    val element = FerrotuneJson.encodeToJsonElement(serializer(), this).jsonObject
+inline fun <reified T> T.toQueryMap(): Map<String, String> {    val element = FerrotuneJson.encodeToJsonElement(serializer(), this).jsonObject
     return element.mapNotNull { (key, value) ->
         when (value) {
             JsonNull -> null
@@ -21,3 +20,6 @@ inline fun <reified T> T.toQueryMap(): Map<String, String> {
         }
     }.toMap()
 }
+
+/** Wildcard query that matches every song in library-wide searches. */
+const val MATCH_ALL_SONGS_QUERY = "*"

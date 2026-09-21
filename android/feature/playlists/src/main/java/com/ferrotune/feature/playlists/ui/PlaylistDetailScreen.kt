@@ -16,7 +16,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -48,8 +51,14 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.actions.SongActionsMenuContent
+import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongSelectionActionBar
+import com.ferrotune.core.actions.SongSelectionState
+import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.SongStarButton
 import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.formatDuration
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.DetailHeader
@@ -63,8 +72,10 @@ import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
+import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.core.network.generated.PlaylistSongEntry
 
 private val playlistSortOptions = listOf(
@@ -90,6 +101,23 @@ fun PlaylistDetailScreen(
     var showAddSongs by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    val selection = rememberSongSelectionState()
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
+    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
+    val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
+    val playlistSource = state.playlist?.let {
+        listOf(QueueSourceRequest(sourceType = "playlist", sourceId = it.id))
+    }
+    val canEdit = state.playlist?.canEdit == true
+
+    fun loadedEntriesForSelection(): List<PlaylistSongEntry> {
+        val selectedIds = selection.selectedIds
+        if (selectedIds.isEmpty()) return emptyList()
+        return (0 until entries.itemCount).mapNotNull { index ->
+            entries.peek(index)?.takeIf { it.song?.id in selectedIds }
+        }
+    }
 
     LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
@@ -98,7 +126,22 @@ fun PlaylistDetailScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            if (selection.isActive) {
+                SongSelectionTopBar(
+                    selectedCount = selection.count,
+                    onClose = selection::clear,
+                    onSelectAll = playlistSource?.let { sources ->
+                        {
+                            actionsViewModel.loadAllIds(
+                                sources = sources,
+                                onLoaded = selection::replace,
+                            )
+                        }
+                    },
+                    selectingAll = selectingAll,
+                )
+            } else {
+                TopAppBar(
                 title = { Text(state.playlist?.name ?: "Playlist") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -166,6 +209,31 @@ fun PlaylistDetailScreen(
                     }
                 },
             )
+            }
+        },
+        bottomBar = {
+            if (selection.isActive) {
+                SongSelectionActionBar(
+                    selectedIds = selection.selectedIds.toList(),
+                    onClearSelection = selection::clear,
+                    extraActions = { ids ->
+                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                            addToPlaylistSongIds = ids
+                        }
+                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                            downloadViewModel.downloadSongs(ids)
+                            selection.clear()
+                        }
+                        if (canEdit) {
+                            SongSelectionAction(Icons.Filled.Delete, "Remove") {
+                                viewModel.removeEntries(loadedEntriesForSelection())
+                                selection.clear()
+                            }
+                        }
+                    },
+                    viewModel = actionsViewModel,
+                )
+            }
         },
     ) { padding ->
         when {
@@ -253,6 +321,7 @@ fun PlaylistDetailScreen(
                             },
                             onRemove = { viewModel.removeEntry(entry) },
                             canEdit = state.playlist?.canEdit == true,
+                            selection = selection,
                         )
                     }
                 }
@@ -318,6 +387,17 @@ fun PlaylistDetailScreen(
             },
         )
     }
+
+    addToPlaylistSongIds?.let { songIds ->
+        AddToPlaylistDialog(
+            songIds = songIds,
+            onDismiss = { addToPlaylistSongIds = null },
+            onAdded = {
+                addToPlaylistSongIds = null
+                selection.clear()
+            },
+        )
+    }
 }
 
 @Composable
@@ -369,6 +449,7 @@ private fun PlaylistEntryRow(
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
     canEdit: Boolean,
+    selection: SongSelectionState,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val song = entry.song
@@ -385,6 +466,10 @@ private fun PlaylistEntryRow(
             coverModel = inlineCoverModel(song.coverArtData),
             coverSeed = song.id,
             onClick = onPlay,
+            isSelectionActive = selection.isActive,
+            isSelected = song.id in selection.selectedIds,
+            onToggleSelection = { selection.toggle(song.id) },
+            onLongClick = { selection.select(song.id) },
             trailing = {
                 SongStarButton(songId = song.id, flags = flags)
                 Box {

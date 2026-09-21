@@ -30,13 +30,20 @@ import com.ferrotune.core.designsystem.components.StarButton
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueAddPosition
 import com.ferrotune.core.media.QueueAddSpec
+import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.generated.QueueSourceRequest
+import com.ferrotune.core.network.generated.SearchParams
+import com.ferrotune.core.network.generated.SourceSongsRequest
+import com.ferrotune.core.network.toQueryMap
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @EntryPoint
@@ -57,9 +64,10 @@ fun rememberSongFlags(songId: String, starred: Boolean, rating: Int): SongFlags 
     val store = rememberSongFlagsStore()
     val overrides by store.overrides.collectAsStateWithLifecycle()
     val base = SongFlags(starred = starred, rating = rating)
-    val current = overrides[songId] ?: base
-    LaunchedEffect(songId, current, base) {
-        if (overrides[songId] == base) store.clear(songId)
+    val override = overrides[songId]
+    val current = override?.mergedWith(base) ?: base
+    LaunchedEffect(songId, override, base) {
+        if (override != null && override.isSatisfiedBy(base)) store.clear(songId)
     }
     return current
 }
@@ -81,7 +89,11 @@ private fun songFlagsEntryPoint(context: Context): SongActionsEntryPoint =
 class SongActionsViewModel @Inject constructor(
     private val store: SongFlagsStore,
     private val playbackStarter: PlaybackStarter,
+    private val apiProvider: FerrotuneApiProvider,
 ) : ViewModel() {
+
+    private val _selectingAll = MutableStateFlow(false)
+    val selectingAll: StateFlow<Boolean> = _selectingAll.asStateFlow()
 
     fun toggleStar(songId: String, base: SongFlags) {
         viewModelScope.launch {
@@ -92,6 +104,38 @@ class SongActionsViewModel @Inject constructor(
     fun setRating(songId: String, rating: Int, base: SongFlags) {
         viewModelScope.launch {
             runCatching { store.setRating(songId, rating, base) }
+        }
+    }
+
+    fun setStarredBulk(songIds: List<String>, starred: Boolean) {
+        viewModelScope.launch {
+            runCatching { store.setStarredBulk(songIds, starred) }
+        }
+    }
+
+    /**
+     * Resolves every ID in a collection for "select all": either a queue
+     * source descriptor or the search/filter params of the current list.
+     */
+    fun loadAllIds(
+        sources: List<QueueSourceRequest>? = null,
+        searchParams: SearchParams? = null,
+        onLoaded: (List<String>) -> Unit,
+    ) {
+        if (sources == null && searchParams == null) return
+        viewModelScope.launch {
+            _selectingAll.value = true
+            val ids = runCatching {
+                when {
+                    sources != null -> apiProvider.requireApi()
+                        .sourceSongIds(SourceSongsRequest(sources = sources)).ids
+
+                    else -> apiProvider.requireApi()
+                        .songIds(searchParams!!.toQueryMap()).ids
+                }
+            }.getOrDefault(emptyList())
+            _selectingAll.value = false
+            onLoaded(ids)
         }
     }
 

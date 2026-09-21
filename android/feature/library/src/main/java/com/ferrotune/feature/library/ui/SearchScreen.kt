@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -15,6 +17,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,17 +34,26 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
+import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongSelectionActionBar
+import com.ferrotune.core.actions.SongSelectionTopBar
+import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
+import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
+import com.ferrotune.core.network.generated.SearchParams
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
+import com.ferrotune.feature.library.data.SongSort
+import com.ferrotune.feature.library.data.SortDir
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -162,11 +174,55 @@ fun SearchScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    val selection = rememberSongSelectionState()
+    val actionsViewModel: SongActionsViewModel = hiltViewModel()
+    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
+    val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state.query) {
+        if (selection.isActive) selection.clear()
+    }
 
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(title = { Text("Search") })
+            if (selection.isActive) {
+                SongSelectionTopBar(
+                    selectedCount = selection.count,
+                    onClose = selection::clear,
+                    onSelectAll = {
+                        actionsViewModel.loadAllIds(
+                            searchParams = SearchParams(
+                                query = state.query.trim(),
+                                songSort = SongSort.TITLE.apiValue,
+                                songSortDir = SortDir.ASC.apiValue,
+                            ),
+                            onLoaded = selection::replace,
+                        )
+                    },
+                    selectingAll = selectingAll,
+                )
+            } else {
+                TopAppBar(title = { Text("Search") })
+            }
+        },
+        bottomBar = {
+            if (selection.isActive) {
+                SongSelectionActionBar(
+                    selectedIds = selection.selectedIds.toList(),
+                    onClearSelection = selection::clear,
+                    extraActions = { ids ->
+                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                            addToPlaylistSongIds = ids
+                        }
+                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                            downloadViewModel.downloadSongs(ids)
+                            selection.clear()
+                        }
+                    },
+                    viewModel = actionsViewModel,
+                )
+            }
         },
     ) { padding ->
         Column(
@@ -192,7 +248,10 @@ fun SearchScreen(
                 SearchTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == state.tab,
-                        onClick = { viewModel.selectTab(tab) },
+                        onClick = {
+                            selection.clear()
+                            viewModel.selectTab(tab)
+                        },
                         text = { Text(tab.label()) },
                     )
                 }
@@ -206,6 +265,7 @@ fun SearchScreen(
                         onPlaySong = viewModel::playSong,
                         onOpenSongRadio = onOpenSongRadio,
                         onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
+                        selection = selection,
                     )
 
                     SearchTab.ALBUMS -> PagedAlbumGrid(
@@ -226,7 +286,10 @@ fun SearchScreen(
         AddToPlaylistDialog(
             songIds = songIds,
             onDismiss = { addToPlaylistSongIds = null },
-            onAdded = { addToPlaylistSongIds = null },
+            onAdded = {
+                addToPlaylistSongIds = null
+                selection.clear()
+            },
         )
     }
 }

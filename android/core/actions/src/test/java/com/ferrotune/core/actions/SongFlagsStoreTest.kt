@@ -15,8 +15,8 @@ class SongFlagsStoreTest {
         var failStar: Boolean = false,
         var failRating: Boolean = false,
     ) : FakeFerrotuneApi() {
-        val starred = mutableListOf<String>()
-        val unstarred = mutableListOf<String>()
+        val starred = mutableListOf<List<String>>()
+        val unstarred = mutableListOf<List<String>>()
         val ratings = mutableListOf<Pair<String, Int>>()
 
         override suspend fun star(request: StarRequest) {
@@ -38,6 +38,9 @@ class SongFlagsStoreTest {
     private fun store(api: RecordingApi): SongFlagsStore =
         SongFlagsStore(FakeApiProvider(api))
 
+    private fun SongFlagsStore.flags(songId: String, base: SongFlags): SongFlags =
+        overrideFor(songId)?.mergedWith(base) ?: base
+
     @Test
     fun `starring applies optimistically and calls the api`() = runTest {
         val api = RecordingApi()
@@ -46,8 +49,8 @@ class SongFlagsStoreTest {
 
         store.setStarred("song-1", starred = true, base = base)
 
-        assertEquals(SongFlags(starred = true, rating = 0), store.flagsFor("song-1"))
-        assertEquals(listOf("song-1"), api.starred)
+        assertEquals(SongFlags(starred = true, rating = 0), store.flags("song-1", base))
+        assertEquals(listOf(listOf("song-1")), api.starred)
     }
 
     @Test
@@ -58,8 +61,8 @@ class SongFlagsStoreTest {
 
         store.setStarred("song-1", starred = false, base = base)
 
-        assertEquals(SongFlags(starred = false, rating = 3), store.flagsFor("song-1"))
-        assertEquals(listOf("song-1"), api.unstarred)
+        assertEquals(SongFlags(starred = false, rating = 3), store.flags("song-1", base))
+        assertEquals(listOf(listOf("song-1")), api.unstarred)
     }
 
     @Test
@@ -71,17 +74,47 @@ class SongFlagsStoreTest {
         val result = runCatching { store.setStarred("song-1", starred = true, base = base) }
 
         assertEquals(true, result.isFailure)
-        assertEquals(base, store.flagsFor("song-1"))
+        assertNull(store.overrideFor("song-1"))
+        assertEquals(base, store.flags("song-1", base))
+    }
+
+    @Test
+    fun `bulk star sends one request and keeps base ratings intact`() = runTest {
+        val api = RecordingApi()
+        val store = store(api)
+
+        store.setStarredBulk(listOf("song-1", "song-2"), starred = true)
+
+        assertEquals(listOf(listOf("song-1", "song-2")), api.starred)
+        assertEquals(
+            SongFlags(starred = true, rating = 4),
+            store.flags("song-1", SongFlags(starred = false, rating = 4)),
+        )
+    }
+
+    @Test
+    fun `failed bulk star reverts every song`() = runTest {
+        val api = RecordingApi(failStar = true)
+        val store = store(api)
+
+        val result = runCatching {
+            store.setStarredBulk(listOf("song-1", "song-2"), starred = true)
+        }
+
+        assertEquals(true, result.isFailure)
+        assertNull(store.overrideFor("song-1"))
+        assertNull(store.overrideFor("song-2"))
     }
 
     @Test
     fun `rating is clamped to five stars`() = runTest {
         val api = RecordingApi()
         val store = store(api)
+        val base = SongFlags(starred = false, rating = 0)
 
-        store.setRating("song-1", rating = 9, base = SongFlags(starred = false, rating = 0))
+        store.setRating("song-1", rating = 9, base = base)
 
-        assertEquals(5, store.flagsFor("song-1")?.rating)
+        assertEquals(5, store.flags("song-1", base).rating)
         assertEquals(listOf("song-1" to 5), api.ratings)
     }
 
@@ -96,7 +129,7 @@ class SongFlagsStoreTest {
         }
 
         assertEquals(true, result.isFailure)
-        assertEquals(base, store.flagsFor("song-1"))
+        assertEquals(base, store.flags("song-1", base))
     }
 
     @Test
@@ -107,6 +140,6 @@ class SongFlagsStoreTest {
         store.setStarred("song-1", starred = true, base = SongFlags(false, 0))
         store.clear("song-1")
 
-        assertNull(store.flagsFor("song-1"))
+        assertNull(store.overrideFor("song-1"))
     }
 }

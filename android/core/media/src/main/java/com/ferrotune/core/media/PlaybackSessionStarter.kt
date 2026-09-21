@@ -5,6 +5,7 @@ import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.ConnectSessionRequest
 import com.ferrotune.core.network.generated.AddToQueueRequest
+import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import com.ferrotune.core.network.generated.StartQueueResponse
 import javax.inject.Inject
@@ -24,6 +25,7 @@ data class QueueStartSpec(
     val filters: Map<String, JsonElement> = emptyMap(),
     val sort: Map<String, JsonElement>? = null,
     val songIds: List<String>? = null,
+    val sources: List<QueueSourceRequest> = emptyList(),
     val startSongId: String? = null,
     val startIndex: Int = 0,
     val shuffle: Boolean = false,
@@ -105,7 +107,10 @@ class PlaybackSessionStarter @Inject constructor(
             "Queue add requires song ids or sources"
         }
         val sessionId = repository.state.value.sessionId
-            ?: throw IllegalStateException("No active playback session")
+        if (sessionId == null) {
+            startQueue(queueStartSpecForAdd(spec))
+            return
+        }
         val currentIndex = repository.state.value.queueIndex.takeIf { it >= 0 }?.toLong()
         val request = buildAddToQueueRequest(
             spec = spec,
@@ -121,7 +126,7 @@ class PlaybackSessionStarter @Inject constructor(
         check(songs.isNotEmpty()) { "Server returned no songs" }
         startQueue(
             QueueStartSpec(
-                sourceType = SOURCE_TYPE_OTHER,
+                sourceType = QUEUE_SOURCE_OTHER,
                 sourceName = "Random songs",
                 songIds = songs.map { it.id },
             )
@@ -180,12 +185,23 @@ class PlaybackSessionStarter @Inject constructor(
 
     private companion object {
         const val DEFAULT_RANDOM_QUEUE_SIZE = 50
-        const val SOURCE_TYPE_OTHER = "other"
         const val SOURCE_TYPE_SONG_RADIO = "songRadio"
         const val SOURCE_TYPE_ALBUM = "album"
         const val SOURCE_TYPE_ARTIST = "artist"
     }
 }
+
+/**
+ * When "add to queue" runs without an active session, start a queue from the
+ * requested songs or sources instead, mirroring the web client.
+ */
+internal fun queueStartSpecForAdd(spec: QueueAddSpec): QueueStartSpec = QueueStartSpec(
+    sourceType = QUEUE_SOURCE_OTHER,
+    songIds = spec.songIds.takeIf { it.isNotEmpty() },
+    sources = spec.sources,
+)
+
+internal const val QUEUE_SOURCE_OTHER = "other"
 
 internal fun buildStartQueueRequest(
     spec: QueueStartSpec,
@@ -202,7 +218,7 @@ internal fun buildStartQueueRequest(
     filters = spec.filters.takeIf { it.isNotEmpty() },
     sort = spec.sort,
     songIds = spec.songIds,
-    sources = emptyList(),
+    sources = spec.sources,
     inlineImages = null,
     clientId = clientId,
     clientName = CLIENT_NAME,

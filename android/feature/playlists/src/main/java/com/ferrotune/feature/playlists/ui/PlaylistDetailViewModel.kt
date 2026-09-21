@@ -130,6 +130,10 @@ class PlaylistDetailViewModel @Inject constructor(
         repository.removeSongs(playlistId, listOf(entry.position))
     }
 
+    fun removeEntries(entries: List<PlaylistSongEntry>) = mutate {
+        repository.removeSongs(playlistId, entries.map { it.position })
+    }
+
     fun moveEntry(entry: PlaylistSongEntry, toPosition: Int) = mutate {
         repository.moveEntry(playlistId, entry.entryId, toPosition)
     }
