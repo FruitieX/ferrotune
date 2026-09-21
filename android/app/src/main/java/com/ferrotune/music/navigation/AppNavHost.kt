@@ -37,6 +37,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.home.ui.HomeScreen
+import com.ferrotune.feature.home.ui.HomeLayoutSettingsScreen
 import com.ferrotune.feature.home.ui.HomeLinkTarget
 import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
@@ -80,6 +81,7 @@ object Routes {
     const val REVIEW = "review"
     const val DOWNLOADS = "downloads"
     const val SETTINGS = "settings"
+    const val HOME_LAYOUT_SETTINGS = "settings/home"
     const val HOME_SECTION = "home_section/{sectionId}"
 
     fun homeSection(sectionId: String) = "home_section/$sectionId"
@@ -398,6 +400,9 @@ private fun FerrotuneAppContent(
                         activeAccountId = state.activeAccount?.id,
                         onSwitchAccount = viewModel::switchAccount,
                         onAddAccount = { navController.navigate(Routes.LOGIN) },
+                        onOpenHomeLayout = {
+                            navController.navigate(Routes.HOME_LAYOUT_SETTINGS)
+                        },
                         onBack = { navController.popBackStack() },
                         onSignOut = {
                             viewModel.signOutLocally()
@@ -406,6 +411,9 @@ private fun FerrotuneAppContent(
                             }
                         },
                     )
+                }
+                composable(Routes.HOME_LAYOUT_SETTINGS) {
+                    HomeLayoutSettingsScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Routes.STATS) {
                     StatsScreen(onBack = { navController.popBackStack() })

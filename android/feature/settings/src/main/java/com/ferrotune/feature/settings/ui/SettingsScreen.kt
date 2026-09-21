@@ -62,6 +62,7 @@ fun SettingsScreen(
     activeAccountId: String?,
     onSwitchAccount: (String) -> Unit,
     onAddAccount: () -> Unit,
+    onOpenHomeLayout: () -> Unit,
     onBack: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
@@ -178,6 +179,16 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            item {
+                HorizontalDivider()
+                SectionHeader("Home")
+                ListItem(
+                    headlineContent = { Text("Home layout") },
+                    supportingContent = { Text("Customize Home tiles and sections") },
+                    modifier = Modifier.clickable(onClick = onOpenHomeLayout),
+                )
             }
 
             item {

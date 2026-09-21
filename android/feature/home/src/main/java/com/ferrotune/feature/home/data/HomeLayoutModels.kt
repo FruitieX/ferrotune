@@ -233,9 +233,9 @@ fun defaultHomeSection(kind: HomeSectionKind): HomeSectionConfig =
         ?: HomeSectionConfig(id = kind.apiValue, kind = kind)
 
 fun createPlaylistHomeSection(
-    playlistId: String,
-    playlistName: String,
-    playlistType: HomePlaylistType,
+    playlistId: String? = null,
+    playlistName: String? = null,
+    playlistType: HomePlaylistType? = null,
     id: String = "playlist-songs-${System.currentTimeMillis()}-${(10_000..99_999).random()}",
 ): HomeSectionConfig = HomeSectionConfig(
     id = id,
