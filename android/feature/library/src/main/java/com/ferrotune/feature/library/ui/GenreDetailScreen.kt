@@ -1,7 +1,8 @@
 package com.ferrotune.feature.library.ui
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,7 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -21,18 +22,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.feature.downloads.ui.SongDownloadAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.designsystem.components.PagingListFooter
@@ -73,13 +76,6 @@ fun GenreDetailScreen(
                 },
             )
         },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { viewModel.play() },
-                icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                text = { Text("Play") },
-            )
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
@@ -95,13 +91,26 @@ fun GenreDetailScreen(
                 )
 
                 songs.loadState.refresh is LoadState.Loading && songs.itemCount == 0 ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.CircularProgressIndicator()
-                    }
+                    MediaRowSkeletonList(count = 8, modifier = Modifier.fillMaxSize())
 
                 songs.itemCount == 0 -> EmptyState("No songs in this genre")
 
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        DetailHeader(
+                            title = viewModel.genre,
+                            subtitle = "${songs.itemCount} songs",
+                            seed = viewModel.genre,
+                            coverSize = 112.dp,
+                            actions = {
+                                Button(onClick = { viewModel.play() }) {
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Play")
+                                }
+                            },
+                        )
+                    }
                     items(
                         count = songs.itemCount,
                         key = songs.itemKey { it.id },

@@ -1,15 +1,12 @@
 package com.ferrotune.feature.library.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -18,16 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -45,11 +40,14 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.LoadingState
+import com.ferrotune.core.designsystem.components.MediaCard
+import com.ferrotune.core.designsystem.components.MediaCardSkeleton
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.feature.downloads.ui.SongDownloadAction
@@ -95,15 +93,6 @@ fun ArtistDetailScreen(
                 },
             )
         },
-        floatingActionButton = {
-            if (state.artist != null) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.play() },
-                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                    text = { Text("Play") },
-                )
-            }
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         when {
@@ -126,30 +115,24 @@ fun ArtistDetailScreen(
                     .padding(padding),
             ) {
                 val artist = state.artist!!
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CoverArt(
-                        model = inlineCoverModel(artist.coverArtData)
-                            ?: artist.coverArt?.let { id ->
-                                state.serverUrl?.let { coverArtUrl(it, id, "medium") }
-                            },
-                        contentDescription = artist.name,
-                        modifier = Modifier.size(140.dp),
-                        shape = androidx.compose.foundation.shape.CircleShape,
-                    )
-                    Text(artist.name, style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        text = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                TabRow(selectedTabIndex = state.tab.ordinal) {
+                DetailHeader(
+                    title = artist.name,
+                    subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
+                    seed = artist.id,
+                    circularCover = true,
+                    coverModel = inlineCoverModel(artist.coverArtData)
+                        ?: artist.coverArt?.let { id ->
+                            state.serverUrl?.let { coverArtUrl(it, id, "medium") }
+                        },
+                    actions = {
+                        Button(onClick = { viewModel.play() }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Play")
+                        }
+                    },
+                )
+                PrimaryTabRow(selectedTabIndex = state.tab.ordinal) {
                     ArtistTab.entries.forEach { tab ->
                         Tab(
                             selected = tab == state.tab,
@@ -188,8 +171,14 @@ private fun ArtistAlbumGrid(
         )
 
         items.loadState.refresh is LoadState.Loading && items.itemCount == 0 ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(150.dp),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(6) { MediaCardSkeleton(width = 150.dp) }
             }
 
         items.itemCount == 0 -> EmptyState("No albums for this artist")
@@ -206,32 +195,13 @@ private fun ArtistAlbumGrid(
                 key = items.itemKey { it.id },
             ) { index ->
                 val album = items[index] ?: return@items
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenAlbum(album.id) },
-                ) {
-                    CoverArt(
-                        model = inlineCoverModel(album.coverArtData),
-                        contentDescription = album.name,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f),
-                    )
-                    Text(
-                        text = album.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                    Text(
-                        text = album.year?.toString().orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
+                MediaCard(
+                    title = album.name,
+                    subtitle = album.year?.toString(),
+                    seed = album.id,
+                    coverModel = inlineCoverModel(album.coverArtData),
+                    onClick = { onOpenAlbum(album.id) },
+                )
             }
         }
     }
@@ -251,9 +221,7 @@ private fun ArtistSongList(
         )
 
         items.loadState.refresh is LoadState.Loading && items.itemCount == 0 ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            MediaRowSkeletonList(count = 8, modifier = Modifier.fillMaxSize())
 
         items.itemCount == 0 -> EmptyState("No songs for this artist")
 

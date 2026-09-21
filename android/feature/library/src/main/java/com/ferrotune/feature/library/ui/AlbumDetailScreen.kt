@@ -7,15 +7,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,11 +40,12 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
@@ -98,15 +100,6 @@ fun AlbumDetailScreen(
                 },
             )
         },
-        floatingActionButton = {
-            if (state.album != null) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.play() },
-                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                    text = { Text("Play") },
-                )
-            }
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         when {
@@ -129,29 +122,16 @@ fun AlbumDetailScreen(
                     .padding(padding),
             ) {
                 val album = state.album!!
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CoverArt(
-                        model = inlineCoverModel(album.coverArtData)
-                            ?: album.coverArt?.let { id ->
-                                state.serverUrl?.let { coverArtUrl(it, id, "large") }
-                            },
-                        contentDescription = album.name,
-                        modifier = Modifier.size(120.dp),
-                    )
-                    Column {
-                        Text(album.name, style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            text = album.artist,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onOpenArtist(album.artistId) },
-                        )
+                DetailHeader(
+                    title = album.name,
+                    subtitle = album.artist,
+                    seed = album.id,
+                    onSubtitleClick = { onOpenArtist(album.artistId) },
+                    coverModel = inlineCoverModel(album.coverArtData)
+                        ?: album.coverArt?.let { id ->
+                            state.serverUrl?.let { coverArtUrl(it, id, "large") }
+                        },
+                    badges = {
                         Text(
                             text = listOfNotNull(
                                 album.year?.toString(),
@@ -160,8 +140,15 @@ fun AlbumDetailScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                }
+                    },
+                    actions = {
+                        Button(onClick = { viewModel.play() }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Play")
+                        }
+                    },
+                )
                 AlbumSongList(
                     items = songs,
                     onPlaySong = { viewModel.play(it) },
@@ -186,9 +173,7 @@ private fun AlbumSongList(
         )
 
         items.loadState.refresh is LoadState.Loading && items.itemCount == 0 ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            MediaRowSkeletonList(count = 8, modifier = Modifier.fillMaxSize())
 
         items.itemCount == 0 -> EmptyState("No songs on this album")
 

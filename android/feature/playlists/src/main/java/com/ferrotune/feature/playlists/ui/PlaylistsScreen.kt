@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -43,10 +42,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.ConfirmDialog
-import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
+import com.ferrotune.core.designsystem.components.SectionHeader
+import com.ferrotune.core.designsystem.components.ShelfCard
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistInFolder
@@ -123,14 +124,12 @@ fun PlaylistsScreen(
     ) { padding ->
         when {
             state.loading && state.tree.folders.isEmpty() && state.tree.rootPlaylists.isEmpty() ->
-                Box(
+                MediaRowSkeletonList(
+                    count = 10,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
+                )
 
             state.error != null -> Box(
                 modifier = Modifier
@@ -314,15 +313,6 @@ fun PlaylistsScreen(
 }
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-    )
-}
-
-@Composable
 private fun RecentPlaylistsRow(
     entries: List<RecentPlaylistEntry>,
     serverUrl: String?,
@@ -335,31 +325,21 @@ private fun RecentPlaylistsRow(
     ) {
         items(entries, key = { "${it.playlistType}-${it.id}" }) { entry ->
             val isSmart = entry.playlistType == "smartPlaylist"
-            Column(
-                modifier = Modifier
-                    .width(120.dp)
-                    .clickable {
-                        if (isSmart) onOpenSmartPlaylist(entry.id) else onOpenPlaylist(entry.id)
-                    },
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                CoverArt(
-                    model = serverUrl?.let {
-                        coverArtUrl(
-                            serverUrl = it,
-                            coverArtId = if (isSmart) "sp-${entry.id}" else entry.id,
-                            size = "small",
-                        )
-                    },
-                    contentDescription = entry.name,
-                    modifier = Modifier.size(120.dp),
-                )
-                Text(
-                    text = entry.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
-                )
-            }
+            ShelfCard(
+                title = entry.name,
+                subtitle = if (isSmart) "Smart playlist" else "Playlist",
+                seed = entry.id,
+                coverModel = serverUrl?.let {
+                    coverArtUrl(
+                        serverUrl = it,
+                        coverArtId = if (isSmart) "sp-${entry.id}" else entry.id,
+                        size = "small",
+                    )
+                },
+                onClick = {
+                    if (isSmart) onOpenSmartPlaylist(entry.id) else onOpenPlaylist(entry.id)
+                },
+            )
         }
     }
 }

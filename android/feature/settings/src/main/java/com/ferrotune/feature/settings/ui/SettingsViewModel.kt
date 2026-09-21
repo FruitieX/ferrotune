@@ -2,7 +2,9 @@ package com.ferrotune.feature.settings.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.datastore.ThemeModeStore
 import com.ferrotune.core.designsystem.theme.OklchColor
+import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.media.PlaybackSettingsRepository
 import com.ferrotune.feature.downloads.data.DownloadSettings
@@ -12,7 +14,9 @@ import com.ferrotune.feature.settings.data.AccentState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -20,11 +24,14 @@ class SettingsViewModel @Inject constructor(
     private val playbackSettingsRepository: PlaybackSettingsRepository,
     private val downloadSettingsRepository: DownloadSettingsRepository,
     private val accentSettingsRepository: AccentSettingsRepository,
+    private val themeModeStore: ThemeModeStore,
 ) : ViewModel() {
 
     val playbackSettings: StateFlow<PlaybackSettings> = playbackSettingsRepository.settings
     val downloadSettings: StateFlow<DownloadSettings> = downloadSettingsRepository.settings
     val accent: StateFlow<AccentState> = accentSettingsRepository.state
+    val themeMode: StateFlow<ThemeMode> = themeModeStore.themeMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
@@ -42,6 +49,10 @@ class SettingsViewModel @Inject constructor(
             runCatching { accentSettingsRepository.load() }
                 .onFailure { _message.value = "Could not load accent color" }
         }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch { themeModeStore.setThemeMode(mode) }
     }
 
     fun setAccentPreset(name: String) {

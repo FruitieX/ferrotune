@@ -3,8 +3,10 @@ package com.ferrotune.music.navigation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.datastore.Accounts
+import com.ferrotune.core.datastore.ThemePreferencesRepository
 import com.ferrotune.core.designsystem.theme.OklchColor
 import com.ferrotune.core.model.Account
+import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.core.network.AccountSwitchResult
 import com.ferrotune.core.network.AccountSwitcher
 import com.ferrotune.core.network.ConnectivityMonitor
@@ -27,6 +29,7 @@ data class AppUiState(
     val accounts: List<Account> = emptyList(),
     val accent: OklchColor? = null,
     val isOnline: Boolean = true,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val switchError: String? = null,
 )
 
@@ -36,27 +39,32 @@ class AppViewModel @Inject constructor(
     private val accentSettingsRepository: AccentSettingsRepository,
     private val accountSwitcher: AccountSwitcher,
     private val playbackSessionResetter: PlaybackSessionResetter,
+    themePreferencesRepository: ThemePreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
 ) : ViewModel() {
 
     private val switchError = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<AppUiState> = combine(
-        accounts.activeAccount,
-        accounts.accounts,
-        accentSettingsRepository.state,
+        combine(
+            accounts.activeAccount,
+            accounts.accounts,
+            accentSettingsRepository.state,
+            themePreferencesRepository.themeMode,
+            switchError,
+        ) { account, savedAccounts, accent, themeMode, error ->
+            AppUiState(
+                isLoading = false,
+                activeAccount = account,
+                accounts = savedAccounts,
+                accent = if (account != null) accent.color else null,
+                themeMode = themeMode,
+                switchError = error,
+            )
+        },
         connectivityMonitor.isOnline,
-        switchError,
-    ) { account, savedAccounts, accent, isOnline, error ->
-        AppUiState(
-            isLoading = false,
-            activeAccount = account,
-            accounts = savedAccounts,
-            accent = if (account != null) accent.color else null,
-            isOnline = isOnline,
-            switchError = error,
-        )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, AppUiState())
+    ) { state, isOnline -> state.copy(isOnline = isOnline) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppUiState())
 
     init {
         viewModelScope.launch {

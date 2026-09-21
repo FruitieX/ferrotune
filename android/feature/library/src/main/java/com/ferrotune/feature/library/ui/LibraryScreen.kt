@@ -3,6 +3,7 @@ package com.ferrotune.feature.library.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,12 +20,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
@@ -43,8 +43,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.EmptyState
+import com.ferrotune.core.designsystem.components.MediaCard
+import com.ferrotune.core.designsystem.components.MediaCardSkeleton
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
@@ -130,7 +132,7 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            ScrollableTabRow(selectedTabIndex = state.tab.ordinal, edgePadding = 8.dp) {
+            PrimaryScrollableTabRow(selectedTabIndex = state.tab.ordinal, edgePadding = 8.dp) {
                 LibraryTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == state.tab,
@@ -233,9 +235,7 @@ private fun SongsTab(
                 )
 
             items.loadState.refresh is androidx.paging.LoadState.Loading && items.itemCount == 0 ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                MediaRowSkeletonList(count = 10, modifier = Modifier.fillMaxSize())
 
             items.itemCount == 0 -> EmptyState("No songs found")
 
@@ -302,8 +302,14 @@ private fun AlbumsTab(
                 )
 
             items.loadState.refresh is androidx.paging.LoadState.Loading && items.itemCount == 0 ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(150.dp),
+                    contentPadding = PaddingValues(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(6) { MediaCardSkeleton(width = 150.dp) }
                 }
 
             items.itemCount == 0 -> EmptyState("No albums found")
@@ -320,31 +326,13 @@ private fun AlbumsTab(
                     key = items.itemKey { it.id },
                 ) { index ->
                     val album = items[index] ?: return@items
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        CoverArt(
-                            model = inlineCoverModel(album.coverArtData),
-                            contentDescription = album.name,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f),
-                        )
-                        Text(
-                            text = album.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
-                        Text(
-                            text = album.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    MediaCard(
+                        title = album.name,
+                        subtitle = album.artist,
+                        seed = album.id,
+                        coverModel = inlineCoverModel(album.coverArtData),
+                        onClick = { onOpenAlbum(album.id) },
+                    )
                 }
             }
         }
@@ -384,9 +372,7 @@ private fun ArtistsTab(
                 )
 
             items.loadState.refresh is androidx.paging.LoadState.Loading && items.itemCount == 0 ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                MediaRowSkeletonList(count = 10, modifier = Modifier.fillMaxSize())
 
             items.itemCount == 0 -> EmptyState("No artists found")
 
@@ -400,6 +386,8 @@ private fun ArtistsTab(
                         title = artist.name,
                         subtitle = artistCounts(artist),
                         coverModel = inlineCoverModel(artist.coverArtData),
+                        coverShape = CircleShape,
+                        coverSeed = artist.id,
                         onClick = { onOpenArtist(artist.id) },
                     )
                 }
@@ -434,22 +422,13 @@ private fun GenresTab(
         genres.isEmpty() -> EmptyState("No genres found", modifier)
         else -> LazyColumn(modifier = modifier.fillMaxSize()) {
             items(genres, key = { it.value }) { genre ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenGenre(genre.value) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(genre.value, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            text = "${genre.songCount} songs • ${genre.albumCount} albums",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                MediaRow(
+                    title = genre.value,
+                    subtitle = "${genre.songCount} songs • ${genre.albumCount} albums",
+                    coverModel = null,
+                    coverSeed = genre.value,
+                    onClick = { onOpenGenre(genre.value) },
+                )
             }
         }
     }
@@ -457,7 +436,5 @@ private fun GenresTab(
 
 @Composable
 private fun LoadingBox(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
+    MediaRowSkeletonList(count = 10, modifier = modifier.fillMaxSize())
 }

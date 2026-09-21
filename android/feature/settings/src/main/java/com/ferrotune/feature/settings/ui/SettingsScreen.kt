@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.model.Account
+import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.core.media.PlaybackSettingsRepository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -71,6 +72,7 @@ fun SettingsScreen(
     val playback by viewModel.playbackSettings.collectAsStateWithLifecycle()
     val downloads by viewModel.downloadSettings.collectAsStateWithLifecycle()
     val accent by viewModel.accent.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -135,6 +137,19 @@ fun SettingsScreen(
             item {
                 HorizontalDivider()
                 SectionHeader("Appearance")
+                ChoiceRow(
+                    label = "Theme",
+                    options = ThemeMode.entries.toList(),
+                    selected = themeMode,
+                    optionLabel = { mode ->
+                        when (mode) {
+                            ThemeMode.SYSTEM -> "System"
+                            ThemeMode.LIGHT -> "Light"
+                            ThemeMode.DARK -> "Dark"
+                        }
+                    },
+                    onSelect = viewModel::setThemeMode,
+                )
                 AccentPicker(
                     selected = accent.name,
                     onSelectPreset = viewModel::setAccentPreset,

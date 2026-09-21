@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,11 +17,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,11 +44,13 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.ConfirmDialog
-import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
@@ -132,24 +138,38 @@ fun SmartPlaylistDetailScreen(
                 },
             )
         },
-        floatingActionButton = {
-            if (state.smartPlaylist != null) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.play() },
-                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                    text = { Text("Play") },
-                )
-            }
-        },
     ) { padding ->
         when {
-            state.loading && state.smartPlaylist == null -> Box(
+            state.loading && state.smartPlaylist == null -> Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentAlignment = Alignment.Center,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                CircularProgressIndicator()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    ShimmerBox(
+                        modifier = Modifier.size(96.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ShimmerBox(
+                            modifier = Modifier
+                                .width(160.dp)
+                                .height(20.dp),
+                        )
+                        ShimmerBox(
+                            modifier = Modifier
+                                .width(120.dp)
+                                .height(14.dp),
+                        )
+                    }
+                }
+                MediaRowSkeletonList(count = 8)
             }
 
             state.error != null && state.smartPlaylist == null -> Box(
@@ -170,6 +190,8 @@ fun SmartPlaylistDetailScreen(
                         SmartPlaylistHeader(
                             smartPlaylist = smartPlaylist,
                             serverUrl = state.serverUrl,
+                            onPlay = { viewModel.play() },
+                            onShuffle = { viewModel.play(shuffle = true) },
                         )
                     }
                 }
@@ -242,47 +264,39 @@ fun SmartPlaylistDetailScreen(
 private fun SmartPlaylistHeader(
     smartPlaylist: SmartPlaylistInfo,
     serverUrl: String?,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverArt(
-            model = serverUrl?.let {
-                coverArtUrl(serverUrl = it, coverArtId = "sp-${smartPlaylist.id}", size = "medium")
-            },
-            contentDescription = smartPlaylist.name,
-            modifier = Modifier.size(96.dp),
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = smartPlaylist.name,
-                style = MaterialTheme.typography.titleLarge,
-            )
-            if (!smartPlaylist.comment.isNullOrBlank()) {
-                Text(
-                    text = smartPlaylist.comment.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    DetailHeader(
+        title = smartPlaylist.name,
+        subtitle = smartPlaylist.comment?.takeIf { it.isNotBlank() },
+        seed = smartPlaylist.id,
+        coverModel = serverUrl?.let {
+            coverArtUrl(serverUrl = it, coverArtId = "sp-${smartPlaylist.id}", size = "medium")
+        },
+        badges = {
             Text(
                 text = buildString {
                     append("Smart playlist")
                     smartPlaylist.songCount?.let { append(" • $it songs") }
+                    append(
+                        " • ${smartPlaylist.rules.conditions.size} rules " +
+                            smartPlaylist.rules.logic.uppercase(),
+                    )
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                text = "${smartPlaylist.rules.conditions.size} rules • " +
-                    smartPlaylist.rules.logic.uppercase(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+        },
+        actions = {
+            Button(onClick = onPlay) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Play")
+            }
+            FilledTonalIconButton(onClick = onShuffle) {
+                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle")
+            }
+        },
+    )
 }

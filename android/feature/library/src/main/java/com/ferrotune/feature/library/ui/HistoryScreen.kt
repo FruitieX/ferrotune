@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -36,6 +35,7 @@ import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
@@ -131,14 +131,12 @@ fun HistoryScreen(
             )
 
             entries.loadState.refresh is LoadState.Loading && entries.itemCount == 0 ->
-                Box(
-                    Modifier
+                MediaRowSkeletonList(
+                    count = 10,
+                    modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
+                )
 
             entries.itemCount == 0 -> EmptyState("No listening history yet")
 

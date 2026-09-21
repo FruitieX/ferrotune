@@ -6,9 +6,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -16,11 +19,11 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,12 +49,14 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.formatDuration
 import com.ferrotune.core.designsystem.components.ConfirmDialog
-import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.SortMenu
+import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
@@ -159,24 +164,38 @@ fun PlaylistDetailScreen(
                 },
             )
         },
-        floatingActionButton = {
-            if (state.playlist != null) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.play() },
-                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                    text = { Text("Play") },
-                )
-            }
-        },
     ) { padding ->
         when {
-            state.loading && state.playlist == null -> Box(
+            state.loading && state.playlist == null -> Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentAlignment = Alignment.Center,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                CircularProgressIndicator()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    ShimmerBox(
+                        modifier = Modifier.size(96.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ShimmerBox(
+                            modifier = Modifier
+                                .width(160.dp)
+                                .height(20.dp),
+                        )
+                        ShimmerBox(
+                            modifier = Modifier
+                                .width(120.dp)
+                                .height(14.dp),
+                        )
+                    }
+                }
+                MediaRowSkeletonList(count = 8)
             }
 
             state.error != null && state.playlist == null -> Box(
@@ -197,6 +216,7 @@ fun PlaylistDetailScreen(
                         PlaylistHeader(
                             playlist = playlist,
                             serverUrl = state.serverUrl,
+                            onPlay = { viewModel.play() },
                         )
                     }
                 }
@@ -301,53 +321,40 @@ fun PlaylistDetailScreen(
 private fun PlaylistHeader(
     playlist: com.ferrotune.core.network.generated.PlaylistSongsResponse,
     serverUrl: String?,
+    onPlay: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverArt(
-            model = serverUrl
-                ?.takeIf { playlist.matchedCount > 0 }
-                ?.let { coverArtUrl(serverUrl = it, coverArtId = playlist.id, size = "medium") },
-            contentDescription = playlist.name,
-            modifier = Modifier.size(96.dp),
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.titleLarge,
-            )
-            if (!playlist.comment.isNullOrBlank()) {
-                Text(
-                    text = playlist.comment.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    DetailHeader(
+        title = playlist.name,
+        subtitle = playlist.comment?.takeIf { it.isNotBlank() },
+        seed = playlist.id,
+        coverModel = serverUrl
+            ?.takeIf { playlist.matchedCount > 0 }
+            ?.let { coverArtUrl(serverUrl = it, coverArtId = playlist.id, size = "medium") },
+        badges = {
             Text(
                 text = buildString {
                     append("${playlist.matchedCount} songs")
                     if (playlist.missingCount > 0) append(" • ${playlist.missingCount} missing")
                     if (playlist.duration > 0) append(" • ${formatDuration(playlist.duration)}")
+                    val owners = listOfNotNull(
+                        playlist.owner,
+                        if (playlist.public) "Public" else null,
+                        if (playlist.sharedWithMe) "Shared with me" else null,
+                    ).joinToString(" • ")
+                    if (owners.isNotBlank()) append(" • $owners")
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                text = listOfNotNull(
-                    playlist.owner,
-                    if (playlist.public) "Public" else null,
-                    if (playlist.sharedWithMe) "Shared with me" else null,
-                ).joinToString(" • "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+        },
+        actions = {
+            Button(onClick = onPlay) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Play")
+            }
+        },
+    )
 }
 
 @Composable

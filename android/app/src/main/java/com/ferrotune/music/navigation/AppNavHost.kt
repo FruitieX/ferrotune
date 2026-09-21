@@ -1,7 +1,15 @@
 package com.ferrotune.music.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +51,7 @@ import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.theme.FerrotuneTheme
+import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.feature.settings.ui.SettingsScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.home.ui.StatsScreen
@@ -109,8 +118,14 @@ fun FerrotuneApp(
     viewModel: AppViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val systemDark = isSystemInDarkTheme()
+    val darkTheme = when (state.themeMode) {
+        ThemeMode.SYSTEM -> systemDark
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
 
-    FerrotuneTheme(accent = state.accent) {
+    FerrotuneTheme(darkTheme = darkTheme, accent = state.accent) {
         FerrotuneAppContent(
             state = state,
             viewModel = viewModel,
@@ -208,6 +223,10 @@ private fun FerrotuneAppContent(
                 navController = navController,
                 startDestination = if (state.activeAccount != null) Routes.HOME else Routes.LOGIN,
                 modifier = Modifier.weight(1f),
+                enterTransition = { defaultEnterTransition() },
+                exitTransition = { defaultExitTransition() },
+                popEnterTransition = { defaultPopEnterTransition() },
+                popExitTransition = { defaultPopExitTransition() },
             ) {
                 composable(Routes.LOGIN) {
                     LoginScreen(
@@ -455,6 +474,18 @@ private fun FerrotuneAppContent(
         )
     }
 }
+
+private fun defaultEnterTransition(): EnterTransition =
+    fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 14 }
+
+private fun defaultExitTransition(): ExitTransition =
+    fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -it / 14 }
+
+private fun defaultPopEnterTransition(): EnterTransition =
+    fadeIn(tween(220)) + slideInHorizontally(tween(220)) { -it / 14 }
+
+private fun defaultPopExitTransition(): ExitTransition =
+    fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { it / 14 }
 
 private fun androidx.navigation.NavHostController.navigateTopLevel(route: String) {
     navigate(route) {

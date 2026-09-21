@@ -1,5 +1,6 @@
 package com.ferrotune.feature.settings.ui
 
+import com.ferrotune.core.datastore.ThemeModeStore
 import com.ferrotune.core.media.DownloadInfo
 import com.ferrotune.core.media.DownloadStateEventPayload
 import com.ferrotune.core.media.PlaybackSettings
@@ -15,7 +16,10 @@ import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.settings.data.AccentSettingsRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.ferrotune.core.model.ThemeMode
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -80,14 +84,28 @@ class SettingsViewModelTest {
         override fun setWifiOnly(wifiOnly: Boolean) = Unit
     }
 
+    private class FakeThemeModeStore(
+        initial: ThemeMode = ThemeMode.SYSTEM,
+    ) : ThemeModeStore {
+        val mode = MutableStateFlow(initial)
+
+        override val themeMode: StateFlow<ThemeMode> = mode
+
+        override suspend fun setThemeMode(mode: ThemeMode) {
+            this.mode.value = mode
+        }
+    }
+
     private class Harness(api: FakeSettingsApi = FakeSettingsApi()) {
         val api = api
         val applier = FakeSettingsApplier()
+        val themeModeStore = FakeThemeModeStore()
         val provider = FakeApiProvider(api)
         val viewModel = SettingsViewModel(
             PlaybackSettingsRepository(provider, applier),
             DownloadSettingsRepository(provider, NoopDownloadEngine()),
             AccentSettingsRepository(provider),
+            themeModeStore,
         )
     }
 
@@ -144,5 +162,17 @@ class SettingsViewModelTest {
         assertEquals(JsonPrimitive(192), harness.api.preferenceValues["downloadBitrate"])
         assertEquals(JsonPrimitive(true), harness.api.preferenceValues["downloadWifiOnly"])
         assertEquals(192, harness.viewModel.downloadSettings.value.bitRateKbps)
+    }
+
+    @Test
+    fun `theme mode defaults to system and persists changes`() = runTest {
+        val harness = Harness()
+
+        assertEquals(ThemeMode.SYSTEM, harness.viewModel.themeMode.value)
+
+        harness.viewModel.setThemeMode(ThemeMode.DARK)
+
+        assertEquals(ThemeMode.DARK, harness.themeModeStore.mode.value)
+        assertEquals(ThemeMode.DARK, harness.viewModel.themeMode.value)
     }
 }

@@ -7,10 +7,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -174,6 +175,7 @@ fun SearchScreen(
                 placeholder = { Text("Songs, albums, artists") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     imeAction = ImeAction.Search,
                 ),
@@ -181,7 +183,7 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            TabRow(selectedTabIndex = state.tab.ordinal) {
+            PrimaryTabRow(selectedTabIndex = state.tab.ordinal) {
                 SearchTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == state.tab,

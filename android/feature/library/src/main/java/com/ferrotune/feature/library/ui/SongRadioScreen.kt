@@ -1,19 +1,17 @@
 package com.ferrotune.feature.library.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,18 +24,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.SectionHeader
 
 @Composable
 fun SongRadioScreen(
@@ -67,15 +65,6 @@ fun SongRadioScreen(
                 },
             )
         },
-        floatingActionButton = {
-            if (state.seed != null) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.play() },
-                    icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                    text = { Text("Play radio") },
-                )
-            }
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         when {
@@ -98,37 +87,28 @@ fun SongRadioScreen(
                     .padding(padding),
             ) {
                 val seed = state.seed!!
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CoverArt(
-                        model = inlineCoverModel(seed.coverArtData),
-                        contentDescription = seed.title,
-                        modifier = Modifier.size(96.dp),
-                    )
-                    Column {
-                        Text(
-                            text = "Seed",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(seed.title, style = MaterialTheme.typography.titleMedium)
+                DetailHeader(
+                    title = "Song Radio",
+                    subtitle = seed.title,
+                    seed = seed.id,
+                    coverSize = 120.dp,
+                    coverModel = inlineCoverModel(seed.coverArtData),
+                    badges = {
                         Text(
                             text = seed.artist,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                }
-                Text(
-                    text = "Similar songs",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    },
+                    actions = {
+                        Button(onClick = { viewModel.play() }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Play radio")
+                        }
+                    },
                 )
+                SectionHeader(title = "Similar songs")
                 if (state.similar.isEmpty()) {
                     EmptyState("No similar songs available")
                 } else {

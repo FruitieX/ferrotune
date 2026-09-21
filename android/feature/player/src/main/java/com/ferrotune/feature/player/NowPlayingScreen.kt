@@ -1,5 +1,7 @@
 package com.ferrotune.feature.player
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +24,10 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +41,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -48,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.gestures.detectDragGestures
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.theme.seedGradient
 import kotlin.math.abs
 
 @Composable
@@ -60,8 +69,23 @@ fun NowPlayingScreen(
     val haptics = LocalHapticFeedback.current
     var queueOpen by remember { mutableStateOf(false) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val darkTheme = isSystemInDarkTheme()
+    val backdrop = seedGradient(state.track?.id ?: state.track?.title, darkTheme)
 
-    Column(
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        backdrop.glow.copy(alpha = if (darkTheme) 0.28f else 0.45f),
+                        backdrop.end.copy(alpha = if (darkTheme) 0.12f else 0.22f),
+                        Color.Transparent,
+                    ),
+                ),
+            ),
+    ) {
+        Column(
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer { translationY = dragOffsetY }
@@ -102,9 +126,9 @@ fun NowPlayingScreen(
                     },
                 )
             }
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(
@@ -150,9 +174,12 @@ fun NowPlayingScreen(
         CoverArt(
             model = inlineCoverModel(state.track?.coverArtData) ?: state.track?.coverArtUrl,
             contentDescription = state.track?.album,
+            seed = state.track?.id,
+            shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f),
+                .aspectRatio(1f)
+                .shadow(16.dp, RoundedCornerShape(20.dp)),
         )
 
         Spacer(Modifier.weight(1f))
@@ -225,14 +252,23 @@ fun NowPlayingScreen(
                     modifier = Modifier.size(40.dp),
                 )
             }
-            IconButton(onClick = viewModel::togglePlayPause) {
+            FilledIconButton(
+                onClick = viewModel::togglePlayPause,
+                shape = CircleShape,
+                modifier = Modifier
+                    .padding(horizontal = 8.dp)
+                    .size(68.dp),
+            ) {
                 if (state.isBuffering) {
-                    CircularProgressIndicator(modifier = Modifier.size(36.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(30.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
                 } else {
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier.size(38.dp),
                     )
                 }
             }
@@ -261,6 +297,7 @@ fun NowPlayingScreen(
         }
 
         Spacer(Modifier.height(24.dp))
+        }
     }
 
     if (queueOpen) {

@@ -1,12 +1,14 @@
 package com.ferrotune.feature.player
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -25,6 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.inlineCoverModel
 
 @Composable
 fun MiniPlayerBar(
@@ -37,22 +41,25 @@ fun MiniPlayerBar(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        tonalElevation = 3.dp,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 8.dp,
     ) {
         Column(modifier = Modifier.clickable(onClick = onOpenNowPlaying)) {
-            LinearProgressIndicator(
-                progress = { state.progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
-            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                CoverArt(
+                    model = inlineCoverModel(track.coverArtData) ?: track.coverArtUrl,
+                    contentDescription = track.title,
+                    seed = track.id,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.size(40.dp),
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = track.title,
@@ -72,7 +79,8 @@ fun MiniPlayerBar(
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(28.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(30.dp),
                     )
                 }
                 IconButton(onClick = viewModel::next) {
@@ -83,6 +91,13 @@ fun MiniPlayerBar(
                     )
                 }
             }
+            LinearProgressIndicator(
+                progress = { state.progressFraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
         }
     }
 }

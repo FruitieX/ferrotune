@@ -3,6 +3,7 @@ package com.ferrotune.feature.library.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
@@ -16,7 +17,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -48,10 +48,12 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.MediaCard
+import com.ferrotune.core.designsystem.components.MediaCardSkeleton
 import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
@@ -167,7 +169,7 @@ fun FavoritesScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            TabRow(selectedTabIndex = state.tab.ordinal) {
+            PrimaryTabRow(selectedTabIndex = state.tab.ordinal) {
                 FavoritesTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == state.tab,
@@ -217,9 +219,7 @@ internal fun PagedSongList(
         )
 
         items.loadState.refresh is LoadState.Loading && items.itemCount == 0 ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            MediaRowSkeletonList(count = 10, modifier = Modifier.fillMaxSize())
 
         items.itemCount == 0 -> EmptyState("No songs found")
 
@@ -263,8 +263,14 @@ internal fun PagedAlbumGrid(
         )
 
         items.loadState.refresh is LoadState.Loading && items.itemCount == 0 ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(150.dp),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(6) { MediaCardSkeleton(width = 150.dp) }
             }
 
         items.itemCount == 0 -> EmptyState("No albums found")
@@ -281,33 +287,13 @@ internal fun PagedAlbumGrid(
                 key = items.itemKey { it.id },
             ) { index ->
                 val album = items[index] ?: return@items
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenAlbum(album.id) },
-                ) {
-                    CoverArt(
-                        model = inlineCoverModel(album.coverArtData),
-                        contentDescription = album.name,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f),
-                    )
-                    Text(
-                        text = album.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                    Text(
-                        text = album.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                MediaCard(
+                    title = album.name,
+                    subtitle = album.artist,
+                    seed = album.id,
+                    coverModel = inlineCoverModel(album.coverArtData),
+                    onClick = { onOpenAlbum(album.id) },
+                )
             }
         }
     }
@@ -326,9 +312,7 @@ internal fun PagedArtistList(
         )
 
         items.loadState.refresh is LoadState.Loading && items.itemCount == 0 ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            MediaRowSkeletonList(count = 10, modifier = Modifier.fillMaxSize())
 
         items.itemCount == 0 -> EmptyState("No artists found")
 
@@ -342,6 +326,8 @@ internal fun PagedArtistList(
                     title = artist.name,
                     subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
                     coverModel = inlineCoverModel(artist.coverArtData),
+                    coverShape = CircleShape,
+                    coverSeed = artist.id,
                     onClick = { onOpenArtist(artist.id) },
                 )
             }
