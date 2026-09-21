@@ -80,6 +80,10 @@ class DownloadSettingsRepository @Inject constructor(
         persist("downloadWifiOnly", JsonPrimitive(wifiOnly)) { it.copy(wifiOnly = wifiOnly) }
     }
 
+    fun invalidate() {
+        loaded = false
+    }
+
     private suspend fun persist(
         key: String,
         value: JsonElement,

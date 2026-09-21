@@ -62,6 +62,7 @@ import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
 import com.ferrotune.core.network.generated.SetPreferenceRequest
+import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.ShareableUsersResponse
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
@@ -312,6 +313,9 @@ interface FerrotuneApi {
 
     @GET("api/preferences")
     suspend fun preferences(): PreferencesResponse
+
+    @PUT("api/preferences")
+    suspend fun updatePreferences(@Body request: UpdatePreferencesRequest): PreferencesResponse
 
     @PUT("api/preferences/{key}")
     suspend fun setPreference(

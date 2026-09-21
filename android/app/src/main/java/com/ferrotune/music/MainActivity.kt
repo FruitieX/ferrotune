@@ -11,7 +11,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
-import com.ferrotune.core.designsystem.theme.FerrotuneTheme
 import com.ferrotune.core.media.PlaybackNotificationIntent
 import com.ferrotune.music.navigation.FerrotuneApp
 import dagger.hilt.android.AndroidEntryPoint
@@ -30,12 +29,10 @@ class MainActivity : ComponentActivity() {
         openNowPlaying.value = intent.shouldOpenNowPlaying()
 
         setContent {
-            FerrotuneTheme {
-                FerrotuneApp(
-                    openNowPlaying = openNowPlaying.value,
-                    onOpenNowPlayingHandled = { openNowPlaying.value = false },
-                )
-            }
+            FerrotuneApp(
+                openNowPlaying = openNowPlaying.value,
+                onOpenNowPlayingHandled = { openNowPlaying.value = false },
+            )
         }
 
         requestNotificationPermissionIfNeeded()

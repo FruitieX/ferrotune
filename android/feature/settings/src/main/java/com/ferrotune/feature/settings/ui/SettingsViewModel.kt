@@ -2,10 +2,13 @@ package com.ferrotune.feature.settings.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.designsystem.theme.OklchColor
 import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.media.PlaybackSettingsRepository
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
+import com.ferrotune.feature.settings.data.AccentSettingsRepository
+import com.ferrotune.feature.settings.data.AccentState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,10 +19,12 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     private val playbackSettingsRepository: PlaybackSettingsRepository,
     private val downloadSettingsRepository: DownloadSettingsRepository,
+    private val accentSettingsRepository: AccentSettingsRepository,
 ) : ViewModel() {
 
     val playbackSettings: StateFlow<PlaybackSettings> = playbackSettingsRepository.settings
     val downloadSettings: StateFlow<DownloadSettings> = downloadSettingsRepository.settings
+    val accent: StateFlow<AccentState> = accentSettingsRepository.state
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
@@ -32,6 +37,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { downloadSettingsRepository.load() }
                 .onFailure { _message.value = "Could not load download settings" }
+        }
+        viewModelScope.launch {
+            runCatching { accentSettingsRepository.load() }
+                .onFailure { _message.value = "Could not load accent color" }
+        }
+    }
+
+    fun setAccentPreset(name: String) {
+        viewModelScope.launch { accentSettingsRepository.setPreset(name) }
+    }
+
+    fun setCustomAccent(lightness: Double, chroma: Double, hue: Double) {
+        viewModelScope.launch {
+            accentSettingsRepository.setCustom(OklchColor(lightness, chroma, hue))
         }
     }
 

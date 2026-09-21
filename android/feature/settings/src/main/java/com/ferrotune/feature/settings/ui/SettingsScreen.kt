@@ -34,6 +34,19 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.media.PlaybackSettingsRepository
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.ferrotune.core.designsystem.theme.AccentColors
+import com.ferrotune.core.designsystem.theme.oklchToColor
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import kotlin.math.roundToInt
 
@@ -49,6 +62,7 @@ fun SettingsScreen(
 ) {
     val playback by viewModel.playbackSettings.collectAsStateWithLifecycle()
     val downloads by viewModel.downloadSettings.collectAsStateWithLifecycle()
+    val accent by viewModel.accent.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -92,6 +106,55 @@ fun SettingsScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Button(onClick = onSignOut) { Text("Sign out") }
+                }
+            }
+
+            item {
+                HorizontalDivider()
+                SectionHeader("Appearance")
+                AccentPicker(
+                    selected = accent.name,
+                    onSelectPreset = viewModel::setAccentPreset,
+                )
+                if (accent.name == AccentColors.CUSTOM) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Hue: ${accent.custom.hue.roundToInt()}°")
+                        Slider(
+                            value = accent.custom.hue.toFloat(),
+                            onValueChange = { hue ->
+                                viewModel.setCustomAccent(
+                                    accent.custom.lightness,
+                                    accent.custom.chroma,
+                                    hue.toDouble(),
+                                )
+                            },
+                            valueRange = 0f..360f,
+                        )
+                        Text("Lightness: ${accent.custom.lightness.format(2)}")
+                        Slider(
+                            value = accent.custom.lightness.toFloat(),
+                            onValueChange = { lightness ->
+                                viewModel.setCustomAccent(
+                                    lightness.toDouble(),
+                                    accent.custom.chroma,
+                                    accent.custom.hue,
+                                )
+                            },
+                            valueRange = 0.3f..0.9f,
+                        )
+                        Text("Chroma: ${accent.custom.chroma.format(2)}")
+                        Slider(
+                            value = accent.custom.chroma.toFloat(),
+                            onValueChange = { chroma ->
+                                viewModel.setCustomAccent(
+                                    accent.custom.lightness,
+                                    chroma.toDouble(),
+                                    accent.custom.hue,
+                                )
+                            },
+                            valueRange = 0.01f..0.3f,
+                        )
+                    }
                 }
             }
 
@@ -189,6 +252,80 @@ private fun SectionHeader(title: String) {
         modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
     )
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AccentPicker(
+    selected: String,
+    onSelectPreset: (String) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        AccentColors.PRESETS.forEach { preset ->
+            val color = oklchToColor(preset.color)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                        .clickable { onSelectPreset(preset.name) },
+                ) {
+                    if (selected == preset.name) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = preset.label,
+                            tint = if (AccentColors.needsDarkForeground(preset.color.lightness)) {
+                                Color.Black
+                            } else {
+                                Color.White
+                            },
+                        )
+                    }
+                }
+                Text(
+                    text = preset.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+        val customSelected = selected == AccentColors.CUSTOM
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onSelectPreset(AccentColors.CUSTOM) },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Palette,
+                    contentDescription = "Custom",
+                    tint = if (customSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            Text(
+                text = "Custom",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+private fun Double.format(decimals: Int): String = "%.${decimals}f".format(this)
 
 @Composable
 private fun <T> ChoiceRow(

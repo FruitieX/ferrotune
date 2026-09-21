@@ -13,6 +13,7 @@ import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
+import com.ferrotune.feature.settings.data.AccentSettingsRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -86,6 +87,7 @@ class SettingsViewModelTest {
         val viewModel = SettingsViewModel(
             PlaybackSettingsRepository(provider, applier),
             DownloadSettingsRepository(provider, NoopDownloadEngine()),
+            AccentSettingsRepository(provider),
         )
     }
 

@@ -34,6 +34,7 @@ import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.home.ui.HomeScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
+import com.ferrotune.core.designsystem.theme.FerrotuneTheme
 import com.ferrotune.feature.settings.ui.SettingsScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.home.ui.StatsScreen
@@ -97,6 +98,23 @@ fun FerrotuneApp(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+    FerrotuneTheme(accent = state.accent) {
+        FerrotuneAppContent(
+            state = state,
+            viewModel = viewModel,
+            openNowPlaying = openNowPlaying,
+            onOpenNowPlayingHandled = onOpenNowPlayingHandled,
+        )
+    }
+}
+
+@Composable
+private fun FerrotuneAppContent(
+    state: AppUiState,
+    viewModel: AppViewModel,
+    openNowPlaying: Boolean,
+    onOpenNowPlayingHandled: () -> Unit,
+) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
