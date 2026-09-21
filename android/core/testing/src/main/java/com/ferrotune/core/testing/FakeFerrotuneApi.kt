@@ -31,6 +31,7 @@ import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
+import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.FerrotuneArtistResponse
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
@@ -51,6 +52,7 @@ import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
 import com.ferrotune.core.network.generated.MusicFoldersResponse
+import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.PeriodReviewResponse
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
@@ -62,6 +64,7 @@ import com.ferrotune.core.network.generated.QueueSuccessResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
+import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.network.generated.ShareableUsersResponse
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
@@ -270,6 +273,13 @@ open class FakeFerrotuneApi(
     override suspend fun shareableUsers(): ShareableUsersResponse = error("unused")
 
     override suspend fun musicFolders(): MusicFoldersResponse = error("unused")
+
+    override suspend fun preferences(): PreferencesResponse = error("unused")
+
+    override suspend fun setPreference(
+        key: String,
+        request: SetPreferenceRequest,
+    ): GetPreferenceResponse = error("unused")
 
     override suspend fun playlistShares(id: String): PlaylistSharesResponse = error("unused")
 

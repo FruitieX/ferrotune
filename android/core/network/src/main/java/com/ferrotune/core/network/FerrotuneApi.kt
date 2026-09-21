@@ -27,6 +27,7 @@ import com.ferrotune.core.network.generated.ConnectSessionResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
+import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
 import com.ferrotune.core.network.generated.FerrotuneArtistResponse
@@ -49,6 +50,7 @@ import com.ferrotune.core.network.generated.MusicFoldersResponse
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
 import com.ferrotune.core.network.generated.PeriodReviewResponse
+import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
 import com.ferrotune.core.network.generated.PlaylistMembershipRequest
@@ -59,6 +61,7 @@ import com.ferrotune.core.network.generated.QueueSuccessResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
+import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.network.generated.ShareableUsersResponse
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
@@ -306,6 +309,15 @@ interface FerrotuneApi {
 
     @GET("api/users/shareable")
     suspend fun shareableUsers(): ShareableUsersResponse
+
+    @GET("api/preferences")
+    suspend fun preferences(): PreferencesResponse
+
+    @PUT("api/preferences/{key}")
+    suspend fun setPreference(
+        @Path("key") key: String,
+        @Body request: SetPreferenceRequest,
+    ): GetPreferenceResponse
 
     @GET("api/music-folders")
     suspend fun musicFolders(): MusicFoldersResponse

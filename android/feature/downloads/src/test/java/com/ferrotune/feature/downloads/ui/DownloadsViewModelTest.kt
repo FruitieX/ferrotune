@@ -4,6 +4,7 @@ import com.ferrotune.core.database.DownloadContainerType
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.downloads.data.DownloadRepository
+import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.downloads.data.FakeDownloadApi
 import com.ferrotune.feature.downloads.data.FakeDownloadDao
 import com.ferrotune.feature.downloads.data.FakeDownloadEngine
@@ -35,17 +36,25 @@ class DownloadsViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private fun settings(repository: DownloadRepository) = DownloadSettingsRepository(
+        FakeApiProvider(FakeDownloadApi()),
+        FakeDownloadEngine(),
+    )
+
     private fun repository(
         engine: FakeDownloadEngine = FakeDownloadEngine(),
         dao: FakeDownloadDao = FakeDownloadDao(),
-    ) = DownloadRepository(engine, dao, FakeApiProvider(FakeDownloadApi()))
+    ): DownloadRepository {
+        val provider = FakeApiProvider(FakeDownloadApi())
+        return DownloadRepository(engine, dao, provider, DownloadSettingsRepository(provider, engine))
+    }
 
     @Test
     fun `play materializes the downloaded library as an offline queue`() = runTest {
         val repository = repository()
         repository.downloadAlbum("album-1", "Album", null)
         val starter = FakePlaybackStarter()
-        val viewModel = DownloadsViewModel(repository, starter)
+        val viewModel = DownloadsViewModel(repository, settings(repository), starter)
 
         viewModel.play("album-1-2")
 
@@ -59,7 +68,7 @@ class DownloadsViewModelTest {
         val engine = FakeDownloadEngine()
         val repository = repository(engine)
         repository.downloadAlbum("album-1", "Album", null)
-        val viewModel = DownloadsViewModel(repository, FakePlaybackStarter())
+        val viewModel = DownloadsViewModel(repository, settings(repository), FakePlaybackStarter())
 
         viewModel.removeSong("album-1-1")
 

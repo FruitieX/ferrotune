@@ -6,6 +6,8 @@ import com.ferrotune.core.database.ContainerWithCount
 import com.ferrotune.core.database.DownloadedSongEntity
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.feature.downloads.data.DownloadRepository
+import com.ferrotune.feature.downloads.data.DownloadSettings
+import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.downloads.data.SongDownloadState
 import com.ferrotune.feature.downloads.data.materializeOfflineQueue
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,8 +29,11 @@ data class DownloadsUiState(
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     private val repository: DownloadRepository,
+    private val settingsRepository: DownloadSettingsRepository,
     private val playbackStarter: PlaybackStarter,
 ) : ViewModel() {
+
+    val settings: StateFlow<DownloadSettings> = settingsRepository.settings
 
     val uiState: StateFlow<DownloadsUiState> = combine(
         repository.downloadedSongs,
@@ -40,6 +45,22 @@ class DownloadsViewModel @Inject constructor(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
+
+    init {
+        viewModelScope.launch { runCatching { settingsRepository.ensureLoaded() } }
+    }
+
+    fun setFormat(format: String) {
+        viewModelScope.launch { settingsRepository.setFormat(format) }
+    }
+
+    fun setBitRate(bitRateKbps: Int) {
+        viewModelScope.launch { settingsRepository.setBitRate(bitRateKbps) }
+    }
+
+    fun setWifiOnly(wifiOnly: Boolean) {
+        viewModelScope.launch { settingsRepository.setWifiOnly(wifiOnly) }
+    }
 
     fun play(songId: String) {
         viewModelScope.launch {

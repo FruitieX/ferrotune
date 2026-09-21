@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import com.ferrotune.core.database.DownloadedSongEntity
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadStatus
 import com.ferrotune.feature.downloads.data.SongDownloadState
 
@@ -49,6 +51,7 @@ fun DownloadsScreen(
     viewModel: DownloadsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -80,6 +83,49 @@ fun DownloadsScreen(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
                         ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (settings.wifiOnly) {
+                                            "Wi-Fi only downloads: on"
+                                        } else {
+                                            "Wi-Fi only downloads: off"
+                                        },
+                                    )
+                                },
+                                onClick = { viewModel.setWifiOnly(!settings.wifiOnly) },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (settings.format == DownloadSettings.FORMAT_OPUS) {
+                                            "Format: Opus"
+                                        } else {
+                                            "Format: Original"
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.setFormat(
+                                        if (settings.format == DownloadSettings.FORMAT_OPUS) {
+                                            DownloadSettings.FORMAT_ORIGINAL
+                                        } else {
+                                            DownloadSettings.FORMAT_OPUS
+                                        },
+                                    )
+                                },
+                            )
+                            if (settings.format == DownloadSettings.FORMAT_OPUS) {
+                                DropdownMenuItem(
+                                    text = { Text("Bitrate: ${settings.bitRateKbps} kbps") },
+                                    onClick = {
+                                        val rates = DownloadSettings.BIT_RATES
+                                        val next = rates[(rates.indexOf(settings.bitRateKbps) + 1) % rates.size]
+                                        viewModel.setBitRate(next)
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Pause all") },
                                 onClick = {

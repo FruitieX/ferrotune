@@ -85,7 +85,7 @@ class RoomOfflineQueueSource @Inject constructor(
                 sourceId,
             )
 
-            else -> dao.songsOnce()
+            else -> emptyList()
         }
         if (songs.isEmpty()) return null
         return materializeOfflineQueue(songs, sourceType, sourceId, startSongId)

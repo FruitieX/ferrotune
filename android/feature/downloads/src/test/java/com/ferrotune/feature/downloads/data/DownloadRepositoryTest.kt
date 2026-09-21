@@ -5,8 +5,11 @@ import com.ferrotune.core.database.DownloadedSongEntity
 import com.ferrotune.core.media.DownloadInfo
 import com.ferrotune.core.media.DownloadStateEventPayload
 import com.ferrotune.core.network.generated.CollectionSongsResponse
+import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.PlaylistSongEntry
+import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
+import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
@@ -15,6 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,6 +44,21 @@ internal fun testSongResponse(id: String): SongResponse = SongResponse(
 )
 
 internal class FakeDownloadApi : FakeFerrotuneApi() {
+    val preferenceValues = mutableMapOf<String, JsonElement>()
+
+    override suspend fun preferences(): PreferencesResponse = PreferencesResponse(
+        accentColor = "rust",
+        preferences = preferenceValues.toMap(),
+    )
+
+    override suspend fun setPreference(
+        key: String,
+        request: SetPreferenceRequest,
+    ): GetPreferenceResponse {
+        preferenceValues[key] = request.value
+        return GetPreferenceResponse(key = key, value = request.value)
+    }
+
     override suspend fun song(id: String) = com.ferrotune.core.network.generated.FerrotuneSongResponse(
         song = testSongResponse(id),
     )
@@ -93,7 +112,10 @@ class DownloadRepositoryTest {
         engine: FakeDownloadEngine = FakeDownloadEngine(),
         dao: FakeDownloadDao = FakeDownloadDao(),
         api: FakeDownloadApi = FakeDownloadApi(),
-    ) = DownloadRepository(engine, dao, FakeApiProvider(api))
+    ): DownloadRepository {
+        val provider = FakeApiProvider(api)
+        return DownloadRepository(engine, dao, provider, DownloadSettingsRepository(provider, engine))
+    }
 
     @Test
     fun `initializes the engine and mirrors the snapshot`() = runTest {
@@ -300,9 +322,7 @@ class DownloadRepositoryTest {
         val albumQueue = source.offlineQueue("album", "album-1", null)
         assertEquals(listOf("album-1-1", "album-1-2"), albumQueue!!.window.songs.map { it.song.id })
 
-        val fallback = source.offlineQueue("library", null, null)
-        assertTrue(fallback!!.window.songs.map { it.song.id }.contains("loose-song"))
-
+        assertNull(source.offlineQueue("library", null, null))
         assertNull(source.offlineQueue("album", "unknown", null))
     }
 

@@ -59,6 +59,7 @@ class DownloadRepository @Inject constructor(
     private val engine: DownloadEngine,
     private val dao: DownloadDao,
     private val apiProvider: FerrotuneApiProvider,
+    private val settingsRepository: DownloadSettingsRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -68,6 +69,8 @@ class DownloadRepository @Inject constructor(
     val downloadedSongs: Flow<List<DownloadedSongEntity>> = dao.songs()
     val containers: Flow<List<DownloadedContainerEntity>> = dao.containers()
     val containersWithCount: Flow<List<ContainerWithCount>> = dao.containersWithCount()
+
+    val settings: StateFlow<DownloadSettings> = settingsRepository.settings
 
     val downloadedSongIds: StateFlow<Set<String>> = dao.songs()
         .map { songs -> songs.mapTo(mutableSetOf()) { it.songId } }
@@ -101,14 +104,16 @@ class DownloadRepository @Inject constructor(
         }
     }
 
-    suspend fun enqueueSong(
-        songId: String,
-        format: String = DEFAULT_FORMAT,
-        maxBitRate: Int? = DEFAULT_MAX_BIT_RATE,
-    ) {
+    suspend fun enqueueSong(songId: String) {
+        val settings = currentSettings()
         val song = apiProvider.requireApi().song(songId).song
-        engine.enqueue(song.id, format, maxBitRate)
+        engine.enqueue(song.id, settings.format, settings.maxBitRate)
         dao.upsertSong(song.toDownloadedSong())
+    }
+
+    private suspend fun currentSettings(): DownloadSettings {
+        settingsRepository.ensureLoaded()
+        return settingsRepository.settings.value
     }
 
     suspend fun downloadAlbum(albumId: String, name: String, coverArtId: String?) {
@@ -155,7 +160,8 @@ class DownloadRepository @Inject constructor(
         if (songs.isEmpty()) return
         val containerId = DownloadContainerType.id(type, sourceId)
         val now = System.currentTimeMillis()
-        songs.forEach { engine.enqueue(it.id, DEFAULT_FORMAT, DEFAULT_MAX_BIT_RATE) }
+        val settings = currentSettings()
+        songs.forEach { engine.enqueue(it.id, settings.format, settings.maxBitRate) }
         dao.upsertContainer(
             DownloadedContainerEntity(
                 containerId = containerId,
@@ -251,8 +257,6 @@ class DownloadRepository @Inject constructor(
     }
 
     private companion object {
-        const val DEFAULT_FORMAT = "opus"
-        const val DEFAULT_MAX_BIT_RATE = 128
         const val PAGE_SIZE = 200
         const val MAX_CONTAINER_SONGS = 2000
     }
