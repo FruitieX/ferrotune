@@ -42,6 +42,7 @@ data class PlaybackSettings(
     val scrobbleThreshold: Float = 0.5f,
     val transcodingEnabled: Boolean = false,
     val transcodingBitrate: Int = 128,
+    val progressBarStyle: String = "waveform",
 )
 
 /**
@@ -58,7 +59,6 @@ data class QueueSong(
     val computedReplayGainTrackGain: Float?,
     val originalReplayGainTrackGain: Float?,
     val starred: String? = null,
-    val userRating: Int? = null,
 )
 
 /**
@@ -792,8 +792,6 @@ class FerrotuneApiClient {
             originalReplayGainTrackGain = if (json.has("originalReplayGainTrackGain") && !json.isNull("originalReplayGainTrackGain"))
                 json.getDouble("originalReplayGainTrackGain").toFloat() else null,
             starred = json.optString("starred").ifEmpty { null },
-            userRating = if (json.has("userRating") && !json.isNull("userRating"))
-                json.optInt("userRating") else null,
         )
     }
 
@@ -813,7 +811,6 @@ class FerrotuneApiClient {
             durationMs = song.duration.toLong() * 1000,
             replayGainDb = replayGainDb,
             starred = song.starred,
-            userRating = song.userRating,
         )
     }
 

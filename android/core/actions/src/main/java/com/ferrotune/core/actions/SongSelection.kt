@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -142,11 +142,11 @@ fun SongSelectionActionBar(
                 viewModel.addToQueue(selectedIds)
                 onClearSelection()
             }
-            SongSelectionAction(Icons.Filled.StarBorder, "Favorite") {
+            SongSelectionAction(Icons.Outlined.FavoriteBorder, "Favorite") {
                 viewModel.setStarredBulk(selectedIds, starred = true)
                 onClearSelection()
             }
-            SongSelectionAction(Icons.Filled.Star, "Unfavorite") {
+            SongSelectionAction(Icons.Filled.Favorite, "Unfavorite") {
                 viewModel.setStarredBulk(selectedIds, starred = false)
                 onClearSelection()
             }

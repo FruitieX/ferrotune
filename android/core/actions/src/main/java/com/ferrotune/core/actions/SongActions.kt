@@ -1,14 +1,13 @@
 package com.ferrotune.core.actions
 
 import android.content.Context
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -25,8 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.ferrotune.core.designsystem.components.RatingStars
-import com.ferrotune.core.designsystem.components.StarButton
+import com.ferrotune.core.designsystem.components.FavoriteButton
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueAddPosition
 import com.ferrotune.core.media.QueueAddSpec
@@ -55,15 +53,15 @@ interface SongActionsEntryPoint {
 }
 
 /**
- * Observable star/rating state for one song: server-provided values overlaid
+ * Observable favorite state for one song: the server-provided value overlaid
  * with optimistic local changes. The overlay is dropped once the server data
  * catches up.
  */
 @Composable
-fun rememberSongFlags(songId: String, starred: Boolean, rating: Int): SongFlags {
+fun rememberSongFlags(songId: String, starred: Boolean): SongFlags {
     val store = rememberSongFlagsStore()
     val overrides by store.overrides.collectAsStateWithLifecycle()
-    val base = SongFlags(starred = starred, rating = rating)
+    val base = SongFlags(starred = starred)
     val override = overrides[songId]
     val current = override?.mergedWith(base) ?: base
     LaunchedEffect(songId, override, base) {
@@ -98,12 +96,6 @@ class SongActionsViewModel @Inject constructor(
     fun toggleStar(songId: String, base: SongFlags) {
         viewModelScope.launch {
             runCatching { store.setStarred(songId, !base.starred, base) }
-        }
-    }
-
-    fun setRating(songId: String, rating: Int, base: SongFlags) {
-        viewModelScope.launch {
-            runCatching { store.setRating(songId, rating, base) }
         }
     }
 
@@ -170,7 +162,7 @@ class SongActionsViewModel @Inject constructor(
 
 /**
  * Shared dropdown items for song actions: play next, add to queue, song radio,
- * star toggle, and inline rating. Features append their own items via
+ * favorite toggle, and selection. Features append their own items via
  * [extraItems].
  */
 @Composable
@@ -179,8 +171,8 @@ fun SongMenuItems(
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onToggleStar: () -> Unit,
-    onRate: (Int) -> Unit,
     onOpenSongRadio: (() -> Unit)? = null,
+    onStartSelection: (() -> Unit)? = null,
     extraItems: (@Composable () -> Unit)? = null,
 ) {
     DropdownMenuItem(
@@ -204,16 +196,22 @@ fun SongMenuItems(
         text = { Text(if (flags.starred) "Remove from favorites" else "Add to favorites") },
         leadingIcon = {
             Icon(
-                imageVector = if (flags.starred) Icons.Filled.Star else Icons.Filled.StarBorder,
+                imageVector = if (flags.starred) {
+                    Icons.Filled.Favorite
+                } else {
+                    Icons.Outlined.FavoriteBorder
+                },
                 contentDescription = null,
             )
         },
         onClick = onToggleStar,
     )
-    Row(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        RatingStars(rating = flags.rating, onRate = onRate)
+    if (onStartSelection != null) {
+        DropdownMenuItem(
+            text = { Text("Select") },
+            leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
+            onClick = onStartSelection,
+        )
     }
     extraItems?.invoke()
 }
@@ -226,6 +224,7 @@ fun SongRowMenu(
     songId: String,
     flags: SongFlags,
     onOpenSongRadio: (() -> Unit)? = null,
+    onStartSelection: (() -> Unit)? = null,
     extraItems: (@Composable () -> Unit)? = null,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
@@ -233,23 +232,24 @@ fun SongRowMenu(
             songId = songId,
             flags = flags,
             onOpenSongRadio = onOpenSongRadio,
+            onStartSelection = onStartSelection,
             extraItems = extraItems,
             onDismiss = onDismiss,
         )
     }
 }
 
-/** Star toggle with its own mutation wiring, for row/header placement. */
+/** Favorite toggle with its own mutation wiring, for row/header placement. */
 @Composable
-fun SongStarButton(
+fun SongFavoriteButton(
     songId: String,
     flags: SongFlags,
     modifier: Modifier = Modifier,
     iconSize: Dp = 22.dp,
     viewModel: SongActionsViewModel = hiltViewModel(),
 ) {
-    StarButton(
-        isStarred = flags.starred,
+    FavoriteButton(
+        isFavorite = flags.starred,
         onToggle = { viewModel.toggleStar(songId, flags) },
         modifier = modifier,
         iconSize = iconSize,
@@ -265,6 +265,7 @@ fun SongActionsMenuContent(
     songId: String,
     flags: SongFlags,
     onOpenSongRadio: (() -> Unit)? = null,
+    onStartSelection: (() -> Unit)? = null,
     extraItems: (@Composable () -> Unit)? = null,
     onDismiss: () -> Unit = {},
     viewModel: SongActionsViewModel = hiltViewModel(),
@@ -283,14 +284,16 @@ fun SongActionsMenuContent(
             onDismiss()
             viewModel.toggleStar(songId, flags)
         },
-        onRate = { rating ->
-            onDismiss()
-            viewModel.setRating(songId, rating, flags)
-        },
         onOpenSongRadio = onOpenSongRadio?.let { open ->
             {
                 onDismiss()
                 open()
+            }
+        },
+        onStartSelection = onStartSelection?.let { select ->
+            {
+                onDismiss()
+                select()
             }
         },
         extraItems = extraItems,

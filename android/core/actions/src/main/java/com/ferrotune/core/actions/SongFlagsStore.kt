@@ -2,7 +2,6 @@ package com.ferrotune.core.actions
 
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
-import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.StarRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -10,34 +9,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Star + rating state for one song. */
+/** Favorite state for one song. */
 data class SongFlags(
     val starred: Boolean,
-    val rating: Int,
 )
 
 /**
  * Partial optimistic change for one song. `null` fields fall through to the
- * server-provided [SongFlags], so bulk starring never clobbers a rating that
- * has not been loaded yet.
+ * server-provided [SongFlags], so a pending change never clobbers fresh data.
  */
 data class SongFlagsOverride(
     val starred: Boolean? = null,
-    val rating: Int? = null,
 ) {
     fun mergedWith(base: SongFlags): SongFlags = SongFlags(
         starred = starred ?: base.starred,
-        rating = rating ?: base.rating,
     )
 
     /** True once [base] already reflects every overridden field. */
-    fun isSatisfiedBy(base: SongFlags): Boolean =
-        (starred == null || starred == base.starred) &&
-            (rating == null || rating == base.rating)
+    fun isSatisfiedBy(base: SongFlags): Boolean = starred == null || starred == base.starred
 }
 
 /**
- * App-scoped optimistic overlay for song star/rating state. Server responses
+ * App-scoped optimistic overlay for song favorite state. Server responses
  * carry the authoritative values; this store lets every screen show an
  * immediate result and rolls back if the mutation fails.
  */
@@ -62,7 +55,7 @@ class SongFlagsStore @Inject constructor(
         }
     }
 
-    /** Stars/unstars many songs in one request; reverts all on failure. */
+    /** Favorites/unfavorites many songs in one request; reverts all on failure. */
     suspend fun setStarredBulk(songIds: List<String>, starred: Boolean) {
         if (songIds.isEmpty()) return
         val previous = _overrides.value
@@ -75,21 +68,6 @@ class SongFlagsStore @Inject constructor(
             starRequest(starred, songIds)
         } catch (e: Exception) {
             restore(previous, songIds)
-            throw e
-        }
-    }
-
-    suspend fun setRating(songId: String, rating: Int, base: SongFlags) {
-        val previous = _overrides.value
-        val clamped = rating.coerceIn(0, MAX_RATING)
-        update(songId, (previous[songId] ?: SongFlagsOverride()).copy(rating = clamped))
-        try {
-            apiCall {
-                apiProvider.requireApi()
-                    .setRating(RatingRequest(id = songId, rating = clamped))
-            }
-        } catch (e: Exception) {
-            restore(previous, listOf(songId))
             throw e
         }
     }
@@ -125,9 +103,5 @@ class SongFlagsStore @Inject constructor(
             if (before == null) reverted.remove(songId) else reverted[songId] = before
         }
         _overrides.value = reverted
-    }
-
-    companion object {
-        const val MAX_RATING = 5
     }
 }
