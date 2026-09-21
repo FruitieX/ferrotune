@@ -984,8 +984,8 @@ class FerrotuneApiClient {
             "sessionListChanged" -> null // Replaced by clientListChanged
             "clientListChanged" -> SessionEvent.ClientListChanged
             "ownerChanged" -> SessionEvent.OwnerChanged(
-                ownerClientId = json.optString("ownerClientId").ifEmpty { null },
-                ownerClientName = json.optString("ownerClientName").ifEmpty { null },
+                ownerClientId = json.optNullableString("ownerClientId"),
+                ownerClientName = json.optNullableString("ownerClientName"),
                 resumePlayback = if (json.has("resumePlayback") && !json.isNull("resumePlayback"))
                     json.getBoolean("resumePlayback") else false,
                 positionMs = if (json.has("positionMs") && !json.isNull("positionMs"))
@@ -1006,6 +1006,15 @@ class FerrotuneApiClient {
         }
     }
 }
+
+internal fun JSONObject.optNullableString(name: String): String? =
+    normalizeNullableJsonString(opt(name))
+
+internal fun normalizeNullableJsonString(value: Any?): String? =
+    when {
+        value == null || value === JSONObject.NULL -> null
+        else -> value.toString().ifEmpty { null }
+    }
 
 /**
  * Parsed session events from the SSE stream.
