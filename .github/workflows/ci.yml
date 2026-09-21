@@ -109,6 +109,43 @@ jobs:
       - name: Build debug APK
         run: nix develop .#android -c moon run android:assemble-debug
 
+  android-native-release:
+    name: Android native APK
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs:
+      - prepare-app-release
+    env:
+      FERROTUNE_ASSET_VERSION: ${{ needs.prepare-app-release.outputs.asset_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build release APK
+        run: nix develop .#android -c moon run android:assemble-release
+      - name: Sign release APK
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          mkdir -p app-release/android-native
+          nix develop .#android -c bash .github/scripts/sign-android-apk.sh \
+            android/app/build/outputs/apk/release/app-release-unsigned.apk \
+            "app-release/android-native/ferrotune-native-${FERROTUNE_ASSET_VERSION}.apk"
+      - name: Upload Android native APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ferrotune-native-android-${{ needs.prepare-app-release.outputs.asset_version }}
+          path: app-release/android-native/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
   build-image:
     name: Build & (optionally) push image
     runs-on: ubuntu-latest
@@ -371,6 +408,7 @@ jobs:
     needs:
       - prepare-app-release
       - android-app
+      - android-native-release
       - desktop-app
     permissions:
       contents: write

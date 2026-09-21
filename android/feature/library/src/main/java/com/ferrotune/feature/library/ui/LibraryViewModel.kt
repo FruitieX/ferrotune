@@ -17,6 +17,7 @@ import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
+import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
 import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -56,6 +57,7 @@ data class LibraryUiState(
 class LibraryViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
+    private val viewPreferences: LibraryViewPreferencesRepository,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(LibraryUiState())
@@ -93,26 +95,66 @@ class LibraryViewModel @Inject constructor(
 
     init {
         loadGenres()
+        viewModelScope.launch {
+            val config = viewPreferences.ensureLoaded()
+            state.update {
+                it.copy(
+                    songSort = config.songSort(),
+                    songSortDir = config.songDir(),
+                    albumSort = config.albumSort(),
+                    albumSortDir = config.albumDir(),
+                    artistSort = config.artistSort(),
+                    artistSortDir = config.artistDir(),
+                )
+            }
+        }
     }
 
     fun selectTab(tab: LibraryTab) = state.update { it.copy(tab = tab) }
 
-    fun selectSongSort(sort: SongSort) = state.update { it.copy(songSort = sort) }
-
-    fun toggleSongSortDir() = state.update {
-        it.copy(songSortDir = it.songSortDir.opposite())
+    fun selectSongSort(sort: SongSort) {
+        state.update { it.copy(songSort = sort) }
+        persistSongSort()
     }
 
-    fun selectAlbumSort(sort: AlbumSort) = state.update { it.copy(albumSort = sort) }
-
-    fun toggleAlbumSortDir() = state.update {
-        it.copy(albumSortDir = it.albumSortDir.opposite())
+    fun toggleSongSortDir() {
+        state.update { it.copy(songSortDir = it.songSortDir.opposite()) }
+        persistSongSort()
     }
 
-    fun selectArtistSort(sort: ArtistSort) = state.update { it.copy(artistSort = sort) }
+    fun selectAlbumSort(sort: AlbumSort) {
+        state.update { it.copy(albumSort = sort) }
+        persistAlbumSort()
+    }
 
-    fun toggleArtistSortDir() = state.update {
-        it.copy(artistSortDir = it.artistSortDir.opposite())
+    fun toggleAlbumSortDir() {
+        state.update { it.copy(albumSortDir = it.albumSortDir.opposite()) }
+        persistAlbumSort()
+    }
+
+    fun selectArtistSort(sort: ArtistSort) {
+        state.update { it.copy(artistSort = sort) }
+        persistArtistSort()
+    }
+
+    fun toggleArtistSortDir() {
+        state.update { it.copy(artistSortDir = it.artistSortDir.opposite()) }
+        persistArtistSort()
+    }
+
+    private fun persistSongSort() = viewModelScope.launch {
+        val current = state.value
+        viewPreferences.setSongSort(current.songSort, current.songSortDir)
+    }
+
+    private fun persistAlbumSort() = viewModelScope.launch {
+        val current = state.value
+        viewPreferences.setAlbumSort(current.albumSort, current.albumSortDir)
+    }
+
+    private fun persistArtistSort() = viewModelScope.launch {
+        val current = state.value
+        viewPreferences.setArtistSort(current.artistSort, current.artistSortDir)
     }
 
     fun loadGenres() {

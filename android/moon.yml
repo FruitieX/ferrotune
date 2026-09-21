@@ -47,6 +47,14 @@ tasks:
       cache: true
       runInCI: false
 
+  assemble-release:
+    command: "./gradlew :app:assembleRelease"
+    inputs: ["@group(sources)"]
+    outputs: ["app/build/outputs/apk/release"]
+    options:
+      cache: true
+      runInCI: false
+
   test-unit:
     command: "./gradlew testDebugUnitTest"
     inputs: ["@group(sources)"]

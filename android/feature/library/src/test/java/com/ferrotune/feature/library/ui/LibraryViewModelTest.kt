@@ -7,6 +7,7 @@ import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.library.data.LibraryRepository
+import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
 import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +39,11 @@ class LibraryViewModelTest {
     private fun viewModel(
         api: FakeFerrotuneApi = FakeFerrotuneApi(),
         starter: FakePlaybackStarter = FakePlaybackStarter(),
-    ) = LibraryViewModel(LibraryRepository(FakeApiProvider(api)), starter)
+    ) = LibraryViewModel(
+        LibraryRepository(FakeApiProvider(api)),
+        starter,
+        LibraryViewPreferencesRepository(FakeApiProvider(api)),
+    )
 
     @Test
     fun `song sort selection and direction are independent per tab`() {
