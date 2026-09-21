@@ -207,15 +207,31 @@ fun homeTilePresentation(
         )
     }
 
-    val queueSection = requireNotNull(section) { "Queue action requires a section-backed tile" }
+    val shuffle = action == HomeTileActionMode.SHUFFLE
+    val spec = when (tile.kind) {
+        HomeTileKind.FAVORITES -> QueueStartSpec(
+            sourceType = "favorites",
+            sourceName = "Favorites",
+            shuffle = shuffle,
+        )
+
+        HomeTileKind.HISTORY -> QueueStartSpec(
+            sourceType = "history",
+            sourceName = "Recently Played",
+            shuffle = shuffle,
+        )
+
+        else -> homeSectionQueueSpec(
+            requireNotNull(section) { "Queue action requires a section-backed tile" },
+            shuffle = shuffle,
+        )
+    }
     return HomeTilePresentation(
         id = tile.id,
         label = definition.label,
         subtitle = subtitle(action, definition.actionTarget),
-        icon = if (action == HomeTileActionMode.SHUFFLE) Icons.Filled.Shuffle else definition.icon,
-        action = HomeTileAction.Queue(
-            homeSectionQueueSpec(queueSection, shuffle = action == HomeTileActionMode.SHUFFLE),
-        ),
+        icon = if (shuffle) Icons.Filled.Shuffle else definition.icon,
+        action = HomeTileAction.Queue(spec),
     )
 }
 

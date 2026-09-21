@@ -16,6 +16,8 @@ import com.ferrotune.core.network.generated.PlaylistSongEntry
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
 import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
+import com.ferrotune.core.network.generated.GetPreferenceResponse
+import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.testing.FakeAccountSwitcher
 import com.ferrotune.core.testing.FakeAccounts
@@ -39,7 +41,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
+import kotlinx.serialization.json.JsonElement
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -127,6 +131,7 @@ internal class FakeHomeApi(
     var playlistSongsParams: Map<String, String>? = null
     var smartPlaylistSongsId: String? = null
     var reviewParams: Map<String, String>? = null
+    val preferenceValues = mutableMapOf<String, JsonElement>()
 
     override suspend fun preferences(): PreferencesResponse = PreferencesResponse(
         accentColor = "default",
@@ -135,6 +140,14 @@ internal class FakeHomeApi(
             HomeLayoutPreferencesRepository.KEY_SECTIONS to encodeHomeSections(sections),
         ),
     )
+
+    override suspend fun setPreference(
+        key: String,
+        request: SetPreferenceRequest,
+    ): GetPreferenceResponse {
+        preferenceValues[key] = request.value
+        return GetPreferenceResponse(key = key, value = request.value)
+    }
 
     override suspend fun continueListening(
         params: Map<String, String>,
@@ -423,6 +436,41 @@ class HomeViewModelTest {
         drain()
 
         assertEquals("offline", viewModel.uiState.value.playbackError)
+    }
+
+    @Test
+    fun `layout changes refresh home tiles`() {
+        val api = FakeHomeApi()
+        val provider = FakeApiProvider(api)
+        val layoutRepository = HomeLayoutPreferencesRepository(provider)
+        val viewModel = HomeViewModel(
+            repository = HomeRepository(provider),
+            layoutRepository = layoutRepository,
+            sectionLoader = HomeSectionLoader(HomeRepository(provider)),
+            sessionStarter = FakePlaybackStarter(),
+            accounts = FakeAccounts(listOf(testAccount()), testAccount().id),
+            accountSwitcher = FakeAccountSwitcher(),
+        )
+        drain()
+        assertEquals(DEFAULT_HOME_TILES.size, viewModel.uiState.value.tiles.size)
+
+        runBlocking {
+            layoutRepository.setTiles(
+                listOf(
+                    HomeTileConfig(
+                        id = "switch",
+                        kind = HomeTileKind.ACCOUNT_SWITCH,
+                        accountKey = "other@http://localhost:4040",
+                        accountLabel = "Other",
+                    ),
+                ),
+            )
+        }
+        drain()
+
+        val tiles = viewModel.uiState.value.tiles
+        assertEquals(1, tiles.size)
+        assertEquals(HomeTileAction.SwitchAccount("other@http://localhost:4040"), tiles.single().action)
     }
 
     @Test

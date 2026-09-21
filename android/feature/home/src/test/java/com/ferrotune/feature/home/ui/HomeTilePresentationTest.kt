@@ -30,6 +30,38 @@ class HomeTilePresentationTest {
     }
 
     @Test
+    fun `favorites tile shuffle queues the favorites source`() {
+        val tile = HomeTileConfig(
+            id = "favorites",
+            kind = HomeTileKind.FAVORITES,
+            action = HomeTileActionMode.SHUFFLE,
+        )
+
+        val presentation = homeTilePresentation(tile)
+        val action = presentation.action as HomeTileAction.Queue
+
+        assertEquals("favorites", action.spec.sourceType)
+        assertEquals("Favorites", action.spec.sourceName)
+        assertTrue(action.spec.shuffle)
+    }
+
+    @Test
+    fun `history tile play queues the history source`() {
+        val tile = HomeTileConfig(
+            id = "history",
+            kind = HomeTileKind.HISTORY,
+            action = HomeTileActionMode.PLAY,
+        )
+
+        val presentation = homeTilePresentation(tile)
+        val action = presentation.action as HomeTileAction.Queue
+
+        assertEquals("history", action.spec.sourceType)
+        assertEquals("Recently Played", action.spec.sourceName)
+        assertFalse(action.spec.shuffle)
+    }
+
+    @Test
     fun `section tile open links to the configured section`() {
         val section = HomeSectionConfig(
             id = "most-played",
