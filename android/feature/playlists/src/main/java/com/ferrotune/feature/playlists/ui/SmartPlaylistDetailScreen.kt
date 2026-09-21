@@ -47,6 +47,8 @@ import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
+import com.ferrotune.feature.downloads.ui.ContainerDownloadType
+import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 
 @Composable
@@ -81,6 +83,14 @@ fun SmartPlaylistDetailScreen(
                     }
                 },
                 actions = {
+                    state.smartPlaylist?.let { smartPlaylist ->
+                        ContainerDownloadAction(
+                            type = ContainerDownloadType.SMART_PLAYLIST,
+                            sourceId = smartPlaylist.id,
+                            name = smartPlaylist.name,
+                            coverArtId = null,
+                        )
+                    }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")

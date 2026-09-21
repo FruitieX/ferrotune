@@ -45,6 +45,9 @@ import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
+import com.ferrotune.feature.downloads.ui.ContainerDownloadType
+import com.ferrotune.feature.downloads.ui.SongDownloadAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.coverArtUrl
 
@@ -81,6 +84,16 @@ fun AlbumDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    state.album?.let { album ->
+                        ContainerDownloadAction(
+                            type = ContainerDownloadType.ALBUM,
+                            sourceId = album.id,
+                            name = album.name,
+                            coverArtId = album.coverArt,
+                        )
                     }
                 },
             )
@@ -198,6 +211,7 @@ private fun AlbumSongList(
                             Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                         }
                             AddToPlaylistAction(songIds = listOf(song.id))
+                            SongDownloadAction(songId = song.id)
                     },
                 )
             }

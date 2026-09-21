@@ -50,6 +50,7 @@ import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.SortMenu
 import com.ferrotune.core.designsystem.components.SortOption
+import com.ferrotune.feature.downloads.ui.SongDownloadAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
@@ -254,6 +255,7 @@ private fun SongsTab(
                                 Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                             }
                                 AddToPlaylistAction(songIds = listOf(song.id))
+                            SongDownloadAction(songId = song.id)
                         },
                     )
                 }

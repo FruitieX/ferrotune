@@ -37,6 +37,7 @@ dependencies {
     implementation(project(":core:datastore"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:media"))
+    implementation(project(":feature:downloads"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

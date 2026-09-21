@@ -38,6 +38,7 @@ class PlaybackSessionStarter @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
     private val accountStore: AccountStore,
     private val repository: PlaybackRepository,
+    private val offlineQueueSource: OfflineQueueSource,
 ) : PlaybackStarter {
     override suspend fun startQueue(spec: QueueStartSpec) {
         val account = accountStore.activeAccount.first()
@@ -45,11 +46,19 @@ class PlaybackSessionStarter @Inject constructor(
         val clientId = accountStore.clientId()
         val api = apiProvider.requireApi()
 
-        val session = apiCall {
-            api.connectSession(ConnectSessionRequest(clientId = clientId))
+        val session = try {
+            apiCall { api.connectSession(ConnectSessionRequest(clientId = clientId)) }
+        } catch (e: Exception) {
+            if (startOfflineQueue(spec)) return
+            throw e
         }
         val request = buildStartQueueRequest(spec, session.id, clientId)
-        val queue = apiCall { api.startQueue(request) }
+        val queue = try {
+            apiCall { api.startQueue(request) }
+        } catch (e: Exception) {
+            if (startOfflineQueue(spec)) return
+            throw e
+        }
 
         repository.initSession(
             config = SessionConfig(
@@ -71,6 +80,21 @@ class PlaybackSessionStarter @Inject constructor(
             sourceType = spec.sourceType,
             sourceId = spec.sourceId,
         )
+    }
+
+    /**
+     * Materializes a downloaded queue when the server can't be reached.
+     * Returns false when nothing is downloaded for the requested source.
+     */
+    private suspend fun startOfflineQueue(spec: QueueStartSpec): Boolean {
+        val response = offlineQueueSource.offlineQueue(
+            sourceType = spec.sourceType,
+            sourceId = spec.sourceId,
+            startSongId = spec.startSongId,
+        ) ?: return false
+        if (response.totalCount == 0) return false
+        repository.startOfflinePlayback(response, playWhenReady = true)
+        return true
     }
 
     override suspend fun startRandomQueue(size: Int) {
@@ -127,6 +151,11 @@ class PlaybackSessionStarter @Inject constructor(
     }
 
     override suspend fun playAtIndex(index: Int) = repository.playAtIndex(index)
+
+    override suspend fun startOfflineQueue(
+        response: GetQueueResponse,
+        playWhenReady: Boolean,
+    ) = repository.startOfflinePlayback(response, playWhenReady)
 
     override val state = repository.state
 

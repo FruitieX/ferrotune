@@ -52,6 +52,7 @@ import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.network.coverArtUrl
+import com.ferrotune.feature.downloads.ui.SongDownloadAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.SongResponse
@@ -273,6 +274,7 @@ private fun ArtistSongList(
                             Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                         }
                             AddToPlaylistAction(songIds = listOf(song.id))
+                            SongDownloadAction(songId = song.id)
                     },
                 )
             }

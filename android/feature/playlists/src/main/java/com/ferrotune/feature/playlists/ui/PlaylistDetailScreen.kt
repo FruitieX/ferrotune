@@ -55,6 +55,8 @@ import com.ferrotune.core.designsystem.components.SortMenu
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
+import com.ferrotune.feature.downloads.ui.ContainerDownloadType
+import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.core.network.generated.PlaylistSongEntry
 
 private val playlistSortOptions = listOf(
@@ -103,6 +105,14 @@ fun PlaylistDetailScreen(
                         onSelect = viewModel::selectSort,
                         onToggleDirection = viewModel::toggleSortDir,
                     )
+                    state.playlist?.let { playlist ->
+                        ContainerDownloadAction(
+                            type = ContainerDownloadType.PLAYLIST,
+                            sourceId = playlist.id,
+                            name = playlist.name,
+                            coverArtId = playlist.coverArt,
+                        )
+                    }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")

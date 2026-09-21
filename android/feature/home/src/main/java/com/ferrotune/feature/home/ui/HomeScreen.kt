@@ -53,6 +53,7 @@ fun HomeScreen(
     onOpenSmartPlaylist: (String) -> Unit,
     onOpenStats: () -> Unit,
     onOpenReview: () -> Unit,
+    onOpenDownloads: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -84,6 +85,13 @@ fun HomeScreen(
                             onClick = {
                                 menuExpanded = false
                                 onOpenReview()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Downloads") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenDownloads()
                             },
                         )
                         DropdownMenuItem(

@@ -33,5 +33,10 @@ interface PlaybackStarter {
 
     suspend fun playAtIndex(index: Int)
 
+    suspend fun startOfflineQueue(
+        response: GetQueueResponse,
+        playWhenReady: Boolean = true,
+    )
+
     val state: StateFlow<PlaybackState>
 }

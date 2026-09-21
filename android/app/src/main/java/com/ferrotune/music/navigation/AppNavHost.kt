@@ -33,6 +33,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.home.ui.HomeScreen
+import com.ferrotune.feature.downloads.ui.DownloadsScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.home.ui.StatsScreen
 import com.ferrotune.feature.library.ui.AlbumDetailScreen
@@ -68,6 +69,7 @@ object Routes {
     const val SMART_PLAYLIST_EDITOR = "smart_playlist_editor?smartPlaylistId={smartPlaylistId}"
     const val STATS = "stats"
     const val REVIEW = "review"
+    const val DOWNLOADS = "downloads"
 
     fun album(albumId: String) = "album/$albumId"
 
@@ -182,6 +184,7 @@ fun FerrotuneApp(
                         },
                         onOpenStats = { navController.navigate(Routes.STATS) },
                         onOpenReview = { navController.navigate(Routes.REVIEW) },
+                        onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
                     )
                 }
                 composable(Routes.LIBRARY) {
@@ -298,6 +301,9 @@ fun FerrotuneApp(
                     ),
                 ) {
                     SmartPlaylistEditorScreen(onDone = { navController.popBackStack() })
+                }
+                composable(Routes.DOWNLOADS) {
+                    DownloadsScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Routes.STATS) {
                     StatsScreen(onBack = { navController.popBackStack() })

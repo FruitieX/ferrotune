@@ -39,6 +39,7 @@ import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
+import com.ferrotune.feature.downloads.ui.SongDownloadAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
@@ -164,6 +165,7 @@ fun HistoryScreen(
                                 Icon(Icons.Filled.Radio, contentDescription = "Song radio")
                             }
                                 AddToPlaylistAction(songIds = listOf(entry.id))
+                            SongDownloadAction(songId = entry.id)
                         },
                     )
                 }

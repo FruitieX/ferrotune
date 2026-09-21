@@ -55,6 +55,7 @@ dependencies {
     implementation(project(":feature:library"))
     implementation(project(":feature:player"))
     implementation(project(":feature:playlists"))
+    implementation(project(":feature:downloads"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
