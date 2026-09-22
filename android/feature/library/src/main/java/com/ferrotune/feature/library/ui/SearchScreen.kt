@@ -1,22 +1,18 @@
 package com.ferrotune.feature.library.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,7 +20,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -40,6 +35,8 @@ import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.rememberSongSelectionState
+import com.ferrotune.core.designsystem.components.SearchField
+import com.ferrotune.core.designsystem.components.SegmentedTabs
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
@@ -205,7 +202,21 @@ fun SearchScreen(
                     selectingAll = selectingAll,
                 )
             } else {
-                TopAppBar(title = { Text("Search") })
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background),
+                ) {
+                    SearchField(
+                        value = state.query,
+                        onValueChange = viewModel::onQueryChange,
+                        placeholder = "Search for artists, albums, or songs...",
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                }
             }
         },
         bottomBar = {
@@ -214,10 +225,16 @@ fun SearchScreen(
                     selectedIds = selection.selectedIds.toList(),
                     onClearSelection = selection::clear,
                     extraActions = { ids ->
-                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
+                        SongSelectionAction(
+                            icon = Icons.Filled.PlaylistAdd,
+                            label = "Playlist",
+                        ) {
                             addToPlaylistSongIds = ids
                         }
-                        SongSelectionAction(Icons.Filled.Download, "Download") {
+                        SongSelectionAction(
+                            icon = Icons.Filled.Download,
+                            label = "Download",
+                        ) {
                             downloadViewModel.downloadSongs(ids)
                             selection.clear()
                         }
@@ -232,32 +249,15 @@ fun SearchScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = viewModel::onQueryChange,
-                placeholder = { Text("Songs, albums, artists") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-                shape = MaterialTheme.shapes.extraLarge,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = ImeAction.Search,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            SegmentedTabs(
+                labels = SearchTab.entries.map { it.label() },
+                selectedIndex = state.tab.ordinal,
+                onSelect = { index ->
+                    selection.clear()
+                    viewModel.selectTab(SearchTab.entries[index])
+                },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            PrimaryTabRow(selectedTabIndex = state.tab.ordinal) {
-                SearchTab.entries.forEach { tab ->
-                    Tab(
-                        selected = tab == state.tab,
-                        onClick = {
-                            selection.clear()
-                            viewModel.selectTab(tab)
-                        },
-                        text = { Text(tab.label()) },
-                    )
-                }
-            }
             if (state.query.isBlank()) {
                 EmptyState("Type to search your library")
             } else {

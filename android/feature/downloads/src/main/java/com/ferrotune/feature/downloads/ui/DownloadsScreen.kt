@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.database.ContainerWithCount
 import com.ferrotune.core.database.DownloadedSongEntity
+import com.ferrotune.core.designsystem.components.PageTitle
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.inlineCoverModel
@@ -65,7 +66,7 @@ fun DownloadsScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Downloads") },
+                title = { PageTitle("Downloads") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

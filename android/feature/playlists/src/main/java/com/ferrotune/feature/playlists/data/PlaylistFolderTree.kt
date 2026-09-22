@@ -56,3 +56,41 @@ fun buildPlaylistTree(
 
 private fun playlistOrder(): Comparator<PlaylistInFolder> =
     compareBy({ it.position }, { it.name.lowercase() })
+
+/** Finds a folder node by id anywhere in the tree (`null` for the root). */
+fun PlaylistTree.folderById(id: String?): PlaylistFolderNode? {
+    if (id == null) return null
+    fun find(nodes: List<PlaylistFolderNode>): PlaylistFolderNode? {
+        for (node in nodes) {
+            if (node.folder.id == id) return node
+            find(node.children)?.let { return it }
+        }
+        return null
+    }
+    return find(folders)
+}
+
+/** Subfolders shown when browsing [parentId] (`null` = root). */
+fun PlaylistTree.foldersIn(parentId: String?): List<PlaylistFolderNode> =
+    if (parentId == null) folders else folderById(parentId)?.children ?: emptyList()
+
+/** Playlists shown when browsing [parentId] (`null` = root). */
+fun PlaylistTree.playlistsIn(parentId: String?): List<PlaylistInFolder> =
+    if (parentId == null) rootPlaylists else folderById(parentId)?.playlists ?: emptyList()
+
+/** Root-to-folder chain used for the breadcrumb; empty for the root. */
+fun PlaylistTree.folderPath(folderId: String?): List<PlaylistFolderResponse> {
+    if (folderId == null) return emptyList()
+    fun find(
+        nodes: List<PlaylistFolderNode>,
+        path: List<PlaylistFolderResponse>,
+    ): List<PlaylistFolderResponse>? {
+        for (node in nodes) {
+            val nextPath = path + node.folder
+            if (node.folder.id == folderId) return nextPath
+            find(node.children, nextPath)?.let { return it }
+        }
+        return null
+    }
+    return find(folders, emptyList()) ?: emptyList()
+}

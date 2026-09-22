@@ -10,6 +10,7 @@ import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.feature.playlists.data.PlaylistRepository
 import com.ferrotune.feature.playlists.data.PlaylistTree
 import com.ferrotune.feature.playlists.data.buildPlaylistTree
+import com.ferrotune.feature.playlists.data.folderById
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.async
@@ -30,6 +31,7 @@ data class PlaylistsUiState(
     val smartPlaylists: List<SmartPlaylistInfo> = emptyList(),
     val recentlyPlayed: List<RecentPlaylistEntry> = emptyList(),
     val playbackError: String? = null,
+    val currentFolderId: String? = null,
 )
 
 @HiltViewModel
@@ -62,12 +64,20 @@ class PlaylistsViewModel @Inject constructor(
                     )
                 }
                 state.update {
+                    val tree = buildPlaylistTree(
+                        loaded.folders.folders,
+                        loaded.folders.playlists,
+                    )
                     it.copy(
                         loading = false,
                         serverUrl = loaded.serverUrl,
-                        tree = buildPlaylistTree(loaded.folders.folders, loaded.folders.playlists),
+                        tree = tree,
                         smartPlaylists = loaded.smart.smartPlaylists,
                         recentlyPlayed = loaded.recent.playlists,
+                        // Fall back to the root when the open folder disappeared.
+                        currentFolderId = it.currentFolderId?.takeIf { id ->
+                            tree.folderById(id) != null
+                        },
                     )
                 }
             } catch (e: Exception) {
@@ -80,6 +90,15 @@ class PlaylistsViewModel @Inject constructor(
 
     fun createFolder(name: String, parentId: String? = null) = mutate {
         repository.createFolder(name, parentId)
+    }
+
+    /** Opens a folder for browsing; `null` navigates back to the root. */
+    fun openFolder(folderId: String?) = state.update { it.copy(currentFolderId = folderId) }
+
+    /** Navigates one level up from the open folder. */
+    fun navigateUp() {
+        val current = state.value.tree.folderById(state.value.currentFolderId) ?: return
+        openFolder(current.folder.parentId)
     }
 
     fun renameFolder(folderId: String, name: String) = mutate {

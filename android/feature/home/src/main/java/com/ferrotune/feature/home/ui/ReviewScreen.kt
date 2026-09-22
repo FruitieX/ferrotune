@@ -33,7 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
-import com.ferrotune.core.designsystem.components.formatDuration
+import com.ferrotune.core.designsystem.components.formatListeningTime
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.AvailablePeriod
 import com.ferrotune.core.network.generated.TopAlbum
@@ -177,7 +177,7 @@ private fun ReviewSummary(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(formatDuration(totalSeconds), style = MaterialTheme.typography.headlineSmall)
+            Text(formatListeningTime(totalSeconds), style = MaterialTheme.typography.headlineSmall)
             Text(
                 text = "$playCount plays • $uniqueTracks tracks • $uniqueAlbums albums • " +
                     "$uniqueArtists artists",
@@ -196,7 +196,7 @@ private fun TopArtistRow(
 ) {
     MediaRow(
         title = artist.artistName,
-        subtitle = "${artist.playCount} plays • ${formatDuration(artist.totalDurationSecs)}",
+        subtitle = "${artist.playCount} plays • ${formatListeningTime(artist.totalDurationSecs)}",
         coverModel = inlineOrUrl(artist.coverArtData, serverUrl, artist.coverArt),
         onClick = { onOpenArtist(artist.artistId) },
     )

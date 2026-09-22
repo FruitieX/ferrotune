@@ -66,9 +66,21 @@ class AlbumDetailViewModelTest {
 
         viewModel.play("song-7")
 
-        val start = starter.albumStarts.single()
-        assertEquals("album-1", start.albumId)
+        val start = starter.specs.single()
+        assertEquals("album", start.sourceType)
+        assertEquals("album-1", start.sourceId)
         assertEquals("Bloom", start.sourceName)
         assertEquals("song-7", start.startSongId)
+        assertEquals(false, start.shuffle)
+    }
+
+    @Test
+    fun `shuffle starts the album queue shuffled`() {
+        val starter = FakePlaybackStarter()
+        val viewModel = viewModel(starter)
+
+        viewModel.play(shuffle = true)
+
+        assertEquals(true, starter.specs.single().shuffle)
     }
 }

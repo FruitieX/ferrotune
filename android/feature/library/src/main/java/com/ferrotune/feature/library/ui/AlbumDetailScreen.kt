@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
@@ -13,14 +14,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -30,7 +28,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,8 +44,8 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionState
@@ -57,13 +54,21 @@ import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.components.DetailActionBar
+import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.core.designsystem.components.SortMenu
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.formatTotalDuration
+import com.ferrotune.feature.library.data.SortDir
+import com.ferrotune.core.designsystem.theme.seedBackdropColor
 import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
 import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
@@ -103,6 +108,7 @@ fun AlbumDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             if (selection.isActive) {
                 SongSelectionTopBar(
@@ -118,65 +124,6 @@ fun AlbumDetailScreen(
                     },
                     selectingAll = selectingAll,
                 )
-            } else {
-                TopAppBar(
-                title = {
-                    Text(
-                        text = state.album?.name ?: "Album",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    state.album?.let { album ->
-                        ContainerDownloadAction(
-                            type = ContainerDownloadType.ALBUM,
-                            sourceId = album.id,
-                            name = album.name,
-                            coverArtId = album.coverArt,
-                        )
-                        Box {
-                            IconButton(onClick = { menuExpanded = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                            }
-                            DropdownMenu(
-                                expanded = menuExpanded,
-                                onDismissRequest = { menuExpanded = false },
-                            ) {
-                                val source = QueueSourceRequest(
-                                    sourceType = "album",
-                                    sourceId = album.id,
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Play next") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.PlaylistPlay, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        actionsViewModel.playNextSources(listOf(source))
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Add to queue") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Add, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        actionsViewModel.addSourcesToQueue(listOf(source))
-                                    },
-                                )
-                            }
-                        }
-                    }
-                },
-            )
             }
         },
         bottomBar = {
@@ -213,46 +160,121 @@ fun AlbumDetailScreen(
                     .padding(padding),
             )
 
-            state.album != null -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
+            state.album != null -> {
                 val album = state.album!!
-                DetailHeader(
-                    title = album.name,
-                    subtitle = album.artist,
-                    seed = album.id,
-                    onSubtitleClick = { onOpenArtist(album.artistId) },
-                    coverModel = inlineCoverModel(album.coverArtData)
-                        ?: album.coverArt?.let { id ->
-                            state.serverUrl?.let { coverArtUrl(it, id, "large") }
-                        },
-                    badges = {
-                        Text(
-                            text = listOfNotNull(
+                val coverModel = inlineCoverModel(album.coverArtData)
+                    ?: album.coverArt?.let { id ->
+                        state.serverUrl?.let { coverArtUrl(it, id, "large") }
+                    }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    DetailBackdrop(
+                        color = seedBackdropColor(album.name),
+                        coverModel = coverModel,
+                        blurred = true,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                    ) {
+                        DetailHeader(
+                            title = album.name,
+                            label = "Album",
+                            subtitle = album.artist,
+                            meta = listOfNotNull(
                                 album.year?.toString(),
-                                "${album.songCount} songs",
+                                album.genre,
+                                formatCount(album.songCount.toInt(), "song"),
+                                formatTotalDuration(album.duration),
                             ).joinToString(" • "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            seed = album.id,
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
+                            onSubtitleClick = { onOpenArtist(album.artistId) },
+                            coverModel = coverModel,
+                            topActions = {
+                                ContainerDownloadAction(
+                                    type = ContainerDownloadType.ALBUM,
+                                    sourceId = album.id,
+                                    name = album.name,
+                                    coverArtId = album.coverArt,
+                                )
+                                Box {
+                                    IconButton(onClick = { menuExpanded = true }) {
+                                        Icon(
+                                            Icons.Filled.MoreVert,
+                                            contentDescription = "More",
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false },
+                                    ) {
+                                        val source = QueueSourceRequest(
+                                            sourceType = "album",
+                                            sourceId = album.id,
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Play next") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Filled.PlaylistPlay,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                actionsViewModel.playNextSources(listOf(source))
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Add to queue") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Filled.Add,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                actionsViewModel.addSourcesToQueue(
+                                                    listOf(source),
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                            },
                         )
-                    },
-                    actions = {
-                        Button(onClick = { viewModel.play() }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Play")
-                        }
-                    },
-                )
-                AlbumSongList(
-                    items = songs,
-                    onPlaySong = { viewModel.play(it) },
-                    onOpenSongRadio = onOpenSongRadio,
-                    onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
-                    selection = selection,
-                )
+                        DetailActionBar(
+                            onPlayAll = { viewModel.play() },
+                            onShuffle = { viewModel.play(shuffle = true) },
+                            playEnabled = album.songCount > 0,
+                            actions = {
+                                FilterPill(
+                                    value = state.filter,
+                                    onValueChange = viewModel::setFilter,
+                                    placeholder = "Filter songs...",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SortMenu(
+                                    options = DETAIL_SONG_SORT_OPTIONS,
+                                    selectedKey = state.sort,
+                                    ascending = state.sortDir == SortDir.ASC,
+                                    onSelect = viewModel::selectSort,
+                                    onToggleDirection = viewModel::toggleSortDir,
+                                )
+                            },
+                        )
+                        AlbumSongList(
+                            items = songs,
+                            onPlaySong = { viewModel.play(it) },
+                            onOpenSongRadio = onOpenSongRadio,
+                            onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
+                            selection = selection,
+                        )
+                    }
+                }
             }
         }
     }
@@ -325,24 +347,21 @@ private fun AlbumSongList(
                             IconButton(onClick = { menuExpanded = true }) {
                                 Icon(Icons.Filled.MoreVert, contentDescription = "More")
                             }
-                            SongRowMenu(
+                            SongActionSheet(
                                 expanded = menuExpanded,
                                 onDismiss = { menuExpanded = false },
                                 songId = song.id,
                                 flags = flags,
+                                title = song.title,
+                                subtitle = song.artist,
+                                coverModel = inlineCoverModel(song.coverArtData),
                                 onOpenSongRadio = { onOpenSongRadio(song.id) },
                                 onStartSelection = { selection.select(song.id) },
-                                extraItems = {
+                                extraContent = {
                                     AddToPlaylistMenuItem(
-                                        onClick = {
-                                            menuExpanded = false
-                                            onAddToPlaylist(song.id)
-                                        },
+                                        onClick = { onAddToPlaylist(song.id) },
                                     )
-                                    SongDownloadMenuItem(
-                                        songId = song.id,
-                                        onClick = { menuExpanded = false },
-                                    )
+                                    SongDownloadMenuItem(songId = song.id)
                                 },
                             )
                         }

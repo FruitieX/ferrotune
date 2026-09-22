@@ -2,6 +2,7 @@ package com.ferrotune.feature.playlists.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,22 +15,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,14 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
@@ -53,13 +49,19 @@ import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.ConfirmDialog
+import com.ferrotune.core.designsystem.components.DetailActionBar
+import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.ShimmerBox
+import com.ferrotune.core.designsystem.components.SortMenu
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.QueueSourceRequest
@@ -100,6 +102,7 @@ fun SmartPlaylistDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             if (selection.isActive) {
                 SongSelectionTopBar(
@@ -115,63 +118,6 @@ fun SmartPlaylistDetailScreen(
                     },
                     selectingAll = selectingAll,
                 )
-            } else {
-                TopAppBar(
-                title = { Text(state.smartPlaylist?.name ?: "Smart playlist") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    state.smartPlaylist?.let { smartPlaylist ->
-                        ContainerDownloadAction(
-                            type = ContainerDownloadType.SMART_PLAYLIST,
-                            sourceId = smartPlaylist.id,
-                            name = smartPlaylist.name,
-                            coverArtId = null,
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Shuffle") },
-                                onClick = {
-                                    menuExpanded = false
-                                    viewModel.play(shuffle = true)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Edit rules") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onEditRules()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Create playlist from this") },
-                                onClick = {
-                                    menuExpanded = false
-                                    viewModel.materialize()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete smart playlist") },
-                                onClick = {
-                                    menuExpanded = false
-                                    showDeleteDialog = true
-                                },
-                            )
-                        }
-                    }
-                },
-            )
             }
         },
         bottomBar = {
@@ -193,7 +139,18 @@ fun SmartPlaylistDetailScreen(
             }
         },
     ) { padding ->
-        when {
+        val smartCover = state.smartPlaylist?.let { smartPlaylist ->
+            state.serverUrl?.let {
+                coverArtUrl(serverUrl = it, coverArtId = "sp-${smartPlaylist.id}", size = "medium")
+            }
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            DetailBackdrop(
+                color = Color(0x33A855F7),
+                coverModel = smartCover,
+                blurred = true,
+            )
+            when {
             state.loading && state.smartPlaylist == null -> Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -244,8 +201,78 @@ fun SmartPlaylistDetailScreen(
                         SmartPlaylistHeader(
                             smartPlaylist = smartPlaylist,
                             serverUrl = state.serverUrl,
-                            onPlay = { viewModel.play() },
+                            songCount = smartPlaylist.songCount?.toInt() ?: songs.itemCount,
+                            totalDuration = songs.itemSnapshotList.items.sumOf { it.duration },
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
+                            topActions = {
+                                ContainerDownloadAction(
+                                    type = ContainerDownloadType.SMART_PLAYLIST,
+                                    sourceId = smartPlaylist.id,
+                                    name = smartPlaylist.name,
+                                    coverArtId = null,
+                                )
+                                Box {
+                                    IconButton(onClick = { menuExpanded = true }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Shuffle") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                viewModel.play(shuffle = true)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Edit rules") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onEditRules()
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Create playlist from this") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                viewModel.materialize()
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete smart playlist") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                showDeleteDialog = true
+                                            },
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    item {
+                        DetailActionBar(
+                            onPlayAll = { viewModel.play() },
                             onShuffle = { viewModel.play(shuffle = true) },
+                            playEnabled = songs.itemCount > 0,
+                            actions = {
+                                FilterPill(
+                                    value = state.filter,
+                                    onValueChange = viewModel::setFilter,
+                                    placeholder = "Filter songs...",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SortMenu(
+                                    options = playlistSortOptions,
+                                    selectedKey = state.sort,
+                                    ascending = state.sortDir == "asc",
+                                    onSelect = viewModel::selectSort,
+                                    onToggleDirection = viewModel::toggleSortDir,
+                                )
+                            },
                         )
                     }
                 }
@@ -295,18 +322,18 @@ fun SmartPlaylistDetailScreen(
                                     IconButton(onClick = { menuExpanded = true }) {
                                         Icon(Icons.Filled.MoreVert, contentDescription = "More")
                                     }
-                                    SongRowMenu(
+                                    SongActionSheet(
                                         expanded = menuExpanded,
                                         onDismiss = { menuExpanded = false },
                                         songId = song.id,
                                         flags = flags,
+                                        title = song.title,
+                                        subtitle = song.artist,
+                                        coverModel = inlineCoverModel(song.coverArtData),
                                         onOpenSongRadio = { onOpenSongRadio(song.id) },
                                         onStartSelection = { selection.select(song.id) },
-                                        extraItems = {
-                                            SongDownloadMenuItem(
-                                                songId = song.id,
-                                                onClick = { menuExpanded = false },
-                                            )
+                                        extraContent = {
+                                            SongDownloadMenuItem(songId = song.id)
                                         },
                                     )
                                 }
@@ -319,6 +346,7 @@ fun SmartPlaylistDetailScreen(
                 }
             }
         }
+    }
     }
 
     state.playbackError?.let { message ->
@@ -359,39 +387,26 @@ fun SmartPlaylistDetailScreen(
 private fun SmartPlaylistHeader(
     smartPlaylist: SmartPlaylistInfo,
     serverUrl: String?,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
+    songCount: Int,
+    totalDuration: Long,
+    showBackButton: Boolean,
+    onBack: () -> Unit,
+    topActions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
     DetailHeader(
         title = smartPlaylist.name,
-        subtitle = smartPlaylist.comment?.takeIf { it.isNotBlank() },
+        label = "Smart Playlist",
+        subtitle = if (songCount > 0) {
+            "${formatCount(songCount, "song")} • ${formatTotalDuration(totalDuration)}"
+        } else {
+            null
+        },
         seed = smartPlaylist.id,
+        showBackButton = showBackButton,
+        onBack = onBack,
+        topActions = topActions,
         coverModel = serverUrl?.let {
             coverArtUrl(serverUrl = it, coverArtId = "sp-${smartPlaylist.id}", size = "medium")
-        },
-        badges = {
-            Text(
-                text = buildString {
-                    append("Smart playlist")
-                    smartPlaylist.songCount?.let { append(" • $it songs") }
-                    append(
-                        " • ${smartPlaylist.rules.conditions.size} rules " +
-                            smartPlaylist.rules.logic.uppercase(),
-                    )
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        actions = {
-            Button(onClick = onPlay) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Play")
-            }
-            FilledTonalIconButton(onClick = onShuffle) {
-                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle")
-            }
         },
     )
 }

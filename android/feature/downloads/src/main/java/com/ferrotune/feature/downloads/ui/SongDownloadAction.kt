@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
+import com.ferrotune.core.designsystem.components.MediaActionRow
 import com.ferrotune.feature.downloads.data.DownloadStatus
 
 /**
@@ -71,29 +72,20 @@ fun SongDownloadAction(
 }
 
 /**
- * Menu-item variant of [SongDownloadAction] for shared row overflow menus.
+ * Sheet-row variant of [SongDownloadAction] for shared action sheets.
  */
 @Composable
 fun SongDownloadMenuItem(
     songId: String,
-    onClick: () -> Unit,
+    onClick: () -> Unit = {},
     viewModel: DownloadActionViewModel = hiltViewModel(),
 ) {
     val downloadedIds by viewModel.downloadedSongIds.collectAsStateWithLifecycle()
     val isDownloaded = songId in downloadedIds
 
-    androidx.compose.material3.DropdownMenuItem(
-        text = { Text(if (isDownloaded) "Remove download" else "Download") },
-        leadingIcon = {
-            Icon(
-                imageVector = if (isDownloaded) {
-                    Icons.Filled.DownloadDone
-                } else {
-                    Icons.Filled.Download
-                },
-                contentDescription = null,
-            )
-        },
+    MediaActionRow(
+        icon = if (isDownloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
+        label = if (isDownloaded) "Remove download" else "Download",
         onClick = {
             onClick()
             viewModel.toggleSong(songId)

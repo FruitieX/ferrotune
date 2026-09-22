@@ -98,6 +98,16 @@ class HomeSectionDetailViewModel @Inject constructor(
         )
     }
 
+    fun playAlbum(album: AlbumResponse) {
+        startQueue(
+            QueueStartSpec(
+                sourceType = "album",
+                sourceId = album.id,
+                sourceName = album.name,
+            ),
+        )
+    }
+
     fun playEntry(entry: ContinueListeningEntry) {
         val spec = when (entry.type) {
             "album" -> QueueStartSpec(

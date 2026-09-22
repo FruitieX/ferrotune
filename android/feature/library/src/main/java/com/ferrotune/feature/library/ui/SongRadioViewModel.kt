@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.media.PlaybackStarter
+import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.feature.library.data.LibraryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,13 +47,17 @@ class SongRadioViewModel @Inject constructor(
         }
     }
 
-    fun play(startSongId: String? = null) {
+    fun play(startSongId: String? = null, shuffle: Boolean = false) {
         viewModelScope.launch {
             try {
-                sessionStarter.startSongRadio(
-                    seedSongId = seedSongId,
-                    sourceName = state.value.seed?.title,
-                    startSongId = startSongId,
+                sessionStarter.startQueue(
+                    QueueStartSpec(
+                        sourceType = SOURCE_TYPE_SONG_RADIO,
+                        sourceId = seedSongId,
+                        sourceName = state.value.seed?.title,
+                        startSongId = startSongId,
+                        shuffle = shuffle,
+                    )
                 )
             } catch (e: Exception) {
                 state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
@@ -61,4 +66,8 @@ class SongRadioViewModel @Inject constructor(
     }
 
     fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
+
+    private companion object {
+        const val SOURCE_TYPE_SONG_RADIO = "songRadio"
+    }
 }

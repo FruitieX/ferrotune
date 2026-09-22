@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.ErrorState
-import com.ferrotune.core.designsystem.components.formatDuration
+import com.ferrotune.core.designsystem.components.formatListeningTime
+import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.network.generated.ListeningStats
 import com.ferrotune.core.network.generated.ListeningStatsResponse
 import com.ferrotune.core.network.generated.StatsResponse
@@ -102,7 +103,7 @@ private fun StatsCard(stats: StatsResponse) {
             StatRow("Genres", stats.genreCount)
             StatRow("Playlists", stats.playlistCount)
             StatRow("Total plays", stats.totalPlays)
-            StatRow("Duration", formatDuration(stats.totalDurationSeconds))
+            StatRow("Duration", formatTotalDuration(stats.totalDurationSeconds))
             StatRow("Size", formatBytes(stats.totalSizeBytes))
         }
     }
@@ -129,7 +130,7 @@ private fun ListeningPeriod(label: String, stats: ListeningStats) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         Text(
-            text = "${formatDuration(stats.totalSeconds)} • ${stats.sessionCount} sessions • " +
+            text = "${formatListeningTime(stats.totalSeconds)} • ${stats.sessionCount} sessions • " +
                 "${stats.uniqueSongs} songs • ${stats.skipCount} skips",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

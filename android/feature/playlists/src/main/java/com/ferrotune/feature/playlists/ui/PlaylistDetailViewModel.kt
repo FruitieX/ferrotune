@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -35,6 +37,7 @@ data class PlaylistDetailUiState(
     val error: String? = null,
     val sort: String = PlaylistRepository.PLAYLIST_SORT_CUSTOM,
     val sortDir: String = "asc",
+    val filter: String = "",
     val revision: Int = 0,
     val deleted: Boolean = false,
     val playbackError: String? = null,
@@ -62,12 +65,21 @@ class PlaylistDetailViewModel @Inject constructor(
     private val shareState = MutableStateFlow(PlaylistSharesUiState())
     val shares: StateFlow<PlaylistSharesUiState> = shareState.asStateFlow()
 
-    val entries: Flow<PagingData<PlaylistSongEntry>> = state
-        .map { Triple(it.sort, it.sortDir, it.revision) }
-        .distinctUntilChanged()
-        .flatMapLatest { (sort, sortDir, _) ->
+    private val filter = MutableStateFlow("")
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    val entries: Flow<PagingData<PlaylistSongEntry>> = combine(
+        state.map { Triple(it.sort, it.sortDir, it.revision) }.distinctUntilChanged(),
+        filter.debounce { if (it.isBlank()) 0L else 300L }.distinctUntilChanged(),
+    ) { (sort, sortDir, _), filter -> Triple(sort, sortDir, filter) }
+        .flatMapLatest { (sort, sortDir, filter) ->
             Pager(PagingConfig(pageSize = DEFAULT_PAGE_SIZE)) {
-                repository.playlistSongs(playlistId, sort = sort, sortDir = sortDir)
+                repository.playlistSongs(
+                    playlistId,
+                    sort = sort,
+                    sortDir = sortDir,
+                    filter = filter.ifBlank { null },
+                )
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -92,6 +104,11 @@ class PlaylistDetailViewModel @Inject constructor(
     }
 
     fun selectSort(sort: String) = state.update { it.copy(sort = sort) }
+
+    fun setFilter(value: String) {
+        state.update { it.copy(filter = value) }
+        filter.value = value
+    }
 
     fun toggleSortDir() = state.update {
         it.copy(sortDir = if (it.sortDir == "asc") "desc" else "asc")

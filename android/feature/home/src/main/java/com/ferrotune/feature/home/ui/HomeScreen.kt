@@ -44,11 +44,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionActionSheet
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
-import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.designsystem.components.PageTitle
 import com.ferrotune.core.designsystem.components.AccountSwitcherDialog
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.ErrorState
@@ -105,7 +106,7 @@ fun HomeScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Ferrotune") },
+                title = { PageTitle("Home") },
                 actions = {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More")
@@ -221,8 +222,10 @@ fun HomeScreen(
                         when {
                             section.entries.isNotEmpty() -> ContinueListeningRow(
                                 entries = section.entries,
+                                sections = state.sections,
                                 serverUrl = state.serverUrl,
                                 onClick = viewModel::playContinueListening,
+                                onOpenLink = onOpenLink,
                                 onOpenAlbum = onOpenAlbum,
                                 onOpenPlaylist = onOpenPlaylist,
                                 onOpenSmartPlaylist = onOpenSmartPlaylist,
@@ -236,6 +239,7 @@ fun HomeScreen(
 
                             else -> SongRow(
                                 songs = section.songs,
+                                onOpenAlbum = onOpenAlbum,
                                 onPlay = { song ->
                                     viewModel.playSong(
                                         sourceType = sectionSourceType(section),
@@ -466,8 +470,10 @@ private fun SectionHeaderRow(
 @Composable
 private fun ContinueListeningRow(
     entries: List<ContinueListeningEntry>,
+    sections: List<HomeSectionUi>,
     serverUrl: String?,
     onClick: (ContinueListeningEntry) -> Unit,
+    onOpenLink: (HomeLinkTarget) -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onOpenSmartPlaylist: (String) -> Unit,
@@ -501,6 +507,14 @@ private fun ContinueListeningRow(
                 else -> null
             }
             val sourceId = album?.id ?: playlist?.id
+            val sourceTarget = source?.let {
+                queueSourceLinkTarget(
+                    sourceType = it.sourceType,
+                    sourceId = it.id,
+                    sourceName = it.name,
+                    sections = sections.map { section -> section.config },
+                )
+            }
             var menuExpanded by remember { mutableStateOf(false) }
             Box {
                 ShelfCard(
@@ -521,27 +535,29 @@ private fun ContinueListeningRow(
                                 playlist != null ->
                                 onOpenPlaylist(playlist.id)
 
+                            sourceTarget != null -> onOpenLink(sourceTarget)
+
                             else -> onClick(entry)
                         }
                     },
+                    onPlay = { onClick(entry) },
                     onLongClick = {
                         if (sourceType != null && sourceId != null) menuExpanded = true
                     },
                 )
                 if (sourceType != null && sourceId != null) {
-                    DropdownMenu(
+                    CollectionActionSheet(
                         expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        CollectionMenuItems(
-                            target = CollectionTarget(
-                                sourceType = sourceType,
-                                sourceId = sourceId,
-                                name = name,
-                            ),
-                            onDismiss = { menuExpanded = false },
-                        )
-                    }
+                        onDismiss = { menuExpanded = false },
+                        target = CollectionTarget(
+                            sourceType = sourceType,
+                            sourceId = sourceId,
+                            name = name,
+                        ),
+                        title = name,
+                        subtitle = entry.type.toLabel(),
+                        coverModel = coverModel,
+                    )
                 }
             }
         }
@@ -572,19 +588,21 @@ private fun AlbumRow(
                     onClick = { onOpenAlbum(album.id) },
                     onLongClick = { menuExpanded = true },
                 )
-                DropdownMenu(
+                CollectionActionSheet(
                     expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    CollectionMenuItems(
-                        target = CollectionTarget(
-                            sourceType = CollectionSource.ALBUM,
-                            sourceId = album.id,
-                            name = album.name,
-                        ),
-                        onDismiss = { menuExpanded = false },
-                    )
-                }
+                    onDismiss = { menuExpanded = false },
+                    target = CollectionTarget(
+                        sourceType = CollectionSource.ALBUM,
+                        sourceId = album.id,
+                        name = album.name,
+                    ),
+                    title = album.name,
+                    subtitle = album.artist,
+                    coverModel = inlineCoverModel(album.coverArtData)
+                        ?: serverUrl?.let {
+                            coverArtUrl(serverUrl = it, coverArtId = album.id, size = "small")
+                        },
+                )
             }
         }
     }
@@ -593,6 +611,7 @@ private fun AlbumRow(
 @Composable
 private fun SongRow(
     songs: List<SongResponse>,
+    onOpenAlbum: (String) -> Unit,
     onPlay: (SongResponse) -> Unit,
 ) {
     LazyRow(
@@ -611,15 +630,18 @@ private fun SongRow(
                     subtitle = song.artist,
                     seed = song.id,
                     coverModel = inlineCoverModel(song.coverArtData),
-                    onClick = { onPlay(song) },
+                    onClick = { song.albumId?.let(onOpenAlbum) },
                     onPlay = { onPlay(song) },
                     onLongClick = { menuExpanded = true },
                 )
-                SongRowMenu(
+                SongActionSheet(
                     expanded = menuExpanded,
                     onDismiss = { menuExpanded = false },
                     songId = song.id,
                     flags = flags,
+                    title = song.title,
+                    subtitle = song.artist,
+                    coverModel = inlineCoverModel(song.coverArtData),
                 )
             }
         }

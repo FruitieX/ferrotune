@@ -1,7 +1,9 @@
 package com.ferrotune.feature.library.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Spacer
@@ -10,11 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -22,7 +21,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,19 +34,24 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongFavoriteButton
-import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
+import com.ferrotune.core.designsystem.components.DetailActionBar
+import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
+import com.ferrotune.core.designsystem.theme.seedBackdropColor
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.SectionHeader
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.feature.downloads.ui.SongDownloadAction
@@ -81,6 +84,7 @@ fun SongRadioScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             if (selection.isActive) {
                 SongSelectionTopBar(
@@ -95,15 +99,6 @@ fun SongRadioScreen(
                         }
                     },
                     selectingAll = selectingAll,
-                )
-            } else {
-                TopAppBar(
-                    title = { Text("Song Radio") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
                 )
             }
         },
@@ -141,38 +136,40 @@ fun SongRadioScreen(
                     .padding(padding),
             )
 
-            state.seed != null -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
+            state.seed != null -> {
                 val seed = state.seed!!
-                DetailHeader(
-                    title = "Song Radio",
-                    subtitle = seed.title,
-                    seed = seed.id,
-                    coverSize = 120.dp,
-                    coverModel = inlineCoverModel(seed.coverArtData),
-                    badges = {
-                        Text(
-                            text = seed.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Box(modifier = Modifier.fillMaxSize()) {
+                    DetailBackdrop(color = seedBackdropColor(seed.title))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                    ) {
+                        DetailHeader(
+                            title = "${seed.title} Radio",
+                            label = "Radio",
+                            subtitle = if (state.similar.isNotEmpty()) {
+                                "${formatCount(state.similar.size, "song")} • " +
+                                    formatTotalDuration(state.similar.sumOf { it.duration })
+                            } else {
+                                null
+                            },
+                            meta = "Based on ${seed.title} by ${seed.artist}",
+                            seed = seed.id,
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
+                            coverModel = inlineCoverModel(seed.coverArtData),
                         )
-                    },
-                    actions = {
-                        Button(onClick = { viewModel.play() }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Play radio")
-                        }
-                    },
-                )
-                SectionHeader(title = "Similar songs")
-                if (state.similar.isEmpty()) {
-                    EmptyState("No similar songs available")
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        DetailActionBar(
+                            onPlayAll = { viewModel.play() },
+                            onShuffle = { viewModel.play(shuffle = true) },
+                            playEnabled = state.similar.isNotEmpty(),
+                        )
+                        SectionHeader(title = "Similar songs")
+                        if (state.similar.isEmpty()) {
+                            EmptyState("No similar songs available")
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(state.similar, key = { it.id }) { song ->
                             val flags = rememberSongFlags(
                                 songId = song.id,
@@ -199,11 +196,14 @@ fun SongRadioScreen(
                                 trailing = {
                                     Box {
                                         SongFavoriteButton(songId = song.id, flags = flags)
-                                        SongRowMenu(
+                                        SongActionSheet(
                                             expanded = menuExpanded,
                                             onDismiss = { menuExpanded = false },
                                             songId = song.id,
                                             flags = flags,
+                                            title = song.title,
+                                            subtitle = song.artist,
+                                            coverModel = inlineCoverModel(song.coverArtData),
                                             onStartSelection = { selection.select(song.id) },
                                         )
                                     }
@@ -216,6 +216,8 @@ fun SongRadioScreen(
                 }
             }
         }
+    }
+    }
     }
 
     addToPlaylistSongIds?.let { songIds ->

@@ -1,37 +1,41 @@
 package com.ferrotune.feature.playlists.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,11 +43,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.actions.CollectionActionSheet
 import com.ferrotune.core.actions.CollectionActionsViewModel
-import com.ferrotune.core.actions.CollectionMenuItems
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
 import com.ferrotune.core.designsystem.components.ConfirmDialog
@@ -51,14 +56,22 @@ import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
+import com.ferrotune.core.designsystem.components.PageTitle
 import com.ferrotune.core.designsystem.components.SectionHeader
 import com.ferrotune.core.designsystem.components.ShelfCard
+import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistInFolder
 import com.ferrotune.core.network.generated.RecentPlaylistEntry
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.feature.playlists.data.PlaylistFolderNode
+import com.ferrotune.feature.playlists.data.folderPath
+import com.ferrotune.feature.playlists.data.foldersIn
+import com.ferrotune.feature.playlists.data.playlistsIn
+
+/** Web `text-amber-500` folder glyph. */
+private val FOLDER_ACCENT = Color(0xFFF59E0B)
 
 private sealed interface PlaylistsDialog {
     data class CreatePlaylist(val folderId: String?) : PlaylistsDialog
@@ -86,139 +99,38 @@ fun PlaylistsScreen(
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("Playlists") },
-                actions = {
-                    IconButton(onClick = { addMenuExpanded = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add")
-                    }
-                    DropdownMenu(
-                        expanded = addMenuExpanded,
-                        onDismissRequest = { addMenuExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("New playlist") },
-                            onClick = {
-                                addMenuExpanded = false
-                                dialog = PlaylistsDialog.CreatePlaylist(folderId = null)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("New folder") },
-                            onClick = {
-                                addMenuExpanded = false
-                                dialog = PlaylistsDialog.CreateFolder(parentId = null)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("New smart playlist") },
-                            onClick = {
-                                addMenuExpanded = false
-                                onCreateSmartPlaylist()
-                            },
-                        )
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { dialog = PlaylistsDialog.CreatePlaylist(folderId = null) }) {
-                Icon(Icons.Filled.Add, contentDescription = "New playlist")
-            }
-        },
     ) { padding ->
-        when {
-            state.loading && state.tree.folders.isEmpty() && state.tree.rootPlaylists.isEmpty() ->
-                MediaRowSkeletonList(
-                    count = 10,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                )
-
-            state.error != null -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
-                ErrorState(message = state.error!!, onRetry = viewModel::load)
-            }
-
-            else -> LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(bottom = 96.dp),
-            ) {
-                if (state.recentlyPlayed.isNotEmpty()) {
-                    item {
-                        SectionHeader("Recently played")
-                    }
-                    item {
-                        RecentPlaylistsRow(
-                            entries = state.recentlyPlayed,
-                            serverUrl = state.serverUrl,
-                            onOpenPlaylist = onOpenPlaylist,
-                            onOpenSmartPlaylist = onOpenSmartPlaylist,
-                        )
-                    }
-                }
-                if (state.smartPlaylists.isNotEmpty()) {
-                    item {
-                        SectionHeader("Smart playlists")
-                    }
-                    items(state.smartPlaylists, key = { "smart-${it.id}" }) { smart ->
-                        SmartPlaylistRow(
-                            smartPlaylist = smart,
-                            serverUrl = state.serverUrl,
-                            onOpen = { onOpenSmartPlaylist(smart.id) },
-                            onPlay = { viewModel.playSmartPlaylist(smart, shuffle = false) },
-                            onShuffle = { viewModel.playSmartPlaylist(smart, shuffle = true) },
-                        )
-                    }
-                }
-                if (state.tree.rootPlaylists.isNotEmpty() || state.tree.folders.isNotEmpty()) {
-                    item {
-                        SectionHeader("Your library")
-                    }
-                }
-                items(state.tree.rootPlaylists, key = { it.id }) { playlist ->
-                    PlaylistRow(
-                        playlist = playlist,
-                        serverUrl = state.serverUrl,
-                        onOpen = { onOpenPlaylist(playlist.id) },
-                        onPlay = { viewModel.playPlaylist(playlist, shuffle = false) },
-                        onShuffle = { viewModel.playPlaylist(playlist, shuffle = true) },
-                        onRename = { dialog = PlaylistsDialog.RenamePlaylist(playlist) },
-                        onMove = { dialog = PlaylistsDialog.MovePlaylist(playlist) },
-                        onDelete = { dialog = PlaylistsDialog.DeletePlaylist(playlist) },
-                    )
-                }
-                folderNodes(
-                    nodes = state.tree.folders,
-                    serverUrl = state.serverUrl,
-                    onOpenPlaylist = onOpenPlaylist,
-                    onPlayPlaylist = { viewModel.playPlaylist(it, shuffle = false) },
-                    onShufflePlaylist = { viewModel.playPlaylist(it, shuffle = true) },
-                    onRenamePlaylist = { dialog = PlaylistsDialog.RenamePlaylist(it) },
-                    onMovePlaylist = { dialog = PlaylistsDialog.MovePlaylist(it) },
-                    onDeletePlaylist = { dialog = PlaylistsDialog.DeletePlaylist(it) },
-                    onCreatePlaylist = { dialog = PlaylistsDialog.CreatePlaylist(it.folder.id) },
-                    onCreateFolder = { dialog = PlaylistsDialog.CreateFolder(it.folder.id) },
-                    onRenameFolder = { dialog = PlaylistsDialog.RenameFolder(it) },
-                    onMoveFolder = { dialog = PlaylistsDialog.MoveFolder(it) },
-                    onDeleteFolder = { dialog = PlaylistsDialog.DeleteFolder(it) },
-                )
-                if (state.tree.rootPlaylists.isEmpty() &&
-                    state.tree.folders.isEmpty() &&
-                    state.smartPlaylists.isEmpty()
-                ) {
-                    item {
-                        EmptyState("No playlists yet")
-                    }
-                }
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            PlaylistsTopBar(
+                state = state,
+                addMenuExpanded = addMenuExpanded,
+                onAddMenuExpandedChange = { addMenuExpanded = it },
+                onNavigateUp = viewModel::navigateUp,
+                onOpenFolder = viewModel::openFolder,
+                onNewPlaylist = {
+                    dialog = PlaylistsDialog.CreatePlaylist(state.currentFolderId)
+                },
+                onNewFolder = {
+                    dialog = PlaylistsDialog.CreateFolder(state.currentFolderId)
+                },
+                onCreateSmartPlaylist = onCreateSmartPlaylist,
+            )
+            PlaylistsContent(
+                state = state,
+                onRetry = viewModel::load,
+                onOpenPlaylist = onOpenPlaylist,
+                onOpenSmartPlaylist = onOpenSmartPlaylist,
+                onOpenFolder = viewModel::openFolder,
+                onPlayPlaylist = { viewModel.playPlaylist(it, shuffle = false) },
+                onShufflePlaylist = { viewModel.playPlaylist(it, shuffle = true) },
+                onPlaySmartPlaylist = { viewModel.playSmartPlaylist(it, shuffle = false) },
+                onShuffleSmartPlaylist = { viewModel.playSmartPlaylist(it, shuffle = true) },
+                onDialog = { dialog = it },
+            )
         }
     }
 
@@ -319,6 +231,239 @@ fun PlaylistsScreen(
 }
 
 @Composable
+private fun PlaylistsTopBar(
+    state: PlaylistsUiState,
+    addMenuExpanded: Boolean,
+    onAddMenuExpandedChange: (Boolean) -> Unit,
+    onNavigateUp: () -> Unit,
+    onOpenFolder: (String?) -> Unit,
+    onNewPlaylist: () -> Unit,
+    onNewFolder: () -> Unit,
+    onCreateSmartPlaylist: () -> Unit,
+) {
+    val path = state.tree.folderPath(state.currentFolderId)
+    val currentFolder = path.lastOrNull()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (state.currentFolderId != null) {
+                IconButton(onClick = onNavigateUp, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Up one folder",
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            PageTitle(
+                text = currentFolder?.name ?: "Playlists",
+                modifier = Modifier.weight(1f),
+            )
+            Box {
+                OutlinedButton(onClick = { onAddMenuExpandedChange(true) }) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text("New", modifier = Modifier.padding(start = 8.dp))
+                }
+                DropdownMenu(
+                    expanded = addMenuExpanded,
+                    onDismissRequest = { onAddMenuExpandedChange(false) },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("New playlist") },
+                        onClick = {
+                            onAddMenuExpandedChange(false)
+                            onNewPlaylist()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("New folder") },
+                        onClick = {
+                            onAddMenuExpandedChange(false)
+                            onNewFolder()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("New smart playlist") },
+                        onClick = {
+                            onAddMenuExpandedChange(false)
+                            onCreateSmartPlaylist()
+                        },
+                    )
+                }
+            }
+        }
+        if (state.currentFolderId != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BreadcrumbCrumb(
+                    text = "Playlists",
+                    active = false,
+                    onClick = { onOpenFolder(null) },
+                )
+                path.forEachIndexed { index, folder ->
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    BreadcrumbCrumb(
+                        text = folder.name,
+                        active = index == path.lastIndex,
+                        onClick = { onOpenFolder(folder.id) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BreadcrumbCrumb(
+    text: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (active) {
+            MaterialTheme.colorScheme.onSurface
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        maxLines = 1,
+        modifier = Modifier
+            .clickable(enabled = !active, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun PlaylistsContent(
+    state: PlaylistsUiState,
+    onRetry: () -> Unit,
+    onOpenPlaylist: (String) -> Unit,
+    onOpenSmartPlaylist: (String) -> Unit,
+    onOpenFolder: (String) -> Unit,
+    onPlayPlaylist: (PlaylistInFolder) -> Unit,
+    onShufflePlaylist: (PlaylistInFolder) -> Unit,
+    onPlaySmartPlaylist: (SmartPlaylistInfo) -> Unit,
+    onShuffleSmartPlaylist: (SmartPlaylistInfo) -> Unit,
+    onDialog: (PlaylistsDialog) -> Unit,
+) {
+    val currentFolderId = state.currentFolderId
+    val folders = state.tree.foldersIn(currentFolderId)
+    val playlists = state.tree.playlistsIn(currentFolderId)
+    val smartPlaylists = state.smartPlaylists.filter { it.folderId == currentFolderId }
+    val isRoot = currentFolderId == null
+
+    when {
+        state.loading && state.tree.folders.isEmpty() && state.tree.rootPlaylists.isEmpty() ->
+            MediaRowSkeletonList(
+                count = 10,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+        state.error != null -> Box(modifier = Modifier.fillMaxSize()) {
+            ErrorState(message = state.error!!, onRetry = onRetry)
+        }
+
+        else -> LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 96.dp),
+        ) {
+            if (isRoot && state.recentlyPlayed.isNotEmpty()) {
+                item {
+                    SectionHeader("Recently played")
+                }
+                item {
+                    RecentPlaylistsRow(
+                        entries = state.recentlyPlayed,
+                        serverUrl = state.serverUrl,
+                        onOpenPlaylist = onOpenPlaylist,
+                        onOpenSmartPlaylist = onOpenSmartPlaylist,
+                    )
+                }
+            }
+            if (smartPlaylists.isNotEmpty()) {
+                item {
+                    SectionHeader("Smart playlists")
+                }
+                items(smartPlaylists, key = { "smart-${it.id}" }) { smart ->
+                    SmartPlaylistRow(
+                        smartPlaylist = smart,
+                        serverUrl = state.serverUrl,
+                        onOpen = { onOpenSmartPlaylist(smart.id) },
+                        onPlay = { onPlaySmartPlaylist(smart) },
+                        onShuffle = { onShuffleSmartPlaylist(smart) },
+                    )
+                }
+            }
+            if (playlists.isNotEmpty() || folders.isNotEmpty()) {
+                item {
+                    SectionHeader(if (isRoot) "Your library" else "Playlists")
+                }
+            }
+            items(playlists, key = { it.id }) { playlist ->
+                PlaylistRow(
+                    playlist = playlist,
+                    serverUrl = state.serverUrl,
+                    onOpen = { onOpenPlaylist(playlist.id) },
+                    onPlay = { onPlayPlaylist(playlist) },
+                    onShuffle = { onShufflePlaylist(playlist) },
+                    onRename = { onDialog(PlaylistsDialog.RenamePlaylist(playlist)) },
+                    onMove = { onDialog(PlaylistsDialog.MovePlaylist(playlist)) },
+                    onDelete = { onDialog(PlaylistsDialog.DeletePlaylist(playlist)) },
+                )
+            }
+            items(folders, key = { "folder-${it.folder.id}" }) { node ->
+                FolderRow(
+                    node = node,
+                    smartPlaylistCount = state.smartPlaylists.count {
+                        it.folderId == node.folder.id
+                    },
+                    onOpen = { onOpenFolder(node.folder.id) },
+                    onCreatePlaylist = {
+                        onDialog(PlaylistsDialog.CreatePlaylist(node.folder.id))
+                    },
+                    onCreateFolder = {
+                        onDialog(PlaylistsDialog.CreateFolder(node.folder.id))
+                    },
+                    onRename = { onDialog(PlaylistsDialog.RenameFolder(node.folder)) },
+                    onMove = { onDialog(PlaylistsDialog.MoveFolder(node.folder)) },
+                    onDelete = { onDialog(PlaylistsDialog.DeleteFolder(node.folder)) },
+                )
+            }
+            if (folders.isEmpty() && playlists.isEmpty() && smartPlaylists.isEmpty()) {
+                item {
+                    EmptyState(if (isRoot) "No playlists yet" else "This folder is empty")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun RecentPlaylistsRow(
     entries: List<RecentPlaylistEntry>,
     serverUrl: String?,
@@ -349,23 +494,28 @@ private fun RecentPlaylistsRow(
                     },
                     onLongClick = { menuExpanded = true },
                 )
-                DropdownMenu(
+                CollectionActionSheet(
                     expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    CollectionMenuItems(
-                        target = CollectionTarget(
-                            sourceType = if (isSmart) {
-                                CollectionSource.SMART_PLAYLIST
-                            } else {
-                                CollectionSource.PLAYLIST
-                            },
-                            sourceId = entry.id,
-                            name = entry.name,
-                        ),
-                        onDismiss = { menuExpanded = false },
-                    )
-                }
+                    onDismiss = { menuExpanded = false },
+                    target = CollectionTarget(
+                        sourceType = if (isSmart) {
+                            CollectionSource.SMART_PLAYLIST
+                        } else {
+                            CollectionSource.PLAYLIST
+                        },
+                        sourceId = entry.id,
+                        name = entry.name,
+                    ),
+                    title = entry.name,
+                    subtitle = if (isSmart) "Smart playlist" else "Playlist",
+                    coverModel = serverUrl?.let {
+                        coverArtUrl(
+                            serverUrl = it,
+                            coverArtId = if (isSmart) "sp-${entry.id}" else entry.id,
+                            size = "small",
+                        )
+                    },
+                )
             }
         }
     }
@@ -521,11 +671,16 @@ private fun PlaylistRow(
     )
 }
 
+/**
+ * Folder browser row: tapping drills into the folder; the trailing menu keeps
+ * the create/rename/move/delete actions that used to live on the expanded
+ * folder header.
+ */
 @Composable
-private fun FolderHeader(
-    folder: PlaylistFolderResponse,
-    depth: Int,
-    playlistCount: Int,
+private fun FolderRow(
+    node: PlaylistFolderNode,
+    smartPlaylistCount: Int,
+    onOpen: () -> Unit,
     onCreatePlaylist: () -> Unit,
     onCreateFolder: () -> Unit,
     onRename: () -> Unit,
@@ -533,133 +688,69 @@ private fun FolderHeader(
     onDelete: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val playlistCount = node.playlists.size + smartPlaylistCount
+    val subtitle = buildList {
+        if (node.children.isNotEmpty()) add(formatCount(node.children.size, "folder"))
+        add(if (playlistCount > 0) formatCount(playlistCount, "playlist") else "Empty")
+    }.joinToString(" • ")
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = (16 + depth * 16).dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            Icons.Filled.Folder,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = folder.name,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "$playlistCount",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Box {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Folder menu")
+    MediaRow(
+        title = node.folder.name,
+        subtitle = subtitle,
+        coverModel = null,
+        coverSeed = node.folder.name,
+        coverPlaceholder = Icons.Filled.Folder,
+        coverPlaceholderTint = FOLDER_ACCENT,
+        onClick = onOpen,
+        onLongClick = { menuExpanded = true },
+        trailing = {
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Folder menu")
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("New playlist here") },
+                        onClick = {
+                            menuExpanded = false
+                            onCreatePlaylist()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("New subfolder") },
+                        onClick = {
+                            menuExpanded = false
+                            onCreateFolder()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = {
+                            menuExpanded = false
+                            onRename()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move") },
+                        onClick = {
+                            menuExpanded = false
+                            onMove()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            menuExpanded = false
+                            onDelete()
+                        },
+                    )
+                }
             }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text("New playlist here") },
-                    onClick = {
-                        menuExpanded = false
-                        onCreatePlaylist()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("New subfolder") },
-                    onClick = {
-                        menuExpanded = false
-                        onCreateFolder()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = {
-                        menuExpanded = false
-                        onRename()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Move") },
-                    onClick = {
-                        menuExpanded = false
-                        onMove()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete") },
-                    onClick = {
-                        menuExpanded = false
-                        onDelete()
-                    },
-                )
-            }
-        }
-    }
-}
-
-private fun LazyListScope.folderNodes(
-    nodes: List<PlaylistFolderNode>,
-    serverUrl: String?,
-    onOpenPlaylist: (String) -> Unit,
-    onPlayPlaylist: (PlaylistInFolder) -> Unit,
-    onShufflePlaylist: (PlaylistInFolder) -> Unit,
-    onRenamePlaylist: (PlaylistInFolder) -> Unit,
-    onMovePlaylist: (PlaylistInFolder) -> Unit,
-    onDeletePlaylist: (PlaylistInFolder) -> Unit,
-    onCreatePlaylist: (PlaylistFolderNode) -> Unit,
-    onCreateFolder: (PlaylistFolderNode) -> Unit,
-    onRenameFolder: (PlaylistFolderResponse) -> Unit,
-    onMoveFolder: (PlaylistFolderResponse) -> Unit,
-    onDeleteFolder: (PlaylistFolderResponse) -> Unit,
-) {
-    nodes.forEach { node ->
-        item(key = "folder-${node.folder.id}") {
-            FolderHeader(
-                folder = node.folder,
-                depth = node.depth,
-                playlistCount = node.playlists.size,
-                onCreatePlaylist = { onCreatePlaylist(node) },
-                onCreateFolder = { onCreateFolder(node) },
-                onRename = { onRenameFolder(node.folder) },
-                onMove = { onMoveFolder(node.folder) },
-                onDelete = { onDeleteFolder(node.folder) },
-            )
-        }
-        items(node.playlists, key = { it.id }) { playlist ->
-            PlaylistRow(
-                playlist = playlist,
-                serverUrl = serverUrl,
-                onOpen = { onOpenPlaylist(playlist.id) },
-                onPlay = { onPlayPlaylist(playlist) },
-                onShuffle = { onShufflePlaylist(playlist) },
-                onRename = { onRenamePlaylist(playlist) },
-                onMove = { onMovePlaylist(playlist) },
-                onDelete = { onDeletePlaylist(playlist) },
-            )
-        }
-        folderNodes(
-            nodes = node.children,
-            serverUrl = serverUrl,
-            onOpenPlaylist = onOpenPlaylist,
-            onPlayPlaylist = onPlayPlaylist,
-            onShufflePlaylist = onShufflePlaylist,
-            onRenamePlaylist = onRenamePlaylist,
-            onMovePlaylist = onMovePlaylist,
-            onDeletePlaylist = onDeletePlaylist,
-            onCreatePlaylist = onCreatePlaylist,
-            onCreateFolder = onCreateFolder,
-            onRenameFolder = onRenameFolder,
-            onMoveFolder = onMoveFolder,
-            onDeleteFolder = onDeleteFolder,
-        )
-    }
+        },
+    )
 }
 
 private fun subtreeIds(nodes: List<PlaylistFolderNode>, rootId: String): Set<String> {

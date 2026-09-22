@@ -105,4 +105,57 @@ class PlaylistFolderTreeTest {
         assertEquals(listOf("p2"), orphan.playlists.map { it.id })
         assertEquals("child", orphan.children.single().folder.id)
     }
+
+    @Test
+    fun `browsing a folder exposes only its direct children`() {
+        val tree = buildPlaylistTree(
+            folders = listOf(
+                folder("a"),
+                folder("b", parentId = "a"),
+                folder("c", parentId = "b"),
+            ),
+            playlists = listOf(
+                playlist("p1", folderId = "a"),
+                playlist("p2", folderId = "b"),
+                playlist("p3", folderId = "c"),
+                playlist("root"),
+            ),
+        )
+
+        assertEquals(listOf("root"), tree.playlistsIn(null).map { it.id })
+        assertEquals(listOf("a"), tree.foldersIn(null).map { it.folder.id })
+        assertEquals(listOf("p1"), tree.playlistsIn("a").map { it.id })
+        assertEquals(listOf("b"), tree.foldersIn("a").map { it.folder.id })
+        assertEquals(listOf("p2"), tree.playlistsIn("b").map { it.id })
+        assertEquals(listOf("c"), tree.foldersIn("b").map { it.folder.id })
+        assertEquals(listOf("p3"), tree.playlistsIn("c").map { it.id })
+        assertEquals(emptyList<String>(), tree.foldersIn("c").map { it.folder.id })
+    }
+
+    @Test
+    fun `folder lookup ignores unknown ids`() {
+        val tree = buildPlaylistTree(folders = listOf(folder("a")), playlists = emptyList())
+
+        assertEquals("a", tree.folderById("a")?.folder?.id)
+        assertEquals(null, tree.folderById("missing"))
+        assertEquals(null, tree.folderById(null))
+        assertEquals(emptyList<String>(), tree.playlistsIn("missing").map { it.id })
+    }
+
+    @Test
+    fun `folder path walks from the root to the folder`() {
+        val tree = buildPlaylistTree(
+            folders = listOf(
+                folder("a", name = "Alpha"),
+                folder("b", name = "Beta", parentId = "a"),
+                folder("c", name = "Gamma", parentId = "b"),
+            ),
+            playlists = emptyList(),
+        )
+
+        assertEquals(emptyList<String>(), tree.folderPath(null).map { it.id })
+        assertEquals(listOf("a"), tree.folderPath("a").map { it.id })
+        assertEquals(listOf("a", "b", "c"), tree.folderPath("c").map { it.id })
+        assertEquals(emptyList<String>(), tree.folderPath("missing").map { it.id })
+    }
 }

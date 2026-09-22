@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -33,14 +35,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class LibraryTab {
-    ARTISTS,
     ALBUMS,
+    ARTISTS,
     SONGS,
     GENRES,
 }
 
 data class LibraryUiState(
-    val tab: LibraryTab = LibraryTab.SONGS,
+    val tab: LibraryTab = LibraryTab.ALBUMS,
+    val filter: String = "",
     val songSort: SongSort = SongSort.TITLE,
     val songSortDir: SortDir = SortDir.ASC,
     val albumSort: AlbumSort = AlbumSort.NAME,
@@ -63,32 +66,43 @@ class LibraryViewModel @Inject constructor(
     private val state = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = state.asStateFlow()
 
-    val songs: Flow<PagingData<SongResponse>> = state
-        .map { it.songSort to it.songSortDir }
+    private val filter = MutableStateFlow("")
+
+    val songs: Flow<PagingData<SongResponse>> = combine(
+        state.map { it.songSort }.distinctUntilChanged(),
+        state.map { it.songSortDir }.distinctUntilChanged(),
+        filter.debouncedFilter(),
+    ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
-        .flatMapLatest { (sort, dir) ->
+        .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.songs(sort = sort, sortDir = dir)
+                repository.songs(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
             }.flow
         }
         .cachedIn(viewModelScope)
 
-    val albums: Flow<PagingData<AlbumResponse>> = state
-        .map { it.albumSort to it.albumSortDir }
+    val albums: Flow<PagingData<AlbumResponse>> = combine(
+        state.map { it.albumSort }.distinctUntilChanged(),
+        state.map { it.albumSortDir }.distinctUntilChanged(),
+        filter.debouncedFilter(),
+    ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
-        .flatMapLatest { (sort, dir) ->
+        .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.albums(sort = sort, sortDir = dir)
+                repository.albums(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
             }.flow
         }
         .cachedIn(viewModelScope)
 
-    val artists: Flow<PagingData<ArtistResponse>> = state
-        .map { it.artistSort to it.artistSortDir }
+    val artists: Flow<PagingData<ArtistResponse>> = combine(
+        state.map { it.artistSort }.distinctUntilChanged(),
+        state.map { it.artistSortDir }.distinctUntilChanged(),
+        filter.debouncedFilter(),
+    ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
-        .flatMapLatest { (sort, dir) ->
+        .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.artists(sort = sort, sortDir = dir)
+                repository.artists(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -111,6 +125,37 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun selectTab(tab: LibraryTab) = state.update { it.copy(tab = tab) }
+
+    fun setFilter(value: String) {
+        state.update { it.copy(filter = value) }
+        filter.value = value
+    }
+
+    /** Applies the sort key to whichever tab is active. */
+    fun selectSort(key: String) {
+        when (state.value.tab) {
+            LibraryTab.SONGS -> SongSort.entries.firstOrNull { it.apiValue == key }
+                ?.let(::selectSongSort)
+
+            LibraryTab.ALBUMS -> AlbumSort.entries.firstOrNull { it.apiValue == key }
+                ?.let(::selectAlbumSort)
+
+            LibraryTab.ARTISTS -> ArtistSort.entries.firstOrNull { it.apiValue == key }
+                ?.let(::selectArtistSort)
+
+            LibraryTab.GENRES -> Unit
+        }
+    }
+
+    /** Toggles the sort direction of whichever tab is active. */
+    fun toggleSortDirection() {
+        when (state.value.tab) {
+            LibraryTab.SONGS -> toggleSongSortDir()
+            LibraryTab.ALBUMS -> toggleAlbumSortDir()
+            LibraryTab.ARTISTS -> toggleArtistSortDir()
+            LibraryTab.GENRES -> Unit
+        }
+    }
 
     fun selectSongSort(sort: SongSort) {
         state.update { it.copy(songSort = sort) }
@@ -196,3 +241,11 @@ class LibraryViewModel @Inject constructor(
 }
 
 internal fun SortDir.opposite(): SortDir = if (this == SortDir.ASC) SortDir.DESC else SortDir.ASC
+
+/**
+ * Debounces typing in the library filter without delaying the initial empty
+ * value, so the first page still loads immediately.
+ */
+@OptIn(kotlinx.coroutines.FlowPreview::class)
+private fun Flow<String>.debouncedFilter(): Flow<String> =
+    debounce { if (it.isBlank()) 0L else 300L }.distinctUntilChanged()

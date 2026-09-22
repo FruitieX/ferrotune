@@ -2,6 +2,7 @@ package com.ferrotune.feature.playlists.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,14 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -35,7 +35,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,13 +43,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
-import com.ferrotune.core.actions.SongActionsMenuContent
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
@@ -59,17 +59,22 @@ import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.SongFavoriteButton
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
-import com.ferrotune.core.designsystem.components.formatDuration
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.components.ConfirmDialog
+import com.ferrotune.core.designsystem.components.DetailActionBar
+import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.SortMenu
 import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.SortOption
+import com.ferrotune.core.designsystem.components.MediaActionRow
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.QueueSourceRequest
@@ -78,7 +83,7 @@ import com.ferrotune.feature.downloads.ui.ContainerDownloadAction
 import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.core.network.generated.PlaylistSongEntry
 
-private val playlistSortOptions = listOf(
+internal val playlistSortOptions = listOf(
     SortOption("custom", "Custom order"),
     SortOption("name", "Title"),
     SortOption("artist", "Artist"),
@@ -125,6 +130,7 @@ fun PlaylistDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             if (selection.isActive) {
                 SongSelectionTopBar(
@@ -140,75 +146,6 @@ fun PlaylistDetailScreen(
                     },
                     selectingAll = selectingAll,
                 )
-            } else {
-                TopAppBar(
-                title = { Text(state.playlist?.name ?: "Playlist") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    SortMenu(
-                        options = playlistSortOptions,
-                        selectedKey = state.sort,
-                        ascending = state.sortDir == "asc",
-                        onSelect = viewModel::selectSort,
-                        onToggleDirection = viewModel::toggleSortDir,
-                    )
-                    state.playlist?.let { playlist ->
-                        ContainerDownloadAction(
-                            type = ContainerDownloadType.PLAYLIST,
-                            sourceId = playlist.id,
-                            name = playlist.name,
-                            coverArtId = playlist.coverArt,
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                            if (state.playlist?.canEdit == true) {
-                                DropdownMenuItem(
-                                    text = { Text("Edit details") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showEditDialog = true
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Add songs") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showAddSongs = true
-                                    },
-                                )
-                            }
-                            if (state.playlist?.canEdit == true) {
-                                DropdownMenuItem(
-                                    text = { Text("Sharing") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showShareDialog = true
-                                        viewModel.loadShares()
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Delete playlist") },
-                                onClick = {
-                                    menuExpanded = false
-                                    showDeleteDialog = true
-                                },
-                            )
-                        }
-                    }
-                },
-            )
             }
         },
         bottomBar = {
@@ -236,7 +173,18 @@ fun PlaylistDetailScreen(
             }
         },
     ) { padding ->
-        when {
+        val playlistCover = state.playlist?.let { playlist ->
+            state.serverUrl
+                ?.takeIf { playlist.matchedCount > 0 }
+                ?.let { coverArtUrl(serverUrl = it, coverArtId = playlist.id, size = "medium") }
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            DetailBackdrop(
+                color = Color(0x3310B981),
+                coverModel = playlistCover,
+                blurred = true,
+            )
+            when {
             state.loading && state.playlist == null -> Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -287,7 +235,79 @@ fun PlaylistDetailScreen(
                         PlaylistHeader(
                             playlist = playlist,
                             serverUrl = state.serverUrl,
-                            onPlay = { viewModel.play() },
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
+                            topActions = {
+                                SortMenu(
+                                    options = playlistSortOptions,
+                                    selectedKey = state.sort,
+                                    ascending = state.sortDir == "asc",
+                                    onSelect = viewModel::selectSort,
+                                    onToggleDirection = viewModel::toggleSortDir,
+                                )
+                                ContainerDownloadAction(
+                                    type = ContainerDownloadType.PLAYLIST,
+                                    sourceId = playlist.id,
+                                    name = playlist.name,
+                                    coverArtId = playlist.coverArt,
+                                )
+                                Box {
+                                    IconButton(onClick = { menuExpanded = true }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false },
+                                    ) {
+                                        if (state.playlist?.canEdit == true) {
+                                            DropdownMenuItem(
+                                                text = { Text("Edit details") },
+                                                onClick = {
+                                                    menuExpanded = false
+                                                    showEditDialog = true
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Add songs") },
+                                                onClick = {
+                                                    menuExpanded = false
+                                                    showAddSongs = true
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Sharing") },
+                                                onClick = {
+                                                    menuExpanded = false
+                                                    showShareDialog = true
+                                                    viewModel.loadShares()
+                                                },
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Delete playlist") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                showDeleteDialog = true
+                                            },
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    item {
+                        DetailActionBar(
+                            onPlayAll = { viewModel.play() },
+                            onShuffle = { viewModel.play(shuffle = true) },
+                            playEnabled = playlist.matchedCount > 0,
+                            actions = {
+                                FilterPill(
+                                    value = state.filter,
+                                    onValueChange = viewModel::setFilter,
+                                    placeholder = "Filter playlist...",
+                                    modifier = Modifier.weight(1f),
+                                )
+                            },
                         )
                     }
                 }
@@ -330,6 +350,7 @@ fun PlaylistDetailScreen(
                 }
             }
         }
+    }
     }
 
     state.playbackError?.let { message ->
@@ -404,39 +425,32 @@ fun PlaylistDetailScreen(
 private fun PlaylistHeader(
     playlist: com.ferrotune.core.network.generated.PlaylistSongsResponse,
     serverUrl: String?,
-    onPlay: () -> Unit,
+    showBackButton: Boolean,
+    onBack: () -> Unit,
+    topActions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
     DetailHeader(
         title = playlist.name,
+        label = "Playlist",
         subtitle = playlist.comment?.takeIf { it.isNotBlank() },
+        meta = buildString {
+            val owners = listOfNotNull(
+                playlist.owner,
+                if (playlist.sharedWithMe) "Shared with you" else null,
+            ).joinToString(" • ")
+            if (owners.isNotBlank()) append(owners)
+            if (isNotEmpty()) append(" • ")
+            append(formatCount(playlist.matchedCount.toInt(), "song"))
+            if (playlist.missingCount > 0) append(" • ${playlist.missingCount} not found")
+            if (playlist.duration > 0) append(" • ${formatTotalDuration(playlist.duration)}")
+        },
         seed = playlist.id,
+        showBackButton = showBackButton,
+        onBack = onBack,
+        topActions = topActions,
         coverModel = serverUrl
             ?.takeIf { playlist.matchedCount > 0 }
             ?.let { coverArtUrl(serverUrl = it, coverArtId = playlist.id, size = "medium") },
-        badges = {
-            Text(
-                text = buildString {
-                    append("${playlist.matchedCount} songs")
-                    if (playlist.missingCount > 0) append(" • ${playlist.missingCount} missing")
-                    if (playlist.duration > 0) append(" • ${formatDuration(playlist.duration)}")
-                    val owners = listOfNotNull(
-                        playlist.owner,
-                        if (playlist.public) "Public" else null,
-                        if (playlist.sharedWithMe) "Shared with me" else null,
-                    ).joinToString(" • ")
-                    if (owners.isNotBlank()) append(" • $owners")
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        actions = {
-            Button(onClick = onPlay) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Play")
-            }
-        },
     )
 }
 
@@ -481,43 +495,36 @@ private fun PlaylistEntryRow(
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Entry menu")
                     }
-                    DropdownMenu(
+                    SongActionSheet(
                         expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        SongActionsMenuContent(
-                            songId = song.id,
-                            flags = flags,
-                            onOpenSongRadio = onOpenSongRadio,
-                            onStartSelection = { selection.select(song.id) },
-                            onDismiss = { menuExpanded = false },
-                            extraItems = {
+                        onDismiss = { menuExpanded = false },
+                        songId = song.id,
+                        flags = flags,
+                        title = song.title,
+                        subtitle = song.artist,
+                        coverModel = inlineCoverModel(song.coverArtData),
+                        onOpenSongRadio = onOpenSongRadio,
+                        onStartSelection = { selection.select(song.id) },
+                        extraContent = {
                             if (canEdit) {
-                                DropdownMenuItem(
-                                    text = { Text("Move up") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onMoveUp()
-                                    },
+                                MediaActionRow(
+                                    icon = Icons.Filled.KeyboardArrowUp,
+                                    label = "Move up",
+                                    onClick = onMoveUp,
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Move down") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onMoveDown()
-                                    },
+                                MediaActionRow(
+                                    icon = Icons.Filled.KeyboardArrowDown,
+                                    label = "Move down",
+                                    onClick = onMoveDown,
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Remove") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onRemove()
-                                    },
+                                MediaActionRow(
+                                    icon = Icons.Filled.Delete,
+                                    label = "Remove",
+                                    onClick = onRemove,
                                 )
-                                }
-                            },
-                        )
-                    }
+                            }
+                        },
+                    )
                 }
             },
         )

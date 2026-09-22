@@ -1,5 +1,6 @@
 package com.ferrotune.feature.library.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,28 +13,30 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,12 +51,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.ferrotune.core.designsystem.components.ChipTab
+import com.ferrotune.core.designsystem.components.ChipTabRow
+import com.ferrotune.core.designsystem.components.FilterPill
+import com.ferrotune.core.designsystem.components.PageTitle
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionActionSheet
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionState
@@ -84,7 +91,9 @@ import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.SongSort
 
-private val SONG_SORT_OPTIONS = listOf(
+internal const val CUSTOM_SORT = "custom"
+
+internal val SONG_SORT_OPTIONS = listOf(
     SortOption(SongSort.TITLE.apiValue, "Title"),
     SortOption(SongSort.ARTIST.apiValue, "Artist"),
     SortOption(SongSort.ALBUM.apiValue, "Album"),
@@ -95,7 +104,17 @@ private val SONG_SORT_OPTIONS = listOf(
     SortOption(SongSort.LAST_PLAYED.apiValue, "Last played"),
 )
 
-private val ALBUM_SORT_OPTIONS = listOf(
+internal val DETAIL_SONG_SORT_OPTIONS = listOf(
+    SortOption(CUSTOM_SORT, "Custom order"),
+    SortOption(SongSort.TITLE.apiValue, "Title"),
+    SortOption(SongSort.ARTIST.apiValue, "Artist"),
+    SortOption(SongSort.ALBUM.apiValue, "Album"),
+    SortOption(SongSort.YEAR.apiValue, "Year"),
+    SortOption(SongSort.DURATION.apiValue, "Duration"),
+    SortOption(SongSort.DATE_ADDED.apiValue, "Date added"),
+)
+
+internal val ALBUM_SORT_OPTIONS = listOf(
     SortOption(AlbumSort.NAME.apiValue, "Name"),
     SortOption(AlbumSort.ARTIST.apiValue, "Artist"),
     SortOption(AlbumSort.YEAR.apiValue, "Year"),
@@ -104,7 +123,7 @@ private val ALBUM_SORT_OPTIONS = listOf(
     SortOption(AlbumSort.LAST_PLAYED.apiValue, "Last played"),
 )
 
-private val ARTIST_SORT_OPTIONS = listOf(
+internal val ARTIST_SORT_OPTIONS = listOf(
     SortOption(ArtistSort.NAME.apiValue, "Name"),
     SortOption(ArtistSort.ALBUM_COUNT.apiValue, "Album count"),
     SortOption(ArtistSort.SONG_COUNT.apiValue, "Song count"),
@@ -117,8 +136,6 @@ fun LibraryScreen(
     onOpenAlbum: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
     onOpenSongRadio: (String) -> Unit,
-    onOpenFavorites: () -> Unit,
-    onOpenHistory: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -162,17 +179,45 @@ fun LibraryScreen(
                     selectingAll = selectingAll,
                 )
             } else {
-                TopAppBar(
-                    title = { Text("Library") },
-                    actions = {
-                        IconButton(onClick = onOpenFavorites) {
-                            Icon(Icons.Filled.FavoriteBorder, contentDescription = "Favorites")
-                        }
-                        IconButton(onClick = onOpenHistory) {
-                            Icon(Icons.Filled.History, contentDescription = "History")
-                        }
-                    },
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        PageTitle("Library")
+                        FilterPill(
+                            value = state.filter,
+                            onValueChange = viewModel::setFilter,
+                            modifier = Modifier.weight(1f),
+                        )
+                        val sort = state.sortMenuState()
+                        SortMenu(
+                            options = sort.options,
+                            selectedKey = sort.selectedKey,
+                            ascending = sort.ascending,
+                            onSelect = viewModel::selectSort,
+                            onToggleDirection = viewModel::toggleSortDirection,
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    ChipTabRow(
+                        tabs = LIBRARY_TABS,
+                        selectedIndex = state.tab.ordinal,
+                        onSelect = { index ->
+                            selection.clear()
+                            viewModel.selectTab(LibraryTab.entries[index])
+                        },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                }
             }
         },
         bottomBar = {
@@ -200,27 +245,8 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            PrimaryScrollableTabRow(selectedTabIndex = state.tab.ordinal, edgePadding = 8.dp) {
-                LibraryTab.entries.forEach { tab ->
-                    Tab(
-                        selected = tab == state.tab,
-                        onClick = {
-                            selection.clear()
-                            viewModel.selectTab(tab)
-                        },
-                        text = { Text(tab.label()) },
-                    )
-                }
-            }
             when (state.tab) {
                 LibraryTab.SONGS -> SongsTab(
-                    sortKey = state.songSort.apiValue,
-                    ascending = state.songSortDir.isAscending(),
-                    onSelectSort = { key ->
-                        SongSort.entries.firstOrNull { it.apiValue == key }
-                            ?.let(viewModel::selectSongSort)
-                    },
-                    onToggleDirection = viewModel::toggleSongSortDir,
                     onPlaySong = viewModel::playSong,
                     onOpenSongRadio = onOpenSongRadio,
                     onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
@@ -229,26 +255,12 @@ fun LibraryScreen(
                 )
 
                 LibraryTab.ALBUMS -> AlbumsTab(
-                    sortKey = state.albumSort.apiValue,
-                    ascending = state.albumSortDir.isAscending(),
-                    onSelectSort = { key ->
-                        AlbumSort.entries.firstOrNull { it.apiValue == key }
-                            ?.let(viewModel::selectAlbumSort)
-                    },
-                    onToggleDirection = viewModel::toggleAlbumSortDir,
                     onOpenAlbum = onOpenAlbum,
                     onOpenArtist = onOpenArtist,
                     items = viewModel.albums.collectAsLazyPagingItems(),
                 )
 
                 LibraryTab.ARTISTS -> ArtistsTab(
-                    sortKey = state.artistSort.apiValue,
-                    ascending = state.artistSortDir.isAscending(),
-                    onSelectSort = { key ->
-                        ArtistSort.entries.firstOrNull { it.apiValue == key }
-                            ?.let(viewModel::selectArtistSort)
-                    },
-                    onToggleDirection = viewModel::toggleArtistSortDir,
                     onOpenArtist = onOpenArtist,
                     items = viewModel.artists.collectAsLazyPagingItems(),
                 )
@@ -276,22 +288,31 @@ fun LibraryScreen(
     }
 }
 
-private fun LibraryTab.label(): String = when (this) {
-    LibraryTab.ARTISTS -> "Artists"
-    LibraryTab.ALBUMS -> "Albums"
-    LibraryTab.SONGS -> "Songs"
-    LibraryTab.GENRES -> "Genres"
+private val LIBRARY_TABS = listOf(
+    ChipTab("Albums", Icons.Filled.Album),
+    ChipTab("Artists", Icons.Filled.Person),
+    ChipTab("Songs", Icons.Filled.MusicNote),
+    ChipTab("Genres", Icons.Filled.Label),
+)
+
+private data class SortMenuState(
+    val options: List<SortOption>,
+    val selectedKey: String,
+    val ascending: Boolean,
+)
+
+private fun LibraryUiState.sortMenuState(): SortMenuState = when (tab) {
+    LibraryTab.SONGS -> SortMenuState(SONG_SORT_OPTIONS, songSort.apiValue, songSortDir.isAscending())
+    LibraryTab.ALBUMS -> SortMenuState(ALBUM_SORT_OPTIONS, albumSort.apiValue, albumSortDir.isAscending())
+    LibraryTab.ARTISTS -> SortMenuState(ARTIST_SORT_OPTIONS, artistSort.apiValue, artistSortDir.isAscending())
+    LibraryTab.GENRES -> SortMenuState(emptyList(), "", true)
 }
 
-private fun com.ferrotune.feature.library.data.SortDir.isAscending(): Boolean =
+internal fun com.ferrotune.feature.library.data.SortDir.isAscending(): Boolean =
     this == com.ferrotune.feature.library.data.SortDir.ASC
 
 @Composable
 private fun SongsTab(
-    sortKey: String,
-    ascending: Boolean,
-    onSelectSort: (String) -> Unit,
-    onToggleDirection: () -> Unit,
     onPlaySong: (String) -> Unit,
     onOpenSongRadio: (String) -> Unit,
     onAddToPlaylist: (String) -> Unit,
@@ -300,19 +321,6 @@ private fun SongsTab(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SortMenu(
-                options = SONG_SORT_OPTIONS,
-                selectedKey = sortKey,
-                ascending = ascending,
-                onSelect = onSelectSort,
-                onToggleDirection = onToggleDirection,
-            )
-        }
         when {
             items.loadState.refresh is androidx.paging.LoadState.Error ->
                 ErrorState(
@@ -359,24 +367,21 @@ private fun SongsTab(
                                 IconButton(onClick = { menuExpanded = true }) {
                                     Icon(Icons.Filled.MoreVert, contentDescription = "More")
                                 }
-                                SongRowMenu(
+                                SongActionSheet(
                                     expanded = menuExpanded,
                                     onDismiss = { menuExpanded = false },
                                     songId = song.id,
                                     flags = flags,
+                                    title = song.title,
+                                    subtitle = song.artist,
+                                    coverModel = inlineCoverModel(song.coverArtData),
                                     onOpenSongRadio = { onOpenSongRadio(song.id) },
                                     onStartSelection = { selection.select(song.id) },
-                                    extraItems = {
+                                    extraContent = {
                                         AddToPlaylistMenuItem(
-                                            onClick = {
-                                                menuExpanded = false
-                                                onAddToPlaylist(song.id)
-                                            },
+                                            onClick = { onAddToPlaylist(song.id) },
                                         )
-                                        SongDownloadMenuItem(
-                                            songId = song.id,
-                                            onClick = { menuExpanded = false },
-                                        )
+                                        SongDownloadMenuItem(songId = song.id)
                                     },
                                 )
                             }
@@ -395,29 +400,12 @@ private fun SongsTab(
 
 @Composable
 private fun AlbumsTab(
-    sortKey: String,
-    ascending: Boolean,
-    onSelectSort: (String) -> Unit,
-    onToggleDirection: () -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenArtist: (String) -> Unit,
     items: androidx.paging.compose.LazyPagingItems<AlbumResponse>,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SortMenu(
-                options = ALBUM_SORT_OPTIONS,
-                selectedKey = sortKey,
-                ascending = ascending,
-                onSelect = onSelectSort,
-                onToggleDirection = onToggleDirection,
-            )
-        }
         when {
             items.loadState.refresh is androidx.paging.LoadState.Error ->
                 ErrorState(
@@ -461,20 +449,19 @@ private fun AlbumsTab(
                             onClick = { onOpenAlbum(album.id) },
                             onLongClick = { menuExpanded = true },
                         )
-                        DropdownMenu(
+                        CollectionActionSheet(
                             expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                            CollectionMenuItems(
-                                target = CollectionTarget(
-                                    sourceType = CollectionSource.ALBUM,
-                                    sourceId = album.id,
-                                    name = album.name,
-                                ),
-                                onDismiss = { menuExpanded = false },
-                                onGoToArtist = { onOpenArtist(album.artistId) },
-                            )
-                        }
+                            onDismiss = { menuExpanded = false },
+                            target = CollectionTarget(
+                                sourceType = CollectionSource.ALBUM,
+                                sourceId = album.id,
+                                name = album.name,
+                            ),
+                            title = album.name,
+                            subtitle = album.artist,
+                            coverModel = inlineCoverModel(album.coverArtData),
+                            onGoToArtist = { onOpenArtist(album.artistId) },
+                        )
                     }
                 }
             }
@@ -484,28 +471,11 @@ private fun AlbumsTab(
 
 @Composable
 private fun ArtistsTab(
-    sortKey: String,
-    ascending: Boolean,
-    onSelectSort: (String) -> Unit,
-    onToggleDirection: () -> Unit,
     onOpenArtist: (String) -> Unit,
     items: androidx.paging.compose.LazyPagingItems<ArtistResponse>,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SortMenu(
-                options = ARTIST_SORT_OPTIONS,
-                selectedKey = sortKey,
-                ascending = ascending,
-                onSelect = onSelectSort,
-                onToggleDirection = onToggleDirection,
-            )
-        }
         when {
             items.loadState.refresh is androidx.paging.LoadState.Error ->
                 ErrorState(
@@ -536,19 +506,18 @@ private fun ArtistsTab(
                             onClick = { onOpenArtist(artist.id) },
                             onLongClick = { menuExpanded = true },
                         )
-                        DropdownMenu(
+                        CollectionActionSheet(
                             expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                            CollectionMenuItems(
-                                target = CollectionTarget(
-                                    sourceType = CollectionSource.ARTIST,
-                                    sourceId = artist.id,
-                                    name = artist.name,
-                                ),
-                                onDismiss = { menuExpanded = false },
-                            )
-                        }
+                            onDismiss = { menuExpanded = false },
+                            target = CollectionTarget(
+                                sourceType = CollectionSource.ARTIST,
+                                sourceId = artist.id,
+                                name = artist.name,
+                            ),
+                            title = artist.name,
+                            subtitle = artistCounts(artist),
+                            coverModel = inlineCoverModel(artist.coverArtData),
+                        )
                     }
                 }
                 item {

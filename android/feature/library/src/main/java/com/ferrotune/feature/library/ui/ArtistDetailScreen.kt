@@ -4,8 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,13 +17,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.PrimaryTabRow
@@ -28,7 +28,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,12 +44,12 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
-import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionActionSheet
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongFavoriteButton
-import com.ferrotune.core.actions.SongRowMenu
 import com.ferrotune.core.actions.SongSelectionAction
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionState
@@ -58,15 +57,23 @@ import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.components.DetailActionBar
+import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.FavoriteButton
+import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.LoadingState
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
 import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.core.designsystem.components.SortMenu
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.feature.library.data.SortDir
+import com.ferrotune.core.designsystem.theme.seedBackdropColor
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
 import com.ferrotune.feature.downloads.ui.SongDownloadAction
@@ -106,6 +113,7 @@ fun ArtistDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             if (selection.isActive) {
                 SongSelectionTopBar(
@@ -124,21 +132,6 @@ fun ArtistDetailScreen(
                         null
                     },
                     selectingAll = selectingAll,
-                )
-            } else {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = state.artist?.name ?: "Artist",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
                 )
             }
         },
@@ -176,53 +169,95 @@ fun ArtistDetailScreen(
                     .padding(padding),
             )
 
-            state.artist != null -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
+            state.artist != null -> {
                 val artist = state.artist!!
-                DetailHeader(
-                    title = artist.name,
-                    subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
-                    seed = artist.id,
-                    circularCover = true,
-                    coverModel = inlineCoverModel(artist.coverArtData)
-                        ?: artist.coverArt?.let { id ->
-                            state.serverUrl?.let { coverArtUrl(it, id, "medium") }
-                        },
-                    actions = {
-                        Button(onClick = { viewModel.play() }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Play")
-                        }
-                    },
-                )
-                PrimaryTabRow(selectedTabIndex = state.tab.ordinal) {
-                    ArtistTab.entries.forEach { tab ->
-                        Tab(
-                            selected = tab == state.tab,
-                            onClick = {
-                                selection.clear()
-                                viewModel.selectTab(tab)
-                            },
-                            text = { Text(if (tab == ArtistTab.ALBUMS) "Albums" else "Songs") },
-                        )
+                val coverModel = inlineCoverModel(artist.coverArtData)
+                    ?: artist.coverArt?.let { id ->
+                        state.serverUrl?.let { coverArtUrl(it, id, "medium") }
                     }
-                }
-                when (state.tab) {
-                    ArtistTab.ALBUMS -> ArtistAlbumGrid(
-                        items = albums,
-                        onOpenAlbum = onOpenAlbum,
+                Box(modifier = Modifier.fillMaxSize()) {
+                    DetailBackdrop(
+                        color = seedBackdropColor(artist.name),
+                        coverModel = coverModel,
+                        blurred = true,
                     )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                    ) {
+                        DetailHeader(
+                            title = artist.name,
+                            label = "Artist",
+                            subtitle = formatCount(artist.albumCount?.toInt() ?: 0, "album"),
+                            seed = artist.id,
+                            circularCover = true,
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
+                            coverModel = coverModel,
+                        )
+                        DetailActionBar(
+                            onPlayAll = { viewModel.play() },
+                            onShuffle = { viewModel.play(shuffle = true) },
+                            playEnabled = (artist.songCount ?: 0) > 0,
+                            actions = {
+                                FavoriteButton(
+                                    isFavorite = artist.starred != null,
+                                    onToggle = viewModel::toggleStar,
+                                )
+                            },
+                        )
+                        PrimaryTabRow(selectedTabIndex = state.tab.ordinal) {
+                            ArtistTab.entries.forEach { tab ->
+                                Tab(
+                                    selected = tab == state.tab,
+                                    onClick = {
+                                        selection.clear()
+                                        viewModel.selectTab(tab)
+                                    },
+                                    text = {
+                                        Text(if (tab == ArtistTab.ALBUMS) "Albums" else "Songs")
+                                    },
+                                )
+                            }
+                        }
+                        if (state.tab == ArtistTab.SONGS) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                FilterPill(
+                                    value = state.filter,
+                                    onValueChange = viewModel::setFilter,
+                                    placeholder = "Filter songs...",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SortMenu(
+                                    options = DETAIL_SONG_SORT_OPTIONS,
+                                    selectedKey = state.sort,
+                                    ascending = state.sortDir == SortDir.ASC,
+                                    onSelect = viewModel::selectSort,
+                                    onToggleDirection = viewModel::toggleSortDir,
+                                )
+                            }
+                        }
+                        when (state.tab) {
+                            ArtistTab.ALBUMS -> ArtistAlbumGrid(
+                                items = albums,
+                                onOpenAlbum = onOpenAlbum,
+                            )
 
-                    ArtistTab.SONGS -> ArtistSongList(
-                        items = songs,
-                        onPlaySong = { viewModel.play(it) },
-                        onOpenSongRadio = onOpenSongRadio,
-                        selection = selection,
-                    )
+                            ArtistTab.SONGS -> ArtistSongList(
+                                items = songs,
+                                onPlaySong = { viewModel.play(it) },
+                                onOpenSongRadio = onOpenSongRadio,
+                                selection = selection,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -287,19 +322,18 @@ private fun ArtistAlbumGrid(
                         onClick = { onOpenAlbum(album.id) },
                         onLongClick = { menuExpanded = true },
                     )
-                    DropdownMenu(
+                    CollectionActionSheet(
                         expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        CollectionMenuItems(
-                            target = CollectionTarget(
-                                sourceType = CollectionSource.ALBUM,
-                                sourceId = album.id,
-                                name = album.name,
-                            ),
-                            onDismiss = { menuExpanded = false },
-                        )
-                    }
+                        onDismiss = { menuExpanded = false },
+                        target = CollectionTarget(
+                            sourceType = CollectionSource.ALBUM,
+                            sourceId = album.id,
+                            name = album.name,
+                        ),
+                        title = album.name,
+                        subtitle = album.year?.toString(),
+                        coverModel = inlineCoverModel(album.coverArtData),
+                    )
                 }
             }
         }
@@ -356,11 +390,14 @@ private fun ArtistSongList(
                     trailing = {
                         Box {
                             SongFavoriteButton(songId = song.id, flags = flags)
-                            SongRowMenu(
+                            SongActionSheet(
                                 expanded = menuExpanded,
                                 onDismiss = { menuExpanded = false },
                                 songId = song.id,
                                 flags = flags,
+                                title = song.title,
+                                subtitle = song.artist,
+                                coverModel = inlineCoverModel(song.coverArtData),
                                 onOpenSongRadio = { onOpenSongRadio(song.id) },
                                 onStartSelection = { selection.select(song.id) },
                             )

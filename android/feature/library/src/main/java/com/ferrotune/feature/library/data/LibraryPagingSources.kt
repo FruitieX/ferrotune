@@ -91,14 +91,21 @@ class ArtistAlbumsPagingSource(
 class HistoryPagingSource(
     private val apiProvider: FerrotuneApiProvider,
     override val pageSize: Int = LIBRARY_PAGE_SIZE,
+    private val filter: String? = null,
+    private val sort: SongSort? = null,
+    private val sortDir: SortDir? = null,
 ) : OffsetPagingSource<FerrotunePlayHistoryEntry>() {
     override suspend fun loadPage(offset: Int, count: Int): PageResult<FerrotunePlayHistoryEntry> {
+        val params = mapOf(
+            "offset" to offset.toString(),
+            "size" to count.toString(),
+            "inlineImages" to "medium",
+            "filter" to filter,
+            "sort" to sort?.apiValue,
+            "sortDir" to sortDir?.apiValue,
+        )
         val response = apiProvider.requireApi().history(
-            mapOf(
-                "offset" to offset.toString(),
-                "size" to count.toString(),
-                "inlineImages" to "medium",
-            )
+            params.filterValues { it != null }.mapValues { it.value!! },
         )
         return PageResult(response.entry, response.total)
     }

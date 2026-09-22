@@ -82,7 +82,30 @@ class LibraryRepository @Inject constructor(
         ),
     )
 
-    fun history(): PagingSource<Int, FerrotunePlayHistoryEntry> = HistoryPagingSource(apiProvider)
+    fun history(
+        filter: String? = null,
+        sort: SongSort? = null,
+        sortDir: SortDir? = null,
+    ): PagingSource<Int, FerrotunePlayHistoryEntry> =
+        HistoryPagingSource(apiProvider, filter = filter, sort = sort, sortDir = sortDir)
+
+    /** Starred song/album/artist totals for the Favorites tab labels. */
+    suspend fun favoritesCounts(): FavoritesCounts {
+        val response = apiProvider.requireApi().search(
+            mapOf(
+                "query" to MATCH_ALL,
+                "songCount" to "0",
+                "albumCount" to "0",
+                "artistCount" to "0",
+                "starredOnly" to "true",
+            ),
+        )
+        return FavoritesCounts(
+            songs = response.searchResult.songTotal ?: 0,
+            albums = response.searchResult.albumTotal ?: 0,
+            artists = response.searchResult.artistTotal ?: 0,
+        )
+    }
 
     fun albumSongs(
         albumId: String,
@@ -156,3 +179,10 @@ class LibraryRepository @Inject constructor(
         const val INLINE_IMAGES = "medium"
     }
 }
+
+/** Starred totals shown in the Favorites tab labels. */
+data class FavoritesCounts(
+    val songs: Long,
+    val albums: Long,
+    val artists: Long,
+)

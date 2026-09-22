@@ -31,6 +31,47 @@ sealed interface HomeLinkTarget {
     data class Section(val sectionId: String) : HomeLinkTarget
     data class Playlist(val id: String) : HomeLinkTarget
     data class SmartPlaylist(val id: String) : HomeLinkTarget
+    data class Album(val id: String) : HomeLinkTarget
+    data class Artist(val id: String) : HomeLinkTarget
+    data class SongRadio(val id: String) : HomeLinkTarget
+    data class Genre(val name: String) : HomeLinkTarget
+}
+
+/**
+ * Web-parity mapping from a queue source descriptor to the page its card
+ * should open on tap (matching `getQueueSourceHref`).
+ */
+fun queueSourceLinkTarget(
+    sourceType: String,
+    sourceId: String?,
+    sourceName: String?,
+    sections: List<HomeSectionConfig> = emptyList(),
+): HomeLinkTarget? {
+    fun section(kind: HomeSectionKind): HomeLinkTarget.Section {
+        val id = sections.firstOrNull { it.kind == kind }?.id ?: defaultHomeSection(kind).id
+        return HomeLinkTarget.Section(id)
+    }
+    return when (sourceType) {
+        "album" -> sourceId?.let { HomeLinkTarget.Album(it) }
+        "artist" -> sourceId?.let { HomeLinkTarget.Artist(it) }
+        "playlist" -> sourceId?.let { HomeLinkTarget.Playlist(it) }
+        "smartPlaylist" -> sourceId?.let { HomeLinkTarget.SmartPlaylist(it) }
+        "songRadio" -> sourceId?.let { HomeLinkTarget.SongRadio(it) }
+        "favorites" -> HomeLinkTarget.Favorites
+        "history" -> HomeLinkTarget.History
+        "forgottenFavorites" -> section(HomeSectionKind.FORGOTTEN_FAVORITES)
+        "mostPlayedRecently" -> section(HomeSectionKind.MOST_PLAYED_RECENTLY)
+        "similarTracks" -> section(HomeSectionKind.SIMILAR_TRACKS)
+        "albumList" -> when (sourceId) {
+            "random" -> section(HomeSectionKind.DISCOVER)
+            "newest" -> section(HomeSectionKind.RECENTLY_ADDED)
+            "frequent" -> section(HomeSectionKind.TOP_ALBUMS)
+            "recent" -> section(HomeSectionKind.RECENT_ALBUMS)
+            else -> null
+        }
+        "genre" -> sourceName?.let { HomeLinkTarget.Genre(it) }
+        else -> null
+    }
 }
 
 sealed interface HomeTileAction {

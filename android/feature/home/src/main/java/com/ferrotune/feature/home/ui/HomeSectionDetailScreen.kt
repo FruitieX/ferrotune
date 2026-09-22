@@ -3,6 +3,7 @@ package com.ferrotune.feature.home.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -10,7 +11,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -23,12 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ferrotune.core.actions.CollectionMenuItems
+import com.ferrotune.core.actions.CollectionActionSheet
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
-import com.ferrotune.core.actions.SongRowMenu
+import com.ferrotune.core.actions.SongActionSheet
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.EmptyState
@@ -43,6 +44,7 @@ fun HomeSectionDetailScreen(
     onOpenAlbum: (String) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onOpenSmartPlaylist: (String) -> Unit,
+    onOpenLink: (HomeLinkTarget) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeSectionDetailViewModel = hiltViewModel(),
 ) {
@@ -113,6 +115,14 @@ fun HomeSectionDetailScreen(
                         else -> null
                     }
                     val entrySourceId = album?.id ?: playlist?.id
+                    val sourceTarget = source?.let {
+                        queueSourceLinkTarget(
+                            sourceType = it.sourceType,
+                            sourceId = it.id,
+                            sourceName = it.name,
+                            sections = listOfNotNull(section),
+                        )
+                    }
                     var entryMenuExpanded by remember { mutableStateOf(false) }
                     Box {
                         MediaRow(
@@ -139,6 +149,8 @@ fun HomeSectionDetailScreen(
                                     entry.type == "playlist" && playlist != null ->
                                         onOpenPlaylist(playlist.id)
 
+                                    sourceTarget != null -> onOpenLink(sourceTarget)
+
                                     else -> viewModel.playEntry(entry)
                                 }
                             },
@@ -147,21 +159,46 @@ fun HomeSectionDetailScreen(
                                     entryMenuExpanded = true
                                 }
                             },
+                            trailing = {
+                                IconButton(onClick = { viewModel.playEntry(entry) }) {
+                                    Icon(
+                                        Icons.Filled.PlayArrow,
+                                        contentDescription = "Play",
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                            },
                         )
                         if (entrySourceType != null && entrySourceId != null) {
-                            DropdownMenu(
+                            CollectionActionSheet(
                                 expanded = entryMenuExpanded,
-                                onDismissRequest = { entryMenuExpanded = false },
-                            ) {
-                                CollectionMenuItems(
-                                    target = CollectionTarget(
-                                        sourceType = entrySourceType,
-                                        sourceId = entrySourceId,
-                                        name = album?.name ?: playlist?.name,
-                                    ),
-                                    onDismiss = { entryMenuExpanded = false },
-                                )
-                            }
+                                onDismiss = { entryMenuExpanded = false },
+                                target = CollectionTarget(
+                                    sourceType = entrySourceType,
+                                    sourceId = entrySourceId,
+                                    name = album?.name ?: playlist?.name,
+                                ),
+                                title = album?.name ?: playlist?.name ?: source?.name,
+                                subtitle = entry.type,
+                                coverModel = album?.coverArtData?.let(::inlineCoverModel)
+                                    ?: state.serverUrl?.let { base ->
+                                        val coverId = when {
+                                            album != null -> album.id
+                                            playlist?.playlistType == "smartPlaylist" ->
+                                                "sp-${playlist.id}"
+
+                                            playlist != null -> playlist.id
+                                            else -> source?.coverArt
+                                        }
+                                        coverId?.let {
+                                            coverArtUrl(
+                                                serverUrl = base,
+                                                coverArtId = it,
+                                                size = "small",
+                                            )
+                                        }
+                                    },
+                            )
                         }
                     }
                 }
@@ -177,20 +214,31 @@ fun HomeSectionDetailScreen(
                                 },
                             onClick = { onOpenAlbum(album.id) },
                             onLongClick = { menuExpanded = true },
+                            trailing = {
+                                IconButton(onClick = { viewModel.playAlbum(album) }) {
+                                    Icon(
+                                        Icons.Filled.PlayArrow,
+                                        contentDescription = "Play",
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                            },
                         )
-                        DropdownMenu(
+                        CollectionActionSheet(
                             expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                            CollectionMenuItems(
-                                target = CollectionTarget(
-                                    sourceType = CollectionSource.ALBUM,
-                                    sourceId = album.id,
-                                    name = album.name,
-                                ),
-                                onDismiss = { menuExpanded = false },
-                            )
-                        }
+                            onDismiss = { menuExpanded = false },
+                            target = CollectionTarget(
+                                sourceType = CollectionSource.ALBUM,
+                                sourceId = album.id,
+                                name = album.name,
+                            ),
+                            title = album.name,
+                            subtitle = album.artist,
+                            coverModel = inlineCoverModel(album.coverArtData)
+                                ?: state.serverUrl?.let {
+                                    coverArtUrl(serverUrl = it, coverArtId = album.id, size = "small")
+                                },
+                        )
                     }
                 }
                 items(state.songs, key = { "song-${it.id}" }) { song ->
@@ -204,14 +252,26 @@ fun HomeSectionDetailScreen(
                             title = song.title,
                             subtitle = song.artist,
                             coverModel = inlineCoverModel(song.coverArtData),
-                            onClick = { viewModel.playSong(song) },
+                            onClick = { song.albumId?.let(onOpenAlbum) },
                             onLongClick = { menuExpanded = true },
+                            trailing = {
+                                IconButton(onClick = { viewModel.playSong(song) }) {
+                                    Icon(
+                                        Icons.Filled.PlayArrow,
+                                        contentDescription = "Play",
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                            },
                         )
-                        SongRowMenu(
+                        SongActionSheet(
                             expanded = menuExpanded,
                             onDismiss = { menuExpanded = false },
                             songId = song.id,
                             flags = flags,
+                            title = song.title,
+                            subtitle = song.artist,
+                            coverModel = inlineCoverModel(song.coverArtData),
                         )
                     }
                 }

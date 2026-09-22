@@ -19,6 +19,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -27,6 +32,9 @@ data class SmartPlaylistDetailUiState(
     val serverUrl: String? = null,
     val loading: Boolean = true,
     val error: String? = null,
+    val filter: String = "",
+    val sort: String = PlaylistRepository.PLAYLIST_SORT_CUSTOM,
+    val sortDir: String = "asc",
     val deleted: Boolean = false,
     val materializedPlaylistId: String? = null,
     val playbackError: String? = null,
@@ -44,10 +52,24 @@ class SmartPlaylistDetailViewModel @Inject constructor(
     private val state = MutableStateFlow(SmartPlaylistDetailUiState())
     val uiState: StateFlow<SmartPlaylistDetailUiState> = state.asStateFlow()
 
-    val songs: Flow<PagingData<SongResponse>> =
-        Pager(PagingConfig(pageSize = DEFAULT_PAGE_SIZE)) {
-            repository.smartPlaylistSongs(smartPlaylistId)
-        }.flow.cachedIn(viewModelScope)
+    private val filter = MutableStateFlow("")
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    val songs: Flow<PagingData<SongResponse>> = combine(
+        state.map { it.sort to it.sortDir }.distinctUntilChanged(),
+        filter.debounce { if (it.isBlank()) 0L else 300L }.distinctUntilChanged(),
+    ) { (sort, sortDir), filter -> Triple(sort, sortDir, filter) }
+        .flatMapLatest { (sort, sortDir, filter) ->
+            Pager(PagingConfig(pageSize = DEFAULT_PAGE_SIZE)) {
+                repository.smartPlaylistSongs(
+                    smartPlaylistId,
+                    filter = filter.ifBlank { null },
+                    sortField = sort.takeIf { it != PlaylistRepository.PLAYLIST_SORT_CUSTOM },
+                    sortDirection = sortDir,
+                )
+            }.flow
+        }
+        .cachedIn(viewModelScope)
 
     init {
         load()
@@ -68,6 +90,17 @@ class SmartPlaylistDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun setFilter(value: String) {
+        state.update { it.copy(filter = value) }
+        filter.value = value
+    }
+
+    fun selectSort(sort: String) = state.update { it.copy(sort = sort) }
+
+    fun toggleSortDir() = state.update {
+        it.copy(sortDir = if (it.sortDir == "asc") "desc" else "asc")
     }
 
     fun play(startSongId: String? = null, shuffle: Boolean = false) {
