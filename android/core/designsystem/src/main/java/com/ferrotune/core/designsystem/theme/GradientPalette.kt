@@ -37,3 +37,29 @@ fun seedGradientBrush(seed: String?, darkTheme: Boolean): Brush {
     val gradient = seedGradient(seed, darkTheme)
     return Brush.linearGradient(listOf(gradient.start, gradient.end))
 }
+
+/** Port of the web client's `stringToHue` (32-bit Java-style string hash). */
+fun stringToHue(value: String): Int {
+    var hash = 0
+    for (char in value) {
+        hash = hash * 31 + char.code
+    }
+    return kotlin.math.abs(hash % 360)
+}
+
+/**
+ * Web detail-page backdrop color: `hsl(stringToHue(seed), 70%, 25%)`.
+ */
+fun seedBackdropColor(seed: String): Color =
+    Color.hsl(stringToHue(seed).toFloat(), 0.70f, 0.25f)
+
+/**
+ * Web seeded icon tile gradient: `hsl(hue,70%,40%)` → `hsl(hue,70%,25%)`.
+ */
+fun seedIconGradient(seed: String): List<Color> {
+    val hue = stringToHue(seed).toFloat()
+    return listOf(
+        Color.hsl(hue, 0.70f, 0.40f),
+        Color.hsl(hue, 0.70f, 0.25f),
+    )
+}

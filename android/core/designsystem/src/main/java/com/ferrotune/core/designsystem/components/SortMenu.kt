@@ -1,16 +1,17 @@
 package com.ferrotune.core.designsystem.components
 
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 data class SortOption(
@@ -26,8 +28,9 @@ data class SortOption(
 )
 
 /**
- * Top-app-bar sort control: menu of sort keys plus an ascending/descending
- * toggle. Selection is applied server-side.
+ * Sort control matching the web client's `ArrowUpDown` dropdown: a single icon
+ * button opening a "Sort by" menu, where the selected field shows the current
+ * direction and a final item toggles it. Selection is applied server-side.
  */
 @Composable
 fun SortMenu(
@@ -40,14 +43,7 @@ fun SortMenu(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    Row(modifier = modifier) {
-        IconButton(onClick = onToggleDirection) {
-            Icon(
-                imageVector = if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
-                contentDescription = "Sort direction",
-                modifier = Modifier.size(20.dp),
-            )
-        }
+    Box(modifier = modifier) {
         IconButton(onClick = { expanded = true }) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.Sort,
@@ -56,6 +52,19 @@ fun SortMenu(
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Sort by",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = {},
+                enabled = false,
+            )
+            HorizontalDivider()
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option.label) },
@@ -65,11 +74,20 @@ fun SortMenu(
                     },
                     trailingIcon = {
                         if (option.key == selectedKey) {
-                            Icon(Icons.Filled.Check, contentDescription = null)
+                            Icon(
+                                imageVector = if (ascending) {
+                                    Icons.Filled.ArrowUpward
+                                } else {
+                                    Icons.Filled.ArrowDownward
+                                },
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
                         }
                     },
                 )
             }
+            HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(if (ascending) "Descending" else "Ascending") },
                 onClick = {

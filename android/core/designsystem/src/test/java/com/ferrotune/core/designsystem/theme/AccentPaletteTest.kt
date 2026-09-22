@@ -68,8 +68,18 @@ class AccentPaletteTest {
         assertEquals(oklchToColor(accent), themed.primary)
         assertNotEquals(base.primary, themed.primary)
         assertNotEquals(base.primaryContainer, themed.primaryContainer)
-        assertNotEquals(base.secondary, themed.secondary)
-        assertNotEquals(base.tertiary, themed.tertiary)
+    }
+
+    @Test
+    fun `withAccent keeps neutral roles like the web stylesheet`() {
+        val base = darkColorScheme()
+        val themed = AccentColors.withAccent(base, AccentColors.resolve("gold"), darkTheme = true)
+
+        // The web accent blocks only override --primary/--ring; secondary and
+        // tertiary stay neutral so surfaces like the filter pill keep the gray
+        // `--secondary` token.
+        assertEquals(base.secondary, themed.secondary)
+        assertEquals(base.tertiary, themed.tertiary)
     }
 
     @Test

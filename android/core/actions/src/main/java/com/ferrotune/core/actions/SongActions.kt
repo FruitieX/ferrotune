@@ -8,10 +8,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,6 +21,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.designsystem.components.FavoriteButton
+import com.ferrotune.core.designsystem.components.MediaAction
+import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueAddPosition
 import com.ferrotune.core.media.QueueAddSpec
@@ -161,82 +159,66 @@ class SongActionsViewModel @Inject constructor(
 }
 
 /**
- * Shared dropdown items for song actions: play next, add to queue, song radio,
- * favorite toggle, and selection. Features append their own items via
- * [extraItems].
+ * Rows for the shared song action sheet: play next, add to queue, song radio,
+ * favorite toggle, and selection.
  */
-@Composable
-fun SongMenuItems(
+fun songMenuActions(
     flags: SongFlags,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onToggleStar: () -> Unit,
     onOpenSongRadio: (() -> Unit)? = null,
     onStartSelection: (() -> Unit)? = null,
-    extraItems: (@Composable () -> Unit)? = null,
-) {
-    DropdownMenuItem(
-        text = { Text("Play next") },
-        leadingIcon = { Icon(Icons.Filled.PlaylistPlay, contentDescription = null) },
-        onClick = onPlayNext,
+): List<MediaAction> = buildList {
+    add(MediaAction(label = "Play next", icon = Icons.Filled.PlaylistPlay, onClick = onPlayNext))
+    add(MediaAction(label = "Add to queue", icon = Icons.Filled.Add, onClick = onAddToQueue))
+    onOpenSongRadio?.let { add(MediaAction(label = "Song radio", icon = Icons.Filled.Radio, onClick = it)) }
+    add(
+        MediaAction(
+            label = if (flags.starred) "Remove from favorites" else "Add to favorites",
+            icon = if (flags.starred) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            onClick = onToggleStar,
+        ),
     )
-    DropdownMenuItem(
-        text = { Text("Add to queue") },
-        leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-        onClick = onAddToQueue,
-    )
-    if (onOpenSongRadio != null) {
-        DropdownMenuItem(
-            text = { Text("Song radio") },
-            leadingIcon = { Icon(Icons.Filled.Radio, contentDescription = null) },
-            onClick = onOpenSongRadio,
-        )
-    }
-    DropdownMenuItem(
-        text = { Text(if (flags.starred) "Remove from favorites" else "Add to favorites") },
-        leadingIcon = {
-            Icon(
-                imageVector = if (flags.starred) {
-                    Icons.Filled.Favorite
-                } else {
-                    Icons.Outlined.FavoriteBorder
-                },
-                contentDescription = null,
-            )
-        },
-        onClick = onToggleStar,
-    )
-    if (onStartSelection != null) {
-        DropdownMenuItem(
-            text = { Text("Select") },
-            leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null) },
-            onClick = onStartSelection,
-        )
-    }
-    extraItems?.invoke()
+    onStartSelection?.let { add(MediaAction(label = "Select", icon = Icons.Filled.Checklist, onClick = it)) }
 }
 
-/** Dropdown host for [SongActionsMenuContent] with feature-supplied extras. */
+/**
+ * Self-contained song action sheet. Hosts its own ViewModel so any feature can
+ * use it without extra wiring; features append their own rows via
+ * [extraContent].
+ */
 @Composable
-fun SongRowMenu(
+fun SongActionSheet(
     expanded: Boolean,
     onDismiss: () -> Unit,
     songId: String,
     flags: SongFlags,
+    title: String? = null,
+    subtitle: String? = null,
+    coverModel: Any? = null,
     onOpenSongRadio: (() -> Unit)? = null,
     onStartSelection: (() -> Unit)? = null,
-    extraItems: (@Composable () -> Unit)? = null,
+    extraContent: (@Composable () -> Unit)? = null,
+    viewModel: SongActionsViewModel = hiltViewModel(),
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        SongActionsMenuContent(
-            songId = songId,
+    MediaActionSheet(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        title = title,
+        subtitle = subtitle,
+        coverModel = coverModel,
+        seed = songId,
+        actions = songMenuActions(
             flags = flags,
+            onPlayNext = { viewModel.playNext(listOf(songId)) },
+            onAddToQueue = { viewModel.addToQueue(listOf(songId)) },
+            onToggleStar = { viewModel.toggleStar(songId, flags) },
             onOpenSongRadio = onOpenSongRadio,
             onStartSelection = onStartSelection,
-            extraItems = extraItems,
-            onDismiss = onDismiss,
-        )
-    }
+        ),
+        extraContent = extraContent,
+    )
 }
 
 /** Favorite toggle with its own mutation wiring, for row/header placement. */
@@ -256,46 +238,3 @@ fun SongFavoriteButton(
     )
 }
 
-/**
- * Self-contained song action menu content. Hosts its own ViewModel so any
- * feature can use it inside a `DropdownMenu` without extra wiring.
- */
-@Composable
-fun SongActionsMenuContent(
-    songId: String,
-    flags: SongFlags,
-    onOpenSongRadio: (() -> Unit)? = null,
-    onStartSelection: (() -> Unit)? = null,
-    extraItems: (@Composable () -> Unit)? = null,
-    onDismiss: () -> Unit = {},
-    viewModel: SongActionsViewModel = hiltViewModel(),
-) {
-    SongMenuItems(
-        flags = flags,
-        onPlayNext = {
-            onDismiss()
-            viewModel.playNext(listOf(songId))
-        },
-        onAddToQueue = {
-            onDismiss()
-            viewModel.addToQueue(listOf(songId))
-        },
-        onToggleStar = {
-            onDismiss()
-            viewModel.toggleStar(songId, flags)
-        },
-        onOpenSongRadio = onOpenSongRadio?.let { open ->
-            {
-                onDismiss()
-                open()
-            }
-        },
-        onStartSelection = onStartSelection?.let { select ->
-            {
-                onDismiss()
-                select()
-            }
-        },
-        extraItems = extraItems,
-    )
-}

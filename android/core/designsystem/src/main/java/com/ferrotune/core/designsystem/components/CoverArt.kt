@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +36,7 @@ fun CoverArt(
     shape: Shape = RoundedCornerShape(10.dp),
     seed: String? = null,
     placeholder: ImageVector = Icons.Filled.MusicNote,
+    placeholderTint: Color? = null,
 ) {
     val darkTheme = isSystemInDarkTheme()
     val gradient = seedGradient(seed ?: contentDescription, darkTheme)
@@ -66,7 +68,8 @@ fun CoverArt(
                 Icon(
                     imageVector = placeholder,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    tint = placeholderTint
+                        ?: MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.size(24.dp),
                 )
             }

@@ -89,16 +89,12 @@ object AccentColors {
                 accent.copy(lightness = 0.25, chroma = accent.chroma)
             },
         )
-        val secondary = oklchToColor(accent.copy(chroma = accent.chroma * 0.6))
-        val tertiary = oklchToColor(accent.copy(hue = (accent.hue + 35.0) % 360.0))
 
         return scheme.copy(
             primary = primary,
             onPrimary = onPrimary,
             primaryContainer = primaryContainer,
             onPrimaryContainer = onPrimaryContainer,
-            secondary = secondary,
-            tertiary = tertiary,
         )
     }
 }

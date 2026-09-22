@@ -6,13 +6,12 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.designsystem.components.MediaAction
+import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueAddPosition
 import com.ferrotune.core.media.QueueAddSpec
@@ -30,7 +29,7 @@ object CollectionSource {
     const val SMART_PLAYLIST = "smartPlaylist"
 }
 
-/** One album/artist/playlist target for [CollectionMenuItems]. */
+/** One album/artist/playlist target for [CollectionActionSheet]. */
 data class CollectionTarget(
     val sourceType: String,
     val sourceId: String,
@@ -99,59 +98,46 @@ class CollectionActionsViewModel @Inject constructor(
 }
 
 /**
- * Shared dropdown items for album/artist/playlist actions: play, shuffle,
- * play next, add to queue, and an optional "Go to artist". Features append
- * their own items via [extraItems].
+ * Shared action sheet for album/artist/playlist actions: play, shuffle, play
+ * next, add to queue, and an optional "Go to artist". Features append their
+ * own rows via [extraContent].
  */
 @Composable
-fun CollectionMenuItems(
-    target: CollectionTarget,
+fun CollectionActionSheet(
+    expanded: Boolean,
     onDismiss: () -> Unit,
+    target: CollectionTarget,
+    title: String? = null,
+    subtitle: String? = null,
+    coverModel: Any? = null,
     onGoToArtist: (() -> Unit)? = null,
-    extraItems: (@Composable () -> Unit)? = null,
+    extraContent: (@Composable () -> Unit)? = null,
     viewModel: CollectionActionsViewModel = hiltViewModel(),
 ) {
-    DropdownMenuItem(
-        text = { Text("Play") },
-        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            viewModel.play(target)
+    MediaActionSheet(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        title = title,
+        subtitle = subtitle,
+        coverModel = coverModel,
+        seed = target.sourceId,
+        actions = buildList {
+            add(MediaAction(label = "Play", icon = Icons.Filled.PlayArrow) { viewModel.play(target) })
+            add(MediaAction(label = "Shuffle", icon = Icons.Filled.Shuffle) { viewModel.shuffle(target) })
+            add(
+                MediaAction(label = "Play next", icon = Icons.Filled.PlaylistPlay) {
+                    viewModel.playNext(target)
+                },
+            )
+            add(
+                MediaAction(label = "Add to queue", icon = Icons.Filled.Add) {
+                    viewModel.addToQueue(target)
+                },
+            )
+            onGoToArtist?.let {
+                add(MediaAction(label = "Go to artist", icon = Icons.Filled.Person, onClick = it))
+            }
         },
+        extraContent = extraContent,
     )
-    DropdownMenuItem(
-        text = { Text("Shuffle") },
-        leadingIcon = { Icon(Icons.Filled.Shuffle, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            viewModel.shuffle(target)
-        },
-    )
-    DropdownMenuItem(
-        text = { Text("Play next") },
-        leadingIcon = { Icon(Icons.Filled.PlaylistPlay, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            viewModel.playNext(target)
-        },
-    )
-    DropdownMenuItem(
-        text = { Text("Add to queue") },
-        leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            viewModel.addToQueue(target)
-        },
-    )
-    if (onGoToArtist != null) {
-        DropdownMenuItem(
-            text = { Text("Go to artist") },
-            leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
-            onClick = {
-                onDismiss()
-                onGoToArtist()
-            },
-        )
-    }
-    extraItems?.invoke()
 }

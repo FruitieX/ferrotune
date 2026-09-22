@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -40,6 +43,8 @@ fun MediaRow(
     modifier: Modifier = Modifier,
     coverShape: Shape = RoundedCornerShape(10.dp),
     coverSeed: String? = null,
+    coverPlaceholder: ImageVector = Icons.Filled.MusicNote,
+    coverPlaceholderTint: Color? = null,
     trailing: @Composable (() -> Unit)? = null,
     isSelectionActive: Boolean = false,
     isSelected: Boolean = false,
@@ -80,6 +85,8 @@ fun MediaRow(
             contentDescription = null,
             seed = coverSeed,
             shape = coverShape,
+            placeholder = coverPlaceholder,
+            placeholderTint = coverPlaceholderTint,
             modifier = Modifier.size(48.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
