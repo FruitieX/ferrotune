@@ -1360,6 +1360,10 @@ class PlaybackService : MediaSessionService() {
                 handler.post {
                     if (!sseListenerGeneration.isCurrent(generation)) return@post
                     sseConnected = false
+                    val shouldReconnect = shouldReconnectSessionSse(
+                        nativeOwnsSession,
+                        apiClient.hasSessionConfig(),
+                    )
                     NativeAudioLogger.warn(
                         TAG,
                         "sse_disconnected",
@@ -1368,17 +1372,15 @@ class PlaybackService : MediaSessionService() {
                             "nativeOwnsSession" to nativeOwnsSession,
                             "isActive" to isActive,
                             "hasSessionConfig" to apiClient.hasSessionConfig(),
+                            "willReconnect" to shouldReconnect,
+                            "reconnectDelayMs" to
+                                if (shouldReconnect) SSE_RECONNECT_DELAY_MS else null,
                         ),
                     )
                     // The owner must remain reachable even while paused or
                     // before media is loaded; otherwise a web client cannot
                     // send the remote Play command that makes it active.
-                    if (
-                        shouldReconnectSessionSse(
-                            nativeOwnsSession,
-                            apiClient.hasSessionConfig(),
-                        )
-                    ) {
+                    if (shouldReconnect) {
                         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
                         sseReconnectRunnable = Runnable { connectSessionSSE() }
                         handler.postDelayed(sseReconnectRunnable!!, SSE_RECONNECT_DELAY_MS)
