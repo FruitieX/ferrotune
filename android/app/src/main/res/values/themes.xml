@@ -1,0 +1,10 @@
+<resources>
+    <!-- colorPrimary/colorAccent/isLightTheme are consumed by the Cast
+         MediaRouteButton theming, which reads AppCompat attributes from the
+         activity theme. -->
+    <style name="Theme.Ferrotune" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="colorPrimary">#E07A3D</item>
+        <item name="colorAccent">#E07A3D</item>
+        <item name="isLightTheme">true</item>
+    </style>
+</resources>

@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Ferrotune" parent="android:Theme.Material.NoActionBar">
+        <item name="colorPrimary">#7A3B18</item>
+        <item name="colorAccent">#E07A3D</item>
+        <item name="isLightTheme">false</item>
+    </style>
+</resources>

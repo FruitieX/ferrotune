@@ -146,6 +146,47 @@ nix develop .#android
 moon run client:tauri-android-deploy
 ```
 
+### Native Android Client (`android/`)
+
+The native Kotlin/Compose Android client lives in `android/` (moon project `android`). Build, test, and lint tasks must run inside the Android nix shell:
+
+```bash
+nix develop .#android
+moon run android:test-unit        # JVM unit tests
+moon run android:lint             # Android lint
+moon run android:assemble-debug   # debug APK
+moon run android:install-debug    # install on a connected device/emulator
+moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
+```
+
+`android:install-debug` installs through the platform-tools `adb` and honors
+`ANDROID_ADB_SERVER_ADDRESS` (and `ANDROID_SERIAL`) from the environment, so a
+remote adb server works; Gradle's own `installDebug` cannot see remote
+devices and is no longer used.
+
+The native app intentionally installs side by side with the legacy Tauri
+Android app during the transition: it uses `applicationId
+com.ferrotune.music.native` and label "Ferrotune Native", and any
+`ContentProvider` authority must be derived from the application id (see
+`ArtworkContentProvider.authority(context)`) instead of a hardcoded package
+name. The Tauri Android path stays until the native app has been verified on a
+device.
+
+### Kotlin DTOs (`android/core/network/.../generated/`)
+
+Response DTOs are generated from the ts-rs TypeScript contracts
+(`client/src/lib/api/generated`) by
+`android/scripts/generate-kotlin-bindings.mjs` and committed. The TypeScript
+files are the wire-shape source of truth; the script indexes Rust structs only
+to recover numeric precision (i32 → `Int`, i64 → `Long`, f64 → `Double`).
+
+- After changing Rust response structs, run `moon run generate-bindings`
+  (Rust/ts-rs) and then `moon run android:generate-bindings`.
+- Never hand-edit generated files; CI fails when they drift from the TS
+  contracts.
+- Request/query structs that ts-rs does not export stay hand-written in
+  `android/core/network/.../dto/`.
+
 ---
 
 ## Testing Requirements
@@ -377,6 +418,116 @@ field fallbacks in components.
 | `PlaybackNotificationLifecycle.kt` | Foreground-service policy for playback intent during notification updates, buffering, and track transitions. |
 | `NativeListeningSessionLifecycle.kt` | Pure native listening-session state machine for periodic updates, pause snapshots, and per-track finalization while the WebView sleeps. |
 | `WebViewPlaybackEventPolicy.kt` | Drops stale playback snapshots while the Android WebView is backgrounded; the plugin emits one current snapshot on resume. |
+
+### Native Android Modules (`android/`)
+
+The native client lives in `android/` and will replace the Tauri/WebView Android
+path (see `docs/NATIVE_ANDROID.md`). The playback engine moved to
+`android/core/media` in M1 and drops the JSObject/WebView bridge in favour of
+typed flows.
+
+| Module | Purpose | Key APIs |
+|--------|---------|----------|
+| `android/core/media/PlaybackRepository.kt` | App-scoped front end for `PlaybackService`; binds on first use, mirrors state to flows, exposes suspend commands | `state: StateFlow<PlaybackState>`, `events: SharedFlow<PlaybackEvent>`, `initSession()`, `startPlayback()`, `play()`, `pause()`, `nextTrack()`, `previousTrack(force)`, `seek()`, `applySettings()`; `force = true` skips to the previous entry even within the first 3 seconds (web `previousForce`, used by swipe gestures) |
+| `android/core/media/PlaybackSettingsRepository.kt` | Server-synced playback preferences (ReplayGain mode/offset, transcoding enabled/bitrate, progress bar style under the web client's `progress-bar-style` key) applied to the engine via `PlaybackSettingsApplier`; defaults computed/0/computed/192/waveform | `settings: StateFlow<PlaybackSettings>`, `ensureLoaded()`, `load()`, `invalidate()`, `setReplayGainMode()`, `setReplayGainOffset()`, `setTranscodingEnabled()`, `setTranscodingBitrate()`, `setProgressBarStyle()`, `DEFAULT_PROGRESS_BAR_STYLE`, `PROGRESS_BAR_STYLES` |
+| `android/core/media/WaveformRepository.kt` | App-scoped fetch/cache for `GET /api/songs/{id}/waveform` normalized bar heights; LRU-capped (24) with in-flight deduplication so player surfaces can render the waveform progress bar | `heights(songId): List<Float>`, `clear()` |
+| `android/core/media/cast/CastManager.kt` | Cast sender port of the legacy `NativeCastManager` with StateFlow state/status, queue loading, transport, and volume; no hidden route-button hack (UI owns `MediaRouteButton`) | `state: StateFlow<CastConnectionState>`, `status: StateFlow<CastMediaStatus>`, `initialize()`, `loadQueue()`, `play()`, `pause()`, `next()`, `previous()`, `seek()`, `setVolume()`, `endSession()` |
+| `android/core/media/CastUrls.kt` | Pure helpers for external-player URLs: appends media URL tokens, maps Opus streams to an OGG content type | `appendUrlToken()`, `castContentType()`; `PlaybackService.castMediaItems()` / `PlaybackRepository.castMediaItems()` build the receiver queue (stream + cover URLs with a media URL token from `ensureMediaUrlToken()`) |
+| `android/feature/player/CastRouteButton.kt` | Compose wrapper around the Cast `MediaRouteButton`; `PlayerViewModel` routes transport to `CastManager` while connected and shows "Casting to <device>" with a disconnect action | `CastRouteButton()` |
+| `android/app/.../CastOptionsProvider.kt` | Cast options using the default media receiver, registered via the `OPTIONS_PROVIDER_CLASS_NAME` manifest meta-data | `CastOptionsProvider` |
+| `android/core/media/PlaybackEvent.kt` | Typed playback events (replaces JSON-over-WebView payloads) | `StateChanged`, `Progress`, `TrackChanged`, `PlaybackError`, `QueueStateChanged`, `StarToggled`, ... |
+| `android/feature/player/QueueSheet.kt` + `NowPlayingScreen.kt` + `MiniPlayerBar.kt` | Queue sheet (cover rows, now-playing highlight, long-press drag-handle reorder, per-row play/move/remove menu, shuffle/repeat/clear), full-screen player content (seeded backdrop, interactive waveform or slider seek, favorite action, queue button), and mini player (tap or swipe up to expand, swipe sideways to skip with adjacent-track previews, scrubable waveform strip, play/pause + queue + overflow menu) | `QueueSheet()`, `NowPlayingScreen()`, `MiniPlayerBar()` |
+| `android/feature/player/MiniPlayerSwipe.kt` | Pure helpers for the mini player's sideways skip gesture (web `player-bar` parity) | `miniPlayerSwipeDirection(offsetX, velocityX, distanceThresholdPx, velocityThreshold)`, `miniPlayerSwipePreviewAlpha(offsetX, thresholdPx, distancePx)` |
+| `android/feature/player/NowPlayingSheetState.kt` + `NowPlayingOverlay.kt` | Hoisted now-playing overlay state machine (offset follow, 25% dismiss / 80% expand thresholds, animated open/close, prev/next art swipe with adjacent artwork previews, `SheetAnimator` seam for JVM tests) and the app-level overlay composable (scrim tap-to-dismiss, `PredictiveBackHandler` progress tracking, axis-locked drag gestures, haptics); the app shell renders it above the mini player instead of a route | `NowPlayingSheetState`, `SheetAnimator`, `rememberNowPlayingSheetState()`, `NowPlayingOverlay()` |
+| `android/core/media/AudioState.kt` + `FerrotuneApiClient.kt` | `TrackInfo` carries the current track's `starred` flag parsed from queue-window `QueueSong` JSON, so player surfaces can show and mutate favorite state | `TrackInfo`, `QueueSong`, `parseSong()`, `songToTrackInfo()` |
+| `android/core/datastore/AccountStore.kt` | Encrypted account persistence plus stable device identity | `accounts`, `activeAccount`, `upsert()`, `setActive()`, `clientId()` |
+| `android/core/network/FerrotuneApi.kt` | Retrofit native API surface bound to a server URL/token | `login()`, `me()`, `refresh()`, `logout()`, `connectSession()`, `startQueue()`, `randomSongs()`, `search()`, `artist*`, `album*`, `song*`, `songIds()`, `sourceSongIds()`, `genres()`, `history()`, `star()`, `setRating()`, `addToQueue()` |
+| `android/core/network/AuthenticatedApiProvider.kt` | Caches the active account's `FerrotuneApi` and `Account`; also backs the app-wide authenticated OkHttp client for Coil | `requireApi()`, `requireAccount()` |
+| `android/core/network/QueryMap.kt` | Converts generated query DTOs into Retrofit `@QueryMap` parameters, omitting nulls | `toQueryMap()` |
+| `android/core/network/ConnectivityMonitor.kt` | Validated-network connectivity state; drives the global offline banner and offline-aware UI | `isOnline: StateFlow<Boolean>` (interface `ConnectivityMonitor`, impl `AndroidConnectivityMonitor`) |
+| `android/core/media/PlaybackSessionStarter.kt` | Connects a playback session and materializes queues (library, album, artist, genre, favorites, history, search, song radio, explicit song IDs, plus next/end additions; additions without an active session start a queue instead) | `QueueStartSpec`, `QueueAddSpec`, `startQueue()`, `startRandomQueue()`, `startAlbum()`, `startArtist()`, `startSongRadio()`, `addToQueue()`, `queueSort()`; ViewModels inject the `PlaybackStarter` interface so tests can fake it |
+| `android/core/actions/SongActions.kt` | Shared song action sheet (favorite, play next, add to queue, song radio, start-selection, extra slots) backed by a Hilt entry point so any feature module can drop in row/top-bar actions; renders through the shared `MediaActionSheet` bottom sheet | `SongActionsEntryPoint`, `rememberSongFlags()`, `SongActionsViewModel` (`toggleStar`, `setStarredBulk`, `loadAllIds`, `playNext`, `addToQueue`), `songMenuActions()`, `SongActionSheet()`, `SongFavoriteButton` |
+| `android/core/actions/CollectionActions.kt` | Shared long-press bottom sheets for album/artist/playlist collections: resolves a `CollectionTarget` source descriptor into play/shuffle/play-next/add-to-queue commands, with an optional "Go to artist" item and feature `extraContent` | `CollectionSource`, `CollectionTarget`, `CollectionActionsViewModel` (`play`, `shuffle`, `playNext`, `addToQueue`), `CollectionActionSheet()` |
+| `android/core/actions/SongSelection.kt` | Screen-local multi-select for song lists: count/select-all top bar and bottom action bar (play next, queue, favorite/unfavorite + feature slots), with select-all resolved server-side via `/songs/ids` or `/sources/song-ids` | `SongSelectionState`, `rememberSongSelectionState()`, `SongSelectionTopBar`, `SongSelectionActionBar`, `SongSelectionAction` |
+| `android/core/actions/SongFlagsStore.kt` | Optimistic starred overlay over API mutations with rollback on failure; bulk starring merges overrides without clobbering other songs | `SongFlags`, `SongFlagsOverride`, `SongFlagsStore`, `setStarred()`, `setStarredBulk()`, `clear()` |
+| `android/feature/library/LibraryRepository.kt` + `LibraryPagingSources.kt` | Paged browse/search/history reads and starring mutations; requests `inlineImages=medium` cover art in browse/search/history params so list rows render artwork without extra fetches; server-side sort/filter keys; `favoritesCounts()` resolves starred song/album/artist totals from a zero-count search for the Favorites tab labels | `songs()`, `albums()`, `artists()`, `albumSongs()`, `artistSongs()`, `artistAlbums()`, `history(filter, sort, sortDir)`, `favoritesCounts()`, `genres()`, `similarSongs()`, `setStarred()`, `INLINE_IMAGES` |
+| `android/feature/library/LibraryViewPreferencesRepository.kt` | Server-synced per-tab library sort preferences stored as JSON under the native-only `library-sort-native` key (the shared `library-sort` key belongs to the web/Tauri client and must not be clobbered) | `sort: StateFlow<LibrarySortConfig>`, `ensureLoaded()`, `load()`, `invalidate()`, `setSongSort()`, `setAlbumSort()`, `setArtistSort()` |
+| `android/feature/playlists/PlaylistRepository.kt` + `PlaylistPagingSources.kt` | Playlist folders, playlists, smart playlists, shares, membership, song search, and music folders for rule fields | `folders()`, `createFolder()`, `updateFolder()`, `movePlaylist()`, `playlistSongs()`, `addSongs()`, `removeSongs()`, `moveEntry()`, `shares()`, `setShares()`, `smartPlaylists()`, `materializeSmartPlaylist()`, `musicFolders()`, `searchSongs()` |
+| `android/feature/playlists/PlaylistFolderTree.kt` | Builds the folder hierarchy the playlist browser renders (position/name ordering, orphan fallback) and answers drill-down queries against it | `buildPlaylistTree()`, `PlaylistFolderNode`, `PlaylistTree`, `foldersIn()`, `playlistsIn()`, `folderById()`, `folderPath()`; `PlaylistsViewModel` keeps `currentFolderId`/`openFolder()`/`navigateUp()` for the breadcrumb browser |
+| `android/feature/playlists/SmartPlaylistRules.kt` | Smart playlist rule field/operator descriptors plus `SmartConditionDraft` ⇄ `SmartPlaylistConditionApi` value conversion | `ruleFields()`, `operatorsFor()`, `SmartConditionDraft.toApiCondition()`, `SmartPlaylistConditionApi.toDraft()` |
+| `android/feature/playlists/AddToPlaylistDialog.kt` | Overflow action/dialog for adding song IDs to an editable playlist, plus an `AddToPlaylistMenuItem()` sheet row; hosts its own Hilt VM so any feature can use it | `AddToPlaylistAction()`, `AddToPlaylistMenuItem()`, `AddToPlaylistDialog()` |
+| `android/feature/home/HomeRepository.kt` | Home dashboard per-section reads, stats, and listening review reads | `continueListening()`, `mostPlayedRecently()`, `forgottenFavorites()`, `albumList()`, `similarTracks()`, `playlistSongs()`, `smartPlaylistSongs()`, `stats()`, `listeningStats()`, `periodReview()` |
+| `android/feature/home/HomeSectionLoader.kt` | Loads one dashboard section's preview items, honoring its configured filters | `load(section, size)`, `HomeSectionData` |
+| `android/feature/home/HomeLayoutPreferencesRepository.kt` | Server-synced dashboard layout stored under the web/Tauri client's `home-tiles-v1` / `home-sections-v1` keys so both clients stay in sync | `tiles`, `sections`, `ensureLoaded()`, `load()`, `invalidate()`, `setTiles()`, `setSections()` |
+| `android/feature/home/HomeTilePresentation.kt` | Tile/section presentation and queue-source mapping matching the web client, plus `HomeLinkTarget` navigation targets | `homeTilePresentation()`, `homeSectionQueueSpec()`, `homeSectionLabel()`, `homeSectionIcon()` |
+| `android/feature/home/HomePlaylistChoicesRepository.kt` | Playlist + smart-playlist choices for the Home layout editors | `choices()`, `HomePlaylistChoice` |
+| `android/feature/home/HomeLayoutSettingsViewModel.kt` + `HomeLayoutSettingsScreen.kt` + `HomeLayoutSettingsPresentation.kt` | Settings → Home editor for tiles (add/edit/reorder/remove, playlist and account pickers) and sections (enable/edit/reorder/remove playlist sections, per-kind settings) | `HomeLayoutSettingsScreen`, `HomeLayoutSettingsViewModel`, `homeTileKindLabel()`, `homeSectionDescription()`, `homeSectionHasSettings()` |
+| `android/feature/player/QueueRepository.kt` | Server-side queue window reads and edits for the queue sheet; mutations flow back through SSE | `loadQueue()`, `removeEntry()`, `clear()`, `moveEntry()`, `setShuffled()`, `setRepeatMode()`, `QueueSnapshot`, `QueueEntry` |
+| `android/feature/player/QueueSheetViewModel.kt` | Queue sheet state: reloads the window when the engine's queue index/length changes and cancels superseded fetches; the engine's queue index is authoritative for the now-playing highlight (the server snapshot can lag behind background syncs), with a fallback to the server index when the engine index is outside the returned window. `QueueSheet` also calls `reload()` when the sheet opens and on `ON_RESUME` so background-era loads that failed or raced are corrected | `QueueSheetUiState`, `reload()`, `jumpTo()`, `remove()`, `clear()`, `move()`, `toggleShuffle()`, `cycleRepeat()` |
+| `android/core/network/paging/OffsetPagingSource.kt` | Shared offset-keyed Paging 3 base for endpoints that report totals | `OffsetPagingSource`, `DEFAULT_PAGE_SIZE` |
+| `android/core/database/` | Room store for download metadata: `DownloadedSongEntity`, `DownloadedContainerEntity`, junction membership, `DownloadDao` (`songs()`, `containersWithCount()`, `containerSongIds()`, `pruneEmptyContainers()`, ...), `DownloadDatabase` | `DownloadContainerType`, `SongResponse.toDownloadedSong()` |
+| `android/core/media/DownloadEngine.kt` | Testable surface over Media3 `DownloadManagerHolder` (enqueue/cancel/pause/resume/removeAll/wifi-only + event flow) | `DownloadEngine`, `Media3DownloadEngine` |
+| `android/core/media/OfflineQueueSource.kt` | Materializes a local queue when the server is unreachable; consumed by `PlaybackSessionStarter.startQueue` fallback | `offlineQueue(sourceType, sourceId, startSongId)` |
+| `android/feature/downloads/DownloadRepository.kt` | Download state (engine snapshot + events) and persisted song/container metadata; container downloads page through album/playlist/smart-playlist APIs | `enqueueSong()`, `downloadAlbum()`, `downloadPlaylist()`, `downloadSmartPlaylist()`, `removeSong()`, `removeContainer()`, `clearAll()`, `downloadedSongIds`, `downloadedContainerIds` |
+| `android/feature/downloads/DownloadSettingsRepository.kt` | Server-synced download preferences (`downloadFormat`, `downloadBitrate`, `downloadWifiOnly`) applied to the engine; defaults opus/128/no restriction | `settings: StateFlow<DownloadSettings>`, `ensureLoaded()`, `setFormat()`, `setBitRate()`, `setWifiOnly()` |
+| `android/feature/downloads/OfflineQueue.kt` | Builds `GetQueueResponse` from Room metadata and implements `OfflineQueueSource` (container order, start-song index; non-container sources fail gracefully like the web materializer) | `materializeOfflineQueue()`, `RoomOfflineQueueSource` |
+| `android/feature/downloads/ui/` | Downloads screen (songs + saved containers, pause/resume/clear all), `SongDownloadAction` row icon, `SongDownloadMenuItem` sheet row, `ContainerDownloadAction` top-bar action, `DownloadActionViewModel.downloadSongs()` for bulk selections | `DownloadsScreen`, `SongDownloadAction`, `SongDownloadMenuItem`, `ContainerDownloadAction`, `DownloadActionViewModel`, `ContainerDownloadType` |
+| `android/feature/settings/ui/` | Settings screen: account info/sign-out, theme mode (system/light/dark), accent color (presets + custom OKLCH sliders), Home layout, playback (ReplayGain, transcoding), downloads (format/bitrate/Wi-Fi only) | `SettingsScreen`, `SettingsViewModel` |
+| `android/feature/settings/AccentSettingsRepository.kt` | Server-synced accent color: preset name from `accentColor`, custom OKLCH values from the preference fields; `AppViewModel` applies it via `FerrotuneTheme(accent = ...)` | `state: StateFlow<AccentState>`, `ensureLoaded()`, `load()`, `invalidate()`, `setPreset()`, `setCustom()` |
+| `android/core/designsystem/theme/AccentPalette.kt` | OKLCH→sRGB conversion (port of the web `oklchToRgb`), web-matching presets, custom clamping, and Material3 scheme derivation | `OklchColor`, `AccentColors`, `oklchToColor()`, `FerrotuneTheme(accent = ...)` |
+| `android/core/designsystem/theme/Type.kt` + `Shape.kt` | Bundled Inter font family (matches the web client) with the shared typography scale, plus the app-wide rounded shape scale | `InterFamily`, `FerrotuneTypography`, `FerrotuneShapes` |
+| `android/core/designsystem/theme/GradientPalette.kt` | Deterministic seed-based gradient colors used for artwork fallbacks and detail/now-playing backdrops | `seedGradient()`, `seedGradientBrush()`, `SeedGradient` |
+| `android/core/datastore/ThemePreferencesRepository.kt` | Device-level theme mode persisted in a `ferrotune_ui` DataStore; `ThemeModeStore` interface keeps ViewModels testable | `ThemeModeStore`, `ThemePreferencesRepository`, `themeMode`, `setThemeMode()` |
+| `android/core/testing/FakeFerrotuneApi.kt` | Shared `FerrotuneApi` test double with per-endpoint handler lambdas; consumed as `testImplementation(project(":core:testing"))` | `FakeFerrotuneApi`, `FakeApiProvider`, `FakeAccounts`, `FakeAccountSwitcher`, `testAccount()`, `FakePlaybackStarter` |
+| `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt` (seeded gradient fallback, optional `placeholderTint`), `MediaCard`/`ShelfCard` (shelf + grid cards with play overlay and long-press menu hook), `MediaRow` (circular-cover, multi-select, and `coverPlaceholder`/`coverPlaceholderTint` icon-fallback support), `MediaActionSheet`/`MediaActionRow` (bottom-sheet action list with cover header, matching the web drawer menu), `SectionHeader`, `DetailHeader` (gradient detail header with badges/actions, plus a gradient icon tile via `icon`/`iconGradient` when there is no cover), `DetailActionBar` (web `ActionBar`: 48dp play + outlined shuffle + screen `actions` slot), `ChipTabRow` (web chip tabs: framed row of icon+label pills, active `surfaceContainerHighest`), `SegmentedTabs` (web shadcn `TabsList` segmented control with counts), `FilterPill` (web filter pill: secondary pill with search icon, inline clear), `SearchField` (web `h-12` search input), `FavoriteButton` (filled/outline heart), `WaveformBar` (seekable bar strip: tap/drag scrubbing with the web's scrub affordances — vertical position indicator, current/scrub tooltips, `TOUCH_PREVIEW_DURATION_MS` persistence, collision hiding; the tooltip band stays pointer-transparent), `ShimmerBox`/`MediaRowSkeletonList`/`MediaCardSkeleton`, `SortMenu` (single sort icon with direction toggle), `Formatting.kt` (`formatCount`, `formatTotalDuration`, `formatListeningTime`, `formatClockDuration` — exact ports of the web format helpers), `PagingListFooter`, `ErrorState`, `EmptyState`, `LoadingState` |
+
+### Native Android UI Conventions
+
+- Chrome screens (Home, Library, Playlists, Search) and the app shell set
+  `contentWindowInsets = WindowInsets(0)`; detail screens keep default insets and
+  rely on `TopAppBar`/`Scaffold`. Do not add manual status-bar padding.
+- Detail headers follow the web `DetailHeader`: uppercase label, title,
+  muted subtitle/meta lines, optional gradient icon tile
+  (`DetailHeader(icon = ..., iconGradient = seedIconGradient(seed))`) with a
+  `DetailBackdrop` color of `seedBackdropColor(seed)` or a flow-tinted overlay
+  for fixed collections (favorites red, history purple, playlists emerald).
+  The play/shuffle/filter/sort controls live in a separate `DetailActionBar`
+  below the header (`actions` slot hosts `FilterPill` + `SortMenu`), matching
+  the web `ActionBar`, instead of inside the header.
+- Collection screens that the web renders as `TabsList` use `SegmentedTabs`
+  (Favorites, Search); library chips use `ChipTabRow`.
+- Detail screens with server-side song filtering/sorting use
+  `DETAIL_SONG_SORT_OPTIONS` (`LibraryScreen.kt`) with `CUSTOM_SORT` ("custom"
+  maps to the API default order) and per-screen `debounce`d filter flows, so
+  every list keeps server materialization in sync with what is displayed.
+- Top-level navigation (`navigateTopLevel` in `AppNavHost.kt`) pops back to
+  Home and launches a single top instance per tab; it intentionally does not
+  use `saveState`/`restoreState`, so tapping a tab always lands on that tab's
+  root instead of a stale saved stack.
+- Song rows open the shared `SongActionSheet` bottom sheet on long-press; while
+  a selection is active, long-press toggles selection instead. The sheet's
+  "Select" item (`Icons.Filled.Checklist`) starts selection. Album/artist/
+  playlist rows use `CollectionActionSheet`. Media actions are bottom sheets
+  (matching the web client's drawer menu on touch), not dropdown menus; plain
+  overflow menus without media context may still use `DropdownMenu`.
+- Player surfaces render `WaveformBar` when a song has waveform data and fall back
+  to `LinearProgressIndicator`/`Slider` otherwise; the choice follows the
+  server-synced `progress-bar-style` preference.
+- The Playlists tab is a folder browser, not a `DetailHeader` screen: a compact
+  `PageTitle` + breadcrumb (`Playlists > … > current`, tappable crumbs), folder
+  drill-down rows, and a `New` dropdown whose entries are created inside the
+  currently open folder. Folder names come from `PlaylistTree.folderPath` /
+  `foldersIn` / `playlistsIn`; keep scoping dialogs to `currentFolderId`.
+- The mini player's waveform deliberately lives *outside* the Material3
+  `Surface` and is positioned with a placement-based `Modifier.offset`: a
+  `Surface` clips hit testing, so a `graphicsLayer` overhang would draw above the
+  bar but stay untouchable. Keep the waveform as a sibling of the `Surface` if
+  you touch this layout.
+- Scrollable detail screens pass their header as the first list item (like
+  `GenreDetailScreen` and `FavoritesScreen`) so it scrolls away instead of
+  pinning. A `LazyVerticalGrid` item with multiple root layouts overlays them at
+  the same origin, so wrap a multi-composable header slot in a single `Column`
+  before placing it in a grid item.
 
 ---
 

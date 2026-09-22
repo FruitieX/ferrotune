@@ -24,6 +24,8 @@
         platforms-android-35
         platforms-android-36
         ndk-27-2-12479018
+        emulator
+        system-images-android-36-google-apis-x86-64
       ]);
 
       rustToolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
@@ -117,42 +119,21 @@
           '';
         };
 
-        # Shell with Android SDK for Tauri mobile development
+        # Shell with Android SDK for the native Android client
         android = pkgs.mkShell {
           name = "ferrotune-android";
-          nativeBuildInputs = [
-            pkgs.pkg-config
-            pkgs.cmake
-          ];
           buildInputs = [
-            rustToolchain
-            postgresqlPackage
-            pkgs.openssl
-            pkgs.nodejs_24
-            pkgs.pnpm
-            pkgs.docker-compose
-            # Testing tools
-            pkgs.hurl
-            pkgs.ffmpeg
-            pkgs.moon
-            pkgs.proto
-            pkgs.sqlite
-            pkgs.libopus
-            pkgs.libclang.lib # needed for bindgen (bliss-audio aubio bindings)
-            # Android development
             androidSdk
             pkgs.jdk17
+            pkgs.moon
+            pkgs.nodejs_24 # Kotlin DTO codegen (android:generate-bindings)
           ];
-          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           ANDROID_HOME = "${androidSdk}/share/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";
-          NDK_HOME = "${androidSdk}/share/android-sdk/ndk/27.2.12479018";
           JAVA_HOME = "${pkgs.jdk17}";
           shellHook = ''
-            export PATH="${postgresqlPackage}/bin:$PATH"
             echo "Loaded ferrotune Android dev shell"
             echo "ANDROID_HOME=$ANDROID_HOME"
-            echo "NDK_HOME=$NDK_HOME"
             echo "JAVA_HOME=$JAVA_HOME"
             echo ""
 
@@ -174,25 +155,13 @@
             fi
 
             echo ""
-            echo "To initialize Android for Tauri (first time):"
-            echo "  cd client && npx tauri android init"
-            echo ""
-            echo "To verify emulator connectivity:"
-            echo "  bash scripts/connect-android-emulator.sh"
-            echo ""
-            echo "To run on Android emulator:"
-            echo "  moon run client:tauri-android-dev"
-            echo ""
-            echo "Deploy (debug):"
-            echo "  moon run client:tauri-android-deploy"
-            echo ""
-            echo "Deploy (release, requires keystore env vars):"
-            echo "  moon run client:tauri-android-deploy-release"
-            echo "  Required: FERROTUNE_RELEASE_KEYSTORE, FERROTUNE_RELEASE_KEYSTORE_PASSWORD,"
-            echo "            FERROTUNE_RELEASE_KEY_ALIAS, FERROTUNE_RELEASE_KEY_PASSWORD"
+            echo "Build debug APK:  moon run android:assemble-debug"
+            echo "Unit tests:       moon run android:test-unit"
+            echo "Lint:             moon run android:lint"
+            echo "Install (debug):  moon run android:install-debug"
             echo ""
             echo "Logs:"
-            echo "  adb logcat -v color,threadtime -s ReplayGainProcessor:* PlaybackService:* NativeAudioPlugin:* Tauri:* chromium:* NativeAudio:* Tauri\/Console:*"
+            echo "  adb logcat -v color,threadtime -s PlaybackService:* Ferrotune:* AndroidRuntime:*"
           '';
         };
       };
