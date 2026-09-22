@@ -169,10 +169,8 @@ private fun FerrotuneAppContent(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showChrome = currentRoute == Routes.HOME ||
-        currentRoute == Routes.LIBRARY ||
-        currentRoute == Routes.PLAYLISTS ||
-        currentRoute == Routes.SEARCH
+    val showChrome = currentRoute != Routes.LOGIN
+    val selectedDestination = currentRoute.bottomNavDestination()
 
     val nowPlayingSheet = rememberNowPlayingSheetState()
     var nowPlayingOpen by remember { mutableStateOf(false) }
@@ -189,32 +187,12 @@ private fun FerrotuneAppContent(
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (showChrome) {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.HOME,
-                        onClick = { navController.navigateTopLevel(Routes.HOME) },
-                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                        label = { Text("Home") },
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.LIBRARY,
-                        onClick = { navController.navigateTopLevel(Routes.LIBRARY) },
-                        icon = { Icon(Icons.Filled.LibraryMusic, contentDescription = null) },
-                        label = { Text("Library") },
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.PLAYLISTS,
-                        onClick = { navController.navigateTopLevel(Routes.PLAYLISTS) },
-                        icon = { Icon(Icons.Filled.QueueMusic, contentDescription = null) },
-                        label = { Text("Playlists") },
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Routes.SEARCH,
-                        onClick = { navController.navigateTopLevel(Routes.SEARCH) },
-                        icon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                        label = { Text("Search") },
-                    )
-                }
+                FerrotuneBottomNav(
+                    selected = selectedDestination,
+                    onSelect = { destination ->
+                        navController.navigateTopLevel(destination.route)
+                    },
+                )
             }
         },
     ) { padding ->
@@ -257,24 +235,7 @@ private fun FerrotuneAppContent(
                                 popUpTo(Routes.HOME) { inclusive = true }
                             }
                         },
-                        onOpenLink = { target ->
-                            when (target) {
-                                HomeLinkTarget.Favorites ->
-                                    navController.navigate(Routes.FAVORITES)
-
-                                HomeLinkTarget.History ->
-                                    navController.navigate(Routes.HISTORY)
-
-                                is HomeLinkTarget.Section ->
-                                    navController.navigate(Routes.homeSection(target.sectionId))
-
-                                is HomeLinkTarget.Playlist ->
-                                    navController.navigate(Routes.playlist(target.id))
-
-                                is HomeLinkTarget.SmartPlaylist ->
-                                    navController.navigate(Routes.smartPlaylist(target.id))
-                            }
-                        },
+                        onOpenLink = navController::openHomeLink,
                         onOpenAlbum = { navController.navigate(Routes.album(it)) },
                         onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
                         onOpenSmartPlaylist = {
@@ -297,6 +258,7 @@ private fun FerrotuneAppContent(
                         onOpenSmartPlaylist = {
                             navController.navigate(Routes.smartPlaylist(it))
                         },
+                        onOpenLink = navController::openHomeLink,
                     )
                 }
                 composable(Routes.LIBRARY) {
@@ -305,8 +267,6 @@ private fun FerrotuneAppContent(
                         onOpenAlbum = { navController.navigate(Routes.album(it)) },
                         onOpenGenre = { navController.navigate(Routes.genre(it)) },
                         onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                        onOpenFavorites = { navController.navigate(Routes.FAVORITES) },
-                        onOpenHistory = { navController.navigate(Routes.HISTORY) },
                     )
                 }
                 composable(Routes.PLAYLISTS) {
@@ -457,10 +417,10 @@ private fun FerrotuneAppContent(
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     onExpandDrag = nowPlayingSheet::dragBy,
                     onExpandDragEnd = {
-                        if (nowPlayingSheet.shouldCloseOnRelease()) {
-                            nowPlayingSheet.close()
-                        } else {
+                        if (nowPlayingSheet.shouldOpenOnRelease()) {
                             nowPlayingOpen = true
+                        } else {
+                            nowPlayingSheet.close()
                         }
                     },
                 )
@@ -499,9 +459,61 @@ private fun defaultPopExitTransition(): ExitTransition =
     fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { it / 14 }
 
 private fun androidx.navigation.NavHostController.navigateTopLevel(route: String) {
+    // Match the web client's bottom nav: each tab opens at its root, replacing
+    // whatever was stacked on top of Home. The previous saveState/restoreState
+    // combination made the Home tab restore stale pushed screens (e.g. Settings
+    // -> Home layout) instead of returning Home.
     navigate(route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
+        popUpTo(Routes.HOME) { inclusive = route == Routes.HOME }
         launchSingleTop = true
-        restoreState = true
+    }
+}
+
+private val BottomNavDestination.route: String
+    get() = when (this) {
+        BottomNavDestination.HOME -> Routes.HOME
+        BottomNavDestination.SEARCH -> Routes.SEARCH
+        BottomNavDestination.LIBRARY -> Routes.LIBRARY
+        BottomNavDestination.PLAYLISTS -> Routes.PLAYLISTS
+        BottomNavDestination.SETTINGS -> Routes.SETTINGS
+    }
+
+/** Matches the web client's `startsWith` active-tab rules. */
+private fun String?.bottomNavDestination(): BottomNavDestination? = when (this) {
+    Routes.HOME -> BottomNavDestination.HOME
+    Routes.SEARCH -> BottomNavDestination.SEARCH
+    Routes.LIBRARY,
+    Routes.ALBUM,
+    Routes.ARTIST,
+    Routes.GENRE,
+    Routes.SONG_RADIO,
+    Routes.FAVORITES,
+    Routes.HISTORY,
+    -> BottomNavDestination.LIBRARY
+
+    Routes.PLAYLISTS,
+    Routes.PLAYLIST,
+    Routes.SMART_PLAYLIST,
+    Routes.SMART_PLAYLIST_EDITOR,
+    -> BottomNavDestination.PLAYLISTS
+
+    Routes.SETTINGS,
+    Routes.HOME_LAYOUT_SETTINGS,
+    -> BottomNavDestination.SETTINGS
+
+    else -> null
+}
+
+private fun androidx.navigation.NavHostController.openHomeLink(target: HomeLinkTarget) {
+    when (target) {
+        HomeLinkTarget.Favorites -> navigate(Routes.FAVORITES)
+        HomeLinkTarget.History -> navigate(Routes.HISTORY)
+        is HomeLinkTarget.Section -> navigate(Routes.homeSection(target.sectionId))
+        is HomeLinkTarget.Playlist -> navigate(Routes.playlist(target.id))
+        is HomeLinkTarget.SmartPlaylist -> navigate(Routes.smartPlaylist(target.id))
+        is HomeLinkTarget.Album -> navigate(Routes.album(target.id))
+        is HomeLinkTarget.Artist -> navigate(Routes.artist(target.id))
+        is HomeLinkTarget.SongRadio -> navigate(Routes.songRadio(target.id))
+        is HomeLinkTarget.Genre -> navigate(Routes.genre(target.name))
     }
 }
