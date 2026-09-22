@@ -1,10 +1,13 @@
 package com.ferrotune.feature.player
 
 import com.ferrotune.core.media.PlaybackState
+import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.player.data.FakeQueueApi
 import com.ferrotune.feature.player.data.QueueRepository
+import com.ferrotune.feature.player.data.testQueueResponse
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -13,6 +16,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -112,5 +116,78 @@ class QueueSheetViewModelTest {
         viewModel.move(entry, -3)
 
         assertEquals(null, api.moveRequest)
+    }
+
+    @Test
+    fun `the playing index wins over a stale server index`() {
+        // FakeQueueApi reports the window offset as the server current index,
+        // so queueIndex = 1 with a snapshot index of 0 mimics a server index
+        // that lagged behind while the app played in the background.
+        val viewModel = viewModel()
+
+        assertEquals(1, viewModel.uiState.value.currentIndex)
+    }
+
+    @Test
+    fun `falls back to the server index when the playing index is outside the window`() {
+        val api = FakeQueueApi().apply {
+            queueHandler = { testQueueResponse(currentIndex = 0, totalCount = 3, offset = 0) }
+        }
+        val starter = FakePlaybackStarter().apply {
+            state.value = PlaybackState(sessionId = "session-1", queueIndex = 99, queueLength = 3)
+        }
+
+        val viewModel = viewModel(api, starter)
+
+        assertEquals(0, viewModel.uiState.value.currentIndex)
+    }
+
+    @Test
+    fun `reload refetches the queue window`() {
+        var totalCount = 3
+        val api = FakeQueueApi().apply {
+            queueHandler = { params ->
+                val offset = params["offset"]?.toInt() ?: 0
+                testQueueResponse(
+                    currentIndex = offset,
+                    totalCount = totalCount,
+                    offset = offset,
+                )
+            }
+        }
+        val viewModel = viewModel(api)
+        assertEquals(3, viewModel.uiState.value.totalCount)
+
+        totalCount = 5
+        viewModel.reload()
+
+        assertEquals(5, viewModel.uiState.value.totalCount)
+    }
+
+    @Test
+    fun `a superseded load cannot overwrite a newer snapshot`() {
+        val staleResponse = CompletableDeferred<GetQueueResponse>()
+        var calls = 0
+        val api = FakeQueueApi().apply {
+            queueHandler = { params ->
+                calls++
+                val offset = params["offset"]?.toInt() ?: 0
+                if (calls == 1) staleResponse.await()
+                testQueueResponse(currentIndex = offset, totalCount = 5, offset = offset)
+            }
+        }
+        val starter = starter()
+        val viewModel = viewModel(api, starter)
+
+        // The first window fetch is still in flight when the engine advances.
+        assertEquals(1, calls)
+        starter.state.value = PlaybackState(sessionId = "session-1", queueIndex = 2, queueLength = 5)
+        assertEquals(2, calls)
+        assertEquals(2, viewModel.uiState.value.currentIndex)
+
+        // The abandoned response arrives late and must be ignored.
+        staleResponse.complete(testQueueResponse(currentIndex = 0, totalCount = 5, offset = 0))
+        assertEquals(2, viewModel.uiState.value.currentIndex)
+        assertNull(viewModel.uiState.value.error)
     }
 }

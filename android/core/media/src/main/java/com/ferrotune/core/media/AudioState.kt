@@ -49,6 +49,8 @@ data class PlaybackState(
     val volume: Float = 1.0f,
     val muted: Boolean = false,
     val track: TrackInfo? = null,
+    val previousTrack: TrackInfo? = null,
+    val nextTrack: TrackInfo? = null,
     val queueIndex: Int = -1,
     val queueLength: Int = 0,
     val sessionId: String? = null,

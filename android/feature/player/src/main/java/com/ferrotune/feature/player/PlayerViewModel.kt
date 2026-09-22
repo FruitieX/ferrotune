@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 
 data class PlayerUiState(
     val track: TrackInfo? = null,
+    val previousTrack: TrackInfo? = null,
+    val nextTrack: TrackInfo? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val positionMs: Long = 0,
@@ -68,6 +70,8 @@ class PlayerViewModel @Inject constructor(
     ) { playback, starting, errorMessage, cast, castStatus ->
         PlayerUiState(
             track = playback.track,
+            previousTrack = playback.previousTrack,
+            nextTrack = playback.nextTrack,
             isPlaying = if (cast.isConnected) castStatus.isPlaying else playback.status == PlaybackStatus.PLAYING,
             isBuffering = playback.status == PlaybackStatus.BUFFERING,
             positionMs = if (cast.isConnected) castStatus.positionMs else playback.positionMs,
@@ -153,12 +157,12 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { repository.nextTrack() }
     }
 
-    fun previous() {
+    fun previous(force: Boolean = false) {
         if (castManager.state.value.isConnected) {
             castManager.previous()
             return
         }
-        viewModelScope.launch { repository.previousTrack() }
+        viewModelScope.launch { repository.previousTrack(force) }
     }
 
     fun toggleShuffle() {

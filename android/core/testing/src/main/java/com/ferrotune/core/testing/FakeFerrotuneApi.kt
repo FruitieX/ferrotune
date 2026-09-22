@@ -121,6 +121,8 @@ open class FakeFerrotuneApi(
     private val onSmartPlaylistSongs: (String, Map<String, String>) -> SmartPlaylistSongsResponse =
         { _, _ -> error("unused") },
     private val onPlaylistFolders: () -> PlaylistFoldersResponse = { error("unused") },
+    private val onRecentPlaylists: () -> RecentPlaylistsResponse = { error("unused") },
+    private val onSmartPlaylists: () -> SmartPlaylistsResponse = { error("unused") },
     private val onUpdateFolder: (String, UpdateFolderRequest) -> PlaylistFolderResponse =
         { _, _ -> error("unused") },
     private val onRemoveSongs: (String, RemovePlaylistSongsRequest) -> Unit =
@@ -299,7 +301,7 @@ open class FakeFerrotuneApi(
         request: PlaylistMembershipRequest,
     ): PlaylistMembershipResponse = error("unused")
 
-    override suspend fun recentlyPlayedPlaylists(): RecentPlaylistsResponse = error("unused")
+    override suspend fun recentlyPlayedPlaylists(): RecentPlaylistsResponse = onRecentPlaylists()
 
     override suspend fun shareableUsers(): ShareableUsersResponse = error("unused")
 
@@ -328,7 +330,7 @@ open class FakeFerrotuneApi(
         request: TransferPlaylistOwnershipRequest,
     ) = error("unused")
 
-    override suspend fun smartPlaylists(): SmartPlaylistsResponse = error("unused")
+    override suspend fun smartPlaylists(): SmartPlaylistsResponse = onSmartPlaylists()
     override suspend fun smartPlaylist(id: String): SmartPlaylistInfo = error("unused")
 
     override suspend fun createSmartPlaylist(

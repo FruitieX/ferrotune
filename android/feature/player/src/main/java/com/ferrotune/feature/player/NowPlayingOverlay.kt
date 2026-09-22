@@ -1,6 +1,6 @@
 package com.ferrotune.feature.player
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -19,13 +20,17 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+
+private val SKIP_THRESHOLD = 80.dp
 
 /**
  * Full-screen now-playing surface drawn above the app shell. The app behind
- * stays static; the sheet translates with drag gestures and animates from its
- * current position on release.
+ * stays static; the sheet translates with drag gestures (including the system
+ * predictive back gesture) and animates from its current position on release.
  */
 @Composable
 fun NowPlayingOverlay(
@@ -36,6 +41,7 @@ fun NowPlayingOverlay(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val haptics = LocalHapticFeedback.current
+    val playerState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(open) {
         if (open) {
@@ -45,9 +51,21 @@ fun NowPlayingOverlay(
         }
     }
 
-    if (!state.rendered) return
+    // Wait for the committed track before recentering the artwork so the
+    // outgoing cover never flashes back into the center.
+    LaunchedEffect(playerState.track?.id) {
+        state.onTrackChanged(playerState.track?.id)
+    }
 
-    BackHandler(enabled = true) { onOpenChange(false) }
+    PredictiveBackHandler(enabled = state.rendered) { progress ->
+        try {
+            progress.collect { event -> state.dragToFraction(event.progress) }
+            onOpenChange(false)
+        } catch (cancelled: CancellationException) {
+            state.animateBackOpen()
+            throw cancelled
+        }
+    }
 
     Box(
         modifier = modifier
@@ -55,6 +73,8 @@ fun NowPlayingOverlay(
             .clipToBounds()
             .onSizeChanged { state.hiddenOffsetPx = it.height.toFloat() },
     ) {
+        if (!state.rendered) return@Box
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -66,15 +86,15 @@ fun NowPlayingOverlay(
 
         NowPlayingScreen(
             onBack = { onOpenChange(false) },
+            sheetState = state,
             modifier = Modifier
                 .fillMaxSize()
                 .offset { IntOffset(0, state.offsetY.roundToInt()) }
                 .pointerInput(Unit) {
-                    var totalX = 0f
                     var vertical: Boolean? = null
+                    val skipThresholdPx = SKIP_THRESHOLD.toPx()
                     detectDragGestures(
                         onDragStart = {
-                            totalX = 0f
                             vertical = null
                         },
                         onDragEnd = {
@@ -85,13 +105,37 @@ fun NowPlayingOverlay(
                                 } else {
                                     state.animateBackOpen()
                                 }
-                            } else if (abs(totalX) > 120.dp.toPx()) {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (totalX > 0) viewModel.previous() else viewModel.next()
+                            } else {
+                                val offsetX = state.artOffsetX
+                                when {
+                                    offsetX > skipThresholdPx &&
+                                        playerState.previousTrack != null -> {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        state.commitArtSwipe(
+                                            direction = 1,
+                                            fromTrackId = playerState.track?.id,
+                                        ) {
+                                            viewModel.previous(force = true)
+                                        }
+                                    }
+
+                                    offsetX < -skipThresholdPx &&
+                                        playerState.nextTrack != null -> {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        state.commitArtSwipe(
+                                            direction = -1,
+                                            fromTrackId = playerState.track?.id,
+                                        ) {
+                                            viewModel.next()
+                                        }
+                                    }
+
+                                    else -> state.settleArt()
+                                }
                             }
                         },
                         onDragCancel = {
-                            state.animateBackOpen()
+                            if (vertical == true) state.animateBackOpen() else state.settleArt()
                         },
                         onDrag = { change, amount ->
                             change.consume()
@@ -100,8 +144,10 @@ fun NowPlayingOverlay(
                             }
                             if (vertical == true) {
                                 state.dragBy(amount.y)
-                            } else {
-                                totalX += amount.x
+                            } else if (vertical == false) {
+                                val blocked = (amount.x > 0 && playerState.previousTrack == null) ||
+                                    (amount.x < 0 && playerState.nextTrack == null)
+                                if (!blocked) state.dragArtBy(amount.x)
                             }
                         },
                     )

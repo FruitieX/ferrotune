@@ -9,6 +9,7 @@ import com.ferrotune.core.testing.FakeFerrotuneApi
 
 internal class FakeQueueApi : FakeFerrotuneApi() {
     var queueParams: Map<String, String>? = null
+    var queueHandler: (suspend (Map<String, String>) -> GetQueueResponse)? = null
     var removedPosition: Long? = null
     var removeParams: Map<String, String>? = null
     var cleared = false
@@ -18,6 +19,7 @@ internal class FakeQueueApi : FakeFerrotuneApi() {
 
     override suspend fun queue(params: Map<String, String>): GetQueueResponse {
         queueParams = params
+        queueHandler?.let { return it(params) }
         val offset = params["offset"]?.toInt() ?: 0
         return testQueueResponse(currentIndex = offset, offset = offset)
     }

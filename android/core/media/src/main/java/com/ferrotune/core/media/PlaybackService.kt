@@ -2361,9 +2361,12 @@ class PlaybackService : MediaSessionService() {
 
     /**
      * Handle skip-previous in autonomous mode.
+     *
+     * [force] skips the "restart current track" shortcut so swipe gestures
+     * always land on the previous queue entry (web `previousForce`).
      */
-    private fun autonomousSkipPrevious() {
-        Log.d(TAG, "autonomousSkipPrevious: serverIndex=$serverQueueIndex, pos=${player.currentPosition}")
+    private fun autonomousSkipPrevious(force: Boolean = false) {
+        Log.d(TAG, "autonomousSkipPrevious(force=$force): serverIndex=$serverQueueIndex, pos=${player.currentPosition}")
         clearPendingNetworkRetry("autonomousSkipPrevious")
         if (pausedForAudioOutputLoss) {
             Log.i(TAG, "Suppressing automatic skip previous after audio-output loss")
@@ -2372,7 +2375,7 @@ class PlaybackService : MediaSessionService() {
         val continuePlayback = shouldStartPlaybackAfterAudioOutputLoss(true, "autonomous skip previous")
 
         // If more than 3 seconds in, restart current track
-        if (player.currentPosition > 3000) {
+        if (!force && player.currentPosition > 3000) {
             player.playWhenReady = continuePlayback
             seek(0) // Use seek() to properly reload transcoded streams from beginning
             accumulatedListenMs = 0
@@ -3663,12 +3666,12 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    fun previousTrack() {
-        Log.d(TAG, "previousTrack()")
+    fun previousTrack(force: Boolean = false) {
+        Log.d(TAG, "previousTrack(force=$force)")
         val previousIndex = (serverQueueIndex - 1).takeIf { it >= 0 }
         claimNativeSessionOwnership("explicit previousTrack", 0, previousIndex)
         clearAudioOutputLossPause("explicit previousTrack()")
-        autonomousSkipPrevious()
+        autonomousSkipPrevious(force)
     }
 
     fun setVolume(volume: Float) {
@@ -4184,6 +4187,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     fun getState(): PlaybackState {
+        val exoIndex = if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1
         return PlaybackState(
             status = mapPlaybackState(player.playbackState, player.playWhenReady),
             positionMs = getAbsolutePlaybackPositionMs(),
@@ -4192,6 +4196,8 @@ class PlaybackService : MediaSessionService() {
             volume = userVolume,
             muted = userVolume == 0f,
             track = currentTrack,
+            previousTrack = queue.getOrNull(exoIndex - 1),
+            nextTrack = queue.getOrNull(exoIndex + 1),
             queueIndex = queueIndex,
             queueLength = queue.size,
             sessionId = apiClient.currentSessionId(),

@@ -37,6 +37,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.inlineCoverModel
@@ -68,6 +71,12 @@ fun QueueSheet(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // The view model outlives the sheet; refresh the window whenever the sheet
+    // opens and whenever the app returns to the foreground, so a load that
+    // failed (or raced) while the app played in the background is corrected.
+    LaunchedEffect(Unit) { viewModel.reload() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.reload() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

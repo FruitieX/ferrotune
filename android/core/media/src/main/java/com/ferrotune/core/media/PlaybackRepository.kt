@@ -125,7 +125,7 @@ class PlaybackRepository @Inject constructor(
 
     suspend fun nextTrack() = awaitService().nextTrack()
 
-    suspend fun previousTrack() = awaitService().previousTrack()
+    suspend fun previousTrack(force: Boolean = false) = awaitService().previousTrack(force)
 
     suspend fun seek(positionMs: Long) = awaitService().seek(positionMs)
 
