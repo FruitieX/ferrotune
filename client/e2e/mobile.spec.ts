@@ -1111,10 +1111,43 @@ test.describe("Mobile Tests", () => {
     const queueSheet = page.getByRole("dialog", { name: /queue/i });
     await expect(queueSheet).toBeVisible({ timeout: 10000 });
 
+    // The close animation is short, so asserting the attribute after the swipe
+    // races it in slow CI runs. Record whether the sheet entered its
+    // gesture-closing state while the gesture runs, and tap right after the
+    // swipe so the tap still lands during (or just after) that animation.
+    await page.evaluate(() => {
+      const state = window as unknown as { __gestureClosingSeen?: boolean };
+      state.__gestureClosingSeen = false;
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          const target = record.target as HTMLElement;
+          if (target.getAttribute("data-gesture-closing") === "true") {
+            state.__gestureClosingSeen = true;
+          }
+        }
+      });
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["data-gesture-closing"],
+        subtree: true,
+      });
+    });
+
     await swipeQueueSheetClosed(page, queueSheet);
-    await expect(queueSheet).toHaveAttribute("data-gesture-closing", "true");
 
     await closeButton.tap();
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __gestureClosingSeen?: boolean })
+                .__gestureClosingSeen === true,
+          ),
+        { timeout: 10000 },
+      )
+      .toBe(true);
 
     await expect(fullscreenPlayer).not.toBeVisible({ timeout: 10000 });
   });
