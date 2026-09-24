@@ -280,6 +280,17 @@ export function useSessionInit() {
     setRemotePlaybackState,
   ]);
 
+  // Persist the playback position as soon as playback pauses. The periodic
+  // heartbeat only reports every HEARTBEAT_INTERVAL_MS, so without this the
+  // server keeps a stale position and reloading a paused session resumes at
+  // the wrong spot.
+  useEffect(() => {
+    if (playbackState !== "paused") return;
+    if (!effectiveSessionId || !isClientInitialized) return;
+    if (!isAudioOwnerRef.current) return;
+    sendHeartbeatRef.current();
+  }, [playbackState, effectiveSessionId, isClientInitialized]);
+
   // Start heartbeat interval when sessionId is set.
   //
   // When the document is hidden AND playback is not active, we pause the
