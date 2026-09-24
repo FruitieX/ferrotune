@@ -128,10 +128,17 @@
             pkgs.moon
             pkgs.nodejs_24 # Kotlin DTO codegen (android:generate-bindings)
             pkgs.pnpm # Tauri Android client build (client:tauri-android-build-ci)
+            # Tauri Android builds compile the Rust app, which needs the same
+            # native deps as the default shell (aubio/bindgen, Opus linking).
+            pkgs.pkg-config
+            pkgs.cmake
+            pkgs.libclang.lib
+            pkgs.libopus
           ];
           ANDROID_HOME = "${androidSdk}/share/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";
           JAVA_HOME = "${pkgs.jdk17}";
+          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           shellHook = ''
             echo "Loaded ferrotune Android dev shell"
             echo "ANDROID_HOME=$ANDROID_HOME"
