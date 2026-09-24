@@ -66,6 +66,22 @@ pub async fn reset_state(
 
     let user_id = user.user_id;
 
+    // The user's session id survives a reset, so stale registered clients and
+    // a stale live position would leak into the next test. Clear the in-memory
+    // session state alongside the database rows.
+    {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        if let Ok(sessions) = crate::db::entity::playback_sessions::Entity::find()
+            .filter(crate::db::entity::playback_sessions::Column::UserId.eq(user_id))
+            .all(state.database.conn())
+            .await
+        {
+            for session in &sessions {
+                state.session_manager.reset_session_state(&session.id).await;
+            }
+        }
+    }
+
     // Clear all user-modifiable tables for this user
     let result = reset_user_state(&state.database, user_id).await;
 

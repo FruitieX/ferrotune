@@ -403,6 +403,19 @@ impl SessionManager {
             .and_then(|state| state.latest_position_update.clone())
     }
 
+    /// Clear a session's in-memory state without ending its open SSE streams.
+    ///
+    /// Used by the testing reset endpoint: database rows are recreated per
+    /// test while the session id stays the same, so stale registered clients
+    /// and a stale live position would otherwise leak into the next test.
+    pub async fn reset_session_state(&self, session_id: &str) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(state) = sessions.get_mut(session_id) {
+            state.clients.clear();
+            state.latest_position_update = None;
+        }
+    }
+
     /// Broadcast an event to multiple sessions.
     pub async fn broadcast_to_sessions(&self, session_ids: &[String], event: SessionEvent) {
         let sessions = self.sessions.read().await;
