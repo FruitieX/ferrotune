@@ -300,15 +300,29 @@ fn spawn_inactive_owner_cleanup(
     session_manager: Arc<api::SessionManager>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        const INACTIVITY_SECONDS: i64 = 300;
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        // Disown a session whose playback has been idle for this long: with no
+        // current owner the clients drop the "playing on ..." banner, and the
+        // next client to start playback claims ownership. Configurable so tests
+        // can exercise the timeout quickly.
+        let inactivity_seconds = std::env::var("FERROTUNE_SESSION_IDLE_DISOWN_SECS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|seconds| *seconds > 0)
+            .unwrap_or(600);
+        let sweep_seconds = inactivity_seconds.clamp(1, 30) as u64;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(sweep_seconds));
         loop {
             interval.tick().await;
-            match db::queries::get_sessions_with_inactive_owners(&database, INACTIVITY_SECONDS)
+            match db::queries::get_sessions_with_inactive_owners(&database, inactivity_seconds)
                 .await
             {
                 Ok(sessions) => {
                     for session in sessions {
+                        // A fresh heartbeat deliberately does not keep the owner:
+                        // an idle-but-open tab would otherwise hold the session
+                        // forever and no other client could start playback. The
+                        // query only returns sessions whose playback has been
+                        // idle for the whole window.
                         let owner_has_fresh_heartbeat = match session.owner_client_id.as_deref() {
                             Some(owner_client_id) => {
                                 session_manager
@@ -317,19 +331,6 @@ fn spawn_inactive_owner_cleanup(
                             }
                             None => false,
                         };
-                        if owner_has_fresh_heartbeat {
-                            tracing::debug!(
-                                target: "session_ownership",
-                                session_id = %session.id,
-                                owner_client_id = ?session.owner_client_id,
-                                owner_heartbeat_fresh = owner_has_fresh_heartbeat,
-                                db_is_playing = session.is_playing,
-                                db_last_heartbeat = %session.last_heartbeat,
-                                db_last_playing_at = ?session.last_playing_at,
-                                "Keeping active owner despite stale playback marker"
-                            );
-                            continue;
-                        }
 
                         let owner_sse_connected =
                             if let Some(owner_client_id) = session.owner_client_id.as_deref() {
