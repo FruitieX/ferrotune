@@ -70,9 +70,7 @@ pub async fn reset_state(
     // a stale live position would leak into the next test. Clear the in-memory
     // session state alongside the database rows.
     {
-        use sea_orm::{
-            ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter,
-        };
+        use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
         if let Ok(sessions) = crate::db::entity::playback_sessions::Entity::find()
             .filter(crate::db::entity::playback_sessions::Column::UserId.eq(user_id))
             .all(state.database.conn())
