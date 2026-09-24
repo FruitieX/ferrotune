@@ -1251,6 +1251,10 @@ test.describe.serial("Multi-Session Playback", () => {
       currentIndex: 0,
       positionMs: 42_000,
     });
+    // This web owner keeps heartbeating its own (few seconds long) playback
+    // position, which would immediately overwrite the modelled live position.
+    // Stop its heartbeats so the modelled snapshot is what the follower sees.
+    await ownerPage.route("**/api/sessions/*/heartbeat", (route) => route.abort());
 
     const waveformRequests: string[] = [];
     const waveformHeights = Array.from({ length: 128 }, (_, index) =>
