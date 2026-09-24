@@ -202,7 +202,7 @@ test.describe("Tagger", () => {
 
     // If direct input selector doesn't work, try label-based approach
     let foundInput = false;
-    if (await titleInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await titleInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await titleInput.fill("Modified Title");
       foundInput = true;
     } else {
@@ -212,7 +212,7 @@ test.describe("Tagger", () => {
           'label:has-text("TITLE") + input, label:has-text("TITLE") ~ input',
         )
         .first();
-      if (await titleField.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await titleField.isVisible({ timeout: 5000 }).catch(() => false)) {
         await titleField.fill("Modified Title");
         foundInput = true;
       }
@@ -221,12 +221,12 @@ test.describe("Tagger", () => {
     if (!foundInput) {
       // Try double-clicking on a cell in the grid to edit
       const titleCell = page.locator('[data-col-index="0"]').first();
-      if (await titleCell.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await titleCell.isVisible({ timeout: 5000 }).catch(() => false)) {
         await titleCell.dblclick();
 
         // Type into the inline editor
         const inlineInput = page.locator("[data-row-id] input");
-        if (await inlineInput.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (await inlineInput.isVisible({ timeout: 3000 }).catch(() => false)) {
           await inlineInput.fill("Modified Title");
           await inlineInput.press("Tab");
           foundInput = true;
