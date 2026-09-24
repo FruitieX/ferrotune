@@ -950,10 +950,28 @@ export async function clearBrowserState(page: Page): Promise<void> {
       };
     });
 
-    // Clear storage but keep auth state
+    // Clear storage but keep auth state and the client identity. The app keeps
+    // its client id in memory, so wiping the stored copy makes it generate a
+    // new one: the tab then looks like a follower of its own stale
+    // registration (two client ids in the same session) and never plays.
     const connection = localStorage.getItem("ferrotune-connection");
+    const clientIdentityKeys = [
+      "ferrotune-client-id",
+      "ferrotune-mobile-client-id",
+      "ferrotune-client-tab-instance-id",
+    ];
+    const clientIdentity: Array<[string, string]> = [];
+    for (const key of clientIdentityKeys) {
+      const value =
+        sessionStorage.getItem(key) ?? localStorage.getItem(key) ?? null;
+      if (value !== null) clientIdentity.push([key, value]);
+    }
     localStorage.clear();
     sessionStorage.clear();
+    for (const [key, value] of clientIdentity) {
+      sessionStorage.setItem(key, value);
+      localStorage.setItem(key, value);
+    }
     delete (
       globalThis as typeof globalThis & {
         __ferrotuneServerStorageState?: unknown;
