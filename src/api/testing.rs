@@ -70,7 +70,9 @@ pub async fn reset_state(
     // a stale live position would leak into the next test. Clear the in-memory
     // session state alongside the database rows.
     {
-        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        use sea_orm::{
+            ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter,
+        };
         if let Ok(sessions) = crate::db::entity::playback_sessions::Entity::find()
             .filter(crate::db::entity::playback_sessions::Column::UserId.eq(user_id))
             .all(state.database.conn())
@@ -78,6 +80,18 @@ pub async fn reset_state(
         {
             for session in &sessions {
                 state.session_manager.reset_session_state(&session.id).await;
+
+                // The session row itself survives the reset, so a recorded owner
+                // from a previous test keeps the next tab a follower: the queue
+                // paths only transfer ownership when the recorded owner looks
+                // disconnected, and a client that just registered does not.
+                // Clear it so the next client to register claims ownership.
+                let mut active: crate::db::entity::playback_sessions::ActiveModel =
+                    session.clone().into();
+                active.owner_client_id = Set(None);
+                if let Err(error) = active.update(state.database.conn()).await {
+                    tracing::warn!("Failed to clear the session owner during reset: {error}");
+                }
             }
         }
     }
