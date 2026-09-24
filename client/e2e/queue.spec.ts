@@ -170,9 +170,13 @@ test.describe.serial("Queue Management", () => {
       .first();
     if (!(await pauseButton.isVisible().catch(() => false))) {
       await expect(playButton).toBeVisible({ timeout: 10000 });
-      await playButton.click();
-      await expect(pauseButton).toBeVisible({ timeout: 10000 });
+      // Playback can also start late: the queue/start response may land after
+      // the probe above, the control then flips to Pause, and this click can
+      // never be satisfied. Tolerate that — the assertion below still requires
+      // playback to be running.
+      await playButton.click({ timeout: 10000 }).catch(() => undefined);
     }
+    await expect(pauseButton).toBeVisible({ timeout: 10000 });
     await pauseButton.click();
     await expect(flacRow).toHaveAttribute("data-current-track", "true", {
       timeout: 10000,
