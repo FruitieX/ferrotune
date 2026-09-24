@@ -195,6 +195,9 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
     .await?;
 
     let app = runtime.router().clone();
+    // Kept for shutdown: an open playback-sync SSE stream keeps the graceful
+    // shutdown waiting, so the session channels are closed when it starts.
+    let state = runtime.state().clone();
 
     // Create listener
     let addr = format!("{}:{}", config.server.host, config.server.port);
@@ -207,7 +210,7 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(async {
+    .with_graceful_shutdown(async move {
         let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
@@ -222,6 +225,8 @@ async fn run_server(pool: db::Database, config: config::Config) -> Result<()> {
         #[cfg(not(unix))]
         ctrl_c.await.ok();
         tracing::info!("Shutdown signal received, finishing in-flight requests…");
+        // End open SSE streams so in-flight requests can actually drain.
+        state.session_manager.close_all().await;
     })
     .await?;
 

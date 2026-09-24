@@ -374,6 +374,15 @@ impl SessionManager {
         tx.subscribe()
     }
 
+    /// Drop every session's broadcast sender so open SSE streams end.
+    ///
+    /// Called on shutdown: the graceful shutdown waits for open connections to
+    /// finish, and a playback-sync SSE stream never finishes on its own. The
+    /// stream ends as soon as its channel closes.
+    pub async fn close_all(&self) {
+        self.sessions.write().await.clear();
+    }
+
     /// Broadcast an event to all subscribers of a session.
     pub async fn broadcast(&self, session_id: &str, event: SessionEvent) {
         let mut sessions = self.sessions.write().await;
