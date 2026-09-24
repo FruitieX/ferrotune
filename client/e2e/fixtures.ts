@@ -170,10 +170,16 @@ export async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
     return;
   }
 
-  const exited = once(serverInfo.process, "exit");
-  serverInfo.process.kill("SIGTERM");
   if (serverInfo.process.exitCode === null) {
+    const exited = once(serverInfo.process, "exit");
+    serverInfo.process.kill("SIGTERM");
+    // Graceful shutdown waits for open connections to finish, and an SSE stream
+    // (a still-open page) never finishes on its own: don't let teardown hang.
+    const forceKill = setTimeout(() => {
+      serverInfo.process.kill("SIGKILL");
+    }, 5000);
     await exited;
+    clearTimeout(forceKill);
   }
 
   fs.rmSync(serverInfo.tempDir, { recursive: true, force: true });

@@ -112,7 +112,11 @@ test.describe("Sorting and Filtering", () => {
     await dropdown.getByRole("menuitem", { name: /title/i }).click();
     await titleSortResponse;
 
-    // Get titles after sorting by title
+    // Get titles after sorting by title. The list re-renders (and briefly shows
+    // skeletons) while the sorted page loads, so poll until titles are there.
+    await expect
+      .poll(async () => (await getSongTitles()).length, { timeout: 10000 })
+      .toBeGreaterThan(1);
     const titlesAfterNameSort = await getSongTitles();
     expect(titlesAfterNameSort.length).toBeGreaterThan(1);
 

@@ -165,7 +165,10 @@ test.describe("Playlists", () => {
       .locator('[data-testid="media-card"]')
       .filter({ hasText: "Test Album" });
     await expect(testAlbum).toBeVisible({ timeout: 10000 });
-    await testAlbum.click();
+    // Click the album title rather than the card centre: hovering the card
+    // reveals the cover's play overlay, so a centre click starts playback
+    // (which refetches the album and unmounts the context menu below).
+    await testAlbum.getByText("Test Album", { exact: true }).first().click();
 
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 

@@ -67,6 +67,9 @@ test.describe("Initial setup", () => {
       expect(requestCounts.features).toBeLessThanOrEqual(3);
       expect(requestCounts.scanDetails).toBeLessThanOrEqual(3);
     } finally {
+      // Close the page before stopping the server: its open SSE stream would
+      // otherwise keep the server's graceful shutdown waiting.
+      await page.close();
       await cleanupServer(server);
     }
   });
