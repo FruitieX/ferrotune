@@ -707,10 +707,13 @@ export class FerrotuneClient {
       excludeRecentDays?: number;
       seed?: number;
       seedSongId?: string;
+      /** If true, don't show an error toast when the request fails. */
+      silent?: boolean;
     } = {},
   ): Promise<DiscoveryResponse> {
-    const endpoint = buildEndpoint("/api/discovery/similar-songs", params);
-    return this.request<DiscoveryResponse>(endpoint);
+    const { silent = false, ...query } = params;
+    const endpoint = buildEndpoint("/api/discovery/similar-songs", query);
+    return this.request<DiscoveryResponse>(endpoint, {}, silent);
   }
 
   // Search endpoint

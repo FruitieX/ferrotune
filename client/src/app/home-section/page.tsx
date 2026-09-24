@@ -705,6 +705,9 @@ export default function HomeSectionPage() {
           count: linkedSimilarCount,
           excludeRecentDays: linkedSimilarExcludeRecentDays,
           seedSongId: linkedSimilarSeedSongId,
+          // Background section prefetch: a seed without bliss analysis is a
+          // normal condition, not something to interrupt the user with.
+          silent: true,
         });
         similarTracksSeedRef.current = response.seed;
         similarTracksCountRef.current = response.count;

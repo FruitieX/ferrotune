@@ -1452,6 +1452,9 @@ export default function HomePage() {
         offset: pageParam,
         inlineImages: "medium",
         seed: similarTracksRequestSeed,
+        // Background section prefetch: a seed without bliss analysis is a
+        // normal condition, not something to interrupt the user with.
+        silent: true,
       });
       similarTracksSeedRef.current = response.seed;
       similarTracksCountRef.current = response.count;
