@@ -18,6 +18,7 @@ import {
 } from "./fixtures";
 import {
   gotoAppPath,
+  pausePlayback,
   setStoredConnection,
   waitForAuthenticatedHome,
   type StoredConnection,
@@ -717,14 +718,13 @@ async function playAlbumTrackAndPause(
 async function pauseCurrentPlayback(page: Page): Promise<void> {
   const playerBar = page.getByTestId("player-bar");
   const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
-  const playBtn = playerBar.getByRole("button", { name: /^Play$/ }).first();
 
   // Slow CI runners can take far longer than the 10s default for the player
   // to settle into its playing state; the app is playing in the screenshots
-  // even when the probe times out.
+  // even when the probe times out. Waiting for Pause also asserts playback
+  // started before the pause is exercised.
   await expect(pauseBtn).toBeVisible({ timeout: 30000 });
-  await pauseBtn.click();
-  await expect(playBtn).toBeVisible({ timeout: 30000 });
+  await pausePlayback(page);
 }
 
 async function waitForFullscreenPlayerSettled(

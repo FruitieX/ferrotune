@@ -149,3 +149,39 @@ export function toAndroidEmulatorUrl(serverUrl: string): string {
 
   return url.href.replace(/\/$/, "");
 }
+
+/**
+ * Pause playback and wait until the player bar shows the Play control.
+ *
+ * A track that auto-advances while the Pause click is dispatched replaces the
+ * player-bar controls mid-click, which swallows the click and leaves playback
+ * running. The test fixtures are only a few seconds long, so this happens
+ * regularly; retry until the paused state is observed instead of trusting a
+ * single click.
+ */
+export async function pausePlayback(page: Page): Promise<void> {
+  const playerBar = page.getByTestId("player-bar");
+  const playButton = playerBar.getByRole("button", { name: /^Play$/ }).first();
+  const pauseButton = playerBar
+    .getByRole("button", { name: /^Pause$/ })
+    .first();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await playButton.isVisible().catch(() => false)) {
+      return;
+    }
+
+    if (await pauseButton.isVisible().catch(() => false)) {
+      await pauseButton.click().catch(() => undefined);
+    }
+
+    try {
+      await expect(playButton).toBeVisible({ timeout: 3000 });
+      return;
+    } catch {
+      // The track likely auto-advanced mid-click; click the new Pause control.
+    }
+  }
+
+  await expect(playButton).toBeVisible({ timeout: 15000 });
+}
