@@ -46,6 +46,9 @@ tasks:
     options:
       cache: true
       runInCI: false
+      # Serialize Gradle invocations: concurrent Kotlin daemons in the same
+      # checkout race over the shared incremental-compilation caches.
+      mutex: "gradle"
 
   assemble-release:
     command: "./gradlew :app:assembleRelease"
@@ -54,6 +57,7 @@ tasks:
     options:
       cache: true
       runInCI: false
+      mutex: "gradle"
 
   test-unit:
     command: "./gradlew testDebugUnitTest"
@@ -61,6 +65,7 @@ tasks:
     options:
       cache: true
       runInCI: true
+      mutex: "gradle"
 
   lint:
     command: "./gradlew lintDebug"
@@ -68,6 +73,7 @@ tasks:
     options:
       cache: true
       runInCI: true
+      mutex: "gradle"
 
   install-debug:
     command: "bash scripts/install-debug.sh"

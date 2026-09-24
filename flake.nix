@@ -127,6 +127,7 @@
             pkgs.jdk17
             pkgs.moon
             pkgs.nodejs_24 # Kotlin DTO codegen (android:generate-bindings)
+            pkgs.pnpm # Tauri Android client build (client:tauri-android-build-ci)
           ];
           ANDROID_HOME = "${androidSdk}/share/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";

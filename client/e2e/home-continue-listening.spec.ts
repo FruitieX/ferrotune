@@ -471,9 +471,12 @@ test.describe("Home continue listening", () => {
 
     await page.goto("/");
 
+    // The link carries a seed (and window) so the dedicated view renders the
+    // same list this section showed; assert the path plus the seed param
+    // without pinning parameter order.
     await expect(
       page.getByRole("link", { name: "Similar To What You've Heard" }).first(),
-    ).toHaveAttribute("href", "/home/similar-tracks");
+    ).toHaveAttribute("href", /^\/home\/similar-tracks\?(?=.*\bseed=\d+)/);
   });
 
   test("forgotten favorites header retains its displayed seed", async ({
