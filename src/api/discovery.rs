@@ -182,31 +182,10 @@ pub async fn discover_similar_songs(
         .map(|agg| agg.song_id)
         .collect();
 
-    // 3. Find similar songs using bliss (loads all candidates, computes distances).
-    // A seed song without bliss analysis yet (analysis disabled or still
-    // running) degrades to an empty section instead of failing the request.
-    let similar = match crate::bliss::find_similar_songs(
-        database,
-        &seed_id,
-        user_id,
-        count as usize,
-        rng_seed,
-    )
-    .await
-    {
-        Ok(similar) => similar,
-        Err(crate::error::Error::NotFound(_)) => {
-            return Ok(DiscoveryResponse {
-                song: Vec::new(),
-                total: 0,
-                seed: response_seed,
-                count,
-                exclude_recent_days,
-                seed_song_id: Some(seed_id),
-            });
-        }
-        Err(err) => return Err(err),
-    };
+    // 3. Find similar songs using bliss (loads all candidates, computes distances)
+    let similar =
+        crate::bliss::find_similar_songs(database, &seed_id, user_id, count as usize, rng_seed)
+            .await?;
 
     // 4. Filter out recently played songs
     let filtered: Vec<(String, f32)> = similar

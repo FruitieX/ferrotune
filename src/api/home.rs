@@ -295,7 +295,11 @@ pub async fn get_home(
 
             #[cfg(feature = "bliss")]
             {
-                let similar = crate::api::discovery::discover_similar_songs(
+                // The most recently played song may have no bliss analysis yet
+                // (analysis disabled or still running). The dedicated discovery
+                // endpoint reports that as 404, but the home page must still
+                // render, so degrade to an empty section instead.
+                let similar = match crate::api::discovery::discover_similar_songs(
                     database,
                     user_id,
                     size,
@@ -306,7 +310,19 @@ pub async fn get_home(
                     None,
                     None,
                 )
-                .await?;
+                .await
+                {
+                    Ok(similar) => similar,
+                    Err(crate::error::Error::NotFound(_)) => {
+                        return Ok::<HomeSongSection, crate::error::FerrotuneApiError>(
+                            HomeSongSection {
+                                song: Vec::new(),
+                                total: 0,
+                            },
+                        );
+                    }
+                    Err(err) => return Err(crate::error::FerrotuneApiError(err)),
+                };
                 Ok::<HomeSongSection, crate::error::FerrotuneApiError>(HomeSongSection {
                     song: similar.song,
                     total: similar.total,
