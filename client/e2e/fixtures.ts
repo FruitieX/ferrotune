@@ -182,74 +182,17 @@ export async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
 export async function spawnUnseededServer(
   instanceName: string,
 ): Promise<UnseededServerInfo> {
-  const binary = findBinary();
-  const port = await getAvailablePort();
-  const sanitizedInstanceName = sanitizeInstanceName(instanceName);
-  const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), `ferrotune-e2e-${sanitizedInstanceName}-`),
-  );
-  const dbPath = path.join(tempDir, "ferrotune.db");
-  const cacheDir = path.join(tempDir, "cache");
-  const transcodeCacheDir = path.join(tempDir, "transcodes");
-  const musicDir = path.join(tempDir, "music");
-
-  fs.mkdirSync(cacheDir, { recursive: true });
-  fs.mkdirSync(transcodeCacheDir, { recursive: true });
-  fs.mkdirSync(musicDir, { recursive: true });
-
-  const serverProcess = spawn(
-    binary,
-    ["serve", "--host", "127.0.0.1", "--port", port.toString()],
-    {
-      stdio: "pipe",
-      detached: false,
-      env: {
-        ...process.env,
-        FERROTUNE_DATABASE_URL: `sqlite://${dbPath}`,
-        FERROTUNE_DATA_DIR: tempDir,
-        FERROTUNE_TRANSCODE_CACHE_PATH: transcodeCacheDir,
-        FERROTUNE_TESTING: "true",
-      },
-    },
-  );
-
-  let serverError = "";
-
-  serverProcess.stderr?.on("data", (data) => {
-    serverError += data.toString();
-    if (process.env.DEBUG) {
-      console.error(`[ferrotune-${instanceName}] ${data}`);
-    }
+  const started = await startServerWithRetry(instanceName, (musicDir) => {
+    fs.mkdirSync(musicDir, { recursive: true });
   });
-
-  serverProcess.stdout?.on("data", (data) => {
-    if (process.env.DEBUG) {
-      console.log(`[ferrotune-${instanceName}] ${data}`);
-    }
-  });
-
-  serverProcess.on("error", (err) => {
-    console.error(`Instance ${instanceName} failed to start server:`, err);
-  });
-
-  try {
-    await waitForServer(`http://127.0.0.1:${port}/api/setup/status`);
-  } catch (error) {
-    console.error(
-      `Instance ${instanceName} server failed to start. Errors:`,
-      serverError,
-    );
-    serverProcess.kill();
-    throw error;
-  }
 
   return {
-    url: `http://127.0.0.1:${port}`,
+    url: `http://127.0.0.1:${started.port}`,
     username: "admin",
     password: "admin",
-    tempDir,
-    process: serverProcess,
-    musicDir,
+    tempDir: started.tempDir,
+    process: started.serverProcess,
+    musicDir: started.musicDir,
   };
 }
 
@@ -260,23 +203,168 @@ function nextIsolatedServerName(): string {
   return `test-${process.pid}-${isolatedServerCounter}`;
 }
 
-/** Wait for server to be ready */
-async function waitForServer(
+/** Short pause used to give a freshly spawned process time to fail its bind. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+/**
+ * Wait until the server answers, but stop as soon as the child exits.
+ *
+ * getAvailablePort() closes its probe socket before the child binds the port,
+ * so two workers starting at the same time can be handed the same port. The
+ * loser's process exits immediately ("address in use") while the winner still
+ * answers the readiness probe, so polling without watching the child hands the
+ * test a server this worker does not own — one that dies with the *other*
+ * worker's teardown, mid-test, as ERR_CONNECTION_REFUSED.
+ */
+async function waitForServerOrExit(
   url: string,
+  child: ChildProcess,
   timeout: number = 30000,
 ): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        try {
-          return (await fetch(url)).ok;
-        } catch {
-          return false;
-        }
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    if (hasExited(child)) {
+      throw new Error(
+        `server process exited before becoming ready (code=${child.exitCode} signal=${child.signalCode})`,
+      );
+    }
+    try {
+      if ((await fetch(url)).ok) {
+        return;
+      }
+    } catch {
+      /* not listening yet */
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`server should become ready at ${url}`);
+    }
+    await sleep(100);
+  }
+}
+
+/**
+ * Start a Ferrotune test server, retrying on a lost port race.
+ *
+ * Returns only once the child is confirmed alive and answering, so the caller
+ * owns the server it is about to use.
+ */
+async function startServerWithRetry(
+  instanceName: string,
+  prepareMusicDir: (musicDir: string) => void,
+): Promise<{
+  port: number;
+  tempDir: string;
+  serverProcess: ChildProcess;
+  serverError: string;
+  musicDir: string;
+}> {
+  const binary = findBinary();
+  const sanitizedInstanceName = sanitizeInstanceName(instanceName);
+  const attempts = 5;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const port = await getAvailablePort();
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), `ferrotune-e2e-${sanitizedInstanceName}-`),
+    );
+    const dbPath = path.join(tempDir, "ferrotune.db");
+    const cacheDir = path.join(tempDir, "cache");
+    const transcodeCacheDir = path.join(tempDir, "transcodes");
+    const musicDir = path.join(tempDir, "music");
+
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.mkdirSync(transcodeCacheDir, { recursive: true });
+    prepareMusicDir(musicDir);
+
+    // Start the server with FERROTUNE_TESTING enabled for test isolation
+    const serverProcess = spawn(
+      binary,
+      ["serve", "--host", "127.0.0.1", "--port", port.toString()],
+      {
+        stdio: "pipe",
+        detached: false,
+        env: {
+          ...process.env,
+          FERROTUNE_DATABASE_URL: `sqlite://${dbPath}`,
+          FERROTUNE_DATA_DIR: tempDir,
+          FERROTUNE_TRANSCODE_CACHE_PATH: transcodeCacheDir,
+          FERROTUNE_TESTING: "true",
+        },
       },
-      { timeout, message: `server should become ready at ${url}` },
-    )
-    .toBe(true);
+    );
+
+    let serverError = "";
+    let started = false;
+
+    serverProcess.stderr?.on("data", (data) => {
+      serverError += data.toString();
+      if (process.env.DEBUG) {
+        console.error(`[ferrotune-${instanceName}] ${data}`);
+      }
+    });
+
+    serverProcess.stdout?.on("data", (data) => {
+      if (process.env.DEBUG) {
+        console.log(`[ferrotune-${instanceName}] ${data}`);
+      }
+    });
+
+    serverProcess.on("error", (err) => {
+      console.error(`Instance ${instanceName} failed to start server:`, err);
+    });
+
+    // Surface a server that dies *after* startup: without this the only trace
+    // of a crash is ERR_CONNECTION_REFUSED inside the browser.
+    serverProcess.once("exit", (code, signal) => {
+      if (!started) {
+        return;
+      }
+      console.error(
+        `[ferrotune-${instanceName}] server exited after startup (code=${code} signal=${signal})` +
+          (serverError ? `\n--- server stderr ---\n${serverError}` : ""),
+      );
+    });
+
+    const url = `http://127.0.0.1:${port}/api/setup/status`;
+    try {
+      await waitForServerOrExit(url, serverProcess);
+      // A lost bind race exits the child within milliseconds, possibly after
+      // the winner already satisfied the probe; re-check before trusting it.
+      await sleep(250);
+      if (hasExited(serverProcess)) {
+        throw new Error(
+          `server exited right after readiness (code=${serverProcess.exitCode} signal=${serverProcess.signalCode})`,
+        );
+      }
+      started = true;
+      return { port, tempDir, serverProcess, serverError, musicDir };
+    } catch (error) {
+      lastError = error;
+      console.error(
+        `Instance ${instanceName} attempt ${attempt}/${attempts} on port ${port} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }` + (serverError ? `\n--- server stderr ---\n${serverError}` : ""),
+      );
+      if (!hasExited(serverProcess)) {
+        serverProcess.kill("SIGTERM");
+      }
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      await sleep(100);
+    }
+  }
+
+  throw new Error(
+    `Instance ${instanceName} failed to start after ${attempts} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
 }
 
 type ScanStatus = {
@@ -470,88 +558,25 @@ async function seedServer(
  * Spawn a dedicated Ferrotune server for a test worker or isolated test.
  */
 async function spawnServer(instanceName: string): Promise<ServerInfo> {
-  const binary = findBinary();
   const projectRoot = path.resolve(__dirname, "../..");
-  const port = await getAvailablePort();
-  const sanitizedInstanceName = sanitizeInstanceName(instanceName);
-
-  // Create a unique temp directory for this test instance.
-  const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), `ferrotune-e2e-${sanitizedInstanceName}-`),
-  );
-  const dbPath = path.join(tempDir, "ferrotune.db");
-  const cacheDir = path.join(tempDir, "cache");
-  const transcodeCacheDir = path.join(tempDir, "transcodes");
-  const musicDir = path.join(tempDir, "music");
-
-  fs.mkdirSync(cacheDir, { recursive: true });
-  fs.mkdirSync(transcodeCacheDir, { recursive: true });
-
-  // Copy test fixtures
   const fixturesMusic = path.join(projectRoot, "tests/fixtures/music");
-  copyDirSync(fixturesMusic, musicDir);
+
+  const started = await startServerWithRetry(instanceName, (musicDir) => {
+    copyDirSync(fixturesMusic, musicDir);
+  });
 
   const bootstrap = { username: "admin", password: "admin" };
   const primary = { username: "testadmin", password: "testpass" };
-  const databaseUrl = `sqlite://${dbPath}`;
 
-  // Start the server with FERROTUNE_TESTING enabled for test isolation
-  const serverProcess = spawn(
-    binary,
-    ["serve", "--host", "127.0.0.1", "--port", port.toString()],
-    {
-      stdio: "pipe",
-      detached: false,
-      env: {
-        ...process.env,
-        FERROTUNE_DATABASE_URL: databaseUrl,
-        FERROTUNE_DATA_DIR: tempDir,
-        FERROTUNE_TRANSCODE_CACHE_PATH: transcodeCacheDir,
-        FERROTUNE_TESTING: "true",
-      },
-    },
-  );
-
-  let serverError = "";
-
-  serverProcess.stderr?.on("data", (data) => {
-    serverError += data.toString();
-    if (process.env.DEBUG) {
-      console.error(`[ferrotune-${instanceName}] ${data}`);
-    }
-  });
-
-  serverProcess.stdout?.on("data", (data) => {
-    if (process.env.DEBUG) {
-      console.log(`[ferrotune-${instanceName}] ${data}`);
-    }
-  });
-
-  serverProcess.on("error", (err) => {
-    console.error(`Instance ${instanceName} failed to start server:`, err);
-  });
-
-  // Wait for server to be ready
-  try {
-    await waitForServer(`http://127.0.0.1:${port}/api/setup/status`);
-  } catch (error) {
-    console.error(
-      `Instance ${instanceName} server failed to start. Errors:`,
-      serverError,
-    );
-    serverProcess.kill();
-    throw error;
-  }
-
-  const baseUrl = `http://127.0.0.1:${port}`;
-  await seedServer(baseUrl, bootstrap, primary, instanceName, musicDir);
+  const baseUrl = `http://127.0.0.1:${started.port}`;
+  await seedServer(baseUrl, bootstrap, primary, instanceName, started.musicDir);
 
   return {
     url: baseUrl,
     username: primary.username,
     password: primary.password,
-    tempDir,
-    process: serverProcess,
+    tempDir: started.tempDir,
+    process: started.serverProcess,
   };
 }
 
