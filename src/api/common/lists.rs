@@ -1101,22 +1101,33 @@ pub async fn get_continue_listening_logic(
         if !smart_playlist_ids.is_empty() {
             let rows =
                 lists_repo::list_smart_playlist_named_ids(database, &smart_playlist_ids).await?;
-            rows.into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    (
-                        id.clone(),
-                        ContinueListeningPlaylist {
-                            id: id.clone(),
-                            name: row.name,
-                            playlist_type: "smartPlaylist".to_string(),
-                            song_count: None,
-                            duration: None,
-                            cover_art: Some(format!("sp-{id}")),
-                        },
-                    )
-                })
-                .collect()
+            let mut map = std::collections::HashMap::with_capacity(rows.len());
+            for row in rows {
+                // Smart playlists have no stored song count, so materialize the
+                // rule-matched songs to report the real count. A failure to
+                // evaluate one playlist must not sink the whole section.
+                let song_count = match crate::api::smart_playlists::get_smart_playlist_songs_by_id(
+                    database, &row.id, user_id, None, None, None,
+                )
+                .await
+                {
+                    Ok(songs) => Some(songs.len() as i64),
+                    Err(_) => None,
+                };
+                let id = row.id;
+                map.insert(
+                    id.clone(),
+                    ContinueListeningPlaylist {
+                        id: id.clone(),
+                        name: row.name,
+                        playlist_type: "smartPlaylist".to_string(),
+                        song_count,
+                        duration: None,
+                        cover_art: Some(format!("sp-{id}")),
+                    },
+                );
+            }
+            map
         } else {
             std::collections::HashMap::new()
         };

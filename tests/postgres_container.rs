@@ -7625,9 +7625,13 @@ fn test_postgres_get_song_play_count_and_last_uses_sum_and_submission_filter() {
         )
         .await
         .expect("postgres song play stats should succeed");
+        // seed_postgres_library_sample already recorded two submission
+        // scrobbles of play_count=1 for song_1, so the two play_count=5 rows
+        // added above bring the SUM to 12. The non-submission row must not
+        // contribute, and the result must not be a row count.
         assert_eq!(
-            stats_1.play_count, 10,
-            "play count must SUM submission scrobbles, not count rows"
+            stats_1.play_count, 12,
+            "play count must SUM submission scrobbles (seed 2 + 10), not count rows"
         );
         assert!(
             stats_1.last_played.is_some(),

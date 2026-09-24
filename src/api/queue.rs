@@ -2816,11 +2816,20 @@ pub async fn materialize_lazy_queue_page(
         }
     }
 
-    Err(Error::Internal(format!(
-        "lazy pagination is not implemented for source type {}",
-        source_type.as_str()
-    ))
-    .into())
+    // Sources without a server-side page query (favorites, history,
+    // playlists, …) fall back to full materialization; the caller only needs
+    // one page, so slice it out of the materialized list.
+    let all_songs = materialize_queue_songs(
+        database,
+        user_id,
+        source_type,
+        queue.source_id.as_deref(),
+        filters.as_ref(),
+        sort.as_ref(),
+    )
+    .await?;
+
+    Ok(all_songs.into_iter().skip(offset).take(limit).collect())
 }
 
 /// Materialize a single page of a lazy queue using source-native pagination.
@@ -3029,11 +3038,20 @@ pub async fn get_lazy_queue_count(
         }
     }
 
-    Err(Error::Internal(format!(
-        "lazy counting is not implemented for source type {}",
-        source_type.as_str()
-    ))
-    .into())
+    // Sources without a server-side count query (favorites, history,
+    // playlists, forgotten favorites, …) have to be materialized to be
+    // counted, as the doc comment above promises.
+    let songs = materialize_queue_songs(
+        database,
+        user_id,
+        source_type,
+        queue.source_id.as_deref(),
+        filters.as_ref(),
+        sort.as_ref(),
+    )
+    .await?;
+
+    Ok(songs.len())
 }
 
 /// Generate shuffle indices that keep played tracks in order and only shuffle upcoming tracks.

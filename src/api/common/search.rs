@@ -582,6 +582,9 @@ pub fn get_song_order_clause_for_search(
         Some("artist") => format!("ar.name COLLATE NOCASE {dir}, s.title COLLATE NOCASE {dir}"),
         Some("album") => format!("al.name COLLATE NOCASE {dir}, s.title COLLATE NOCASE {dir}"),
         Some("year") => format!("s.year {dir}, s.title COLLATE NOCASE {dir}"),
+        Some("trackNumber") => format!(
+            "COALESCE(s.disc_number, 0) {dir}, COALESCE(s.track_number, 0) {dir}, s.title COLLATE NOCASE {dir}"
+        ),
         Some("duration") => format!("s.duration {dir}, s.title COLLATE NOCASE {dir}"),
         Some("playCount") => format!("COALESCE(play_count, 0) {dir}, s.title COLLATE NOCASE {dir}"),
         Some("playStarts") => {
