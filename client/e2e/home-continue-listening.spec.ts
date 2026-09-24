@@ -639,7 +639,7 @@ test.describe("Home continue listening", () => {
     const sectionHref = await sectionLink.getAttribute("href");
     const sectionUrl = new URL(sectionHref ?? "", "http://ferrotune.test");
     expect(sectionUrl.searchParams.get("seed")).toBe(
-      discoveryRequests[0]?.seed,
+      String(requestBody.filters.seed),
     );
     expect(sectionUrl.searchParams.get("count")).toBe("30");
     expect(sectionUrl.searchParams.get("excludeRecentDays")).toBe("7");
