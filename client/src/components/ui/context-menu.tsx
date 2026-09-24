@@ -153,6 +153,17 @@ function ContextMenuContent({
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         collisionPadding={withSafeAreaCollisionPadding(collisionPadding)}
+        // Radix synthesises a click on pointerup when the item never received a
+        // pointerdown (its touch-tap support). The right-click that opens the
+        // menu lands its pointerup on the first item — which is under the
+        // cursor — and would activate it (e.g. "Play"). Non-primary pointerups
+        // must not activate menu items.
+        onPointerUpCapture={(e) => {
+          props.onPointerUpCapture?.(e);
+          if (e.button !== 0) {
+            e.stopPropagation();
+          }
+        }}
         className={cn(
           "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-[70] max-h-(--radix-context-menu-content-available-height) min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
           className,
