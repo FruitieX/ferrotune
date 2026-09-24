@@ -20,9 +20,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::{http::HeaderValue, Router};
+use axum::{
+    http::{HeaderName, HeaderValue},
+    Router,
+};
 use tokio::sync::oneshot;
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders};
 use tower_http::trace::TraceLayer;
 
 pub use config::Config;
@@ -266,15 +269,30 @@ fn build_server_router(
 
     match cors_policy {
         CorsPolicy::Configured => app.layer(build_cors_layer(config)),
-        CorsPolicy::AllowAny => app.layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any)
-                .expose_headers(Any),
-        ),
+        CorsPolicy::AllowAny => {
+            app.layer(credentialed_cors_layer().allow_origin(AllowOrigin::mirror_request()))
+        }
         CorsPolicy::Disabled => app,
     }
+}
+
+/// CORS layer shared by every configuration.
+///
+/// Credentials are allowed so browser clients can send session cookies, which
+/// rules out every wildcard value: tower-http rejects the combination outright
+/// and browsers reject `*` for credentialed requests. Mirror the requested
+/// origin, methods and headers instead, and expose the response headers the
+/// client reads.
+fn credentialed_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_credentials(true)
+        .allow_methods(AllowMethods::mirror_request())
+        .allow_headers(AllowHeaders::mirror_request())
+        .expose_headers(ExposeHeaders::list([
+            HeaderName::from_static("content-length"),
+            HeaderName::from_static("content-range"),
+            HeaderName::from_static("accept-ranges"),
+        ]))
 }
 
 fn spawn_inactive_owner_cleanup(
@@ -385,11 +403,8 @@ fn spawn_stale_client_sweep(
 
 fn build_cors_layer(config: &Config) -> CorsLayer {
     if config.server.host == "127.0.0.1" || config.server.host == "localhost" {
-        return CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any)
-            .expose_headers(Any);
+        // A local server accepts any origin.
+        return credentialed_cors_layer().allow_origin(AllowOrigin::mirror_request());
     }
 
     let allow_any = std::env::var("FERROTUNE_CORS_ALLOW_ANY")
@@ -399,11 +414,7 @@ fn build_cors_layer(config: &Config) -> CorsLayer {
         tracing::warn!(
             "CORS is configured to allow any origin (FERROTUNE_CORS_ALLOW_ANY=true). This is unsafe for production."
         );
-        return CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any)
-            .expose_headers(Any);
+        return credentialed_cors_layer().allow_origin(AllowOrigin::mirror_request());
     }
 
     let mut origins = [
@@ -448,10 +459,7 @@ fn build_cors_layer(config: &Config) -> CorsLayer {
         );
     }
 
-    let mut cors = CorsLayer::new()
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .expose_headers(Any);
+    let mut cors = credentialed_cors_layer();
     if !origins.is_empty() {
         cors = cors.allow_origin(AllowOrigin::list(origins));
     }
