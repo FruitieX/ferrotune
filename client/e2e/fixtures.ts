@@ -91,21 +91,26 @@ export const testData = {
 function findBinary(): string {
   const projectRoot = path.resolve(__dirname, "../..");
 
-  // Try debug build first
-  const debugBinary = path.join(projectRoot, "target/debug/ferrotune");
-  if (fs.existsSync(debugBinary)) {
-    return debugBinary;
+  const candidates = [
+    path.join(projectRoot, "target/release/ferrotune"),
+    path.join(projectRoot, "target/debug/ferrotune"),
+  ].filter((candidate) => fs.existsSync(candidate));
+
+  if (candidates.length === 0) {
+    throw new Error(
+      "Ferrotune binary not found. Run 'cargo build' in the project root first.",
+    );
   }
 
-  // Try release build
-  const releaseBinary = path.join(projectRoot, "target/release/ferrotune");
-  if (fs.existsSync(releaseBinary)) {
-    return releaseBinary;
-  }
-
-  throw new Error(
-    "Ferrotune binary not found. Run 'cargo build' in the project root first.",
-  );
+  // Prefer the most recently built binary. The e2e suite runs the release
+  // profile in CI: the debug server is an order of magnitude slower, and on a
+  // loaded CI runner that latency is what made the timing-sensitive specs
+  // flake (screenshots show the app playing while the spec's probe had
+  // already timed out). Picking the newest build keeps local `cargo build`
+  // (debug) iteration working and avoids testing a stale binary when both
+  // profiles are present.
+  candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return candidates[0];
 }
 
 /** Copy directory recursively */

@@ -156,7 +156,7 @@ tasks:
       - "install"
       - "build"
       - "playwright-install"
-      - "ferrotune:build"
+      - "ferrotune:build-release"
       - "ferrotune:generate-fixtures"
     env:
       CI: "true"
@@ -172,7 +172,7 @@ tasks:
       - "install"
       - "build"
       - "playwright-install"
-      - "ferrotune:build"
+      - "ferrotune:build-release"
       - "ferrotune:generate-fixtures"
     options:
       timeout: 600
