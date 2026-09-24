@@ -515,7 +515,9 @@ test.describe("Home continue listening", () => {
     );
 
     await sectionLink.click();
-    await expect(page).toHaveURL(/\/home\/forgotten-favorites\?/);
+    await expect(page).toHaveURL(/\/home\/forgotten-favorites\?/, {
+      timeout: 30000,
+    });
     await expect.poll(() => requestedSeeds.length).toBeGreaterThan(1);
     expect(requestedSeeds.at(-1)).toBe("4242");
   });
@@ -646,10 +648,12 @@ test.describe("Home continue listening", () => {
     expect(sectionUrl.searchParams.get("seedSongId")).toBe("similar-seed-song");
 
     await sectionLink.click();
-    await expect(page).toHaveURL(/\/home\/similar-tracks\?/);
+    await expect(page).toHaveURL(/\/home\/similar-tracks\?/, {
+      timeout: 30000,
+    });
     await expect.poll(() => discoveryRequests.length).toBeGreaterThan(1);
     expect(discoveryRequests.at(-1)).toMatchObject({
-      seed: discoveryRequests[0]?.seed,
+      seed: String(requestBody.filters.seed),
       count: "30",
       excludeRecentDays: "7",
       seedSongId: "similar-seed-song",

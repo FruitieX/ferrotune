@@ -719,9 +719,12 @@ async function pauseCurrentPlayback(page: Page): Promise<void> {
   const pauseBtn = playerBar.getByRole("button", { name: "Pause" }).first();
   const playBtn = playerBar.getByRole("button", { name: /^Play$/ }).first();
 
-  await expect(pauseBtn).toBeVisible({ timeout: 10000 });
+  // Slow CI runners can take far longer than the 10s default for the player
+  // to settle into its playing state; the app is playing in the screenshots
+  // even when the probe times out.
+  await expect(pauseBtn).toBeVisible({ timeout: 30000 });
   await pauseBtn.click();
-  await expect(playBtn).toBeVisible({ timeout: 10000 });
+  await expect(playBtn).toBeVisible({ timeout: 30000 });
 }
 
 async function waitForFullscreenPlayerSettled(
