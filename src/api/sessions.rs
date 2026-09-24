@@ -815,12 +815,14 @@ pub async fn session_events(
     let stream = async_stream::stream! {
         let _guard = _cleanup_guard;
 
-        // Send initial state
-        if let Ok(json) = serde_json::to_string(&initial_event) {
+        // Send current ownership info first: a client only applies the
+        // position snapshot below when it knows it is not the audio owner, and
+        // a fresh tab starts out assuming it is.
+        if let Ok(json) = serde_json::to_string(&owner_event) {
             yield Ok(Event::default().data(json));
         }
-        // Send current ownership info
-        if let Ok(json) = serde_json::to_string(&owner_event) {
+        // Send initial state
+        if let Ok(json) = serde_json::to_string(&initial_event) {
             yield Ok(Event::default().data(json));
         }
 
