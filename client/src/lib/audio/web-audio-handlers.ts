@@ -301,7 +301,11 @@ export function createWebAudioHandlers({
       return;
     }
 
-    if (state.isRestoringQueue) {
+    // A paused restore suppresses auto-play so the restored session stays
+    // paused — but it must never drop an explicit user play. A restore that
+    // completes after the user pressed play (the boot restore can still be in
+    // flight) would otherwise force the app back to "paused".
+    if (state.isRestoringQueue && state.playbackState !== "playing") {
       console.log("[Audio] Skipping auto-play because queue is being restored");
       setIsLoadingNewTrack(false);
       settersRef.current.setPlaybackState("paused");

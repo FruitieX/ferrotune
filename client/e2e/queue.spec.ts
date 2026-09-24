@@ -168,8 +168,13 @@ test.describe.serial("Queue Management", () => {
     const playButton = playerBar
       .getByRole("button", { name: /^Play$/ })
       .first();
+    // Wait for the bar's control to render before probing its state: the bar
+    // can appear before the button does, and a premature probe sends the spec
+    // down the "click Play" path while playback is already starting.
+    await expect(
+      playerBar.getByRole("button", { name: /^(Play|Pause)$/ }).first(),
+    ).toBeVisible({ timeout: 10000 });
     if (!(await pauseButton.isVisible().catch(() => false))) {
-      await expect(playButton).toBeVisible({ timeout: 10000 });
       // Playback can also start late: the queue/start response may land after
       // the probe above, the control then flips to Pause, and this click can
       // never be satisfied. Tolerate that — the assertion below still requires
