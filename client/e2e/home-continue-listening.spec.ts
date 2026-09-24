@@ -519,7 +519,12 @@ test.describe("Home continue listening", () => {
       timeout: 30000,
     });
     await expect.poll(() => requestedSeeds.length).toBeGreaterThan(1);
-    expect(requestedSeeds.at(-1)).toBe("4242");
+    // The home page's own in-flight section query can land after the
+    // navigation, so assert on the requests that carried a seed rather than on
+    // the last one: the section keeps the seed its header displays.
+    const seededRequests = requestedSeeds.filter((seed) => seed !== "");
+    expect(seededRequests.length).toBeGreaterThan(0);
+    expect(new Set(seededRequests)).toEqual(new Set(["4242"]));
   });
 
   test("discover header retains its displayed album seed", async ({

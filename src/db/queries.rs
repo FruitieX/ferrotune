@@ -934,7 +934,21 @@ pub async fn get_or_create_session(
         owner_client_name: Set("ferrotune-web".to_string()),
         last_playing_at: Set(None),
     };
-    active.insert(database.conn()).await?;
+    if let Err(insert_error) = active.insert(database.conn()).await {
+        // Two concurrent first requests for the same user race here: the unique
+        // index on user_id rejects one of the inserts, and the session the
+        // other request created is the one to return.
+        if let Some(session) = entity::playback_sessions::Entity::find()
+            .filter(entity::playback_sessions::Column::UserId.eq(user_id))
+            .into_model::<PlaybackSession>()
+            .one(database.conn())
+            .await?
+        {
+            return Ok(session);
+        }
+
+        return Err(insert_error.into());
+    }
 
     let session = entity::playback_sessions::Entity::find_by_id(id)
         .into_model::<PlaybackSession>()
