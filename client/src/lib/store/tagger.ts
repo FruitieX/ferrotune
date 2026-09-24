@@ -619,7 +619,13 @@ export async function loadTaggerState(): Promise<void> {
         id: t.id,
         trackType: t.trackType as "library" | "staged",
       })),
-      visibleColumns: sessionResponse.visibleColumns,
+      // A session row created by the server starts with an empty column list,
+      // which would leave the grid showing only the file column and no tags to
+      // edit. Fall back to the defaults a fresh session is meant to have.
+      visibleColumns:
+        sessionResponse.visibleColumns.length > 0
+          ? sessionResponse.visibleColumns
+          : DEFAULT_VISIBLE_COLUMNS,
       activeRenameScriptId: sessionResponse.activeRenameScriptId ?? null,
       activeTagScriptId: sessionResponse.activeTagScriptId ?? null,
       targetLibraryId: sessionResponse.targetLibraryId ?? null,
