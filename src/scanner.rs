@@ -631,6 +631,27 @@ pub async fn scan_library_with_progress(
         if orphaned_thumbnails > 0 {
             tracing::info!("Removed {} orphaned thumbnails", orphaned_thumbnails);
         }
+
+        // Clean up orphaned albums/artists and refresh album/artist totals.
+        // This must run on every scan, not only when files went missing: tag edits
+        // (e.g. adding ALBUMARTIST) re-group songs and otherwise leave the old album
+        // rows behind with stale counts.
+        let orphaned_albums =
+            crate::db::repo::scanner::count_orphaned_albums(runtime_database.conn()).await?;
+        if orphaned_albums > 0 {
+            crate::db::repo::scanner::delete_orphaned_albums(runtime_database.conn()).await?;
+            tracing::info!("Removed {} orphaned albums", orphaned_albums);
+        }
+
+        let orphaned_artists =
+            crate::db::repo::scanner::count_orphaned_artists(runtime_database.conn()).await?;
+        if orphaned_artists > 0 {
+            crate::db::repo::scanner::delete_orphaned_artists(runtime_database.conn()).await?;
+            tracing::info!("Removed {} orphaned artists", orphaned_artists);
+        }
+
+        crate::db::repo::scanner::refresh_all_album_totals(runtime_database.conn()).await?;
+        crate::db::repo::scanner::refresh_all_artist_totals(runtime_database.conn()).await?;
     } else {
         // In dry-run mode, just report potential duplicates
         detect_duplicates_dry_run(&runtime_database, opts.folder_id).await?;
@@ -1523,27 +1544,9 @@ async fn resolve_missing_songs(
     // Update affected playlist totals
     crate::db::repo::scanner::refresh_all_playlist_totals(&tx).await?;
 
-    // Clean up orphaned albums
-    let orphaned_albums = crate::db::repo::scanner::count_orphaned_albums(&tx).await?;
-
-    if orphaned_albums > 0 {
-        crate::db::repo::scanner::delete_orphaned_albums(&tx).await?;
-        tracing::info!("Removed {} orphaned albums", orphaned_albums);
-    }
-
-    // Clean up orphaned artists
-    let orphaned_artists = crate::db::repo::scanner::count_orphaned_artists(&tx).await?;
-
-    if orphaned_artists > 0 {
-        crate::db::repo::scanner::delete_orphaned_artists(&tx).await?;
-        tracing::info!("Removed {} orphaned artists", orphaned_artists);
-    }
-
-    // Update album song counts and durations
-    crate::db::repo::scanner::refresh_all_album_totals(&tx).await?;
-
-    // Update artist album counts and song counts
-    crate::db::repo::scanner::refresh_all_artist_totals(&tx).await?;
+    // Note: orphaned album/artist cleanup and album/artist totals refresh are done
+    // once after every scan in scan_library_with_progress, so they also run when no
+    // files went missing.
 
     tx.commit().await?;
 
