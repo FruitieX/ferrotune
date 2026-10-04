@@ -82,6 +82,16 @@ tasks:
       cache: false
       runInCI: false
 
+  # Minified release build signed with the local debug key (or the release key
+  # via FERROTUNE_RELEASE_KEYSTORE*). Use this for real-world use and
+  # performance checks; debug builds run Compose without R8 and feel slower.
+  deploy:
+    command: "bash scripts/deploy-release.sh"
+    deps: ["assemble-release"]
+    options:
+      cache: false
+      runInCI: false
+
   clean:
     command: "./gradlew clean"
     options:

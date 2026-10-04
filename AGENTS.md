@@ -156,6 +156,7 @@ moon run android:test-unit        # JVM unit tests
 moon run android:lint             # Android lint
 moon run android:assemble-debug   # debug APK
 moon run android:install-debug    # install on a connected device/emulator
+moon run android:deploy           # minified release build, signed + installed + launched
 moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 ```
 
@@ -163,6 +164,13 @@ moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 `ANDROID_ADB_SERVER_ADDRESS` (and `ANDROID_SERIAL`) from the environment, so a
 remote adb server works; Gradle's own `installDebug` cannot see remote
 devices and is no longer used.
+
+`android:deploy` builds the R8-minified release APK and signs it with the
+release key from `FERROTUNE_RELEASE_KEYSTORE*` when set (falling back to the
+local debug keystore), then installs and launches it. Use it for real-world
+use and performance checks: debug builds run Compose without R8 and are
+noticeably slower. A release-signed install cannot be updated in place by a
+debug-signed APK (and vice versa); uninstall once when switching.
 
 The native app intentionally installs side by side with the legacy Tauri
 Android app during the transition: it uses `applicationId
