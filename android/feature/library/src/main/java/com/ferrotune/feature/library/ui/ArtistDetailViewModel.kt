@@ -13,6 +13,9 @@ import com.ferrotune.core.media.queueSort
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistDetail
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.core.network.ViewSortConfig
+import com.ferrotune.core.network.ViewSortKey
+import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SongSort
@@ -52,6 +55,7 @@ data class ArtistDetailUiState(
 class ArtistDetailViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
+    private val viewSortPreferences: ViewSortPreferencesRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -94,6 +98,21 @@ class ArtistDetailViewModel @Inject constructor(
                 state.update { it.copy(loading = false, error = e.message ?: "Failed to load artist") }
             }
         }
+        viewModelScope.launch {
+            viewSortPreferences.ensureLoaded()
+            val stored = viewSortPreferences.config(
+                ViewSortKey.ARTIST_DETAIL,
+                ViewSortConfig(CUSTOM_SORT, SortDir.ASC.apiValue),
+            )
+            state.update {
+                it.copy(
+                    sort = stored.field.takeIf { field ->
+                        DETAIL_SONG_SORT_OPTIONS.any { it.key == field }
+                    } ?: CUSTOM_SORT,
+                    sortDir = SortDir.fromApiValue(stored.direction) ?: SortDir.ASC,
+                )
+            }
+        }
     }
 
     fun selectTab(tab: ArtistTab) = state.update { it.copy(tab = tab) }
@@ -103,9 +122,26 @@ class ArtistDetailViewModel @Inject constructor(
         filter.value = value
     }
 
-    fun selectSort(key: String) = state.update { it.copy(sort = key) }
+    fun selectSort(key: String) {
+        state.update { it.copy(sort = key) }
+        persistSort()
+    }
 
-    fun toggleSortDir() = state.update { it.copy(sortDir = it.sortDir.opposite()) }
+    fun toggleSortDir() {
+        state.update { it.copy(sortDir = it.sortDir.opposite()) }
+        persistSort()
+    }
+
+    private fun persistSort() {
+        val current = state.value
+        viewModelScope.launch {
+            viewSortPreferences.setSort(
+                ViewSortKey.ARTIST_DETAIL,
+                current.sort,
+                current.sortDir.apiValue,
+            )
+        }
+    }
 
     fun play(startSongId: String? = null, shuffle: Boolean = false) {
         viewModelScope.launch {

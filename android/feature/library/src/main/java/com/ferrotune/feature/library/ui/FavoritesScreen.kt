@@ -81,6 +81,9 @@ import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
+import com.ferrotune.core.network.ViewSortConfig
+import com.ferrotune.core.network.ViewSortKey
+import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.QueueSourceRequest
@@ -139,6 +142,7 @@ data class FavoritesUiState(
 class FavoritesViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
+    private val viewSortPreferences: ViewSortPreferencesRepository,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(FavoritesUiState())
@@ -202,6 +206,31 @@ class FavoritesViewModel @Inject constructor(
 
     init {
         loadCounts()
+        viewModelScope.launch {
+            viewSortPreferences.ensureLoaded()
+            val songs = viewSortPreferences.config(
+                ViewSortKey.FAVORITE_SONGS,
+                ViewSortConfig(SongSort.TITLE.apiValue, SortDir.ASC.apiValue),
+            )
+            val albums = viewSortPreferences.config(
+                ViewSortKey.FAVORITE_ALBUMS,
+                ViewSortConfig(AlbumSort.NAME.apiValue, SortDir.ASC.apiValue),
+            )
+            val artists = viewSortPreferences.config(
+                ViewSortKey.FAVORITE_ARTISTS,
+                ViewSortConfig(ArtistSort.NAME.apiValue, SortDir.ASC.apiValue),
+            )
+            state.update {
+                it.copy(
+                    songSort = SongSort.fromApiValue(songs.field) ?: SongSort.TITLE,
+                    songSortDir = SortDir.fromApiValue(songs.direction) ?: SortDir.ASC,
+                    albumSort = AlbumSort.fromApiValue(albums.field) ?: AlbumSort.NAME,
+                    albumSortDir = SortDir.fromApiValue(albums.direction) ?: SortDir.ASC,
+                    artistSort = ArtistSort.fromApiValue(artists.field) ?: ArtistSort.NAME,
+                    artistSortDir = SortDir.fromApiValue(artists.direction) ?: SortDir.ASC,
+                )
+            }
+        }
     }
 
     fun loadCounts() {
@@ -224,14 +253,23 @@ class FavoritesViewModel @Inject constructor(
     /** Applies the sort key to whichever favorites tab is active. */
     fun selectSort(key: String) {
         when (state.value.tab) {
-            FavoritesTab.SONGS -> SongSort.entries.firstOrNull { it.apiValue == key }
-                ?.let { state.update { s -> s.copy(songSort = it) } }
+            FavoritesTab.SONGS -> SongSort.fromApiValue(key)
+                ?.let { sort ->
+                    state.update { s -> s.copy(songSort = sort) }
+                    persistSort(ViewSortKey.FAVORITE_SONGS)
+                }
 
-            FavoritesTab.ALBUMS -> AlbumSort.entries.firstOrNull { it.apiValue == key }
-                ?.let { state.update { s -> s.copy(albumSort = it) } }
+            FavoritesTab.ALBUMS -> AlbumSort.fromApiValue(key)
+                ?.let { sort ->
+                    state.update { s -> s.copy(albumSort = sort) }
+                    persistSort(ViewSortKey.FAVORITE_ALBUMS)
+                }
 
-            FavoritesTab.ARTISTS -> ArtistSort.entries.firstOrNull { it.apiValue == key }
-                ?.let { state.update { s -> s.copy(artistSort = it) } }
+            FavoritesTab.ARTISTS -> ArtistSort.fromApiValue(key)
+                ?.let { sort ->
+                    state.update { s -> s.copy(artistSort = sort) }
+                    persistSort(ViewSortKey.FAVORITE_ARTISTS)
+                }
         }
     }
 
@@ -243,6 +281,31 @@ class FavoritesViewModel @Inject constructor(
                 FavoritesTab.ALBUMS -> current.copy(albumSortDir = current.albumSortDir.opposite())
                 FavoritesTab.ARTISTS -> current.copy(artistSortDir = current.artistSortDir.opposite())
             }
+        }
+        val key = when (state.value.tab) {
+            FavoritesTab.SONGS -> ViewSortKey.FAVORITE_SONGS
+            FavoritesTab.ALBUMS -> ViewSortKey.FAVORITE_ALBUMS
+            FavoritesTab.ARTISTS -> ViewSortKey.FAVORITE_ARTISTS
+        }
+        persistSort(key)
+    }
+
+    private fun persistSort(key: ViewSortKey) {
+        val current = state.value
+        val config = when (key) {
+            ViewSortKey.FAVORITE_SONGS ->
+                ViewSortConfig(current.songSort.apiValue, current.songSortDir.apiValue)
+
+            ViewSortKey.FAVORITE_ALBUMS ->
+                ViewSortConfig(current.albumSort.apiValue, current.albumSortDir.apiValue)
+
+            ViewSortKey.FAVORITE_ARTISTS ->
+                ViewSortConfig(current.artistSort.apiValue, current.artistSortDir.apiValue)
+
+            else -> return
+        }
+        viewModelScope.launch {
+            viewSortPreferences.setSort(key, config.field, config.direction)
         }
     }
 

@@ -11,6 +11,9 @@ import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.core.network.ViewSortConfig
+import com.ferrotune.core.network.ViewSortKey
+import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.network.paging.DEFAULT_PAGE_SIZE
 import com.ferrotune.feature.playlists.data.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -44,6 +47,7 @@ data class SmartPlaylistDetailUiState(
 class SmartPlaylistDetailViewModel @Inject constructor(
     private val repository: PlaylistRepository,
     private val sessionStarter: PlaybackStarter,
+    private val viewSortPreferences: ViewSortPreferencesRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -73,6 +77,23 @@ class SmartPlaylistDetailViewModel @Inject constructor(
 
     init {
         load()
+        viewModelScope.launch {
+            viewSortPreferences.ensureLoaded()
+            val stored = viewSortPreferences.config(
+                ViewSortKey.PLAYLIST_DETAIL,
+                ViewSortConfig(PlaylistRepository.PLAYLIST_SORT_CUSTOM, "asc"),
+            )
+            state.update {
+                it.copy(
+                    sort = stored.field.takeIf { field ->
+                        playlistSortOptions.any { it.key == field }
+                    } ?: PlaylistRepository.PLAYLIST_SORT_CUSTOM,
+                    sortDir = stored.direction.takeIf { direction ->
+                        direction == "asc" || direction == "desc"
+                    } ?: "asc",
+                )
+            }
+        }
     }
 
     fun load() {
@@ -97,10 +118,25 @@ class SmartPlaylistDetailViewModel @Inject constructor(
         filter.value = value
     }
 
-    fun selectSort(sort: String) = state.update { it.copy(sort = sort) }
+    fun selectSort(sort: String) {
+        state.update { it.copy(sort = sort) }
+        persistSort()
+    }
 
-    fun toggleSortDir() = state.update {
-        it.copy(sortDir = if (it.sortDir == "asc") "desc" else "asc")
+    fun toggleSortDir() {
+        state.update { it.copy(sortDir = if (it.sortDir == "asc") "desc" else "asc") }
+        persistSort()
+    }
+
+    private fun persistSort() {
+        val current = state.value
+        viewModelScope.launch {
+            viewSortPreferences.setSort(
+                ViewSortKey.PLAYLIST_DETAIL,
+                current.sort,
+                current.sortDir,
+            )
+        }
     }
 
     fun play(startSongId: String? = null, shuffle: Boolean = false) {

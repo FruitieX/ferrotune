@@ -63,6 +63,9 @@ import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
 import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
 import com.ferrotune.core.network.generated.QueueSourceRequest
+import com.ferrotune.core.network.ViewSortConfig
+import com.ferrotune.core.network.ViewSortKey
+import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SongSort
@@ -98,12 +101,29 @@ data class HistoryUiState(
 class HistoryViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
+    private val viewSortPreferences: ViewSortPreferencesRepository,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(HistoryUiState())
     val uiState: StateFlow<HistoryUiState> = state.asStateFlow()
 
     private val filter = MutableStateFlow("")
+
+    init {
+        viewModelScope.launch {
+            viewSortPreferences.ensureLoaded()
+            val stored = viewSortPreferences.config(
+                ViewSortKey.HISTORY,
+                ViewSortConfig(SongSort.LAST_PLAYED.apiValue, SortDir.DESC.apiValue),
+            )
+            state.update {
+                it.copy(
+                    songSort = SongSort.fromApiValue(stored.field) ?: SongSort.LAST_PLAYED,
+                    songSortDir = SortDir.fromApiValue(stored.direction) ?: SortDir.DESC,
+                )
+            }
+        }
+    }
 
     val entries: Flow<PagingData<FerrotunePlayHistoryEntry>> = combine(
         state.map { it.songSort }.distinctUntilChanged(),
@@ -128,12 +148,25 @@ class HistoryViewModel @Inject constructor(
     }
 
     fun selectSort(key: String) {
-        SongSort.entries.firstOrNull { it.apiValue == key }
-            ?.let { sort -> state.update { it.copy(songSort = sort) } }
+        val sort = SongSort.fromApiValue(key) ?: return
+        state.update { it.copy(songSort = sort) }
+        persistSort()
     }
 
     fun toggleSortDirection() {
         state.update { it.copy(songSortDir = it.songSortDir.opposite()) }
+        persistSort()
+    }
+
+    private fun persistSort() {
+        val current = state.value
+        viewModelScope.launch {
+            viewSortPreferences.setSort(
+                ViewSortKey.HISTORY,
+                current.songSort.apiValue,
+                current.songSortDir.apiValue,
+            )
+        }
     }
 
     fun play(songId: String, shuffle: Boolean = false) {

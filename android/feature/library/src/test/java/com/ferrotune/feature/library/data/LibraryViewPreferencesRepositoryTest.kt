@@ -1,36 +1,13 @@
 package com.ferrotune.feature.library.data
 
-import com.ferrotune.core.network.generated.GetPreferenceResponse
-import com.ferrotune.core.network.generated.PreferencesResponse
-import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.testing.FakeApiProvider
-import com.ferrotune.core.testing.FakeFerrotuneApi
+import com.ferrotune.core.testing.FakePreferencesApi
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LibraryViewPreferencesRepositoryTest {
-
-    private class FakePreferencesApi : FakeFerrotuneApi() {
-        val preferenceValues = mutableMapOf<String, JsonElement>()
-        val writtenKeys = mutableListOf<String>()
-
-        override suspend fun preferences(): PreferencesResponse = PreferencesResponse(
-            accentColor = "rust",
-            preferences = preferenceValues.toMap(),
-        )
-
-        override suspend fun setPreference(
-            key: String,
-            request: SetPreferenceRequest,
-        ): GetPreferenceResponse {
-            writtenKeys.add(key)
-            preferenceValues[key] = request.value
-            return GetPreferenceResponse(key = key, value = request.value)
-        }
-    }
 
     @Test
     fun `defaults to title asc when no preference is stored`() = runTest {

@@ -452,6 +452,7 @@ typed flows.
 | `android/core/actions/SongFlagsStore.kt` | Optimistic starred overlay over API mutations with rollback on failure; bulk starring merges overrides without clobbering other songs | `SongFlags`, `SongFlagsOverride`, `SongFlagsStore`, `setStarred()`, `setStarredBulk()`, `clear()` |
 | `android/feature/library/LibraryRepository.kt` + `LibraryPagingSources.kt` | Paged browse/search/history reads and starring mutations; requests `inlineImages=medium` cover art in browse/search/history params so list rows render artwork without extra fetches; server-side sort/filter keys; `favoritesCounts()` resolves starred song/album/artist totals from a zero-count search for the Favorites tab labels | `songs()`, `albums()`, `artists()`, `albumSongs()`, `artistSongs()`, `artistAlbums()`, `history(filter, sort, sortDir)`, `favoritesCounts()`, `genres()`, `similarSongs()`, `setStarred()`, `INLINE_IMAGES` |
 | `android/feature/library/LibraryViewPreferencesRepository.kt` | Server-synced per-tab library sort preferences stored as JSON under the native-only `library-sort-native` key (the shared `library-sort` key belongs to the web/Tauri client and must not be clobbered) | `sort: StateFlow<LibrarySortConfig>`, `ensureLoaded()`, `load()`, `invalidate()`, `setSongSort()`, `setAlbumSort()`, `setArtistSort()` |
+| `android/core/network/ViewSortPreferencesRepository.kt` | Server-synced per-view sort preferences for the Favorites tabs, album/artist/genre detail, history, and playlist detail (playlist and smart-playlist detail share one key), stored under native-only `*-native` keys with the web's `{field, direction}` shape | `config(key, default)`, `ensureLoaded()`, `load()`, `invalidate()`, `setSort(key, field, direction)`; `ViewSortKey`, `ViewSortConfig` |
 | `android/feature/playlists/PlaylistRepository.kt` + `PlaylistPagingSources.kt` | Playlist folders, playlists, smart playlists, shares, membership, song search, and music folders for rule fields | `folders()`, `createFolder()`, `updateFolder()`, `movePlaylist()`, `playlistSongs()`, `addSongs()`, `removeSongs()`, `moveEntry()`, `shares()`, `setShares()`, `smartPlaylists()`, `materializeSmartPlaylist()`, `musicFolders()`, `searchSongs()` |
 | `android/feature/playlists/PlaylistFolderTree.kt` | Builds the folder hierarchy the playlist browser renders (position/name ordering, orphan fallback) and answers drill-down queries against it | `buildPlaylistTree()`, `PlaylistFolderNode`, `PlaylistTree`, `foldersIn()`, `playlistsIn()`, `folderById()`, `folderPath()`; `PlaylistsViewModel` keeps `currentFolderId`/`openFolder()`/`navigateUp()` for the breadcrumb browser |
 | `android/feature/playlists/SmartPlaylistRules.kt` | Smart playlist rule field/operator descriptors plus `SmartConditionDraft` ⇄ `SmartPlaylistConditionApi` value conversion | `ruleFields()`, `operatorsFor()`, `SmartConditionDraft.toApiCondition()`, `SmartPlaylistConditionApi.toDraft()` |
@@ -500,6 +501,10 @@ typed flows.
   `DETAIL_SONG_SORT_OPTIONS` (`LibraryScreen.kt`) with `CUSTOM_SORT` ("custom"
   maps to the API default order) and per-screen `debounce`d filter flows, so
   every list keeps server materialization in sync with what is displayed.
+  Sort selections are restored and persisted server-side through
+  `ViewSortPreferencesRepository` (`ViewSortKey` per view, native-only
+  `*-native` keys); unknown stored fields/directions fall back to the view's
+  defaults.
 - Top-level navigation (`navigateTopLevel` in `AppNavHost.kt`) pops back to
   Home and launches a single top instance per tab; it intentionally does not
   use `saveState`/`restoreState`, so tapping a tab always lands on that tab's

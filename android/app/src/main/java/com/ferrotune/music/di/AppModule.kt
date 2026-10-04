@@ -5,6 +5,7 @@ import com.ferrotune.core.media.PlaybackSettingsRepository
 import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.AccountSwitcher
 import com.ferrotune.core.network.PlaybackSessionResetter
+import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
@@ -54,5 +55,11 @@ abstract class AppModule {
     @IntoSet
     abstract fun bindHomeLayoutPreferences(
         impl: HomeLayoutPreferencesRepository,
+    ): AccountScopedPreferences
+
+    @Binds
+    @IntoSet
+    abstract fun bindViewSortPreferences(
+        impl: ViewSortPreferencesRepository,
     ): AccountScopedPreferences
 }
