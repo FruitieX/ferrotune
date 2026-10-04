@@ -1,5 +1,7 @@
 package com.ferrotune.feature.settings.ui
 
+import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.generated.StatsResponse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.datastore.ThemeModeStore
@@ -25,6 +27,7 @@ class SettingsViewModel @Inject constructor(
     private val downloadSettingsRepository: DownloadSettingsRepository,
     private val accentSettingsRepository: AccentSettingsRepository,
     private val themeModeStore: ThemeModeStore,
+    private val apiProvider: FerrotuneApiProvider,
 ) : ViewModel() {
 
     val playbackSettings: StateFlow<PlaybackSettings> = playbackSettingsRepository.settings
@@ -35,6 +38,11 @@ class SettingsViewModel @Inject constructor(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
+
+    private val _libraryStats = MutableStateFlow<StatsResponse?>(null)
+
+    /** Web "Library Statistics" card counts; null until loaded (or offline). */
+    val libraryStats: StateFlow<StatsResponse?> = _libraryStats
 
     init {
         viewModelScope.launch {
@@ -48,6 +56,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { accentSettingsRepository.load() }
                 .onFailure { _message.value = "Could not load accent color" }
+        }
+        viewModelScope.launch {
+            runCatching { apiProvider.requireApi().stats() }
+                .onSuccess { _libraryStats.value = it }
         }
     }
 

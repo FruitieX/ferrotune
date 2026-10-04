@@ -1,60 +1,96 @@
 package com.ferrotune.feature.settings.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
-import com.ferrotune.core.designsystem.components.PageTitle
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ferrotune.core.media.PlaybackSettings
-import com.ferrotune.core.model.Account
-import com.ferrotune.core.model.ThemeMode
-import com.ferrotune.core.media.PlaybackSettingsRepository
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.theme.AccentColors
 import com.ferrotune.core.designsystem.theme.oklchToColor
+import com.ferrotune.core.media.PlaybackSettingsRepository
+import com.ferrotune.core.model.Account
+import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
+/** Web settings jump-nav sections, in page order. */
+private enum class SettingsSection(val label: String, val icon: ImageVector) {
+    CONNECTION("Connection", Icons.Filled.Storage),
+    LIBRARY("Library", Icons.Filled.BarChart),
+    HOME("Home", Icons.Filled.ViewAgenda),
+    PLAYBACK("Playback", Icons.Filled.MusicNote),
+    DOWNLOADS("Downloads", Icons.Filled.Download),
+    APPEARANCE("Appearance", Icons.Filled.Palette),
+    ABOUT("About", Icons.Filled.Info),
+}
+
+/**
+ * Web Settings page: an icon header, a row of section chips that jump to
+ * each card, and cards for the server connection and accounts, library
+ * statistics, home layout, playback, downloads, appearance, and about.
+ */
 @Composable
 fun SettingsScreen(
     accountLabel: String?,
@@ -65,7 +101,7 @@ fun SettingsScreen(
     onSwitchAccount: (String) -> Unit,
     onAddAccount: () -> Unit,
     onOpenHomeLayout: () -> Unit,
-    onBack: () -> Unit,
+    onOpenDownloads: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -74,239 +110,466 @@ fun SettingsScreen(
     val downloads by viewModel.downloadSettings.collectAsStateWithLifecycle()
     val accent by viewModel.accent.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val stats by viewModel.libraryStats.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(message) {
-        message?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.dismissMessage()
-        }
+        message?.let { viewModel.dismissMessage() }
     }
 
-    Scaffold(
-        modifier = modifier,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { PageTitle("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        LazyColumn(
+    Column(modifier = modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding(),
         ) {
-            item {
-                SectionHeader("Account")
-                ListItem(
-                    headlineContent = { Text(accountLabel ?: "Not signed in") },
-                    supportingContent = {
-                        Text(listOfNotNull(serverUrl, username).joinToString(" · "))
-                    },
-                )
-                accounts
-                    .filter { it.id != activeAccountId }
-                    .forEach { account ->
-                        ListItem(
-                            headlineContent = { Text(account.label) },
-                            supportingContent = { Text(account.serverUrl) },
-                            trailingContent = {
-                                TextButton(onClick = { onSwitchAccount(account.id) }) {
-                                    Text("Switch")
-                                }
-                            },
-                        )
-                    }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Button(onClick = onAddAccount) { Text("Add account") }
-                    OutlinedButton(onClick = onSignOut) { Text("Sign out") }
+                    Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(22.dp))
+                }
+                Column {
+                    Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Manage your preferences",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-
-            item {
-                HorizontalDivider()
-                SectionHeader("Appearance")
-                ChoiceRow(
-                    label = "Theme",
-                    options = ThemeMode.entries.toList(),
-                    selected = themeMode,
-                    optionLabel = { mode ->
-                        when (mode) {
-                            ThemeMode.SYSTEM -> "System"
-                            ThemeMode.LIGHT -> "Light"
-                            ThemeMode.DARK -> "Dark"
-                        }
-                    },
-                    onSelect = viewModel::setThemeMode,
-                )
-                AccentPicker(
-                    selected = accent.name,
-                    onSelectPreset = viewModel::setAccentPreset,
-                )
-                if (accent.name == AccentColors.CUSTOM) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("Hue: ${accent.custom.hue.roundToInt()}°")
-                        Slider(
-                            value = accent.custom.hue.toFloat(),
-                            onValueChange = { hue ->
-                                viewModel.setCustomAccent(
-                                    accent.custom.lightness,
-                                    accent.custom.chroma,
-                                    hue.toDouble(),
-                                )
-                            },
-                            valueRange = 0f..360f,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                SettingsSection.entries.forEach { section ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { scope.launch { listState.animateScrollToItem(section.ordinal) } }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            section.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
                         )
-                        Text("Lightness: ${accent.custom.lightness.format(2)}")
-                        Slider(
-                            value = accent.custom.lightness.toFloat(),
-                            onValueChange = { lightness ->
-                                viewModel.setCustomAccent(
-                                    lightness.toDouble(),
-                                    accent.custom.chroma,
-                                    accent.custom.hue,
-                                )
-                            },
-                            valueRange = 0.3f..0.9f,
-                        )
-                        Text("Chroma: ${accent.custom.chroma.format(2)}")
-                        Slider(
-                            value = accent.custom.chroma.toFloat(),
-                            onValueChange = { chroma ->
-                                viewModel.setCustomAccent(
-                                    accent.custom.lightness,
-                                    chroma.toDouble(),
-                                    accent.custom.hue,
-                                )
-                            },
-                            valueRange = 0.01f..0.3f,
+                        Text(
+                            section.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        }
 
-            item {
-                HorizontalDivider()
-                SectionHeader("Home")
-                ListItem(
-                    headlineContent = { Text("Home layout") },
-                    supportingContent = { Text("Customize Home tiles and sections") },
-                    modifier = Modifier.clickable(onClick = onOpenHomeLayout),
-                )
-            }
-
-            item {
-                HorizontalDivider()
-                SectionHeader("Playback")
-                ChoiceRow(
-                    label = "ReplayGain",
-                    options = PlaybackSettingsRepository.REPLAY_GAIN_MODES,
-                    selected = playback.replayGainMode,
-                    optionLabel = { mode ->
-                        when (mode) {
-                            "computed" -> "Computed"
-                            "original" -> "Original"
-                            else -> "Disabled"
-                        }
-                    },
-                    onSelect = viewModel::setReplayGainMode,
-                )
-                if (playback.replayGainMode != "disabled") {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("Pre-amp offset: ${playback.replayGainOffset.roundToInt()} dB")
-                        Slider(
-                            value = playback.replayGainOffset,
-                            onValueChange = viewModel::setReplayGainOffset,
-                            valueRange = -12f..12f,
-                            steps = 23,
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item(key = SettingsSection.CONNECTION) {
+                SettingsCard(
+                    icon = Icons.Filled.Storage,
+                    title = "Server Connection",
+                    description = "Your Ferrotune server connection details",
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF22C55E),
+                            modifier = Modifier.size(28.dp),
                         )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Connected", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text(
+                                serverUrl.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoTile(label = "Username", value = username.orEmpty(), icon = Icons.Filled.Person, modifier = Modifier.weight(1f))
+                        InfoTile(label = "Account", value = accountLabel.orEmpty(), icon = Icons.Filled.PhoneAndroid, modifier = Modifier.weight(1f))
+                    }
+                    val others = accounts.filter { it.id != activeAccountId }
+                    if (others.isNotEmpty()) {
+                        Text(
+                            "Other accounts",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        others.forEach { account ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onSwitchAccount(account.id) }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(account.label, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        account.serverUrl,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Text("Switch", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onAddAccount) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Add account", modifier = Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(onClick = onSignOut) {
+                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Sign out", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
                 }
-                ListItem(
-                    headlineContent = { Text("Transcoding") },
-                    supportingContent = { Text("Stream as Opus with embedded ReplayGain tags") },
-                    trailingContent = {
-                        Switch(
-                            checked = playback.transcodingEnabled,
-                            onCheckedChange = viewModel::setTranscodingEnabled,
-                        )
-                    },
-                )
-                if (playback.transcodingEnabled) {
-                    ChoiceRow(
-                        label = "Transcoding bitrate",
-                        options = PlaybackSettingsRepository.TRANSCODING_BITRATES,
-                        selected = playback.transcodingBitrate,
-                        optionLabel = { "$it kbps" },
-                        onSelect = viewModel::setTranscodingBitrate,
-                    )
-                }
-                ChoiceRow(
-                    label = "Progress bar",
-                    options = PlaybackSettingsRepository.PROGRESS_BAR_STYLES,
-                    selected = playback.progressBarStyle,
-                    optionLabel = { style -> if (style == "waveform") "Waveform" else "Simple" },
-                    onSelect = viewModel::setProgressBarStyle,
-                )
             }
 
-            item {
-                HorizontalDivider()
-                SectionHeader("Downloads")
-                ChoiceRow(
-                    label = "Format",
-                    options = listOf(
-                        DownloadSettings.FORMAT_OPUS,
-                        DownloadSettings.FORMAT_ORIGINAL,
-                    ),
-                    selected = downloads.format,
-                    optionLabel = { if (it == DownloadSettings.FORMAT_OPUS) "Opus" else "Original" },
-                    onSelect = viewModel::setDownloadFormat,
-                )
-                if (downloads.format == DownloadSettings.FORMAT_OPUS) {
-                    ChoiceRow(
-                        label = "Download bitrate",
-                        options = DownloadSettings.BIT_RATES,
-                        selected = downloads.bitRateKbps,
-                        optionLabel = { "$it kbps" },
-                        onSelect = viewModel::setDownloadBitRate,
+            item(key = SettingsSection.LIBRARY) {
+                SettingsCard(
+                    icon = Icons.Filled.BarChart,
+                    title = "Library Statistics",
+                    description = "Overview of your music library",
+                ) {
+                    val s = stats
+                    if (s == null) {
+                        Text(
+                            "Statistics are unavailable offline.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InfoTile("Songs", s.songCount.toString(), Icons.Filled.MusicNote, Modifier.weight(1f))
+                            InfoTile("Albums", s.albumCount.toString(), Icons.Filled.ViewAgenda, Modifier.weight(1f))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InfoTile("Artists", s.artistCount.toString(), Icons.Filled.Person, Modifier.weight(1f))
+                            InfoTile("Playtime", formatTotalDuration(s.totalDurationSeconds), Icons.Filled.BarChart, Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            item(key = SettingsSection.HOME) {
+                SettingsCard(
+                    icon = Icons.Filled.ViewAgenda,
+                    title = "Home",
+                    description = "Quick tiles and sections on the Home page",
+                ) {
+                    NavigationRow(
+                        title = "Home layout",
+                        subtitle = "Customize Home tiles and sections",
+                        onClick = onOpenHomeLayout,
                     )
                 }
-                ListItem(
-                    headlineContent = { Text("Wi-Fi only") },
-                    supportingContent = { Text("Wait for Wi-Fi before downloading") },
-                    trailingContent = {
-                        Switch(
-                            checked = downloads.wifiOnly,
-                            onCheckedChange = viewModel::setDownloadWifiOnly,
+            }
+
+            item(key = SettingsSection.PLAYBACK) {
+                SettingsCard(
+                    icon = Icons.Filled.MusicNote,
+                    title = "Playback",
+                    description = "Volume normalization, streaming quality, and the seek bar",
+                ) {
+                    ChoiceRow(
+                        label = "ReplayGain",
+                        options = PlaybackSettingsRepository.REPLAY_GAIN_MODES,
+                        selected = playback.replayGainMode,
+                        optionLabel = { mode ->
+                            when (mode) {
+                                "computed" -> "Computed"
+                                "original" -> "Original"
+                                else -> "Disabled"
+                            }
+                        },
+                        onSelect = viewModel::setReplayGainMode,
+                    )
+                    if (playback.replayGainMode != "disabled") {
+                        Column {
+                            Text(
+                                "Pre-amp offset: ${playback.replayGainOffset.roundToInt()} dB",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Slider(
+                                value = playback.replayGainOffset,
+                                onValueChange = viewModel::setReplayGainOffset,
+                                valueRange = -12f..12f,
+                                steps = 23,
+                            )
+                        }
+                    }
+                    SwitchRow(
+                        title = "Transcoding",
+                        subtitle = "Stream as Opus with embedded ReplayGain tags",
+                        checked = playback.transcodingEnabled,
+                        onCheckedChange = viewModel::setTranscodingEnabled,
+                    )
+                    if (playback.transcodingEnabled) {
+                        ChoiceRow(
+                            label = "Transcoding bitrate",
+                            options = PlaybackSettingsRepository.TRANSCODING_BITRATES,
+                            selected = playback.transcodingBitrate,
+                            optionLabel = { "$it kbps" },
+                            onSelect = viewModel::setTranscodingBitrate,
                         )
-                    },
-                )
+                    }
+                    ChoiceRow(
+                        label = "Progress bar",
+                        options = PlaybackSettingsRepository.PROGRESS_BAR_STYLES,
+                        selected = playback.progressBarStyle,
+                        optionLabel = { style -> if (style == "waveform") "Waveform" else "Simple" },
+                        onSelect = viewModel::setProgressBarStyle,
+                    )
+                }
+            }
+
+            item(key = SettingsSection.DOWNLOADS) {
+                SettingsCard(
+                    icon = Icons.Filled.Download,
+                    title = "Downloads",
+                    description = "Offline copies for listening without a connection",
+                ) {
+                    ChoiceRow(
+                        label = "Format",
+                        options = listOf(DownloadSettings.FORMAT_OPUS, DownloadSettings.FORMAT_ORIGINAL),
+                        selected = downloads.format,
+                        optionLabel = { if (it == DownloadSettings.FORMAT_OPUS) "Opus" else "Original" },
+                        onSelect = viewModel::setDownloadFormat,
+                    )
+                    if (downloads.format == DownloadSettings.FORMAT_OPUS) {
+                        ChoiceRow(
+                            label = "Download bitrate",
+                            options = DownloadSettings.BIT_RATES,
+                            selected = downloads.bitRateKbps,
+                            optionLabel = { "$it kbps" },
+                            onSelect = viewModel::setDownloadBitRate,
+                        )
+                    }
+                    SwitchRow(
+                        title = "Wi-Fi only",
+                        subtitle = "Wait for Wi-Fi before downloading",
+                        checked = downloads.wifiOnly,
+                        onCheckedChange = viewModel::setDownloadWifiOnly,
+                    )
+                    NavigationRow(
+                        title = "Downloaded music",
+                        subtitle = "Manage downloads and free up space",
+                        onClick = onOpenDownloads,
+                    )
+                }
+            }
+
+            item(key = SettingsSection.APPEARANCE) {
+                SettingsCard(
+                    icon = Icons.Filled.Palette,
+                    title = "Appearance",
+                    description = "Theme and accent color",
+                ) {
+                    Text("Theme", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ThemeButton("Light", Icons.Filled.LightMode, themeMode == ThemeMode.LIGHT) {
+                            viewModel.setThemeMode(ThemeMode.LIGHT)
+                        }
+                        ThemeButton("Dark", Icons.Filled.DarkMode, themeMode == ThemeMode.DARK) {
+                            viewModel.setThemeMode(ThemeMode.DARK)
+                        }
+                        ThemeButton("System", Icons.Filled.PhoneAndroid, themeMode == ThemeMode.SYSTEM) {
+                            viewModel.setThemeMode(ThemeMode.SYSTEM)
+                        }
+                    }
+                    Text("Accent color", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    AccentPicker(selected = accent.name, onSelectPreset = viewModel::setAccentPreset)
+                    if (accent.name == AccentColors.CUSTOM) {
+                        Column {
+                            Text("Hue: ${accent.custom.hue.roundToInt()}°", style = MaterialTheme.typography.bodyMedium)
+                            Slider(
+                                value = accent.custom.hue.toFloat(),
+                                onValueChange = { hue ->
+                                    viewModel.setCustomAccent(accent.custom.lightness, accent.custom.chroma, hue.toDouble())
+                                },
+                                valueRange = 0f..360f,
+                            )
+                            Text("Lightness: ${accent.custom.lightness.format(2)}", style = MaterialTheme.typography.bodyMedium)
+                            Slider(
+                                value = accent.custom.lightness.toFloat(),
+                                onValueChange = { lightness ->
+                                    viewModel.setCustomAccent(lightness.toDouble(), accent.custom.chroma, accent.custom.hue)
+                                },
+                                valueRange = 0.3f..0.9f,
+                            )
+                            Text("Chroma: ${accent.custom.chroma.format(2)}", style = MaterialTheme.typography.bodyMedium)
+                            Slider(
+                                value = accent.custom.chroma.toFloat(),
+                                onValueChange = { chroma ->
+                                    viewModel.setCustomAccent(accent.custom.lightness, chroma.toDouble(), accent.custom.hue)
+                                },
+                                valueRange = 0.01f..0.3f,
+                            )
+                        }
+                    }
+                }
+            }
+
+            item(key = SettingsSection.ABOUT) {
+                SettingsCard(icon = Icons.Filled.Info, title = "About Ferrotune", description = null) {
+                    Text(
+                        "Ferrotune for Android (native) — a self-hosted music server and client.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
 }
 
+/** Web settings `Card`: rounded `bg-card` panel with an icon title and description. */
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
-    )
+private fun SettingsCard(
+    icon: ImageVector,
+    title: String,
+    description: String?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        }
+        if (description != null) {
+            Text(
+                description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        content()
+    }
+}
+
+/** Web settings stat/info tile: uppercase label over a value. */
+@Composable
+private fun InfoTile(label: String, value: String, icon: ImageVector, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+            Text(
+                label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                letterSpacing = 0.8.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun NavigationRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** Web theme buttons: outlined, filled with the accent when selected. */
+@Composable
+private fun ThemeButton(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    if (selected) {
+        Button(onClick = onClick, contentPadding = PaddingValues(horizontal = 12.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(label, modifier = Modifier.padding(start = 6.dp))
+        }
+    } else {
+        OutlinedButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 12.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(label, modifier = Modifier.padding(start = 6.dp))
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -318,9 +581,7 @@ private fun AccentPicker(
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         AccentColors.PRESETS.forEach { preset ->
             val color = oklchToColor(preset.color)
@@ -391,12 +652,14 @@ private fun <T> ChoiceRow(
     optionLabel: (T) -> String,
     onSelect: (T) -> Unit,
 ) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+    Column {
+        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .horizontalScroll(rememberScrollState()),
         ) {
             options.forEach { option ->
                 FilterChip(

@@ -106,6 +106,7 @@ class SettingsViewModelTest {
             DownloadSettingsRepository(provider, NoopDownloadEngine()),
             AccentSettingsRepository(provider),
             themeModeStore,
+            provider,
         )
     }
 

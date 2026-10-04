@@ -376,7 +376,7 @@ private fun FerrotuneAppContent(
                         onOpenHomeLayout = {
                             navController.navigate(Routes.HOME_LAYOUT_SETTINGS)
                         },
-                        onBack = { navController.popBackStack() },
+                        onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
                         onSignOut = {
                             viewModel.signOutLocally()
                             navController.navigate(Routes.LOGIN) {
