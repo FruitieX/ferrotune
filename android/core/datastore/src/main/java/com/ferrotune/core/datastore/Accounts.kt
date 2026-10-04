@@ -16,4 +16,7 @@ interface Accounts {
     suspend fun upsert(account: Account)
     suspend fun setActive(accountId: String?)
     suspend fun remove(accountId: String)
+
+    /** This install's stable playback client id (shared by every account). */
+    suspend fun clientId(): String
 }

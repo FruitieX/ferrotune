@@ -31,6 +31,8 @@ class FakeAccounts(
         _activeAccount.value = _accounts.value.firstOrNull { it.id == accountId }
     }
 
+    override suspend fun clientId(): String = TEST_CLIENT_ID
+
     override suspend fun remove(accountId: String) {
         _accounts.value = _accounts.value.filterNot { it.id == accountId }
         if (_activeId.value == accountId) {
@@ -51,3 +53,5 @@ class FakeAccountSwitcher(
         return result
     }
 }
+
+const val TEST_CLIENT_ID = "test-client"

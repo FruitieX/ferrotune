@@ -1428,12 +1428,14 @@ class PlaybackService : MediaSessionService() {
 
                     Log.d(TAG, "Remote takeOver received; pausing native playback")
                     markPlaybackPauseIntent("remote takeover")
+                    // OwnerChanged usually arrives first with the owner's name; keep it.
+                    val knownOwnerName = sessionOwnerClientName.takeIf { sessionOwnerClientId == event.clientId }
                     nativeOwnsSession = false
                     sessionOwnerClientId = event.clientId
                     sessionOwnerClientName = if (event.clientId?.startsWith("$CAST_CLIENT_NAME:") == true) {
                         CAST_CLIENT_NAME
                     } else {
-                        null
+                        knownOwnerName
                     }
                     clearPendingNetworkRetry("remote takeover")
                     handler.removeCallbacks(positionSyncRunnable)

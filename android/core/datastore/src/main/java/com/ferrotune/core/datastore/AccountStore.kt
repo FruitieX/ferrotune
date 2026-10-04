@@ -74,7 +74,7 @@ class AccountStore @Inject constructor(
      * Stable per-install client id used to identify this device in playback
      * sessions. Generated on first access.
      */
-    suspend fun clientId(): String {
+    override suspend fun clientId(): String {
         var value: String? = null
         context.accountDataStore.edit { preferences ->
             val existing = preferences[CLIENT_ID_KEY]

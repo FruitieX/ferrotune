@@ -4,21 +4,22 @@ import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.FerrotuneApi
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.dto.AuthLoginRequest
-import com.ferrotune.core.network.dto.MoveInQueueRequest
-import com.ferrotune.core.network.dto.QueueParams
-import com.ferrotune.core.network.dto.QueueWindowParams
-import com.ferrotune.core.network.dto.RepeatModeRequest
-import com.ferrotune.core.network.dto.SessionParams
-import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.AuthLoginResponseDto
 import com.ferrotune.core.network.dto.AuthMeResponseDto
 import com.ferrotune.core.network.dto.AuthSessionRefreshResponseDto
 import com.ferrotune.core.network.dto.ConnectSessionRequest
 import com.ferrotune.core.network.dto.CreateFolderRequest
 import com.ferrotune.core.network.dto.LogListeningRequest
+import com.ferrotune.core.network.dto.MoveInQueueRequest
 import com.ferrotune.core.network.dto.MovePlaylistRequest
+import com.ferrotune.core.network.dto.QueueParams
+import com.ferrotune.core.network.dto.QueueWindowParams
 import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.ReorderPlaylistRequest
+import com.ferrotune.core.network.dto.RepeatModeRequest
+import com.ferrotune.core.network.dto.SessionCommandRequest
+import com.ferrotune.core.network.dto.SessionParams
+import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
@@ -26,24 +27,24 @@ import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
 import com.ferrotune.core.network.generated.BatchMatchEntriesRequest
 import com.ferrotune.core.network.generated.BatchMatchEntriesResponse
+import com.ferrotune.core.network.generated.ClientListResponse
 import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.ConnectSessionResponse
-import com.ferrotune.core.network.generated.DiscoveryResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
+import com.ferrotune.core.network.generated.DiscoveryResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
-import com.ferrotune.core.network.generated.GetPreferenceResponse
-import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.FerrotuneArtistResponse
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryResponse
 import com.ferrotune.core.network.generated.FerrotuneRandomSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSearchResponse
 import com.ferrotune.core.network.generated.FerrotuneSimilarSongsResponse
-import com.ferrotune.core.network.generated.WaveformResponse
 import com.ferrotune.core.network.generated.FerrotuneSongResponse
 import com.ferrotune.core.network.generated.FerrotuneStarredResponse
+import com.ferrotune.core.network.generated.GetPreferenceResponse
+import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
 import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.HomePageResponse
@@ -54,10 +55,9 @@ import com.ferrotune.core.network.generated.LogListeningResponse
 import com.ferrotune.core.network.generated.MatchMissingEntryRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
-import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
 import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
+import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
 import com.ferrotune.core.network.generated.MusicFoldersResponse
-import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.PeriodReviewResponse
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
@@ -65,18 +65,19 @@ import com.ferrotune.core.network.generated.PlaylistMembershipRequest
 import com.ferrotune.core.network.generated.PlaylistMembershipResponse
 import com.ferrotune.core.network.generated.PlaylistSharesResponse
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
+import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.QueueSuccessResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
 import com.ferrotune.core.network.generated.RemovePlaylistSongsRequest
+import com.ferrotune.core.network.generated.SessionSuccessResponse
 import com.ferrotune.core.network.generated.SetPlaylistSharesRequest
 import com.ferrotune.core.network.generated.SetPreferenceRequest
-import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.ShareableUsersResponse
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
-import com.ferrotune.core.network.generated.SongPlaylistsResponse
 import com.ferrotune.core.network.generated.SongIdsResponse
+import com.ferrotune.core.network.generated.SongPlaylistsResponse
 import com.ferrotune.core.network.generated.SourceSongIdsResponse
 import com.ferrotune.core.network.generated.SourceSongsRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
@@ -85,7 +86,9 @@ import com.ferrotune.core.network.generated.StatsResponse
 import com.ferrotune.core.network.generated.TransferPlaylistOwnershipRequest
 import com.ferrotune.core.network.generated.UnmatchEntryRequest
 import com.ferrotune.core.network.generated.UpdatePlaylistRequest
+import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.UpdateSmartPlaylistRequest
+import com.ferrotune.core.network.generated.WaveformResponse
 
 fun testAccount(): Account = Account(
     id = "test",
@@ -139,6 +142,13 @@ open class FakeFerrotuneApi(
     override suspend fun logout() = error("unused")
     override suspend fun connectSession(request: ConnectSessionRequest): ConnectSessionResponse =
         error("unused")
+
+    override suspend fun sessionClients(): ClientListResponse = error("unused")
+
+    override suspend fun sessionCommand(
+        sessionId: String,
+        request: SessionCommandRequest,
+    ): SessionSuccessResponse = error("unused")
 
     override suspend fun startQueue(request: StartQueueRequest): StartQueueResponse = error("unused")
 

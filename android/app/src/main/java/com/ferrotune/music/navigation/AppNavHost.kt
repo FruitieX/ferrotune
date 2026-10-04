@@ -77,6 +77,7 @@ import com.ferrotune.feature.library.ui.SongRadioScreen
 import com.ferrotune.feature.player.LocalQueuePanel
 import com.ferrotune.feature.player.MiniPlayerBar
 import com.ferrotune.feature.player.NowPlayingOverlay
+import com.ferrotune.feature.player.PlaybackOwnerStrip
 import com.ferrotune.feature.player.QueuePanelHost
 import com.ferrotune.feature.player.QueuePanelState
 import com.ferrotune.feature.player.rememberNowPlayingSheetState
@@ -419,6 +420,7 @@ private fun FerrotuneAppContent(
             )
             }
             if (showChrome) {
+                PlaybackOwnerStrip()
                 MiniPlayerBar(
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     onExpandDrag = nowPlayingSheet::dragBy,
