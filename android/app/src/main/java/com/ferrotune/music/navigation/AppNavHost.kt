@@ -414,11 +414,7 @@ private fun FerrotuneAppContent(
                     )
                 }
                 composable(Routes.REVIEW) {
-                    ReviewScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenArtist = { navController.navigate(Routes.artist(it)) },
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                    )
+                    ReviewScreen(onBack = { navController.popBackStack() })
                 }
             }
             SnackbarHost(

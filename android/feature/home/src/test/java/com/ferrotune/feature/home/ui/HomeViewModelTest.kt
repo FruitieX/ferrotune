@@ -125,7 +125,7 @@ internal fun testReviewResponse(): PeriodReviewResponse = PeriodReviewResponse(
     ),
 )
 
-internal class FakeHomeApi(
+internal open class FakeHomeApi(
     private val tiles: List<HomeTileConfig> = DEFAULT_HOME_TILES,
     private val sections: List<HomeSectionConfig> = DEFAULT_HOME_SECTIONS,
     private val review: PeriodReviewResponse = testReviewResponse(),
