@@ -567,6 +567,7 @@ private fun AccentPicker(
 
 private fun Double.format(decimals: Int): String = "%.${decimals}f".format(this)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> ChoiceRow(
     label: String,
@@ -577,12 +578,12 @@ private fun <T> ChoiceRow(
 ) {
     Column {
         Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        Row(
+        // Wraps instead of scrolling sideways, so every option stays visible.
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .padding(top = 4.dp)
-                .horizontalScroll(rememberScrollState()),
+                .fillMaxWidth()
+                .padding(top = 4.dp),
         ) {
             options.forEach { option ->
                 FilterChip(
