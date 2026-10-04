@@ -46,10 +46,10 @@ import com.ferrotune.core.designsystem.components.StatTile
 import com.ferrotune.core.designsystem.components.formatListeningTime
 import com.ferrotune.core.network.generated.ListeningStats
 import com.ferrotune.core.network.generated.ListeningStatsResponse
+import java.text.DateFormat
 import java.text.NumberFormat
-import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
  * Web profile page: account details, listening activity (with the way into
@@ -220,9 +220,10 @@ private fun TileSkeletonRow() {
     }
 }
 
-internal fun formatMemberSince(createdAt: String?): String =
-    createdAt?.let {
-        runCatching {
-            OffsetDateTime.parse(it).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG))
-        }.getOrNull()
-    } ?: "Unknown"
+/** The ISO timestamp's calendar date in the device's long date style (minSdk 24 has no java.time). */
+internal fun formatMemberSince(createdAt: String?, locale: Locale = Locale.getDefault()): String {
+    val day = createdAt?.takeIf { it.length >= 10 }?.substring(0, 10) ?: return "Unknown"
+    val parser = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { isLenient = false }
+    val date = runCatching { parser.parse(day) }.getOrNull() ?: return "Unknown"
+    return DateFormat.getDateInstance(DateFormat.LONG, locale).format(date)
+}

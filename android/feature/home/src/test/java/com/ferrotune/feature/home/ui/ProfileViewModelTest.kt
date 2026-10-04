@@ -75,5 +75,6 @@ class ProfileViewModelTest {
         assertEquals(0, skipRatePercent(skips = 3, sessions = 0))
         assertEquals("Unknown", formatMemberSince(null))
         assertEquals("Unknown", formatMemberSince("not a date"))
+        assertEquals("March 5, 2024", formatMemberSince("2024-03-05T10:00:00Z", java.util.Locale.US))
     }
 }
