@@ -3,6 +3,7 @@ package com.ferrotune.feature.player.data
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.QueueParams
 import com.ferrotune.core.network.toQueryMap
 
@@ -27,14 +28,17 @@ class QueuePagingSource(
             else -> pageSize
         }
         return try {
-            val response = apiProvider.requireApi().queue(
-                QueueParams(
-                    sessionId = sessionId,
-                    offset = offset,
-                    limit = limit,
-                    inlineImages = "small",
-                ).toQueryMap(),
-            )
+            val api = apiProvider.requireApi()
+            val response = apiCall {
+                api.queue(
+                    QueueParams(
+                        sessionId = sessionId,
+                        offset = offset,
+                        limit = limit,
+                        inlineImages = "small",
+                    ).toQueryMap(),
+                )
+            }
             val snapshot = response.toSnapshot()
             val total = snapshot.totalCount
             val end = offset + snapshot.entries.size

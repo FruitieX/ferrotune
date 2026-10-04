@@ -2,24 +2,24 @@ package com.ferrotune.feature.home.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.actions.UserMessages
+import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.AccountSwitchResult
 import com.ferrotune.core.network.AccountSwitcher
+import com.ferrotune.core.network.ConnectivityMonitor
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ContinueListeningEntry
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.home.data.HomeRepository
-import com.ferrotune.feature.home.data.HomeSectionLoader
 import com.ferrotune.feature.home.data.HomeSectionConfig
 import com.ferrotune.feature.home.data.HomeSectionKind
+import com.ferrotune.feature.home.data.HomeSectionLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.serialization.json.JsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 
 data class HomeSectionUi(
     val config: HomeSectionConfig,
@@ -52,6 +53,7 @@ data class HomeUiState(
     val tiles: List<HomeTilePresentation> = emptyList(),
     val sections: List<HomeSectionUi> = emptyList(),
     val accounts: List<Account> = emptyList(),
+    val offline: Boolean = false,
 )
 
 @HiltViewModel
@@ -63,6 +65,7 @@ class HomeViewModel @Inject constructor(
     private val accounts: Accounts,
     private val accountSwitcher: AccountSwitcher,
     private val messages: UserMessages,
+    private val connectivity: ConnectivityMonitor,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(HomeUiState())
@@ -80,6 +83,14 @@ class HomeViewModel @Inject constructor(
                         layoutRepository.sections,
                     ) { _, _ -> Unit }.collect { reload() }
                 }
+        }
+        viewModelScope.launch {
+            connectivity.isOnline.collect { online ->
+                val wasOffline = state.value.offline
+                state.update { it.copy(offline = !online) }
+                // Coming back online: retry a Home that failed while offline.
+                if (online && wasOffline && state.value.error != null) reload()
+            }
         }
         viewModelScope.launch {
             accounts.accounts.collect { saved ->

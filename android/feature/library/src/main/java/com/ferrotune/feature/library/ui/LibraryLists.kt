@@ -15,6 +15,7 @@ import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
 import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.core.network.readableMessage
 
 /**
  * Paged cards laid out as rows of [columns] inside a lazy list, so a card grid
@@ -31,7 +32,7 @@ internal fun <T : Any> LazyListScope.pagedCardRows(
     val refresh = items.loadState.refresh
     when {
         refresh is LoadState.Error && items.itemCount == 0 -> item(key = "$keyPrefix-error") {
-            ErrorState(message = refresh.error.message ?: "Failed to load", onRetry = items::retry)
+            ErrorState(message = refresh.error.readableMessage() ?: "Failed to load", onRetry = items::retry)
         }
 
         refresh is LoadState.Loading && items.itemCount == 0 -> item(key = "$keyPrefix-loading") {

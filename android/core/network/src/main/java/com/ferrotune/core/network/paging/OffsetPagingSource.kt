@@ -2,6 +2,7 @@ package com.ferrotune.core.network.paging
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import com.ferrotune.core.network.apiCall
 
 const val DEFAULT_PAGE_SIZE = 50
 
@@ -24,7 +25,7 @@ abstract class OffsetPagingSource<T : Any> : PagingSource<Int, T>() {
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, T> {
         val offset = params.key ?: 0
         return try {
-            val page = loadPage(offset, pageSize)
+            val page = apiCall { loadPage(offset, pageSize) }
             val reachedEnd = when {
                 page.items.isEmpty() -> true
                 page.items.size < pageSize -> true

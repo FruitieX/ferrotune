@@ -11,9 +11,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -21,23 +24,22 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import com.ferrotune.core.actions.LocalServerUrl
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -52,16 +54,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.ferrotune.feature.auth.LoginScreen
-import com.ferrotune.feature.home.ui.HomeScreen
-import com.ferrotune.feature.home.ui.HomeLayoutSettingsScreen
-import com.ferrotune.feature.home.ui.HomeLinkTarget
-import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
-import com.ferrotune.feature.downloads.ui.DownloadsScreen
+import com.ferrotune.core.actions.LocalServerUrl
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.theme.FerrotuneTheme
 import com.ferrotune.core.model.ThemeMode
-import com.ferrotune.feature.settings.ui.SettingsScreen
+import com.ferrotune.feature.auth.LoginScreen
+import com.ferrotune.feature.downloads.ui.DownloadsScreen
+import com.ferrotune.feature.home.ui.HomeLayoutSettingsScreen
+import com.ferrotune.feature.home.ui.HomeLinkTarget
+import com.ferrotune.feature.home.ui.HomeScreen
+import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.home.ui.StatsScreen
 import com.ferrotune.feature.library.ui.AlbumDetailScreen
@@ -72,8 +74,8 @@ import com.ferrotune.feature.library.ui.HistoryScreen
 import com.ferrotune.feature.library.ui.LibraryScreen
 import com.ferrotune.feature.library.ui.SearchScreen
 import com.ferrotune.feature.library.ui.SongRadioScreen
-import com.ferrotune.feature.player.MiniPlayerBar
 import com.ferrotune.feature.player.LocalQueuePanel
+import com.ferrotune.feature.player.MiniPlayerBar
 import com.ferrotune.feature.player.NowPlayingOverlay
 import com.ferrotune.feature.player.QueuePanelHost
 import com.ferrotune.feature.player.QueuePanelState
@@ -82,6 +84,7 @@ import com.ferrotune.feature.playlists.ui.PlaylistDetailScreen
 import com.ferrotune.feature.playlists.ui.PlaylistsScreen
 import com.ferrotune.feature.playlists.ui.SmartPlaylistDetailScreen
 import com.ferrotune.feature.playlists.ui.SmartPlaylistEditorScreen
+import com.ferrotune.feature.settings.ui.SettingsScreen
 
 object Routes {
     const val LOGIN = "login"
@@ -162,7 +165,9 @@ private fun OfflineBanner() {
             text = "Offline — showing downloaded content",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
         )
     }
 }
@@ -233,7 +238,14 @@ private fun FerrotuneAppContent(
             if (!state.isOnline) {
                 OfflineBanner()
             }
-            Box(modifier = Modifier.weight(1f)) {
+            // The banner covers the status bar, so screens below it must not pad for it again.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (state.isOnline) Modifier else Modifier.consumeWindowInsets(WindowInsets.statusBars),
+                    ),
+            ) {
             NavHost(
                 navController = navController,
                 startDestination = if (state.activeAccount != null) Routes.HOME else Routes.LOGIN,

@@ -1,5 +1,7 @@
 package com.ferrotune.feature.settings.ui
 
+import com.ferrotune.core.actions.UserMessage
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.datastore.ThemeModeStore
 import com.ferrotune.core.media.DownloadEngine
 import com.ferrotune.core.media.DownloadInfo
@@ -8,21 +10,26 @@ import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.media.PlaybackSettingsApplier
 import com.ferrotune.core.media.PlaybackSettingsRepository
 import com.ferrotune.core.model.ThemeMode
+import com.ferrotune.core.network.FerrotuneApiException
 import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.SetPreferenceRequest
+import com.ferrotune.core.network.generated.StatsResponse
 import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.FakeConnectivityMonitor
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.settings.data.AccentSettingsRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -31,6 +38,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -60,8 +68,17 @@ class SettingsViewModelTest {
             key: String,
             request: SetPreferenceRequest,
         ): GetPreferenceResponse {
+            if (rejectWrites) throw FerrotuneApiException(503, "offline")
             preferenceValues[key] = request.value
             return GetPreferenceResponse(key = key, value = request.value)
+        }
+
+        var rejectWrites = false
+        var statsCalls = 0
+
+        override suspend fun stats(): StatsResponse {
+            statsCalls++
+            return StatsResponse(3, 2, 1, 1, 0, 600, 1024, 9)
         }
     }
 
@@ -97,17 +114,31 @@ class SettingsViewModelTest {
         }
     }
 
-    private class Harness(api: FakeSettingsApi = FakeSettingsApi()) {
+    private class Harness(api: FakeSettingsApi = FakeSettingsApi(), online: Boolean = true) {
         val api = api
         val applier = FakeSettingsApplier()
         val themeModeStore = FakeThemeModeStore()
         val provider = FakeApiProvider(api)
+        val preferences = testServerPreferences(provider.api)
+        val messages = UserMessages()
+        val received = mutableListOf<UserMessage>()
+        val connectivity = FakeConnectivityMonitor(online)
+
+        init {
+            CoroutineScope(UnconfinedTestDispatcher()).launch {
+                messages.messages.collect { received += it }
+            }
+        }
+
         val viewModel = SettingsViewModel(
-            PlaybackSettingsRepository(testServerPreferences(provider.api), applier),
-            DownloadSettingsRepository(testServerPreferences(provider.api), NoopDownloadEngine()),
-            AccentSettingsRepository(testServerPreferences(provider.api)),
+            PlaybackSettingsRepository(preferences, applier),
+            DownloadSettingsRepository(preferences, NoopDownloadEngine()),
+            AccentSettingsRepository(preferences),
+            preferences,
             themeModeStore,
             provider,
+            messages,
+            connectivity,
         )
     }
 
@@ -176,5 +207,31 @@ class SettingsViewModelTest {
 
         assertEquals(ThemeMode.LIGHT, harness.themeModeStore.mode.value)
         assertEquals(ThemeMode.LIGHT, harness.viewModel.themeMode.value)
+    }
+
+    @Test
+    fun `a rejected write rolls back and explains why`() = runTest {
+        val api = FakeSettingsApi()
+        val harness = Harness(api)
+        api.rejectWrites = true
+
+        harness.viewModel.setTranscodingBitrate(96)
+
+        assertEquals(PlaybackSettingsRepository.DEFAULT_TRANSCODING_BITRATE, harness.viewModel.playbackSettings.value.transcodingBitrate)
+        assertTrue(harness.received.single().text.startsWith("Couldn't save the playback setting"))
+    }
+
+    @Test
+    fun `statistics load when the connection returns`() = runTest {
+        val api = FakeSettingsApi()
+        val harness = Harness(api, online = false)
+        assertNull(harness.viewModel.libraryStats.value.stats)
+        assertEquals(0, api.statsCalls)
+
+        harness.connectivity.isOnline.value = true
+
+        assertEquals(1, api.statsCalls)
+        assertEquals(3L, harness.viewModel.libraryStats.value.stats?.songCount)
+        assertTrue(harness.viewModel.isOnline.value)
     }
 }

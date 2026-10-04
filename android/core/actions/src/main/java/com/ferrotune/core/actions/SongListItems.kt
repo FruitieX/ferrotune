@@ -13,6 +13,7 @@ import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.TrackGroupHeader
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.core.network.readableMessage
 
 /**
  * Paged song rows plus their loading, error, empty, and append states, for
@@ -43,7 +44,7 @@ fun LazyListScope.songPagingItems(
     when {
         refresh is LoadState.Error && songs.itemCount == 0 -> item(key = "songs-error") {
             ErrorState(
-                message = refresh.error.message ?: "Failed to load songs",
+                message = refresh.error.readableMessage() ?: "Failed to load songs",
                 onRetry = songs::retry,
             )
         }

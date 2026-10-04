@@ -1,5 +1,6 @@
 package com.ferrotune.core.actions
 
+import com.ferrotune.core.network.readableMessage
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -32,7 +33,7 @@ class UserMessages @Inject constructor() {
 
     /** Error message for a failed action, with the server's reason when present. */
     fun failure(action: String, error: Throwable) {
-        val reason = error.message?.takeIf { it.isNotBlank() }
+        val reason = error.readableMessage()?.takeIf { it.isNotBlank() }
         error(if (reason != null) "$action: $reason" else action)
     }
 }

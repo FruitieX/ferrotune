@@ -1,14 +1,18 @@
 package com.ferrotune.feature.settings.ui
 
-import com.ferrotune.core.network.FerrotuneApiProvider
-import com.ferrotune.core.network.generated.StatsResponse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.datastore.ThemeModeStore
 import com.ferrotune.core.designsystem.theme.OklchColor
-import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.media.PlaybackSettingsRepository
+import com.ferrotune.core.model.ThemeMode
+import com.ferrotune.core.network.ConnectivityMonitor
+import com.ferrotune.core.network.FerrotuneApiProvider
+import com.ferrotune.core.network.ServerPreferences
+import com.ferrotune.core.network.apiCall
+import com.ferrotune.core.network.generated.StatsResponse
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.settings.data.AccentSettingsRepository
@@ -21,13 +25,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** Library Statistics card: null counts while loading, or [failed] when unavailable. */
+data class LibraryStatsState(
+    val stats: StatsResponse? = null,
+    val failed: Boolean = false,
+)
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val playbackSettingsRepository: PlaybackSettingsRepository,
     private val downloadSettingsRepository: DownloadSettingsRepository,
     private val accentSettingsRepository: AccentSettingsRepository,
+    private val serverPreferences: ServerPreferences,
     private val themeModeStore: ThemeModeStore,
     private val apiProvider: FerrotuneApiProvider,
+    private val messages: UserMessages,
+    connectivity: ConnectivityMonitor,
 ) : ViewModel() {
 
     val playbackSettings: StateFlow<PlaybackSettings> = playbackSettingsRepository.settings
@@ -35,32 +48,39 @@ class SettingsViewModel @Inject constructor(
     val accent: StateFlow<AccentState> = accentSettingsRepository.state
     val themeMode: StateFlow<ThemeMode> = themeModeStore.themeMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.DEFAULT)
+    val isOnline: StateFlow<Boolean> = connectivity.isOnline
 
-    private val _message = MutableStateFlow<String?>(null)
-    val message: StateFlow<String?> = _message
+    private val _libraryStats = MutableStateFlow(LibraryStatsState())
 
-    private val _libraryStats = MutableStateFlow<StatsResponse?>(null)
-
-    /** Web "Library Statistics" card counts; null until loaded (or offline). */
-    val libraryStats: StateFlow<StatsResponse?> = _libraryStats
+    /** Web "Library Statistics" card counts. */
+    val libraryStats: StateFlow<LibraryStatsState> = _libraryStats
 
     init {
         viewModelScope.launch {
-            runCatching { playbackSettingsRepository.load() }
-                .onFailure { _message.value = "Could not load playback settings" }
+            // One read for every card; cached values stay on screen when it fails.
+            runCatching { serverPreferences.refresh() }
+                .onFailure {
+                    if (serverPreferences.snapshot.value == ServerPreferences.EMPTY) {
+                        messages.failure("Couldn't load your settings", it)
+                    }
+                }
+            playbackSettingsRepository.ensureLoaded()
+            downloadSettingsRepository.ensureLoaded()
         }
         viewModelScope.launch {
-            runCatching { downloadSettingsRepository.load() }
-                .onFailure { _message.value = "Could not load download settings" }
+            connectivity.isOnline.collect { online ->
+                if (online && _libraryStats.value.stats == null) loadStats()
+            }
         }
-        viewModelScope.launch {
-            runCatching { accentSettingsRepository.load() }
-                .onFailure { _message.value = "Could not load accent color" }
-        }
-        viewModelScope.launch {
-            runCatching { apiProvider.requireApi().stats() }
-                .onSuccess { _libraryStats.value = it }
-        }
+    }
+
+    private suspend fun loadStats() {
+        _libraryStats.value = LibraryStatsState()
+        _libraryStats.value = runCatching { apiCall { apiProvider.requireApi().stats() } }
+            .fold(
+                onSuccess = { LibraryStatsState(stats = it) },
+                onFailure = { LibraryStatsState(failed = true) },
+            )
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -68,48 +88,56 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setAccentPreset(name: String) {
-        viewModelScope.launch { accentSettingsRepository.setPreset(name) }
+        save("Couldn't change the accent color") { accentSettingsRepository.setPreset(name) }
     }
 
     fun setCustomAccent(lightness: Double, chroma: Double, hue: Double) {
-        viewModelScope.launch {
+        save("Couldn't change the accent color") {
             accentSettingsRepository.setCustom(OklchColor(lightness, chroma, hue))
         }
     }
 
     fun setReplayGainMode(mode: String) {
-        viewModelScope.launch { playbackSettingsRepository.setReplayGainMode(mode) }
+        save(PLAYBACK_FAILURE) { playbackSettingsRepository.setReplayGainMode(mode) }
     }
 
     fun setReplayGainOffset(offsetDb: Float) {
-        viewModelScope.launch { playbackSettingsRepository.setReplayGainOffset(offsetDb) }
+        save(PLAYBACK_FAILURE) { playbackSettingsRepository.setReplayGainOffset(offsetDb) }
     }
 
     fun setTranscodingEnabled(enabled: Boolean) {
-        viewModelScope.launch { playbackSettingsRepository.setTranscodingEnabled(enabled) }
+        save(PLAYBACK_FAILURE) { playbackSettingsRepository.setTranscodingEnabled(enabled) }
     }
 
     fun setTranscodingBitrate(bitRateKbps: Int) {
-        viewModelScope.launch { playbackSettingsRepository.setTranscodingBitrate(bitRateKbps) }
+        save(PLAYBACK_FAILURE) { playbackSettingsRepository.setTranscodingBitrate(bitRateKbps) }
     }
 
     fun setProgressBarStyle(style: String) {
-        viewModelScope.launch { playbackSettingsRepository.setProgressBarStyle(style) }
+        save(PLAYBACK_FAILURE) { playbackSettingsRepository.setProgressBarStyle(style) }
     }
 
     fun setDownloadFormat(format: String) {
-        viewModelScope.launch { downloadSettingsRepository.setFormat(format) }
+        save(DOWNLOAD_FAILURE) { downloadSettingsRepository.setFormat(format) }
     }
 
     fun setDownloadBitRate(bitRateKbps: Int) {
-        viewModelScope.launch { downloadSettingsRepository.setBitRate(bitRateKbps) }
+        save(DOWNLOAD_FAILURE) { downloadSettingsRepository.setBitRate(bitRateKbps) }
     }
 
     fun setDownloadWifiOnly(wifiOnly: Boolean) {
-        viewModelScope.launch { downloadSettingsRepository.setWifiOnly(wifiOnly) }
+        save(DOWNLOAD_FAILURE) { downloadSettingsRepository.setWifiOnly(wifiOnly) }
     }
 
-    fun dismissMessage() {
-        _message.value = null
+    /** Writes roll back on failure, so the controls snap back and a message explains why. */
+    private fun save(failure: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            runCatching { block() }.onFailure { messages.failure(failure, it) }
+        }
+    }
+
+    private companion object {
+        const val PLAYBACK_FAILURE = "Couldn't save the playback setting"
+        const val DOWNLOAD_FAILURE = "Couldn't save the download setting"
     }
 }

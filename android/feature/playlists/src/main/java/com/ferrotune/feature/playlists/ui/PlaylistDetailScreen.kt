@@ -87,6 +87,7 @@ import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.network.generated.PlaylistSongEntry
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
+import com.ferrotune.core.network.readableMessage
 import com.ferrotune.feature.downloads.ui.ContainerDownloadMenuItem
 import com.ferrotune.feature.downloads.ui.ContainerDownloadType
 import com.ferrotune.feature.playlists.data.PlaylistRepository
@@ -249,7 +250,7 @@ fun PlaylistDetailScreen(
 
                     refresh is LoadState.Error && entries.itemCount == 0 -> item(key = "entries-error") {
                         ErrorState(
-                            message = refresh.error.message ?: "Failed to load entries",
+                            message = refresh.error.readableMessage() ?: "Failed to load entries",
                             onRetry = entries::retry,
                         )
                     }
@@ -655,7 +656,7 @@ internal fun AddSongsDialog(
                     )
 
                     results.loadState.refresh is LoadState.Error -> ErrorState(
-                        message = (results.loadState.refresh as LoadState.Error).error.message
+                        message = (results.loadState.refresh as LoadState.Error).error.readableMessage()
                             ?: "Search failed",
                         onRetry = { results.retry() },
                     )

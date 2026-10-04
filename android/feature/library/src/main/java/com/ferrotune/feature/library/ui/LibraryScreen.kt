@@ -61,10 +61,10 @@ import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
 import com.ferrotune.core.actions.LocalMediaActions
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.coverModel
 import com.ferrotune.core.actions.SongMenuSheet
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
+import com.ferrotune.core.actions.coverModel
 import com.ferrotune.core.actions.rememberCollectionMenuState
 import com.ferrotune.core.actions.rememberNowPlaying
 import com.ferrotune.core.actions.rememberSongMenuState
@@ -92,6 +92,7 @@ import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.SearchParams
+import com.ferrotune.core.network.readableMessage
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.SongSort
@@ -370,7 +371,7 @@ private fun <T : Any> PagedGrid(
     ) {
         when {
             refresh is LoadState.Error && items.itemCount == 0 -> item(span = { GridItemSpan(maxLineSpan) }) {
-                ErrorState(message = refresh.error.message ?: "Failed to load", onRetry = items::retry)
+                ErrorState(message = refresh.error.readableMessage() ?: "Failed to load", onRetry = items::retry)
             }
 
             refresh is LoadState.Loading && items.itemCount == 0 -> items(12) { MediaCardSkeleton() }

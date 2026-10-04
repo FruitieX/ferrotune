@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +73,7 @@ import com.ferrotune.core.actions.rememberCollectionMenuState
 import com.ferrotune.core.actions.rememberNowPlaying
 import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.toMenuTarget
+import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaActionRow
 import com.ferrotune.core.designsystem.components.MediaActionSeparator
@@ -83,10 +86,10 @@ import com.ferrotune.core.designsystem.components.ShelfCardWidth
 import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.model.Account
-import com.ferrotune.feature.home.data.HomeSectionConfig
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ContinueListeningEntry
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.feature.home.data.HomeSectionConfig
 
 /** Web home shelves: 8dp gaps with 12dp side padding on phones. */
 private val ShelfGap = 8.dp
@@ -125,6 +128,15 @@ fun HomeScreen(
         )
         when {
             state.loading && state.sections.isEmpty() -> HomeSkeleton(Modifier.fillMaxSize())
+
+            state.error != null && state.sections.isEmpty() && state.offline -> EmptyState(
+                message = "You're offline",
+                icon = Icons.Outlined.CloudOff,
+                description = "Home will load again when you're back online. Downloaded music is still available.",
+                action = {
+                    Button(onClick = onOpenDownloads) { Text("Open downloads") }
+                },
+            )
 
             state.error != null && state.sections.isEmpty() -> Box(Modifier.fillMaxSize()) {
                 ErrorState(message = state.error!!, onRetry = viewModel::load)

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -50,9 +51,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,13 +114,9 @@ fun SettingsScreen(
     val accent by viewModel.accent.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val stats by viewModel.libraryStats.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-
-    LaunchedEffect(message) {
-        message?.let { viewModel.dismissMessage() }
-    }
 
     Column(modifier = modifier.fillMaxSize()) {
         Column(
@@ -206,13 +205,13 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Icon(
-                            Icons.Filled.CheckCircle,
+                            if (isOnline) Icons.Filled.CheckCircle else Icons.Outlined.CloudOff,
                             contentDescription = null,
-                            tint = Color(0xFF22C55E),
+                            tint = if (isOnline) Color(0xFF22C55E) else MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(28.dp),
                         )
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Connected", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text(if (isOnline) "Connected" else "Offline", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                             Text(
                                 serverUrl.orEmpty(),
                                 style = MaterialTheme.typography.bodySmall,
@@ -273,10 +272,14 @@ fun SettingsScreen(
                     title = "Library Statistics",
                     description = "Overview of your music library",
                 ) {
-                    val s = stats
+                    val s = stats.stats
                     if (s == null) {
                         Text(
-                            "Statistics are unavailable offline.",
+                            when {
+                                !isOnline -> "Statistics are unavailable offline."
+                                stats.failed -> "Couldn't load statistics."
+                                else -> "Loading…"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -422,29 +425,29 @@ fun SettingsScreen(
                     Text("Accent color", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     AccentPicker(selected = accent.name, onSelectPreset = viewModel::setAccentPreset)
                     if (accent.name == AccentColors.CUSTOM) {
+                        // Drags edit a local draft; the server write happens on release.
+                        var draft by remember(accent.custom) { mutableStateOf(accent.custom) }
+                        val commit = { viewModel.setCustomAccent(draft.lightness, draft.chroma, draft.hue) }
                         Column {
-                            Text("Hue: ${accent.custom.hue.roundToInt()}°", style = MaterialTheme.typography.bodyMedium)
+                            Text("Hue: ${draft.hue.roundToInt()}°", style = MaterialTheme.typography.bodyMedium)
                             Slider(
-                                value = accent.custom.hue.toFloat(),
-                                onValueChange = { hue ->
-                                    viewModel.setCustomAccent(accent.custom.lightness, accent.custom.chroma, hue.toDouble())
-                                },
+                                value = draft.hue.toFloat(),
+                                onValueChange = { draft = draft.copy(hue = it.toDouble()) },
+                                onValueChangeFinished = commit,
                                 valueRange = 0f..360f,
                             )
-                            Text("Lightness: ${accent.custom.lightness.format(2)}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Lightness: ${draft.lightness.format(2)}", style = MaterialTheme.typography.bodyMedium)
                             Slider(
-                                value = accent.custom.lightness.toFloat(),
-                                onValueChange = { lightness ->
-                                    viewModel.setCustomAccent(lightness.toDouble(), accent.custom.chroma, accent.custom.hue)
-                                },
+                                value = draft.lightness.toFloat(),
+                                onValueChange = { draft = draft.copy(lightness = it.toDouble()) },
+                                onValueChangeFinished = commit,
                                 valueRange = 0.3f..0.9f,
                             )
-                            Text("Chroma: ${accent.custom.chroma.format(2)}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Chroma: ${draft.chroma.format(2)}", style = MaterialTheme.typography.bodyMedium)
                             Slider(
-                                value = accent.custom.chroma.toFloat(),
-                                onValueChange = { chroma ->
-                                    viewModel.setCustomAccent(accent.custom.lightness, chroma.toDouble(), accent.custom.hue)
-                                },
+                                value = draft.chroma.toFloat(),
+                                onValueChange = { draft = draft.copy(chroma = it.toDouble()) },
+                                onValueChangeFinished = commit,
                                 valueRange = 0.01f..0.3f,
                             )
                         }

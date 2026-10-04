@@ -3,6 +3,7 @@ package com.ferrotune.feature.home.ui
 import com.ferrotune.core.actions.UserMessage
 import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.AccountSwitchResult
+import com.ferrotune.core.network.FerrotuneApiException
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.AvailablePeriod
 import com.ferrotune.core.network.generated.ContinueListeningEntry
@@ -24,6 +25,7 @@ import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.testing.FakeAccountSwitcher
 import com.ferrotune.core.testing.FakeAccounts
 import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.FakeConnectivityMonitor
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.testAccount
@@ -56,6 +58,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonElement
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -137,6 +140,11 @@ internal class FakeHomeApi(
     var smartPlaylistSongsId: String? = null
     var reviewParams: Map<String, String>? = null
     val preferenceValues = mutableMapOf<String, JsonElement>()
+    var offline = false
+
+    private fun failWhenOffline() {
+        if (offline) throw FerrotuneApiException(0, "Can't reach the server")
+    }
 
     override suspend fun preferences(): PreferencesResponse = PreferencesResponse(
         accentColor = "default",
@@ -157,6 +165,7 @@ internal class FakeHomeApi(
     override suspend fun continueListening(
         params: Map<String, String>,
     ): HomeContinueListeningSection {
+        failWhenOffline()
         continueListeningCalls++
         return HomeContinueListeningSection(entries = testContinueListening(), total = 2)
     }
@@ -164,6 +173,7 @@ internal class FakeHomeApi(
     override suspend fun mostPlayedRecently(
         params: Map<String, String>,
     ): MostPlayedRecentlyResponse {
+        failWhenOffline()
         mostPlayedParams = params
         return MostPlayedRecentlyResponse(song = listOf(testSong("song-1")), total = 1)
     }
@@ -171,6 +181,7 @@ internal class FakeHomeApi(
     override suspend fun forgottenFavorites(
         params: Map<String, String>,
     ): HomeForgottenFavoritesSection {
+        failWhenOffline()
         forgottenParams = params
         return HomeForgottenFavoritesSection(
             song = listOf(testSong("song-2")),
@@ -180,6 +191,7 @@ internal class FakeHomeApi(
     }
 
     override suspend fun albums(params: Map<String, String>): FerrotuneAlbumListResponse {
+        failWhenOffline()
         albumParams.add(params)
         return FerrotuneAlbumListResponse(
             album = listOf(testAlbum("album-${params["type"]}")),
@@ -189,6 +201,7 @@ internal class FakeHomeApi(
     }
 
     override suspend fun discoverySimilarSongs(params: Map<String, String>): DiscoveryResponse {
+        failWhenOffline()
         similarTracksParams = params
         return DiscoveryResponse(
             song = listOf(testSong("song-3")),
@@ -203,6 +216,7 @@ internal class FakeHomeApi(
         id: String,
         params: Map<String, String>,
     ): PlaylistSongsResponse {
+        failWhenOffline()
         playlistSongsId = id
         playlistSongsParams = params
         return PlaylistSongsResponse(
@@ -234,6 +248,7 @@ internal class FakeHomeApi(
         id: String,
         params: Map<String, String>,
     ): SmartPlaylistSongsResponse {
+        failWhenOffline()
         smartPlaylistSongsId = id
         return SmartPlaylistSongsResponse(
             id = id,
@@ -273,6 +288,7 @@ class HomeViewModelTest {
         api: FakeHomeApi = FakeHomeApi(),
         starter: FakePlaybackStarter = FakePlaybackStarter(),
         switcher: FakeAccountSwitcher = FakeAccountSwitcher(),
+        connectivity: FakeConnectivityMonitor = FakeConnectivityMonitor(),
     ): HomeViewModel {
         val provider = FakeApiProvider(api)
         val account = testAccount()
@@ -284,6 +300,7 @@ class HomeViewModelTest {
             accounts = FakeAccounts(listOf(account), account.id),
             accountSwitcher = switcher,
             messages = messages,
+            connectivity = connectivity,
         ).also { drain() }
     }
 
@@ -315,6 +332,26 @@ class HomeViewModelTest {
         val mostPlayed = state.sections
             .first { it.config.kind == HomeSectionKind.MOST_PLAYED_RECENTLY }
         assertEquals(1, mostPlayed.songs.size)
+    }
+
+    @Test
+    fun `offline failures show the offline state and reload once back online`() {
+        val api = FakeHomeApi().apply { offline = true }
+        val connectivity = FakeConnectivityMonitor(online = false)
+
+        val viewModel = viewModel(api, connectivity = connectivity)
+        assertTrue(viewModel.uiState.value.offline)
+        assertEquals("Can't reach the server", viewModel.uiState.value.error)
+        assertTrue(viewModel.uiState.value.sections.isEmpty())
+
+        api.offline = false
+        connectivity.isOnline.value = true
+        drain()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.offline)
+        assertNull(state.error)
+        assertTrue(state.sections.isNotEmpty())
     }
 
     @Test
@@ -483,6 +520,7 @@ class HomeViewModelTest {
             accounts = FakeAccounts(listOf(testAccount()), testAccount().id),
             accountSwitcher = FakeAccountSwitcher(),
             messages = UserMessages(),
+            connectivity = FakeConnectivityMonitor(),
         )
         drain()
         assertEquals(DEFAULT_HOME_TILES.size, viewModel.uiState.value.tiles.size)
