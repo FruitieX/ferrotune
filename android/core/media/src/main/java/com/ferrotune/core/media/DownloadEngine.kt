@@ -19,6 +19,13 @@ interface DownloadEngine {
 
     fun initialize()
 
+    /**
+     * Points downloads at [serverUrl] with the account's [sessionToken]. Kept
+     * separate from the playback session so downloads work before (or
+     * without) one.
+     */
+    fun setServer(serverUrl: String, sessionToken: String)
+
     fun snapshot(): List<DownloadInfo>
 
     fun enqueue(songId: String, format: String, maxBitRate: Int?)
@@ -43,6 +50,11 @@ class Media3DownloadEngine @Inject constructor(
 
     override fun initialize() {
         DownloadManagerHolder.initialize(context)
+    }
+
+    override fun setServer(serverUrl: String, sessionToken: String) {
+        DownloadManagerHolder.initialize(context)
+        DownloadManagerHolder.setSessionConfig(SessionConfig(serverUrl = serverUrl, sessionToken = sessionToken))
     }
 
     override fun snapshot(): List<DownloadInfo> = DownloadManagerHolder.snapshot()

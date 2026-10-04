@@ -193,6 +193,8 @@ class DownloadRepositoryTest {
         repository.enqueueSong("song-1")
 
         assertEquals(listOf(Triple("song-1", "opus", 128)), engine.enqueued)
+        // Downloads carry the account's server and token, independent of playback.
+        assertEquals("http://localhost:4040" to "token", engine.server)
         val song = dao.songs.value.single()
         assertEquals("song-1", song.songId)
         assertEquals("Song song-1", song.title)
@@ -206,8 +208,10 @@ class DownloadRepositoryTest {
         val dao = FakeDownloadDao()
         val repository = repository(engine, dao)
 
-        repository.downloadAlbum("album-1", "Album", "cover-1")
+        engine.server = null
+        assertEquals(2, repository.downloadAlbum("album-1", "Album", "cover-1"))
 
+        assertEquals("http://localhost:4040" to "token", engine.server)
         assertEquals(listOf("album-1-1", "album-1-2"), engine.enqueued.map { it.first })
         val containerId = DownloadContainerType.id(DownloadContainerType.ALBUM, "album-1")
         assertEquals(
@@ -314,6 +318,8 @@ class DownloadRepositoryTest {
         assertEquals(1, response.currentIndex)
         assertEquals(listOf("a", "b", "c"), response.window.songs.map { it.song.id })
         assertEquals("offline:b", response.window.songs[1].entryId)
+        // Durations are seconds end to end (SongResponse -> entity -> queue song).
+        assertEquals(180, response.window.songs[1].song.duration)
     }
 
     @Test

@@ -50,7 +50,7 @@ fun materializeOfflineQueue(
                         album = song.album.orEmpty(),
                         coverArt = song.coverArtId,
                         coverArtData = song.coverArtData,
-                        duration = (song.duration / 1000).toInt(),
+                        duration = song.duration.toInt(),
                         computedReplayGainTrackGain = null,
                         originalReplayGainTrackGain = null,
                         artistId = song.artistId,

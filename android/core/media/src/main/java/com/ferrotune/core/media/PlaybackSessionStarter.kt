@@ -169,24 +169,7 @@ class PlaybackSessionStarter @Inject constructor(
             startSongId = spec.startSongId,
         ) ?: return false
         if (response.totalCount == 0) return false
-        if (!repository.hasSessionConfig()) {
-            // A cold start without connectivity never connected a session, and
-            // the engine ignores offline playback without credentials (it needs
-            // them for the download cache). Configure the account without a
-            // session id, which also keeps SSE from reconnecting while offline.
-            val account = accountStore.activeAccount.first() ?: return false
-            repository.initSession(
-                config = SessionConfig(
-                    serverUrl = account.serverUrl,
-                    username = account.username,
-                    sessionToken = account.sessionToken,
-                    sessionExpiresAt = account.sessionExpiresAt,
-                    clientId = accountStore.clientId(),
-                ),
-                settings = playbackSettingsRepository.ensureLoaded(),
-            )
-        }
-        repository.applySettings(playbackSettingsRepository.ensureLoaded())
+        if (!ensureOfflineSession()) return false
         repository.startOfflinePlayback(response, playWhenReady = true)
         return true
     }
@@ -268,7 +251,34 @@ class PlaybackSessionStarter @Inject constructor(
     override suspend fun startOfflineQueue(
         response: GetQueueResponse,
         playWhenReady: Boolean,
-    ) = repository.startOfflinePlayback(response, playWhenReady)
+    ) {
+        check(ensureOfflineSession()) { "Not signed in" }
+        repository.startOfflinePlayback(response, playWhenReady)
+    }
+
+    /**
+     * A cold start without connectivity never connected a session, and the
+     * engine ignores offline playback without credentials (it needs them for
+     * the download cache). Configures the account without a session id, which
+     * also keeps SSE from reconnecting while offline. False when signed out.
+     */
+    private suspend fun ensureOfflineSession(): Boolean {
+        if (!repository.hasSessionConfig()) {
+            val account = accountStore.activeAccount.first() ?: return false
+            repository.initSession(
+                config = SessionConfig(
+                    serverUrl = account.serverUrl,
+                    username = account.username,
+                    sessionToken = account.sessionToken,
+                    sessionExpiresAt = account.sessionExpiresAt,
+                    clientId = accountStore.clientId(),
+                ),
+                settings = playbackSettingsRepository.ensureLoaded(),
+            )
+        }
+        repository.applySettings(playbackSettingsRepository.ensureLoaded())
+        return true
+    }
 
     override val state = repository.state
 

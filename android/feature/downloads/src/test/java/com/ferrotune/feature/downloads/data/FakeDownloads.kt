@@ -23,6 +23,11 @@ internal class FakeDownloadEngine : DownloadEngine {
     var resumed = false
     var removedAll = false
     var wifiOnly: Boolean? = null
+    var server: Pair<String, String>? = null
+
+    override fun setServer(serverUrl: String, sessionToken: String) {
+        server = serverUrl to sessionToken
+    }
 
     override fun initialize() {
         initialized = true

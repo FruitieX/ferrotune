@@ -15,6 +15,7 @@ data class DownloadedSongEntity(
     val artistId: String,
     val album: String?,
     val albumId: String?,
+    /** Seconds, as in `SongResponse.duration`. */
     val duration: Long,
     val track: Int?,
     val coverArtId: String?,

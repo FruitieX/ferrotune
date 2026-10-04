@@ -93,6 +93,7 @@ class SettingsViewModelTest {
     private class NoopDownloadEngine : DownloadEngine {
         override val events: SharedFlow<DownloadStateEventPayload> = MutableSharedFlow()
         override fun initialize() = Unit
+        override fun setServer(serverUrl: String, sessionToken: String) = Unit
         override fun snapshot(): List<DownloadInfo> = emptyList()
         override fun enqueue(songId: String, format: String, maxBitRate: Int?) = Unit
         override fun cancel(songId: String) = Unit

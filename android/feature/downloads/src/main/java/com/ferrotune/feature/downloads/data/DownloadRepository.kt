@@ -82,6 +82,8 @@ class DownloadRepository @Inject constructor(
 
     init {
         engine.initialize()
+        // Pending downloads resume on start and need the account's server and token.
+        scope.launch { runCatching { configureEngine() } }
         _states.value = engine.snapshot()
             .filter { it.kind == "audio" }
             .associate { it.songId to it.toSongState() }
@@ -104,7 +106,13 @@ class DownloadRepository @Inject constructor(
         }
     }
 
+    private suspend fun configureEngine() {
+        val account = apiProvider.requireAccount()
+        engine.setServer(account.serverUrl, account.sessionToken)
+    }
+
     suspend fun enqueueSong(songId: String) {
+        configureEngine()
         val settings = currentSettings()
         val song = apiProvider.requireApi().song(songId).song
         engine.enqueue(song.id, settings.format, settings.maxBitRate)
@@ -116,7 +124,8 @@ class DownloadRepository @Inject constructor(
         return settingsRepository.settings.value
     }
 
-    suspend fun downloadAlbum(albumId: String, name: String, coverArtId: String?) {
+    /** Returns how many songs were queued for download. */
+    suspend fun downloadAlbum(albumId: String, name: String, coverArtId: String?): Int =
         enqueueContainer(
             type = DownloadContainerType.ALBUM,
             sourceId = albumId,
@@ -124,9 +133,9 @@ class DownloadRepository @Inject constructor(
             coverArtId = coverArtId,
             songs = fetchAlbumSongs(albumId),
         )
-    }
 
-    suspend fun downloadPlaylist(playlistId: String, name: String, coverArtId: String?) {
+    /** Returns how many songs were queued for download. */
+    suspend fun downloadPlaylist(playlistId: String, name: String, coverArtId: String?): Int =
         enqueueContainer(
             type = DownloadContainerType.PLAYLIST,
             sourceId = playlistId,
@@ -134,13 +143,12 @@ class DownloadRepository @Inject constructor(
             coverArtId = coverArtId,
             songs = fetchPlaylistSongs(playlistId),
         )
-    }
 
     suspend fun downloadSmartPlaylist(
         smartPlaylistId: String,
         name: String,
         coverArtId: String?,
-    ) {
+    ): Int =
         enqueueContainer(
             type = DownloadContainerType.SMART_PLAYLIST,
             sourceId = smartPlaylistId,
@@ -148,7 +156,6 @@ class DownloadRepository @Inject constructor(
             coverArtId = coverArtId,
             songs = fetchSmartPlaylistSongs(smartPlaylistId),
         )
-    }
 
     private suspend fun enqueueContainer(
         type: String,
@@ -156,10 +163,11 @@ class DownloadRepository @Inject constructor(
         name: String,
         coverArtId: String?,
         songs: List<SongResponse>,
-    ) {
-        if (songs.isEmpty()) return
+    ): Int {
+        if (songs.isEmpty()) return 0
         val containerId = DownloadContainerType.id(type, sourceId)
         val now = System.currentTimeMillis()
+        configureEngine()
         val settings = currentSettings()
         songs.forEach { engine.enqueue(it.id, settings.format, settings.maxBitRate) }
         dao.upsertContainer(
@@ -178,6 +186,15 @@ class DownloadRepository @Inject constructor(
                 DownloadedContainerSongEntity(containerId, song.id, index)
             },
         )
+        return songs.size
+    }
+
+    /** A saved album/playlist's songs in their saved order. */
+    suspend fun containerSongs(containerId: String): List<DownloadedSongEntity> {
+        val songIds = dao.containerSongIds(containerId)
+        if (songIds.isEmpty()) return emptyList()
+        val songsById = dao.songsOnce().associateBy { it.songId }
+        return songIds.mapNotNull { songsById[it] }
     }
 
     suspend fun removeSong(songId: String) {
