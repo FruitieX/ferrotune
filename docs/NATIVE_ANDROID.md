@@ -3,6 +3,32 @@
 > Status: Draft for review · Date: 2026-09-20 · Branch: `native-android-feasibility`
 > Related: `TAURI.md` (superseded by this doc), `docs/ANDROID_EMULATOR.md`, `docs/APP_DISTRIBUTION.md`, `docs/TESTING.md`
 
+## Current status (2026-10-04)
+
+The plan below is historical; this section is the current state.
+
+- The native client lives in `android/` on `main` and installs side by side
+  with the Tauri Android app (`com.ferrotune.music.native`, "Ferrotune
+  Native"). The Tauri Android path stays until the native app has been used
+  on real devices.
+- The UI follows the web client's mobile design and "where things live":
+  Home (tiles, sections, account sheet), Library, Search, Playlists (folder
+  browser, playlist and smart playlist pages), album/artist/genre/radio
+  pages, Favorites, History, Now Playing, the queue panel, Downloads,
+  Settings, Profile, Your Review, and the Home layout editor. Conventions and
+  shared components are documented in `AGENTS.md` ("Native Android
+  Modules" and "Native Android UI Conventions").
+- Playback uses the ported engine in `android/core/media` with the shared
+  server session: session restore on launch, "Playing on <device>" with
+  transfer between clients, Cast, downloads, and offline playback.
+- Code sharing: the two Android clients stay separate. Their engines are
+  close, but the build systems differ and the Tauri path is slated for
+  removal; Kotlin DTOs are generated from the same ts-rs output instead.
+- Intentionally desktop-only for now: tag editing, play-count/favorite
+  imports, raw history management, and admin screens.
+- Use `moon run android:deploy` (inside `nix develop .#android`) for real
+  use: it installs the R8-minified release build.
+
 ---
 
 ## 1. Verdict
