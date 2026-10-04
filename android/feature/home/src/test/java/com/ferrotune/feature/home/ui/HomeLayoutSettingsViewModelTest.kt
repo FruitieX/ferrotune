@@ -12,13 +12,14 @@ import com.ferrotune.core.testing.FakeAccounts
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.testAccount
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.home.data.DEFAULT_HOME_SECTIONS
 import com.ferrotune.feature.home.data.DEFAULT_HOME_TILES
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.home.data.HomePlaylistChoicesRepository
 import com.ferrotune.feature.home.data.HomePlaylistType
-import com.ferrotune.feature.home.data.HomeTileActionMode
 import com.ferrotune.feature.home.data.HomeSectionKind
+import com.ferrotune.feature.home.data.HomeTileActionMode
 import com.ferrotune.feature.home.data.HomeTileKind
 import com.ferrotune.feature.home.data.createHomeTile
 import com.ferrotune.feature.home.data.createPlaylistHomeSection
@@ -93,7 +94,7 @@ class HomeLayoutSettingsViewModelTest {
     ): HomeLayoutSettingsViewModel {
         val provider = FakeApiProvider(api)
         return HomeLayoutSettingsViewModel(
-            layoutRepository = HomeLayoutPreferencesRepository(provider),
+            layoutRepository = HomeLayoutPreferencesRepository(testServerPreferences(provider.api)),
             choicesRepository = HomePlaylistChoicesRepository(PlaylistRepository(provider)),
             accounts = accounts,
         ).also { mainDispatcher.scheduler.advanceUntilIdle() }

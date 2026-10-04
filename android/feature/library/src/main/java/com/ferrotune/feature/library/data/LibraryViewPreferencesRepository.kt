@@ -1,14 +1,11 @@
 package com.ferrotune.feature.library.data
 
-import com.ferrotune.core.network.FerrotuneApiProvider
-import com.ferrotune.core.network.AccountScopedPreferences
-import com.ferrotune.core.network.generated.SetPreferenceRequest
+import com.ferrotune.core.network.FerrotuneJson
+import com.ferrotune.core.network.ServerPreferences
+import com.ferrotune.core.network.mapState
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -45,52 +42,33 @@ data class SortConfig(val field: String, val direction: String)
  */
 @Singleton
 class LibraryViewPreferencesRepository @Inject constructor(
-    private val apiProvider: FerrotuneApiProvider,
-) : AccountScopedPreferences {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val preferences: ServerPreferences,
+) {
+    val sort: StateFlow<LibrarySortConfig> = preferences.snapshot.mapState { snapshot ->
+        (snapshot.preferences[PREFERENCE_KEY] as? JsonPrimitive)?.contentOrNull?.let(::parse)
+            ?: LibrarySortConfig()
+    }
 
-    private val _sort = MutableStateFlow(LibrarySortConfig())
-    val sort: StateFlow<LibrarySortConfig> = _sort.asStateFlow()
-
-    @Volatile
-    private var loaded = false
-
+    /** Best-effort; never throws. */
     suspend fun ensureLoaded(): LibrarySortConfig {
-        if (!loaded) {
-            runCatching { load() }
-        }
-        return _sort.value
-    }
-
-    suspend fun load() {
-        val prefs = apiProvider.requireApi().preferences().preferences
-        val raw = (prefs[PREFERENCE_KEY] as? JsonPrimitive)?.contentOrNull
-        _sort.value = raw?.let(::parse) ?: LibrarySortConfig()
-        loaded = true
-    }
-
-    override fun invalidate() {
-        loaded = false
+        runCatching { preferences.ensureLoaded() }
+        return sort.value
     }
 
     suspend fun setSongSort(sort: SongSort, direction: SortDir) {
-        persist(_sort.value.copy(songs = SortConfig(sort.apiValue, direction.apiValue)))
+        persist(this.sort.value.copy(songs = SortConfig(sort.apiValue, direction.apiValue)))
     }
 
     suspend fun setAlbumSort(sort: AlbumSort, direction: SortDir) {
-        persist(_sort.value.copy(albums = SortConfig(sort.apiValue, direction.apiValue)))
+        persist(this.sort.value.copy(albums = SortConfig(sort.apiValue, direction.apiValue)))
     }
 
     suspend fun setArtistSort(sort: ArtistSort, direction: SortDir) {
-        persist(_sort.value.copy(artists = SortConfig(sort.apiValue, direction.apiValue)))
+        persist(this.sort.value.copy(artists = SortConfig(sort.apiValue, direction.apiValue)))
     }
 
     private suspend fun persist(config: LibrarySortConfig) {
-        apiProvider.requireApi().setPreference(
-            PREFERENCE_KEY,
-            SetPreferenceRequest(JsonPrimitive(encode(config))),
-        )
-        _sort.value = config
+        preferences.set(PREFERENCE_KEY, JsonPrimitive(encode(config)))
     }
 
     private fun encode(config: LibrarySortConfig): String = JsonObject(
@@ -109,17 +87,17 @@ class LibraryViewPreferencesRepository @Inject constructor(
     )
 
     private fun parse(raw: String): LibrarySortConfig? = runCatching {
-        val root = json.parseToJsonElement(raw).jsonObject
+        val root = FerrotuneJson.parseToJsonElement(raw).jsonObject
         LibrarySortConfig(
-            songs = decodeSort(root["songs"]?.jsonObject),
-            albums = decodeSort(root["albums"]?.jsonObject),
-            artists = decodeSort(root["artists"]?.jsonObject),
+            songs = decodeSort(root["songs"]?.jsonObject, SongSort.TITLE.apiValue),
+            albums = decodeSort(root["albums"]?.jsonObject, AlbumSort.NAME.apiValue),
+            artists = decodeSort(root["artists"]?.jsonObject, ArtistSort.NAME.apiValue),
         )
     }.getOrNull()
 
     private fun decodeSort(
         element: JsonObject?,
-        defaultField: String = SongSort.TITLE.apiValue,
+        defaultField: String,
         defaultDirection: String = SortDir.ASC.apiValue,
     ): SortConfig = SortConfig(
         field = (element?.get("field") as? JsonPrimitive)?.contentOrNull ?: defaultField,

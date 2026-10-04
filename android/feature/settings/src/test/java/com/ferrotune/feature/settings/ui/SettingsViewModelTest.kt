@@ -1,31 +1,32 @@
 package com.ferrotune.feature.settings.ui
 
 import com.ferrotune.core.datastore.ThemeModeStore
+import com.ferrotune.core.media.DownloadEngine
 import com.ferrotune.core.media.DownloadInfo
 import com.ferrotune.core.media.DownloadStateEventPayload
 import com.ferrotune.core.media.PlaybackSettings
 import com.ferrotune.core.media.PlaybackSettingsApplier
 import com.ferrotune.core.media.PlaybackSettingsRepository
-import com.ferrotune.core.media.DownloadEngine
+import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.downloads.data.DownloadSettings
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.settings.data.AccentSettingsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import com.ferrotune.core.model.ThemeMode
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
@@ -102,9 +103,9 @@ class SettingsViewModelTest {
         val themeModeStore = FakeThemeModeStore()
         val provider = FakeApiProvider(api)
         val viewModel = SettingsViewModel(
-            PlaybackSettingsRepository(provider, applier),
-            DownloadSettingsRepository(provider, NoopDownloadEngine()),
-            AccentSettingsRepository(provider),
+            PlaybackSettingsRepository(testServerPreferences(provider.api), applier),
+            DownloadSettingsRepository(testServerPreferences(provider.api), NoopDownloadEngine()),
+            AccentSettingsRepository(testServerPreferences(provider.api)),
             themeModeStore,
             provider,
         )

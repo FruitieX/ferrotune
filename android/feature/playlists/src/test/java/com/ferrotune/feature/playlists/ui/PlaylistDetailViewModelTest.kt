@@ -1,12 +1,13 @@
 package com.ferrotune.feature.playlists.ui
 
-import com.ferrotune.core.actions.UserMessages
 import androidx.lifecycle.SavedStateHandle
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.FakePreferencesApi
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.playlists.data.PlaylistRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,7 +38,7 @@ class PlaylistDetailViewModelTest {
         return PlaylistDetailViewModel(
             repository = PlaylistRepository(provider),
             sessionStarter = FakePlaybackStarter(),
-            viewSortPreferences = ViewSortPreferencesRepository(provider),
+            viewSortPreferences = ViewSortPreferencesRepository(testServerPreferences(provider.api)),
             messages = UserMessages(),
             savedStateHandle = SavedStateHandle(mapOf("playlistId" to "pl-1")),
         )

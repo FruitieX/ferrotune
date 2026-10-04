@@ -2,10 +2,10 @@ package com.ferrotune.music.navigation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ferrotune.core.datastore.Accounts
-import com.ferrotune.core.datastore.ThemePreferencesRepository
 import com.ferrotune.core.actions.UserMessage
 import com.ferrotune.core.actions.UserMessages
+import com.ferrotune.core.datastore.Accounts
+import com.ferrotune.core.datastore.ThemePreferencesRepository
 import com.ferrotune.core.designsystem.theme.OklchColor
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.model.Account
@@ -14,6 +14,7 @@ import com.ferrotune.core.network.AccountSwitchResult
 import com.ferrotune.core.network.AccountSwitcher
 import com.ferrotune.core.network.ConnectivityMonitor
 import com.ferrotune.core.network.PlaybackSessionResetter
+import com.ferrotune.core.network.ServerPreferences
 import com.ferrotune.feature.settings.data.AccentSettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -44,6 +45,7 @@ class AppViewModel @Inject constructor(
     private val accountSwitcher: AccountSwitcher,
     private val playbackSessionResetter: PlaybackSessionResetter,
     private val playbackStarter: PlaybackStarter,
+    private val serverPreferences: ServerPreferences,
     userMessages: UserMessages,
     themePreferencesRepository: ThemePreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
@@ -81,16 +83,22 @@ class AppViewModel @Inject constructor(
                 .map { it?.id }
                 .distinctUntilChanged()
                 .collect { accountId ->
-                    accentSettingsRepository.invalidate()
-                    if (accountId != null) restorePlaybackSession()
-                    runCatching { accentSettingsRepository.ensureLoaded() }
+                    if (accountId != null) {
+                        restorePlaybackSession()
+                        runCatching { serverPreferences.ensureLoaded() }
+                    }
                 }
         }
     }
 
     /** Reattaches to the server playback session when the app returns to the foreground. */
     fun onForeground() {
-        if (uiState.value.activeAccount != null) restorePlaybackSession()
+        if (uiState.value.activeAccount == null) return
+        restorePlaybackSession()
+        // Pick up preference changes made on other devices while backgrounded.
+        viewModelScope.launch {
+            runCatching { serverPreferences.ensureLoaded(maxAgeMs = FOREGROUND_PREFERENCES_MAX_AGE_MS) }
+        }
     }
 
     private fun restorePlaybackSession() {
@@ -117,3 +125,6 @@ class AppViewModel @Inject constructor(
         }
     }
 }
+
+/** Preferences read longer ago than this are refreshed when the app returns to the foreground. */
+private const val FOREGROUND_PREFERENCES_MAX_AGE_MS = 60_000L

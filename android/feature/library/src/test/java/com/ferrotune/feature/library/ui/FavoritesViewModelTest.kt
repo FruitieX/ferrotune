@@ -6,6 +6,7 @@ import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.FakePreferencesApi
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.LibraryRepository
@@ -40,7 +41,7 @@ class FavoritesViewModelTest {
         return FavoritesViewModel(
             repository = LibraryRepository(provider),
             sessionStarter = FakePlaybackStarter(),
-            viewSortPreferences = ViewSortPreferencesRepository(provider),
+            viewSortPreferences = ViewSortPreferencesRepository(testServerPreferences(provider.api)),
             messages = UserMessages(),
         )
     }

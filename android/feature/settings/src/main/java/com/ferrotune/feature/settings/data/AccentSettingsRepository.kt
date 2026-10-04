@@ -2,18 +2,13 @@ package com.ferrotune.feature.settings.data
 
 import com.ferrotune.core.designsystem.theme.AccentColors
 import com.ferrotune.core.designsystem.theme.OklchColor
-import com.ferrotune.core.network.FerrotuneApiProvider
-import com.ferrotune.core.network.AccountScopedPreferences
-import com.ferrotune.core.network.generated.UpdatePreferencesRequest
+import com.ferrotune.core.network.ServerPreferences
+import com.ferrotune.core.network.mapState
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 
 data class AccentState(
@@ -24,31 +19,18 @@ data class AccentState(
 }
 
 /**
- * Server-synced accent color preferences. The preset name lives in the
- * dedicated `accentColor` field; custom OKLCH values live in the generic
- * preference map, matching the web client.
+ * Accent color preferences read from [ServerPreferences]. The preset name
+ * lives in the dedicated `accentColor` field; custom OKLCH values live in the
+ * dedicated fields, falling back to the generic preference map like the web
+ * client.
  */
 @Singleton
 class AccentSettingsRepository @Inject constructor(
-    private val apiProvider: FerrotuneApiProvider,
-) : AccountScopedPreferences {
-    private val _state = MutableStateFlow(AccentState())
-    val state: StateFlow<AccentState> = _state.asStateFlow()
-
-    @Volatile
-    private var loaded = false
-
-    suspend fun ensureLoaded(): AccentState {
-        if (!loaded) {
-            runCatching { load() }
-        }
-        return _state.value
-    }
-
-    suspend fun load() {
-        val response = apiProvider.requireApi().preferences()
+    private val preferences: ServerPreferences,
+) {
+    val state: StateFlow<AccentState> = preferences.snapshot.mapState { response ->
         val prefs = response.preferences
-        _state.value = AccentState(
+        AccentState(
             name = response.accentColor.ifBlank { AccentColors.DEFAULT },
             custom = AccentColors.clampCustom(
                 lightness = response.customAccentLightness
@@ -62,35 +44,43 @@ class AccentSettingsRepository @Inject constructor(
                     ?: AccentColors.DEFAULT_CUSTOM_HUE,
             ),
         )
-        loaded = true
     }
 
-    override fun invalidate() {
-        loaded = false
+    /** Best-effort; never throws. */
+    suspend fun ensureLoaded(): AccentState {
+        runCatching { preferences.ensureLoaded() }
+        return state.value
+    }
+
+    /** Re-reads the server's preferences; callers can surface failures. */
+    suspend fun load() {
+        preferences.refresh()
     }
 
     suspend fun setPreset(name: String) {
-        persist(_state.value.copy(name = name))
+        persist(state.value.copy(name = name))
     }
 
     suspend fun setCustom(color: OklchColor) {
-        persist(_state.value.copy(name = AccentColors.CUSTOM, custom = AccentColors.clampCustom(
-            lightness = color.lightness,
-            chroma = color.chroma,
-            hue = color.hue,
-        )))
+        persist(
+            state.value.copy(
+                name = AccentColors.CUSTOM,
+                custom = AccentColors.clampCustom(
+                    lightness = color.lightness,
+                    chroma = color.chroma,
+                    hue = color.hue,
+                ),
+            ),
+        )
     }
 
     private suspend fun persist(state: AccentState) {
-        apiProvider.requireApi().updatePreferences(
-            UpdatePreferencesRequest(
-                accentColor = state.name,
-                customAccentHue = state.custom.hue,
-                customAccentLightness = state.custom.lightness,
-                customAccentChroma = state.custom.chroma,
-            ),
+        preferences.setAccent(
+            name = state.name,
+            hue = state.custom.hue,
+            lightness = state.custom.lightness,
+            chroma = state.custom.chroma,
         )
-        _state.update { state }
     }
 
     private fun Map<String, JsonElement>.primitive(key: String): JsonPrimitive? =

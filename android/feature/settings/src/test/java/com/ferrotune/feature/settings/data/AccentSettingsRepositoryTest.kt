@@ -4,8 +4,8 @@ import com.ferrotune.core.designsystem.theme.AccentColors
 import com.ferrotune.core.designsystem.theme.OklchColor
 import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.UpdatePreferencesRequest
-import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
+import com.ferrotune.core.testing.testServerPreferences
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -49,7 +49,7 @@ class AccentSettingsRepositoryTest {
             customLightness = 0.55
             customChroma = 0.12
         }
-        val repository = AccentSettingsRepository(FakeApiProvider(api))
+        val repository = AccentSettingsRepository(testServerPreferences(api))
 
         repository.load()
 
@@ -61,7 +61,7 @@ class AccentSettingsRepositoryTest {
     @Test
     fun `setPreset persists the accent color`() = runTest {
         val api = FakeAccentApi()
-        val repository = AccentSettingsRepository(FakeApiProvider(api))
+        val repository = AccentSettingsRepository(testServerPreferences(api))
 
         repository.setPreset("ocean")
 
@@ -72,7 +72,7 @@ class AccentSettingsRepositoryTest {
     @Test
     fun `setCustom clamps values and switches to custom`() = runTest {
         val api = FakeAccentApi()
-        val repository = AccentSettingsRepository(FakeApiProvider(api))
+        val repository = AccentSettingsRepository(testServerPreferences(api))
 
         repository.setCustom(OklchColor(lightness = 1.2, chroma = 0.4, hue = 380.0))
 

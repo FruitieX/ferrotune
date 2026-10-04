@@ -1,7 +1,7 @@
 package com.ferrotune.feature.library.ui
 
-import com.ferrotune.core.actions.UserMessages
 import androidx.lifecycle.SavedStateHandle
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.network.generated.AlbumDetail
@@ -9,6 +9,7 @@ import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.FakePreferencesApi
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SortDir
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,7 @@ class AlbumDetailViewModelTest {
     ) = AlbumDetailViewModel(
         repository = LibraryRepository(FakeApiProvider(api)),
         sessionStarter = starter,
-        viewSortPreferences = ViewSortPreferencesRepository(FakeApiProvider(api)),
+        viewSortPreferences = ViewSortPreferencesRepository(testServerPreferences(api)),
         messages = UserMessages(),
         savedStateHandle = SavedStateHandle(mapOf("albumId" to "album-1")),
     )

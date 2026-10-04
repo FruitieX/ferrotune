@@ -1,6 +1,6 @@
 package com.ferrotune.feature.downloads.data
 
-import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.testServerPreferences
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -13,7 +13,7 @@ class DownloadSettingsRepositoryTest {
     private fun repository(
         api: FakeDownloadApi = FakeDownloadApi(),
         engine: FakeDownloadEngine = FakeDownloadEngine(),
-    ) = DownloadSettingsRepository(FakeApiProvider(api), engine)
+    ) = DownloadSettingsRepository(testServerPreferences(api), engine)
 
     @Test
     fun `load reads server preferences and applies wifi only to the engine`() = runTest {

@@ -7,17 +7,18 @@ import com.ferrotune.core.media.DownloadStateEventPayload
 import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.PlaylistSongEntry
-import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
+import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
+import com.ferrotune.core.testing.testServerPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -114,7 +115,7 @@ class DownloadRepositoryTest {
         api: FakeDownloadApi = FakeDownloadApi(),
     ): DownloadRepository {
         val provider = FakeApiProvider(api)
-        return DownloadRepository(engine, dao, provider, DownloadSettingsRepository(provider, engine))
+        return DownloadRepository(engine, dao, provider, DownloadSettingsRepository(testServerPreferences(provider.api), engine))
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.ferrotune.feature.downloads.ui
 import com.ferrotune.core.database.DownloadContainerType
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.downloads.data.DownloadRepository
 import com.ferrotune.feature.downloads.data.DownloadSettingsRepository
 import com.ferrotune.feature.downloads.data.FakeDownloadApi
@@ -41,7 +42,7 @@ class DownloadsViewModelTest {
         dao: FakeDownloadDao = FakeDownloadDao(),
     ): DownloadRepository {
         val provider = FakeApiProvider(FakeDownloadApi())
-        return DownloadRepository(engine, dao, provider, DownloadSettingsRepository(provider, engine))
+        return DownloadRepository(engine, dao, provider, DownloadSettingsRepository(testServerPreferences(provider.api), engine))
     }
 
     @Test

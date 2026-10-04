@@ -1,7 +1,7 @@
 package com.ferrotune.feature.library.data
 
-import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePreferencesApi
+import com.ferrotune.core.testing.testServerPreferences
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -11,9 +11,9 @@ class LibraryViewPreferencesRepositoryTest {
 
     @Test
     fun `defaults to title asc when no preference is stored`() = runTest {
-        val repository = LibraryViewPreferencesRepository(FakeApiProvider(FakePreferencesApi()))
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(FakePreferencesApi()))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(SongSort.TITLE, repository.sort.value.songSort())
         assertEquals(SortDir.ASC, repository.sort.value.songDir())
@@ -32,9 +32,9 @@ class LibraryViewPreferencesRepositoryTest {
                 """.trimIndent(),
             )
         }
-        val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(SongSort.PLAY_COUNT, repository.sort.value.songSort())
         assertEquals(SortDir.DESC, repository.sort.value.songDir())
@@ -49,11 +49,29 @@ class LibraryViewPreferencesRepositoryTest {
             preferenceValues[LibraryViewPreferencesRepository.PREFERENCE_KEY] =
                 JsonPrimitive("not json")
         }
-        val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(SongSort.TITLE, repository.sort.value.songSort())
+    }
+
+    @Test
+    fun `tabs missing a field fall back to that tab's default`() = runTest {
+        val api = FakePreferencesApi().apply {
+            preferenceValues[LibraryViewPreferencesRepository.PREFERENCE_KEY] = JsonPrimitive(
+                """{"songs":{"direction":"desc"},"albums":{"direction":"desc"},"artists":{}}""",
+            )
+        }
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(api))
+
+        repository.ensureLoaded()
+
+        val sort = repository.sort.value
+        assertEquals(SongSort.TITLE.apiValue, sort.songs.field)
+        assertEquals(AlbumSort.NAME.apiValue, sort.albums.field)
+        assertEquals(SortDir.DESC, sort.albumDir())
+        assertEquals(ArtistSort.NAME.apiValue, sort.artists.field)
     }
 
     @Test
@@ -63,9 +81,9 @@ class LibraryViewPreferencesRepositoryTest {
                 """{"songs":{"field":"nonsense","direction":"sideways"}}""",
             )
         }
-        val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(SongSort.TITLE, repository.sort.value.songSort())
         assertEquals(SortDir.ASC, repository.sort.value.songDir())
@@ -74,7 +92,7 @@ class LibraryViewPreferencesRepositoryTest {
     @Test
     fun `setters persist and update local state`() = runTest {
         val api = FakePreferencesApi()
-        val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(api))
 
         repository.setSongSort(SongSort.DATE_ADDED, SortDir.DESC)
         repository.setAlbumSort(AlbumSort.SONG_COUNT, SortDir.DESC)
@@ -99,9 +117,9 @@ class LibraryViewPreferencesRepositoryTest {
                 """{"field":"playCount","direction":"desc"}""",
             )
         }
-        val repository = LibraryViewPreferencesRepository(FakeApiProvider(api))
+        val repository = LibraryViewPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
         assertEquals(SongSort.TITLE, repository.sort.value.songSort())
         assertEquals(SortDir.ASC, repository.sort.value.songDir())
 

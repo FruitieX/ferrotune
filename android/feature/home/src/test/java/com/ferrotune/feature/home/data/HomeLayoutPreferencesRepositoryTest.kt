@@ -3,8 +3,8 @@ package com.ferrotune.feature.home.data
 import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.SetPreferenceRequest
-import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
+import com.ferrotune.core.testing.testServerPreferences
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -37,7 +37,7 @@ class HomeLayoutPreferencesRepositoryTest {
     }
 
     private fun repository(api: FakePreferencesApi = FakePreferencesApi()) =
-        HomeLayoutPreferencesRepository(FakeApiProvider(api))
+        HomeLayoutPreferencesRepository(testServerPreferences(api))
 
     @Test
     fun `defaults when nothing is stored`() = runTest {
@@ -195,7 +195,7 @@ class HomeLayoutPreferencesRepositoryTest {
     }
 
     @Test
-    fun `invalidate makes the next load pick up new values`() = runTest {
+    fun `load re-reads the server`() = runTest {
         val api = FakePreferencesApi()
         val repository = repository(api)
         repository.load()
@@ -204,7 +204,6 @@ class HomeLayoutPreferencesRepositoryTest {
         api.preferenceValues[HomeLayoutPreferencesRepository.KEY_TILES] = JsonArray(
             listOf(jsonTile("""{"id":"history","kind":"history","action":"shuffle"}""")),
         )
-        repository.invalidate()
         repository.load()
 
         assertEquals(listOf(HomeTileKind.HISTORY), repository.tiles.value.map { it.kind })

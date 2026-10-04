@@ -6,6 +6,7 @@ import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.FakePreferencesApi
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir
@@ -38,7 +39,7 @@ class HistoryViewModelTest {
         return HistoryViewModel(
             repository = LibraryRepository(provider),
             sessionStarter = FakePlaybackStarter(),
-            viewSortPreferences = ViewSortPreferencesRepository(provider),
+            viewSortPreferences = ViewSortPreferencesRepository(testServerPreferences(provider.api)),
             messages = UserMessages(),
         )
     }

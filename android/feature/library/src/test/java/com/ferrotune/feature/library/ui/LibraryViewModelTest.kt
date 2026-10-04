@@ -8,6 +8,7 @@ import com.ferrotune.core.network.generated.GenresList
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
 import com.ferrotune.feature.library.data.SongSort
@@ -48,7 +49,7 @@ class LibraryViewModelTest {
     ) = LibraryViewModel(
         LibraryRepository(FakeApiProvider(api)),
         starter,
-        LibraryViewPreferencesRepository(FakeApiProvider(api)),
+        LibraryViewPreferencesRepository(testServerPreferences(api)),
         messages,
     )
 

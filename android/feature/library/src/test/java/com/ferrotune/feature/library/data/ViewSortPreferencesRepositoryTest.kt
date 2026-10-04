@@ -3,8 +3,8 @@ package com.ferrotune.feature.library.data
 import com.ferrotune.core.network.ViewSortConfig
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
-import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePreferencesApi
+import com.ferrotune.core.testing.testServerPreferences
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -16,9 +16,9 @@ class ViewSortPreferencesRepositoryTest {
 
     @Test
     fun `defaults are returned when no preference is stored`() = runTest {
-        val repository = ViewSortPreferencesRepository(FakeApiProvider(FakePreferencesApi()))
+        val repository = ViewSortPreferencesRepository(testServerPreferences(FakePreferencesApi()))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(historyDefault, repository.config(ViewSortKey.HISTORY, historyDefault))
     }
@@ -33,9 +33,9 @@ class ViewSortPreferencesRepositoryTest {
                 """{"field":"playCount","direction":"asc"}""",
             )
         }
-        val repository = ViewSortPreferencesRepository(FakeApiProvider(api))
+        val repository = ViewSortPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(
             ViewSortConfig("year", "desc"),
@@ -53,9 +53,9 @@ class ViewSortPreferencesRepositoryTest {
             preferenceValues[ViewSortKey.ALBUM_DETAIL.preferenceKey] = JsonPrimitive("not json")
             preferenceValues[ViewSortKey.HISTORY.preferenceKey] = JsonPrimitive("""{"field":"name"}""")
         }
-        val repository = ViewSortPreferencesRepository(FakeApiProvider(api))
+        val repository = ViewSortPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(
             ViewSortConfig("custom", "asc"),
@@ -67,7 +67,7 @@ class ViewSortPreferencesRepositoryTest {
     @Test
     fun `setSort persists the native key and updates local state`() = runTest {
         val api = FakePreferencesApi()
-        val repository = ViewSortPreferencesRepository(FakeApiProvider(api))
+        val repository = ViewSortPreferencesRepository(testServerPreferences(api))
 
         repository.setSort(ViewSortKey.PLAYLIST_DETAIL, "dateAdded", "desc")
 
@@ -81,33 +81,6 @@ class ViewSortPreferencesRepositoryTest {
     }
 
     @Test
-    fun `invalidate forces a reload on the next ensureLoaded`() = runTest {
-        val api = FakePreferencesApi().apply {
-            preferenceValues[ViewSortKey.HISTORY.preferenceKey] = JsonPrimitive(
-                """{"field":"name","direction":"asc"}""",
-            )
-        }
-        val repository = ViewSortPreferencesRepository(FakeApiProvider(api))
-
-        repository.ensureLoaded()
-        assertEquals(
-            ViewSortConfig("name", "asc"),
-            repository.config(ViewSortKey.HISTORY, historyDefault),
-        )
-
-        api.preferenceValues[ViewSortKey.HISTORY.preferenceKey] = JsonPrimitive(
-            """{"field":"duration","direction":"desc"}""",
-        )
-        repository.invalidate()
-        repository.ensureLoaded()
-
-        assertEquals(
-            ViewSortConfig("duration", "desc"),
-            repository.config(ViewSortKey.HISTORY, historyDefault),
-        )
-    }
-
-    @Test
     fun `never reads or writes web-owned sort keys`() = runTest {
         val api = FakePreferencesApi().apply {
             preferenceValues["library-sort"] = JsonPrimitive(
@@ -117,9 +90,9 @@ class ViewSortPreferencesRepositoryTest {
                 """{"field":"name","direction":"desc"}""",
             )
         }
-        val repository = ViewSortPreferencesRepository(FakeApiProvider(api))
+        val repository = ViewSortPreferencesRepository(testServerPreferences(api))
 
-        repository.load()
+        repository.ensureLoaded()
 
         assertEquals(historyDefault, repository.config(ViewSortKey.HISTORY, historyDefault))
         assertEquals(

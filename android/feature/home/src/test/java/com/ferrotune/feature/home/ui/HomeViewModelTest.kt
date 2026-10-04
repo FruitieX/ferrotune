@@ -9,6 +9,7 @@ import com.ferrotune.core.network.generated.ContinueListeningEntry
 import com.ferrotune.core.network.generated.ContinueListeningPlaylist
 import com.ferrotune.core.network.generated.DiscoveryResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
+import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
 import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
@@ -17,9 +18,8 @@ import com.ferrotune.core.network.generated.PeriodReviewResponse
 import com.ferrotune.core.network.generated.PlaylistSongEntry
 import com.ferrotune.core.network.generated.PlaylistSongsResponse
 import com.ferrotune.core.network.generated.PreferencesResponse
-import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
-import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.SetPreferenceRequest
+import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.testing.FakeAccountSwitcher
 import com.ferrotune.core.testing.FakeAccounts
@@ -27,6 +27,7 @@ import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.testAccount
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.home.data.DEFAULT_HOME_SECTIONS
 import com.ferrotune.feature.home.data.DEFAULT_HOME_TILES
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
@@ -43,16 +44,16 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
-import kotlinx.serialization.json.JsonElement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonElement
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -277,7 +278,7 @@ class HomeViewModelTest {
         val account = testAccount()
         return HomeViewModel(
             repository = HomeRepository(provider),
-            layoutRepository = HomeLayoutPreferencesRepository(provider),
+            layoutRepository = HomeLayoutPreferencesRepository(testServerPreferences(provider.api)),
             sectionLoader = HomeSectionLoader(HomeRepository(provider)),
             sessionStarter = starter,
             accounts = FakeAccounts(listOf(account), account.id),
@@ -473,7 +474,7 @@ class HomeViewModelTest {
     fun `layout changes refresh home tiles`() {
         val api = FakeHomeApi()
         val provider = FakeApiProvider(api)
-        val layoutRepository = HomeLayoutPreferencesRepository(provider)
+        val layoutRepository = HomeLayoutPreferencesRepository(testServerPreferences(provider.api))
         val viewModel = HomeViewModel(
             repository = HomeRepository(provider),
             layoutRepository = layoutRepository,
