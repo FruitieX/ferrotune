@@ -7,23 +7,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +39,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,11 +62,31 @@ fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var pendingRemoval by remember { mutableStateOf<Account?>(null) }
 
     LaunchedEffect(state.loggedInAccount) {
         if (state.loggedInAccount != null) {
             onLoggedIn()
         }
+    }
+
+    pendingRemoval?.let { account ->
+        AlertDialog(
+            onDismissRequest = { pendingRemoval = null },
+            title = { Text("Remove ${account.label}?") },
+            text = { Text("This device forgets the account. You can sign in again with the password.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRemoval = null
+                    viewModel.removeSavedAccount(account)
+                }) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoval = null }) { Text("Cancel") }
+            },
+        )
     }
 
     Column(
@@ -120,7 +146,7 @@ fun LoginScreen(
                             account = account,
                             enabled = !state.isConnecting,
                             onSelect = { viewModel.loginWithSavedAccount(account) },
-                            onRemove = { viewModel.removeSavedAccount(account) },
+                            onRemove = { pendingRemoval = account },
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -133,6 +159,9 @@ fun LoginScreen(
                     label = { Text("Server URL") },
                     placeholder = { Text("http://192.168.1.100:4040") },
                     singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Filled.Dns, contentDescription = null)
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Next,
@@ -167,6 +196,7 @@ fun LoginScreen(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done,
                     ),
+                    keyboardActions = KeyboardActions(onDone = { if (!state.isConnecting) viewModel.login() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
