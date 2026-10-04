@@ -80,6 +80,7 @@ class PlaybackClientsViewModelTest {
         sessionId = "session-1",
         ownsSession = false,
         sessionOwnerClientName = "ferrotune-web",
+        sessionOwnerClientId = "desktop",
         status = PlaybackStatus.PAUSED,
         positionMs = 42_000,
     )
@@ -102,8 +103,18 @@ class PlaybackClientsViewModelTest {
     }
 
     @Test
+    fun `a cleared owner is not following anyone`() {
+        // The server drops the owner after a long pause; nothing plays anywhere.
+        val harness = Harness(following.copy(sessionOwnerClientId = null))
+
+        assertFalse(harness.viewModel.uiState.value.isFollowing)
+    }
+
+    @Test
     fun `owning the session is not following and skips the client list`() {
-        val harness = Harness(following.copy(ownsSession = true, sessionOwnerClientName = "ferrotune-mobile"))
+        val harness = Harness(
+            following.copy(ownsSession = true, sessionOwnerClientName = "ferrotune-mobile", sessionOwnerClientId = TEST_CLIENT_ID),
+        )
 
         assertFalse(harness.viewModel.uiState.value.isFollowing)
         assertEquals(0, harness.api.clientReads)

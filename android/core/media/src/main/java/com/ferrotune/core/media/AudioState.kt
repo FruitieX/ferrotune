@@ -65,6 +65,8 @@ data class PlaybackState(
     /** False while another client owns the shared playback session. */
     val ownsSession: Boolean = true,
     val sessionOwnerClientName: String? = null,
+    /** The owning client, or null while nobody owns the session (e.g. after a long pause). */
+    val sessionOwnerClientId: String? = null,
 )
 
 /**

@@ -47,17 +47,29 @@ class PlaybackClientsViewModel @Inject constructor(
     private val clients = MutableStateFlow<List<ClientResponse>>(emptyList())
     private val myClientId = MutableStateFlow<String?>(null)
 
+    private data class Ownership(
+        val sessionId: String?,
+        /** Another client owns the session; a cleared owner means nobody plays. */
+        val following: Boolean,
+        val ownerClientName: String?,
+    )
+
     private val owner = playbackStarter.state
-        .map { Triple(it.sessionId, it.ownsSession, it.sessionOwnerClientName) }
+        .map {
+            Ownership(
+                sessionId = it.sessionId,
+                following = it.sessionId != null && !it.ownsSession && it.sessionOwnerClientId != null,
+                ownerClientName = it.sessionOwnerClientName,
+            )
+        }
         .distinctUntilChanged()
 
-    val uiState: StateFlow<PlaybackClientsUiState> = combine(owner, clients, myClientId) { (sessionId, owns, ownerName), list, me ->
-        val following = sessionId != null && !owns
+    val uiState: StateFlow<PlaybackClientsUiState> = combine(owner, clients, myClientId) { ownership, list, me ->
         PlaybackClientsUiState(
-            sessionId = sessionId,
-            isFollowing = following,
+            sessionId = ownership.sessionId,
+            isFollowing = ownership.following,
             ownerDisplayName = list.firstOrNull { it.isOwner }?.displayName,
-            ownerClientName = ownerName,
+            ownerClientName = ownership.ownerClientName,
             clients = list,
             myClientId = me,
         )
@@ -67,8 +79,8 @@ class PlaybackClientsViewModel @Inject constructor(
         viewModelScope.launch { myClientId.value = runCatching { accounts.clientId() }.getOrNull() }
         // The owner's friendly name comes from the client list; refresh it whenever ownership moves.
         viewModelScope.launch {
-            owner.collect { (sessionId, owns, _) ->
-                if (sessionId != null && !owns) refresh() else if (sessionId == null) clients.value = emptyList()
+            owner.collect { ownership ->
+                if (ownership.following) refresh() else if (ownership.sessionId == null) clients.value = emptyList()
             }
         }
     }

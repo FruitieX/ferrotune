@@ -4239,6 +4239,7 @@ class PlaybackService : MediaSessionService() {
             sourceName = queueSourceName,
             ownsSession = nativeOwnsSession,
             sessionOwnerClientName = sessionOwnerClientName,
+            sessionOwnerClientId = sessionOwnerClientId,
         )
     }
 
