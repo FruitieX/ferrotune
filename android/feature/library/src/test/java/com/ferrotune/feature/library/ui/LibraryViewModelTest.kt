@@ -1,5 +1,7 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.UserMessage
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.GenresList
@@ -12,8 +14,11 @@ import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
@@ -39,10 +44,12 @@ class LibraryViewModelTest {
     private fun viewModel(
         api: FakeFerrotuneApi = FakeFerrotuneApi(),
         starter: FakePlaybackStarter = FakePlaybackStarter(),
+        messages: UserMessages = UserMessages(),
     ) = LibraryViewModel(
         LibraryRepository(FakeApiProvider(api)),
         starter,
         LibraryViewPreferencesRepository(FakeApiProvider(api)),
+        messages,
     )
 
     @Test
@@ -90,21 +97,42 @@ class LibraryViewModelTest {
         val viewModel = viewModel(starter = starter)
         viewModel.selectSongSort(SongSort.DATE_ADDED)
 
-        viewModel.playSong("song-9")
+        viewModel.playSong("song-9", position = 4)
 
         val spec = starter.specs.single()
         assertEquals("library", spec.sourceType)
         assertEquals("song-9", spec.startSongId)
+        assertEquals(4, spec.startIndex)
+        assertEquals(JsonPrimitive("*"), spec.filters["query"])
         assertEquals("dateAdded", (spec.sort?.get("field") as JsonPrimitive).content)
         assertEquals("asc", (spec.sort?.get("direction") as JsonPrimitive).content)
     }
 
     @Test
-    fun `playSong failure surfaces a playback error`() {
-        val viewModel = viewModel(starter = FakePlaybackStarter(failure = "offline"))
+    fun `playSong while filtering queues the same search the list shows`() {
+        val starter = FakePlaybackStarter()
+        val viewModel = viewModel(starter = starter)
+        viewModel.setFilter(" gold ")
 
-        viewModel.playSong("song-1")
+        viewModel.playSong("song-2", position = 1)
 
-        assertEquals("offline", viewModel.uiState.value.playbackError)
+        val spec = starter.specs.single()
+        assertEquals("search", spec.sourceType)
+        assertEquals("Search: gold", spec.sourceName)
+        assertEquals(JsonPrimitive("gold"), spec.filters["query"])
+    }
+
+    @Test
+    fun `playSong failure is reported as a message`() = runTest {
+        val messages = UserMessages()
+        val received = mutableListOf<UserMessage>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            messages.messages.toList(received)
+        }
+        val viewModel = viewModel(starter = FakePlaybackStarter(failure = "offline"), messages = messages)
+
+        viewModel.playSong("song-1", position = 0)
+
+        assertEquals(listOf(UserMessage("Couldn't start playback: offline", isError = true)), received)
     }
 }

@@ -3,6 +3,8 @@ package com.ferrotune.core.designsystem.components
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +16,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -35,7 +38,7 @@ fun DetailBackdrop(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(height),
+            .then(if (height != Dp.Unspecified) Modifier.height(height) else Modifier),
     ) {
         Box(
             modifier = Modifier
@@ -77,5 +80,48 @@ fun DetailBackdrop(
                     ),
             )
         }
+    }
+}
+
+/**
+ * Header block of a detail screen: [DetailBackdrop] sized to the header and
+ * action bar it wraps, so the gradient scrolls away with them (web
+ * `DetailHeader` + `ActionBar`) instead of staying pinned behind the list.
+ * Place it as the first item of the screen's lazy list or grid.
+ */
+@Composable
+fun DetailHero(
+    backdropColor: Color,
+    modifier: Modifier = Modifier,
+    coverModel: Any? = null,
+    blurredCover: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        DetailBackdrop(
+            color = backdropColor,
+            coverModel = coverModel,
+            blurred = blurredCover,
+            modifier = Modifier.matchParentSize(),
+            height = Dp.Unspecified,
+        )
+        Column(modifier = Modifier.fillMaxWidth(), content = content)
+    }
+}
+
+/**
+ * Lets a full-width item (like a [DetailHero] in a padded lazy grid) extend
+ * [bleed] past its parent's horizontal content padding on both sides.
+ */
+fun Modifier.bleedHorizontal(bleed: Dp): Modifier = layout { measurable, constraints ->
+    val extra = bleed.roundToPx() * 2
+    val placeable = measurable.measure(
+        constraints.copy(
+            minWidth = (constraints.minWidth + extra).coerceAtLeast(0),
+            maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth + extra else constraints.maxWidth,
+        ),
+    )
+    layout(placeable.width - extra, placeable.height) {
+        placeable.place(-bleed.roundToPx(), 0)
     }
 }

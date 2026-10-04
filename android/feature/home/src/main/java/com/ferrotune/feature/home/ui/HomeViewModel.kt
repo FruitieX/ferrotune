@@ -3,6 +3,7 @@ package com.ferrotune.feature.home.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.datastore.Accounts
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.model.Account
@@ -18,6 +19,7 @@ import com.ferrotune.feature.home.data.HomeSectionConfig
 import com.ferrotune.feature.home.data.HomeSectionKind
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.serialization.json.JsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -37,6 +39,7 @@ data class HomeSectionUi(
     val albums: List<AlbumResponse> = emptyList(),
     val entries: List<ContinueListeningEntry> = emptyList(),
     val seed: Long? = null,
+    val queueFilters: Map<String, JsonElement> = emptyMap(),
 ) {
     val isEmpty: Boolean
         get() = songs.isEmpty() && albums.isEmpty() && entries.isEmpty()
@@ -49,8 +52,6 @@ data class HomeUiState(
     val tiles: List<HomeTilePresentation> = emptyList(),
     val sections: List<HomeSectionUi> = emptyList(),
     val accounts: List<Account> = emptyList(),
-    val playbackError: String? = null,
-    val switchError: String? = null,
 )
 
 @HiltViewModel
@@ -61,6 +62,7 @@ class HomeViewModel @Inject constructor(
     private val sessionStarter: PlaybackStarter,
     private val accounts: Accounts,
     private val accountSwitcher: AccountSwitcher,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(HomeUiState())
@@ -131,6 +133,7 @@ class HomeViewModel @Inject constructor(
                         albums = data.albums,
                         entries = data.entries,
                         seed = data.seed,
+                        queueFilters = data.queueFilters,
                     )
                 },
             )
@@ -145,18 +148,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun playSection(config: HomeSectionConfig, shuffle: Boolean) {
-        startQueue(homeSectionQueueSpec(config, shuffle))
+    fun playSection(section: HomeSectionUi, shuffle: Boolean) {
+        startQueue(homeSectionQueueSpec(section.config, shuffle, section.queueFilters))
     }
 
-    fun playSong(sourceType: String, sourceName: String, song: SongResponse) {
-        startQueue(
-            QueueStartSpec(
-                sourceType = sourceType,
-                sourceName = sourceName,
-                startSongId = song.id,
-            ),
-        )
+    /** Plays [song] within its section's queue, matching the shelf's order. */
+    fun playSong(section: HomeSectionUi, song: SongResponse, position: Int) {
+        startQueue(homeSectionSongQueueSpec(section.config, section.queueFilters, song.id, position))
     }
 
     fun playContinueListening(entry: ContinueListeningEntry) {
@@ -186,30 +184,17 @@ class HomeViewModel @Inject constructor(
         if (accountKey.isNullOrBlank()) return
         viewModelScope.launch {
             when (val result = accountSwitcher.switchTo(accountKey)) {
-                is AccountSwitchResult.Failure ->
-                    state.update { it.copy(switchError = result.message) }
-
+                is AccountSwitchResult.Failure -> messages.error(result.message)
                 AccountSwitchResult.Success -> Unit
             }
         }
     }
 
-    fun dismissSwitchError() = state.update { it.copy(switchError = null) }
-
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
-
     private fun startQueue(spec: QueueStartSpec) {
         viewModelScope.launch {
-            try {
-                sessionStarter.startQueue(spec)
-            } catch (e: Exception) {
-                onPlaybackError(e)
-            }
+            runCatching { sessionStarter.startQueue(spec) }
+                .onFailure { messages.failure("Couldn't start playback", it) }
         }
-    }
-
-    private fun onPlaybackError(e: Exception) {
-        state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
     }
 
     companion object {

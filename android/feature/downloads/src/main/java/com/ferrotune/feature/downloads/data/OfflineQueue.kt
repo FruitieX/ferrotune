@@ -53,6 +53,8 @@ fun materializeOfflineQueue(
                         duration = (song.duration / 1000).toInt(),
                         computedReplayGainTrackGain = null,
                         originalReplayGainTrackGain = null,
+                        artistId = song.artistId,
+                        albumId = song.albumId,
                     ),
                 )
             },

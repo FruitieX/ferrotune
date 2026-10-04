@@ -95,6 +95,7 @@ fun MiniPlayerBar(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val progress by viewModel.progress.collectAsStateWithLifecycle()
     val track = state.track
     var queueOpen by remember { mutableStateOf(false) }
 
@@ -102,7 +103,7 @@ fun MiniPlayerBar(
         Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)) {
             Box {
                 if (track == null) {
-                    NotPlayingRow(onOpenNowPlaying)
+                    NotPlayingRow(onOpenQueue = { queueOpen = true })
                 } else {
                     NowPlayingRow(
                         state = state,
@@ -115,14 +116,10 @@ fun MiniPlayerBar(
                     )
                 }
 
-                if (state.progressBarStyle != "waveform" || state.waveformHeights.isEmpty()) {
-                    LinearProgressIndicator(
-                        progress = { state.progressFraction },
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .height(4.dp),
-                        trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
+                if (track != null && (state.progressBarStyle != "waveform" || state.waveformHeights.isEmpty())) {
+                    PlayerProgressLine(
+                        progress = progress,
+                        modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
             }
@@ -130,21 +127,21 @@ fun MiniPlayerBar(
 
         // Keep the waveform outside the clipping Surface so its overhang (and
         // touch target) straddles the bar's top edge like the web client.
-        if (state.progressBarStyle == "waveform" && state.waveformHeights.isNotEmpty()) {
-            val tooltipHeight = if (state.durationMs > 0) WAVEFORM_TOOLTIP_HEIGHT else 0.dp
-            WaveformBar(
-                heights = state.waveformHeights,
-                progress = state.progressFraction,
+        if (track != null && state.progressBarStyle == "waveform" && state.waveformHeights.isNotEmpty()) {
+            val tooltipHeight = if (progress.durationMs > 0) WAVEFORM_TOOLTIP_HEIGHT else 0.dp
+            PlayerSeekBar(
+                progress = progress,
+                style = state.progressBarStyle,
+                waveformHeights = state.waveformHeights,
                 onSeek = viewModel::seekToFraction,
-                positionMs = state.positionMs,
-                durationMs = state.durationMs,
+                showTimes = false,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .offset {
                         IntOffset(0, -(WAVEFORM_HEIGHT / 2 + tooltipHeight).roundToPx())
                     }
                     .padding(horizontal = 16.dp),
-                height = WAVEFORM_HEIGHT,
+                waveformHeight = WAVEFORM_HEIGHT,
                 barWidth = 2.dp,
                 barGap = 2.dp,
             )
@@ -157,16 +154,16 @@ fun MiniPlayerBar(
 }
 
 /**
- * Placeholder shown while the queue is empty so the shell height stays stable.
+ * Web idle mini player: empty cover, "Not playing", and the same trailing
+ * controls (play disabled until something is queued).
  */
 @Composable
-private fun NotPlayingRow(onOpenNowPlaying: () -> Unit) {
+private fun NotPlayingRow(onOpenQueue: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(88.dp)
-            .clickable(onClick = onOpenNowPlaying)
-            .padding(horizontal = 16.dp),
+            .padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -182,7 +179,18 @@ private fun NotPlayingRow(onOpenNowPlaying: () -> Unit) {
             text = "Not playing",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
+        IconButton(onClick = {}, enabled = false, modifier = Modifier.size(44.dp)) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = "Play", modifier = Modifier.size(20.dp))
+        }
+        IconButton(onClick = onOpenQueue, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.AutoMirrored.Filled.QueueMusic,
+                contentDescription = "Queue",
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -349,12 +357,12 @@ private fun NowPlayingRow(
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onOpenQueue()
             },
-            modifier = Modifier.size(32.dp),
+            modifier = Modifier.size(44.dp),
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.QueueMusic,
                 contentDescription = "Queue",
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
         MoreMenu(
@@ -426,18 +434,18 @@ private fun PlayPauseButton(
 ) {
     IconButton(
         onClick = onToggle,
-        modifier = Modifier.size(36.dp),
+        modifier = Modifier.size(44.dp),
     ) {
         if (state.isBuffering) {
             CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp,
             )
         } else {
             Icon(
                 imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = if (state.isPlaying) "Pause" else "Play",
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
     }
@@ -455,12 +463,12 @@ private fun MoreMenu(
     Box {
         IconButton(
             onClick = { expanded = true },
-            modifier = Modifier.size(32.dp),
+            modifier = Modifier.size(44.dp),
         ) {
             Icon(
                 Icons.Filled.MoreHoriz,
                 contentDescription = "More options",
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
         DropdownMenu(

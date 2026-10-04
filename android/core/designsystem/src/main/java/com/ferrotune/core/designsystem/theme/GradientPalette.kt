@@ -63,3 +63,31 @@ fun seedIconGradient(seed: String): List<Color> {
         Color.hsl(hue, 0.70f, 0.25f),
     )
 }
+
+/**
+ * Web `CoverImage` placeholder: a 135° gradient from
+ * `oklch(0.45 0.12 hue)` to `oklch(0.30 0.10 hue+50)`, the same in both themes.
+ */
+fun coverPlaceholderColors(seed: String): List<Color> {
+    val hue = stringToHue(seed).toDouble()
+    return listOf(
+        oklchToColor(OklchColor(lightness = 0.45, chroma = 0.12, hue = hue)),
+        oklchToColor(OklchColor(lightness = 0.30, chroma = 0.10, hue = (hue + 50.0) % 360.0)),
+    )
+}
+
+/**
+ * Web `getGenreColor`: `hsl(hue,70%,35%)` → `hsl(hue+30,60%,25%)` at 135°.
+ * The hash mirrors the JS arithmetic (32-bit shift, unbounded subtraction).
+ */
+fun genreGradientColors(genre: String): List<Color> {
+    var acc = 0L
+    for (char in genre) {
+        acc = char.code + ((acc.toInt() shl 5).toLong() - acc)
+    }
+    val hue = kotlin.math.abs(acc % 360).toFloat()
+    return listOf(
+        Color.hsl(hue, 0.70f, 0.35f),
+        Color.hsl((hue + 30f) % 360f, 0.60f, 0.25f),
+    )
+}

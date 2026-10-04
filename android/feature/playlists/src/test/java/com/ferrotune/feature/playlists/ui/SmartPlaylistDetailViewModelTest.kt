@@ -1,5 +1,6 @@
 package com.ferrotune.feature.playlists.ui
 
+import com.ferrotune.core.actions.UserMessages
 import androidx.lifecycle.SavedStateHandle
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
@@ -39,6 +40,7 @@ class SmartPlaylistDetailViewModelTest {
             repository = PlaylistRepository(provider),
             sessionStarter = FakePlaybackStarter(),
             viewSortPreferences = ViewSortPreferencesRepository(provider),
+            messages = UserMessages(),
             savedStateHandle = SavedStateHandle(mapOf("smartPlaylistId" to "sp-1")),
         )
     }

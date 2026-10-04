@@ -87,7 +87,25 @@ data class HomeTilePresentation(
     val icon: ImageVector,
     val action: HomeTileAction,
     val isIncomplete: Boolean = false,
+    /** Web `iconClassName` tint as ARGB (e.g. `text-red-500` for Favorites). */
+    val iconColor: Long = EMERALD_500,
 )
+
+private const val EMERALD_500 = 0xFF10B981
+
+/** Web home tile icon colors by tile kind. */
+fun homeTileIconColor(kind: HomeTileKind): Long = when (kind) {
+    HomeTileKind.FAVORITES -> 0xFFEF4444
+    HomeTileKind.HISTORY -> 0xFF0EA5E9
+    HomeTileKind.FORGOTTEN_FAVORITES -> 0xFFF59E0B
+    HomeTileKind.MOST_PLAYED_RECENTLY -> 0xFFF43F5E
+    HomeTileKind.CONTINUE_LISTENING -> EMERALD_500
+    HomeTileKind.RECENTLY_ADDED -> 0xFF0EA5E9
+    HomeTileKind.DISCOVER -> 0xFF8B5CF6
+    HomeTileKind.SIMILAR_TRACKS -> EMERALD_500
+    HomeTileKind.PLAYLIST -> EMERALD_500
+    HomeTileKind.ACCOUNT_SWITCH -> 0xFF84CC16
+}
 
 private data class BaseTileDefinition(
     val label: String,
@@ -169,6 +187,12 @@ private fun baseDefinition(kind: HomeTileKind): BaseTileDefinition? = when (kind
 fun homeTilePresentation(
     tile: HomeTileConfig,
     sections: List<HomeSectionConfig> = emptyList(),
+): HomeTilePresentation =
+    basePresentation(tile, sections).copy(iconColor = homeTileIconColor(tile.kind))
+
+private fun basePresentation(
+    tile: HomeTileConfig,
+    sections: List<HomeSectionConfig>,
 ): HomeTilePresentation {
     val action = tile.effectiveAction ?: HomeTileActionMode.OPEN
 
@@ -277,7 +301,11 @@ fun homeTilePresentation(
 }
 
 /** Queue source for a section, matching the web client's materialization. */
-fun homeSectionQueueSpec(section: HomeSectionConfig, shuffle: Boolean): QueueStartSpec {
+fun homeSectionQueueSpec(
+    section: HomeSectionConfig,
+    shuffle: Boolean,
+    extraFilters: Map<String, JsonElement> = emptyMap(),
+): QueueStartSpec {
     val filters = mutableMapOf<String, JsonElement>()
     val sourceType: String
     val sourceId: String?
@@ -345,10 +373,19 @@ fun homeSectionQueueSpec(section: HomeSectionConfig, shuffle: Boolean): QueueSta
         sourceType = sourceType,
         sourceId = sourceId,
         sourceName = sourceName,
-        filters = filters,
+        filters = filters + extraFilters,
         shuffle = shuffle,
     )
 }
+
+/** Queue for tapping one song of a section: the section's queue started at that song. */
+fun homeSectionSongQueueSpec(
+    section: HomeSectionConfig,
+    extraFilters: Map<String, JsonElement>,
+    songId: String,
+    position: Int,
+): QueueStartSpec = homeSectionQueueSpec(section, shuffle = false, extraFilters = extraFilters)
+    .copy(startSongId = songId, startIndex = position)
 
 fun homeSectionLabel(section: HomeSectionConfig): String = when (section.kind) {
     HomeSectionKind.CONTINUE_LISTENING -> "Continue Listening"

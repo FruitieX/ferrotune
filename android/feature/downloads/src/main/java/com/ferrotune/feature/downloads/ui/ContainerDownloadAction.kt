@@ -9,6 +9,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import com.ferrotune.core.designsystem.components.MediaActionRow
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -75,4 +76,36 @@ fun ContainerDownloadAction(
             else -> Icon(Icons.Filled.Download, contentDescription = "Download")
         }
     }
+}
+
+/**
+ * Sheet-row variant of [ContainerDownloadAction] for the ⋯ menus on album and
+ * playlist pages (web drawer "Download" / "Remove download").
+ */
+@Composable
+fun ContainerDownloadMenuItem(
+    type: ContainerDownloadType,
+    sourceId: String,
+    name: String,
+    coverArtId: String?,
+    viewModel: DownloadActionViewModel = hiltViewModel(),
+) {
+    val downloadedContainerIds by viewModel.downloadedContainerIds.collectAsStateWithLifecycle()
+    val containerId = DownloadContainerType.id(type.apiValue, sourceId)
+    val isDownloaded = containerId in downloadedContainerIds
+    MediaActionRow(
+        icon = if (isDownloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
+        label = if (isDownloaded) "Remove download" else "Download",
+        onClick = {
+            if (isDownloaded) {
+                viewModel.removeContainer(containerId)
+            } else {
+                when (type) {
+                    ContainerDownloadType.ALBUM -> viewModel.downloadAlbum(sourceId, name, coverArtId)
+                    ContainerDownloadType.PLAYLIST -> viewModel.downloadPlaylist(sourceId, name, coverArtId)
+                    ContainerDownloadType.SMART_PLAYLIST -> viewModel.downloadSmartPlaylist(sourceId, name, coverArtId)
+                }
+            }
+        },
+    )
 }

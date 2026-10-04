@@ -31,7 +31,7 @@ class SettingsViewModel @Inject constructor(
     val downloadSettings: StateFlow<DownloadSettings> = downloadSettingsRepository.settings
     val accent: StateFlow<AccentState> = accentSettingsRepository.state
     val themeMode: StateFlow<ThemeMode> = themeModeStore.themeMode
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.DEFAULT)
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message

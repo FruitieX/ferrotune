@@ -1,92 +1,97 @@
 package com.ferrotune.feature.library.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Label
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
-import com.ferrotune.core.designsystem.components.ChipTab
-import com.ferrotune.core.designsystem.components.ChipTabRow
-import com.ferrotune.core.designsystem.components.FilterPill
-import com.ferrotune.core.designsystem.components.PageTitle
-import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.actions.CollectionActionSheet
+import com.ferrotune.core.actions.CollectionMenuSheet
+import com.ferrotune.core.actions.CollectionMenuState
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
-import com.ferrotune.core.actions.SongActionSheet
+import com.ferrotune.core.actions.LocalMediaActions
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.coverModel
+import com.ferrotune.core.actions.SongMenuSheet
 import com.ferrotune.core.actions.SongSelectionActionBar
-import com.ferrotune.core.actions.SongSelectionState
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.SongFavoriteButton
-import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.rememberCollectionMenuState
+import com.ferrotune.core.actions.rememberNowPlaying
+import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.rememberSongSelectionState
+import com.ferrotune.core.actions.songPagingItems
+import com.ferrotune.core.designsystem.components.ChipTab
+import com.ferrotune.core.designsystem.components.ChipTabRow
 import com.ferrotune.core.designsystem.components.EmptyState
+import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.FilterPill
+import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
-import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
-import com.ferrotune.core.designsystem.components.ErrorState
-import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.MediaGridMinCellWidth
+import com.ferrotune.core.designsystem.components.PageTitle
 import com.ferrotune.core.designsystem.components.PagingListFooter
-import com.ferrotune.core.designsystem.components.SortMenu
+import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.SortOption
+import com.ferrotune.core.designsystem.components.SortSheetSection
+import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.theme.genreGradientColors
 import com.ferrotune.core.network.MATCH_ALL_SONGS_QUERY
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.SearchParams
-import com.ferrotune.core.network.generated.SongResponse
-import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
-import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
-import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
-import com.ferrotune.feature.playlists.ui.AddToPlaylistMenuItem
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.SongSort
@@ -130,29 +135,36 @@ internal val ARTIST_SORT_OPTIONS = listOf(
     SortOption(ArtistSort.LAST_PLAYED.apiValue, "Last played"),
 )
 
+private val LIBRARY_TABS = listOf(
+    ChipTab("Albums", Icons.Filled.Album),
+    ChipTab("Artists", Icons.Filled.Person),
+    ChipTab("Songs", Icons.Filled.MusicNote),
+    ChipTab("Genres", Icons.Filled.Label),
+)
+
+/**
+ * The web Library page: title, filter, and ⋯ (sort) in the top row, chip tabs
+ * below, then a three-column album/artist/genre grid or the song list. Each
+ * tab keeps its own scroll position while switching.
+ */
 @Composable
 fun LibraryScreen(
-    onOpenArtist: (String) -> Unit,
-    onOpenAlbum: (String) -> Unit,
-    onOpenGenre: (String) -> Unit,
-    onOpenSongRadio: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { SnackbarHostState() }
-    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
     val selection = rememberSongSelectionState()
+    val songMenu = rememberSongMenuState()
+    val collectionMenu = rememberCollectionMenuState()
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
-    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
 
-    LaunchedEffect(state.playbackError) {
-        state.playbackError?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.dismissPlaybackError()
-        }
-    }
+    // Hoisted per tab so switching tabs keeps each tab's scroll position.
+    val albumsGrid = rememberLazyGridState()
+    val artistsGrid = rememberLazyGridState()
+    val genresGrid = rememberLazyGridState()
+    val songsList = rememberLazyListState()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -162,19 +174,15 @@ fun LibraryScreen(
                 SongSelectionTopBar(
                     selectedCount = selection.count,
                     onClose = selection::clear,
-                    onSelectAll = if (state.tab == LibraryTab.SONGS) {
-                        {
-                            actionsViewModel.loadAllIds(
-                                searchParams = SearchParams(
-                                    query = MATCH_ALL_SONGS_QUERY,
-                                    songSort = state.songSort.apiValue,
-                                    songSortDir = state.songSortDir.apiValue,
-                                ),
-                                onLoaded = selection::replace,
-                            )
-                        }
-                    } else {
-                        null
+                    onSelectAll = {
+                        actionsViewModel.loadAllIds(
+                            searchParams = SearchParams(
+                                query = state.filter.trim().ifEmpty { MATCH_ALL_SONGS_QUERY },
+                                songSort = state.songSort.apiValue,
+                                songSortDir = state.songSortDir.apiValue,
+                            ),
+                            onLoaded = selection::replace,
+                        )
                     },
                     selectingAll = selectingAll,
                 )
@@ -182,13 +190,13 @@ fun LibraryScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background),
+                        .background(MaterialTheme.colorScheme.background)
+                        .statusBarsPadding(),
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -198,14 +206,12 @@ fun LibraryScreen(
                             onValueChange = viewModel::setFilter,
                             modifier = Modifier.weight(1f),
                         )
-                        val sort = state.sortMenuState()
-                        SortMenu(
-                            options = sort.options,
-                            selectedKey = sort.selectedKey,
-                            ascending = sort.ascending,
-                            onSelect = viewModel::selectSort,
-                            onToggleDirection = viewModel::toggleSortDirection,
-                        )
+                        IconButton(
+                            onClick = { menuOpen = true },
+                            enabled = state.tab != LibraryTab.GENRES,
+                        ) {
+                            Icon(Icons.Filled.MoreHoriz, contentDescription = "Sort options")
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     ChipTabRow(
@@ -225,75 +231,82 @@ fun LibraryScreen(
                 SongSelectionActionBar(
                     selectedIds = selection.selectedIds.toList(),
                     onClearSelection = selection::clear,
-                    extraActions = { ids ->
-                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
-                            addToPlaylistSongIds = ids
-                        }
-                        SongSelectionAction(Icons.Filled.Download, "Download") {
-                            downloadViewModel.downloadSongs(ids)
-                            selection.clear()
-                        }
-                    },
                     viewModel = actionsViewModel,
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
             when (state.tab) {
-                LibraryTab.SONGS -> SongsTab(
-                    onPlaySong = viewModel::playSong,
-                    onOpenSongRadio = onOpenSongRadio,
-                    onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
-                    items = viewModel.songs.collectAsLazyPagingItems(),
-                    selection = selection,
-                )
-
-                LibraryTab.ALBUMS -> AlbumsTab(
-                    onOpenAlbum = onOpenAlbum,
-                    onOpenArtist = onOpenArtist,
+                LibraryTab.ALBUMS -> AlbumsGrid(
                     items = viewModel.albums.collectAsLazyPagingItems(),
+                    gridState = albumsGrid,
+                    collectionMenu = collectionMenu,
                 )
 
-                LibraryTab.ARTISTS -> ArtistsTab(
-                    onOpenArtist = onOpenArtist,
+                LibraryTab.ARTISTS -> ArtistsGrid(
                     items = viewModel.artists.collectAsLazyPagingItems(),
+                    gridState = artistsGrid,
+                    collectionMenu = collectionMenu,
                 )
 
-                LibraryTab.GENRES -> GenresTab(
-                    genres = state.genres,
+                LibraryTab.SONGS -> {
+                    val songs = viewModel.songs.collectAsLazyPagingItems()
+                    val nowPlaying = rememberNowPlaying()
+                    LazyColumn(state = songsList, modifier = Modifier.fillMaxSize()) {
+                        songPagingItems(
+                            songs = songs,
+                            nowPlaying = nowPlaying,
+                            menu = songMenu,
+                            selection = selection,
+                            onPlay = { song, position -> viewModel.playSong(song.id, position) },
+                            emptyMessage = if (state.filter.isBlank()) "No songs found" else "No songs match your filter",
+                            index = null,
+                        )
+                    }
+                }
+
+                LibraryTab.GENRES -> GenresGrid(
+                    genres = state.genres.filter {
+                        state.filter.isBlank() || it.value.contains(state.filter.trim(), ignoreCase = true)
+                    },
                     loading = state.genresLoading,
                     error = state.genresError,
+                    gridState = genresGrid,
                     onRetry = viewModel::loadGenres,
-                    onOpenGenre = onOpenGenre,
                 )
             }
         }
     }
 
-    addToPlaylistSongIds?.let { songIds ->
-        AddToPlaylistDialog(
-            songIds = songIds,
-            onDismiss = { addToPlaylistSongIds = null },
-            onAdded = {
-                addToPlaylistSongIds = null
-                selection.clear()
+    SongMenuSheet(
+        state = songMenu,
+        onStartSelection = { selection.select(it.id) },
+    )
+    CollectionMenuSheet(state = collectionMenu)
+
+    if (menuOpen) {
+        val sort = state.sortMenuState()
+        MediaActionSheet(
+            expanded = true,
+            onDismiss = { menuOpen = false },
+            actions = emptyList(),
+            extraContent = {
+                SortSheetSection(
+                    options = sort.options,
+                    selectedKey = sort.selectedKey,
+                    ascending = sort.ascending,
+                    onSelect = viewModel::selectSort,
+                    onToggleDirection = viewModel::toggleSortDirection,
+                )
             },
         )
     }
 }
-
-private val LIBRARY_TABS = listOf(
-    ChipTab("Albums", Icons.Filled.Album),
-    ChipTab("Artists", Icons.Filled.Person),
-    ChipTab("Songs", Icons.Filled.MusicNote),
-    ChipTab("Genres", Icons.Filled.Label),
-)
 
 private data class SortMenuState(
     val options: List<SortOption>,
@@ -311,87 +324,67 @@ private fun LibraryUiState.sortMenuState(): SortMenuState = when (tab) {
 internal fun com.ferrotune.feature.library.data.SortDir.isAscending(): Boolean =
     this == com.ferrotune.feature.library.data.SortDir.ASC
 
+/** Web album card subtitle: "year • artist". */
+internal fun albumSubtitle(album: AlbumResponse): String =
+    listOfNotNull(album.year?.toString(), album.artist).joinToString(" • ")
+
+internal fun AlbumResponse.toCollectionTarget() = CollectionTarget(
+    sourceType = CollectionSource.ALBUM,
+    sourceId = id,
+    name = name,
+    subtitle = artist,
+    coverModel = inlineCoverModel(coverArtData),
+    artistId = artistId,
+    starred = starred != null,
+)
+
+internal fun ArtistResponse.toCollectionTarget() = CollectionTarget(
+    sourceType = CollectionSource.ARTIST,
+    sourceId = id,
+    name = name,
+    subtitle = artistCounts(this),
+    coverModel = inlineCoverModel(coverArtData),
+    starred = starred != null,
+)
+
+internal fun artistCounts(artist: ArtistResponse): String =
+    "${formatCount(artist.albumCount?.toInt() ?: 0, "album")} • ${formatCount(artist.songCount?.toInt() ?: 0, "song")}"
+
+/** Three-column paged grid with the shared loading/error/empty handling. */
 @Composable
-private fun SongsTab(
-    onPlaySong: (String) -> Unit,
-    onOpenSongRadio: (String) -> Unit,
-    onAddToPlaylist: (String) -> Unit,
-    items: androidx.paging.compose.LazyPagingItems<SongResponse>,
-    selection: SongSelectionState,
-    modifier: Modifier = Modifier,
+private fun <T : Any> PagedGrid(
+    items: LazyPagingItems<T>,
+    gridState: LazyGridState,
+    emptyMessage: String,
+    key: (T) -> Any,
+    content: @Composable (T) -> Unit,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
+    val refresh = items.loadState.refresh
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(MediaGridMinCellWidth),
+        state = gridState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         when {
-            items.loadState.refresh is androidx.paging.LoadState.Error ->
-                ErrorState(
-                    message = (items.loadState.refresh as androidx.paging.LoadState.Error).error.message
-                        ?: "Failed to load songs",
-                    onRetry = { items.retry() },
-                )
+            refresh is LoadState.Error && items.itemCount == 0 -> item(span = { GridItemSpan(maxLineSpan) }) {
+                ErrorState(message = refresh.error.message ?: "Failed to load", onRetry = items::retry)
+            }
 
-            items.loadState.refresh is androidx.paging.LoadState.Loading && items.itemCount == 0 ->
-                MediaRowSkeletonList(count = 10, modifier = Modifier.fillMaxSize())
+            refresh is LoadState.Loading && items.itemCount == 0 -> items(12) { MediaCardSkeleton() }
 
-            items.itemCount == 0 -> EmptyState("No songs found")
+            items.itemCount == 0 -> item(span = { GridItemSpan(maxLineSpan) }) {
+                EmptyState(emptyMessage)
+            }
 
-            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(
-                    count = items.itemCount,
-                    key = items.itemKey { it.id },
-                ) { index ->
-                    val song = items[index] ?: return@items
-                    val flags = rememberSongFlags(
-                        songId = song.id,
-                        starred = song.starred != null,
-                    )
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    MediaRow(
-                        title = song.title,
-                        subtitle = listOfNotNull(song.artist, song.album).joinToString(" • "),
-                        coverModel = inlineCoverModel(song.coverArtData),
-                        coverSeed = song.id,
-                        onClick = { onPlaySong(song.id) },
-                        isSelectionActive = selection.isActive,
-                        isSelected = song.id in selection.selectedIds,
-                        onToggleSelection = { selection.toggle(song.id) },
-                        onLongClick = {
-                            if (selection.isActive) {
-                                selection.toggle(song.id)
-                            } else {
-                                menuExpanded = true
-                            }
-                        },
-                        trailing = {
-                            SongFavoriteButton(songId = song.id, flags = flags)
-                            Box {
-                                IconButton(onClick = { menuExpanded = true }) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                                }
-                                SongActionSheet(
-                                    expanded = menuExpanded,
-                                    onDismiss = { menuExpanded = false },
-                                    songId = song.id,
-                                    flags = flags,
-                                    title = song.title,
-                                    subtitle = song.artist,
-                                    coverModel = inlineCoverModel(song.coverArtData),
-                                    onOpenSongRadio = { onOpenSongRadio(song.id) },
-                                    onStartSelection = { selection.select(song.id) },
-                                    extraContent = {
-                                        AddToPlaylistMenuItem(
-                                            onClick = { onAddToPlaylist(song.id) },
-                                        )
-                                        SongDownloadMenuItem(songId = song.id)
-                                    },
-                                )
-                            }
-                        },
-                    )
+            else -> {
+                items(count = items.itemCount, key = items.itemKey(key), contentType = { "card" }) { index ->
+                    items[index]?.let { content(it) }
                 }
-                item {
-                    PagingListFooter(
-                        isLoading = items.loadState.append is androidx.paging.LoadState.Loading,
-                    )
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    PagingListFooter(isLoading = items.loadState.append is LoadState.Loading)
                 }
             }
         }
@@ -399,171 +392,114 @@ private fun SongsTab(
 }
 
 @Composable
-private fun AlbumsTab(
-    onOpenAlbum: (String) -> Unit,
-    onOpenArtist: (String) -> Unit,
-    items: androidx.paging.compose.LazyPagingItems<AlbumResponse>,
-    modifier: Modifier = Modifier,
+private fun AlbumsGrid(
+    items: LazyPagingItems<AlbumResponse>,
+    gridState: LazyGridState,
+    collectionMenu: CollectionMenuState,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
-        when {
-            items.loadState.refresh is androidx.paging.LoadState.Error ->
-                ErrorState(
-                    message = (items.loadState.refresh as androidx.paging.LoadState.Error).error.message
-                        ?: "Failed to load albums",
-                    onRetry = { items.retry() },
-                )
-
-            items.loadState.refresh is androidx.paging.LoadState.Loading && items.itemCount == 0 ->
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(6) { MediaCardSkeleton(width = 150.dp) }
-                }
-
-            items.itemCount == 0 -> EmptyState("No albums found")
-
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(150.dp),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(
-                    count = items.itemCount,
-                    key = items.itemKey { it.id },
-                ) { index ->
-                    val album = items[index] ?: return@items
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    Box {
-                        MediaCard(
-                            title = album.name,
-                            subtitle = album.artist,
-                            seed = album.id,
-                            coverModel = inlineCoverModel(album.coverArtData),
-                            onClick = { onOpenAlbum(album.id) },
-                            onLongClick = { menuExpanded = true },
-                        )
-                        CollectionActionSheet(
-                            expanded = menuExpanded,
-                            onDismiss = { menuExpanded = false },
-                            target = CollectionTarget(
-                                sourceType = CollectionSource.ALBUM,
-                                sourceId = album.id,
-                                name = album.name,
-                            ),
-                            title = album.name,
-                            subtitle = album.artist,
-                            coverModel = inlineCoverModel(album.coverArtData),
-                            onGoToArtist = { onOpenArtist(album.artistId) },
-                        )
-                    }
-                }
-            }
-        }
+    val actions = LocalMediaActions.current
+    PagedGrid(items = items, gridState = gridState, emptyMessage = "No albums found", key = { it.id }) { album ->
+        MediaCard(
+            title = album.name,
+            subtitle = albumSubtitle(album),
+            coverModel = coverModel(album.coverArtData, album.coverArt),
+            seed = album.name,
+            titleIcon = Icons.Filled.Album,
+            onClick = { actions.openAlbum(album.id) },
+            onLongClick = { collectionMenu.open(album.toCollectionTarget()) },
+        )
     }
 }
 
 @Composable
-private fun ArtistsTab(
-    onOpenArtist: (String) -> Unit,
-    items: androidx.paging.compose.LazyPagingItems<ArtistResponse>,
-    modifier: Modifier = Modifier,
+private fun ArtistsGrid(
+    items: LazyPagingItems<ArtistResponse>,
+    gridState: LazyGridState,
+    collectionMenu: CollectionMenuState,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
-        when {
-            items.loadState.refresh is androidx.paging.LoadState.Error ->
-                ErrorState(
-                    message = (items.loadState.refresh as androidx.paging.LoadState.Error).error.message
-                        ?: "Failed to load artists",
-                    onRetry = { items.retry() },
-                )
-
-            items.loadState.refresh is androidx.paging.LoadState.Loading && items.itemCount == 0 ->
-                MediaRowSkeletonList(count = 10, modifier = Modifier.fillMaxSize())
-
-            items.itemCount == 0 -> EmptyState("No artists found")
-
-            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(
-                    count = items.itemCount,
-                    key = items.itemKey { it.id },
-                ) { index ->
-                    val artist = items[index] ?: return@items
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    Box {
-                        MediaRow(
-                            title = artist.name,
-                            subtitle = artistCounts(artist),
-                            coverModel = inlineCoverModel(artist.coverArtData),
-                            coverShape = CircleShape,
-                            coverSeed = artist.id,
-                            onClick = { onOpenArtist(artist.id) },
-                            onLongClick = { menuExpanded = true },
-                        )
-                        CollectionActionSheet(
-                            expanded = menuExpanded,
-                            onDismiss = { menuExpanded = false },
-                            target = CollectionTarget(
-                                sourceType = CollectionSource.ARTIST,
-                                sourceId = artist.id,
-                                name = artist.name,
-                            ),
-                            title = artist.name,
-                            subtitle = artistCounts(artist),
-                            coverModel = inlineCoverModel(artist.coverArtData),
-                        )
-                    }
-                }
-                item {
-                    PagingListFooter(
-                        isLoading = items.loadState.append is androidx.paging.LoadState.Loading,
-                    )
-                }
-            }
-        }
+    val actions = LocalMediaActions.current
+    PagedGrid(items = items, gridState = gridState, emptyMessage = "No artists found", key = { it.id }) { artist ->
+        MediaCard(
+            title = artist.name,
+            subtitle = artistCounts(artist),
+            coverModel = coverModel(artist.coverArtData, artist.coverArt),
+            seed = artist.name,
+            circularCover = true,
+            titleIcon = Icons.Filled.Person,
+            onClick = { actions.openArtist(artist.id) },
+            onLongClick = { collectionMenu.open(artist.toCollectionTarget()) },
+        )
     }
 }
 
-private fun artistCounts(artist: ArtistResponse): String {
-    val albums = artist.albumCount ?: 0
-    val songs = artist.songCount ?: 0
-    return "$albums albums • $songs songs"
-}
-
 @Composable
-private fun GenresTab(
+private fun GenresGrid(
     genres: List<GenreResponse>,
     loading: Boolean,
     error: String?,
+    gridState: LazyGridState,
     onRetry: () -> Unit,
-    onOpenGenre: (String) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    when {
-        error != null -> ErrorState(message = error, onRetry = onRetry, modifier = modifier)
-        loading && genres.isEmpty() -> LoadingBox(modifier)
-        genres.isEmpty() -> EmptyState("No genres found", modifier)
-        else -> LazyColumn(modifier = modifier.fillMaxSize()) {
-            items(genres, key = { it.value }) { genre ->
-                MediaRow(
-                    title = genre.value,
-                    subtitle = "${genre.songCount} songs • ${genre.albumCount} albums",
-                    coverModel = null,
-                    coverSeed = genre.value,
-                    onClick = { onOpenGenre(genre.value) },
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(MediaGridMinCellWidth),
+        state = gridState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        when {
+            error != null && genres.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                ErrorState(message = error, onRetry = onRetry)
+            }
+
+            loading && genres.isEmpty() -> items(12) {
+                ShimmerBox(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(96.dp),
+                    shape = RoundedCornerShape(8.dp),
                 )
             }
+
+            genres.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
+                EmptyState("No genres found")
+            }
+
+            else -> items(genres, key = { it.value }) { genre -> GenreTile(genre) }
         }
     }
 }
 
+/** Web `GenreCard`: a 96dp seeded-gradient tile with the name and counts. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LoadingBox(modifier: Modifier = Modifier) {
-    MediaRowSkeletonList(count = 10, modifier = modifier.fillMaxSize())
+internal fun GenreTile(genre: GenreResponse, modifier: Modifier = Modifier) {
+    val actions = LocalMediaActions.current
+    val colors = remember(genre.value) { genreGradientColors(genre.value) }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(96.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Brush.linearGradient(colors, start = Offset.Zero, end = Offset.Infinite))
+            .combinedClickable(onClick = { actions.openGenre(genre.value) })
+            .padding(12.dp),
+        verticalArrangement = Arrangement.Bottom,
+    ) {
+        Text(
+            text = genre.value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "${formatCount(genre.albumCount.toInt(), "album")} • ${formatCount(genre.songCount.toInt(), "song")}",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.8f),
+            maxLines = 2,
+        )
+    }
 }

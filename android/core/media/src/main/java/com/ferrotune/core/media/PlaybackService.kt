@@ -1720,6 +1720,9 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /** Whether account credentials are configured (needed for streaming and offline playback). */
+    fun hasSessionConfig(): Boolean = apiClient.hasSessionConfig()
+
     /**
      * Seeds the session owner reported by `POST /sessions/connect` when the app
      * reattaches to an existing session, without claiming ownership. A paused

@@ -1,5 +1,6 @@
 package com.ferrotune.feature.playlists.ui
 
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
 import com.ferrotune.core.network.generated.PlaylistInFolder
@@ -57,13 +58,14 @@ class PlaylistsViewModelTest {
         hasCoverArt = false,
     )
 
-    private fun playlist(id: String, name: String) = PlaylistInFolder(
+    private fun playlist(id: String, name: String, folderId: String? = null, songCount: Long = 0) = PlaylistInFolder(
         id = id,
         name = name,
+        folderId = folderId,
         owner = "tester",
         public = false,
         position = 0,
-        songCount = 0,
+        songCount = songCount,
         duration = 0,
         sharedWithMe = false,
         canEdit = true,
@@ -71,9 +73,13 @@ class PlaylistsViewModelTest {
         changed = "2026-01-01T00:00:00.000Z",
     )
 
-    private fun viewModel(api: FakeBrowseApi = FakeBrowseApi()) = PlaylistsViewModel(
+    private fun viewModel(
+        api: FakeBrowseApi = FakeBrowseApi(),
+        starter: FakePlaybackStarter = FakePlaybackStarter(),
+    ) = PlaylistsViewModel(
         repository = PlaylistRepository(FakeApiProvider(api)),
-        sessionStarter = FakePlaybackStarter(),
+        sessionStarter = starter,
+        messages = UserMessages(),
     )
 
     @Test
@@ -140,5 +146,48 @@ class PlaylistsViewModelTest {
         viewModel.load()
 
         assertNull(viewModel.uiState.value.currentFolderId)
+    }
+
+    @Test
+    fun `browser lists folders first, then playlists filtered and sorted by name`() {
+        val viewModel = viewModel(
+            FakeBrowseApi(
+                folders = listOf(folder("f", name = "Zeta folder")),
+                playlists = listOf(playlist("2", "beta"), playlist("1", "Alpha"), playlist("3", "Gamma")),
+            ),
+        )
+
+        assertEquals(
+            listOf("folder-f", "playlist-1", "playlist-2", "playlist-3"),
+            viewModel.uiState.value.browserItems().map { it.key },
+        )
+
+        viewModel.setFilter("a")
+        viewModel.toggleSortDirection()
+
+        assertEquals(
+            listOf("folder-f", "playlist-3", "playlist-2", "playlist-1"),
+            viewModel.uiState.value.browserItems().map { it.key },
+        )
+    }
+
+    @Test
+    fun `play all queues every playlist in the open folder as sources`() {
+        val starter = FakePlaybackStarter()
+        val viewModel = viewModel(
+            FakeBrowseApi(
+                folders = listOf(folder("f", name = "Mixes")),
+                playlists = listOf(playlist("1", "One", folderId = "f"), playlist("2", "Two", folderId = "f")),
+            ),
+            starter,
+        )
+        viewModel.openFolder("f")
+
+        viewModel.playAll(shuffle = true)
+
+        val spec = starter.specs.single()
+        assertEquals("Mixes", spec.sourceName)
+        assertEquals(true, spec.shuffle)
+        assertEquals(listOf("1", "2"), spec.sources.map { it.sourceId })
     }
 }

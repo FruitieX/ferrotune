@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +53,8 @@ fun DetailHeader(
     subtitle: String? = null,
     meta: String? = null,
     coverModel: Any? = null,
+    coverFallbackModel: Any? = null,
+    coverPlaceholder: ImageVector = Icons.Filled.Album,
     seed: String? = null,
     icon: ImageVector? = null,
     iconGradient: List<Color>? = null,
@@ -65,14 +69,17 @@ fun DetailHeader(
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        if (showBackButton) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+        // Detail screens draw edge to edge, so the header always clears the
+        // status bar; the back button and top actions share that row.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                .heightIn(min = 40.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showBackButton) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -88,14 +95,14 @@ fun DetailHeader(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                Spacer(Modifier.weight(1f))
-                if (topActions != null) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = topActions,
-                    )
-                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (topActions != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = topActions,
+                )
             }
         }
 
@@ -133,6 +140,9 @@ fun DetailHeader(
             } else {
                 CoverArt(
                     model = coverModel,
+                    fallbackModel = coverFallbackModel,
+                    placeholder = coverPlaceholder,
+                    iconFraction = 0.33f,
                     contentDescription = title,
                     seed = seed ?: title,
                     shape = if (circularCover) CircleShape else RoundedCornerShape(8.dp),

@@ -58,34 +58,22 @@ fun ShimmerBox(
     )
 }
 
-/** Placeholder matching the [MediaRow] layout. */
+/** Placeholder matching the [TrackRow] / [MediaRow] layout. */
 @Composable
 fun MediaRowSkeleton(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .height(TrackRowHeight)
+            .padding(horizontal = 16.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ShimmerBox(modifier = Modifier.size(48.dp), shape = RoundedCornerShape(10.dp))
+        ShimmerBox(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(4.dp))
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            ShimmerBox(modifier = Modifier.width(180.dp).height(14.dp), shape = CircleShape)
-            ShimmerBox(modifier = Modifier.width(110.dp).height(12.dp), shape = CircleShape)
+            ShimmerBox(modifier = Modifier.width(180.dp).height(13.dp), shape = CircleShape)
+            ShimmerBox(modifier = Modifier.width(110.dp).height(11.dp), shape = CircleShape)
         }
-    }
-}
-
-/** Placeholder matching the [MediaCard] layout. */
-@Composable
-fun MediaCardSkeleton(width: Dp, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.width(width),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ShimmerBox(modifier = Modifier.fillMaxWidth().height(width), shape = RoundedCornerShape(12.dp))
-        ShimmerBox(modifier = Modifier.fillMaxWidth(0.8f).height(13.dp), shape = CircleShape)
-        ShimmerBox(modifier = Modifier.fillMaxWidth(0.55f).height(11.dp), shape = CircleShape)
     }
 }
 

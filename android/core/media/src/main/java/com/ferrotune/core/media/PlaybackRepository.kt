@@ -113,6 +113,8 @@ class PlaybackRepository @Inject constructor(
         )
     }
 
+    suspend fun hasSessionConfig(): Boolean = awaitService().hasSessionConfig()
+
     suspend fun applyConnectedSessionOwner(ownerClientId: String?, ownerClientName: String?) =
         awaitService().applyConnectedSessionOwner(ownerClientId, ownerClientName)
 

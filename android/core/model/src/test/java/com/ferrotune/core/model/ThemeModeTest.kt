@@ -13,9 +13,9 @@ class ThemeModeTest {
     }
 
     @Test
-    fun `unknown and missing values fall back to system`() {
-        assertEquals(ThemeMode.SYSTEM, ThemeMode.fromStorage(null))
-        assertEquals(ThemeMode.SYSTEM, ThemeMode.fromStorage(""))
-        assertEquals(ThemeMode.SYSTEM, ThemeMode.fromStorage("sepia"))
+    fun `unknown and missing values fall back to the web's dark default`() {
+        assertEquals(ThemeMode.DARK, ThemeMode.fromStorage(null))
+        assertEquals(ThemeMode.DARK, ThemeMode.fromStorage(""))
+        assertEquals(ThemeMode.DARK, ThemeMode.fromStorage("sepia"))
     }
 }

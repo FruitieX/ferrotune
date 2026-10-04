@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlaylistPlay
@@ -109,9 +111,10 @@ fun SongSelectionTopBar(
 }
 
 /**
- * Bottom action bar for a song selection: play next, add to queue, and
- * favorite/unfavorite. Features append their own actions (playlist,
- * download) via [extraActions] and decide when to clear the selection.
+ * Bottom action bar for a song selection: play next, add to queue,
+ * favorite/unfavorite, add to playlist, and download. Screens append their
+ * own actions (e.g. "Remove" in playlists) via [extraActions] and decide
+ * when to clear the selection.
  */
 @Composable
 fun SongSelectionActionBar(
@@ -121,6 +124,7 @@ fun SongSelectionActionBar(
     extraActions: (@Composable (List<String>) -> Unit)? = null,
     viewModel: SongActionsViewModel = hiltViewModel(),
 ) {
+    val mediaActions = LocalMediaActions.current
     Surface(
         modifier = modifier.fillMaxWidth(),
         tonalElevation = 3.dp,
@@ -148,6 +152,14 @@ fun SongSelectionActionBar(
             }
             SongSelectionAction(Icons.Filled.Favorite, "Unfavorite") {
                 viewModel.setStarredBulk(selectedIds, starred = false)
+                onClearSelection()
+            }
+            SongSelectionAction(Icons.AutoMirrored.Filled.PlaylistAdd, "Playlist") {
+                mediaActions.addToPlaylist(selectedIds)
+                onClearSelection()
+            }
+            SongSelectionAction(Icons.Filled.Download, "Download") {
+                mediaActions.downloadSongs(selectedIds)
                 onClearSelection()
             }
             extraActions?.invoke(selectedIds)

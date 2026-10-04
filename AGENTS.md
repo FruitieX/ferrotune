@@ -454,15 +454,20 @@ typed flows.
 | `android/core/network/QueryMap.kt` | Converts generated query DTOs into Retrofit `@QueryMap` parameters, omitting nulls | `toQueryMap()` |
 | `android/core/network/ConnectivityMonitor.kt` | Validated-network connectivity state; drives the global offline banner and offline-aware UI | `isOnline: StateFlow<Boolean>` (interface `ConnectivityMonitor`, impl `AndroidConnectivityMonitor`) |
 | `android/core/media/PlaybackSessionStarter.kt` | Connects a playback session and materializes queues (library, album, artist, genre, favorites, history, search, song radio, explicit song IDs, plus next/end additions; additions without an active session start a queue instead) | `QueueStartSpec`, `QueueAddSpec`, `startQueue()`, `startRandomQueue()`, `startAlbum()`, `startArtist()`, `startSongRadio()`, `addToQueue()`, `queueSort()`; ViewModels inject the `PlaybackStarter` interface so tests can fake it |
-| `android/core/actions/SongActions.kt` | Shared song action sheet (favorite, play next, add to queue, song radio, start-selection, extra slots) backed by a Hilt entry point so any feature module can drop in row/top-bar actions; renders through the shared `MediaActionSheet` bottom sheet | `SongActionsEntryPoint`, `rememberSongFlags()`, `SongActionsViewModel` (`toggleStar`, `setStarredBulk`, `loadAllIds`, `playNext`, `addToQueue`), `songMenuActions()`, `SongActionSheet()`, `SongFavoriteButton` |
-| `android/core/actions/CollectionActions.kt` | Shared long-press bottom sheets for album/artist/playlist collections: resolves a `CollectionTarget` source descriptor into play/shuffle/play-next/add-to-queue commands, with an optional "Go to artist" item and feature `extraContent` | `CollectionSource`, `CollectionTarget`, `CollectionActionsViewModel` (`play`, `shuffle`, `playNext`, `addToQueue`), `CollectionActionSheet()` |
-| `android/core/actions/SongSelection.kt` | Screen-local multi-select for song lists: count/select-all top bar and bottom action bar (play next, queue, favorite/unfavorite + feature slots), with select-all resolved server-side via `/songs/ids` or `/sources/song-ids` | `SongSelectionState`, `rememberSongSelectionState()`, `SongSelectionTopBar`, `SongSelectionActionBar`, `SongSelectionAction` |
-| `android/core/actions/SongFlagsStore.kt` | Optimistic starred overlay over API mutations with rollback on failure; bulk starring merges overrides without clobbering other songs | `SongFlags`, `SongFlagsOverride`, `SongFlagsStore`, `setStarred()`, `setStarredBulk()`, `clear()` |
+| `android/core/actions/SongActions.kt` | Song mutations behind the shared menus (favorite, rating, play next/queue, select-all id resolution) with outcomes reported through `UserMessages` | `SongActionsEntryPoint`, `rememberSongFlags()`, `SongActionsViewModel` (`toggleStar`, `setRating`, `setStarredBulk`, `loadAllIds`, `playNext`, `addToQueue`, `playSong`), `SongFavoriteButton` |
+| `android/core/actions/SongMenu.kt` | The web song row and song drawer menu: one hoisted `SongMenuState` + `SongMenuSheet` per screen (Play, Play next, Add to queue, Start radio, Add to playlist, favorite, inline 1–5 rating, Go to artist/album, Download, Select + screen `extraActions`), `SongListRow` over `TrackRow` with now-playing bars, and `rememberNowPlaying()` (track/play state only, so progress ticks never recompose lists) | `SongMenuTarget`, `toMenuTarget()`, `SongMenuState`, `rememberSongMenuState()`, `SongMenuSheet()`, `SongListRow()`, `songSubtitle()`, `NowPlaying`, `rememberNowPlaying()` |
+| `android/core/actions/SongListItems.kt` | `LazyListScope` helper rendering paged songs with loading/error/empty/append states, optional index column, disc separators (`discHeader`), and custom keys (null keys for lists with duplicate songs) | `songPagingItems()`, `discHeader()` |
+| `android/core/actions/MediaActions.kt` | App-level navigation and cross-feature actions provided by the app shell through a CompositionLocal (open album/artist/genre/radio/playlist, the shared "Add to playlist" dialog, downloads, the song download menu row). Screens never thread these callbacks | `MediaActions`, `LocalMediaActions`, `NoOpMediaActions` |
+| `android/core/actions/UserMessages.kt` | App-wide snackbar feed (web toasts): actions report confirmations/errors here instead of failing silently or replacing the page with an error | `UserMessages` (`show`, `error`, `failure`), `UserMessage` |
+| `android/core/actions/Covers.kt` | Cover models like the web `CoverImage`: inline thumbnail when present, else the authenticated `/api/cover-art` URL built from `LocalServerUrl` (provided by the app shell) | `LocalServerUrl`, `coverModel()`, `coverUrl()`, `CoverSize` |
+| `android/core/actions/CollectionActions.kt` | Hoisted album/artist/playlist/genre drawer menu: play, shuffle, play next, add to queue, add to playlist (resolves the source's song ids), favorite (albums/artists), Go to artist, plus screen `extraActions`/`extraContent` (download, sort) | `CollectionSource`, `CollectionTarget`, `CollectionMenuState`, `rememberCollectionMenuState()`, `CollectionMenuSheet()`, `CollectionActionsViewModel` |
+| `android/core/actions/SongSelection.kt` | Screen-local multi-select for song lists: count/select-all top bar and bottom action bar (play next, queue, favorite/unfavorite, add to playlist, download + screen `extraActions`), with select-all resolved server-side via `/songs/ids` or `/sources/song-ids` | `SongSelectionState`, `rememberSongSelectionState()`, `SongSelectionTopBar`, `SongSelectionActionBar`, `SongSelectionAction` |
+| `android/core/actions/SongFlagsStore.kt` | Optimistic starred/rating overlay over API mutations with rollback on failure; bulk starring merges overrides without clobbering other songs | `SongFlags`, `SongFlagsOverride`, `SongFlagsStore`, `setStarred()`, `setRating()`, `setStarredBulk()`, `clear()` |
 | `android/feature/library/LibraryRepository.kt` + `LibraryPagingSources.kt` | Paged browse/search/history reads and starring mutations; requests `inlineImages=medium` cover art in browse/search/history params so list rows render artwork without extra fetches; server-side sort/filter keys; `favoritesCounts()` resolves starred song/album/artist totals from a zero-count search for the Favorites tab labels | `songs()`, `albums()`, `artists()`, `albumSongs()`, `artistSongs()`, `artistAlbums()`, `history(filter, sort, sortDir)`, `favoritesCounts()`, `genres()`, `similarSongs()`, `setStarred()`, `INLINE_IMAGES` |
 | `android/feature/library/LibraryViewPreferencesRepository.kt` | Server-synced per-tab library sort preferences stored as JSON under the native-only `library-sort-native` key (the shared `library-sort` key belongs to the web/Tauri client and must not be clobbered) | `sort: StateFlow<LibrarySortConfig>`, `ensureLoaded()`, `load()`, `invalidate()`, `setSongSort()`, `setAlbumSort()`, `setArtistSort()` |
 | `android/core/network/ViewSortPreferencesRepository.kt` | Server-synced per-view sort preferences for the Favorites tabs, album/artist/genre detail, history, and playlist detail (playlist and smart-playlist detail share one key), stored under native-only `*-native` keys with the web's `{field, direction}` shape | `config(key, default)`, `ensureLoaded()`, `load()`, `invalidate()`, `setSort(key, field, direction)`; `ViewSortKey`, `ViewSortConfig` |
 | `android/feature/playlists/PlaylistRepository.kt` + `PlaylistPagingSources.kt` | Playlist folders, playlists, smart playlists, shares, membership, song search, and music folders for rule fields | `folders()`, `createFolder()`, `updateFolder()`, `movePlaylist()`, `playlistSongs()`, `addSongs()`, `removeSongs()`, `moveEntry()`, `shares()`, `setShares()`, `smartPlaylists()`, `materializeSmartPlaylist()`, `musicFolders()`, `searchSongs()` |
-| `android/feature/playlists/PlaylistFolderTree.kt` | Builds the folder hierarchy the playlist browser renders (position/name ordering, orphan fallback) and answers drill-down queries against it | `buildPlaylistTree()`, `PlaylistFolderNode`, `PlaylistTree`, `foldersIn()`, `playlistsIn()`, `folderById()`, `folderPath()`; `PlaylistsViewModel` keeps `currentFolderId`/`openFolder()`/`navigateUp()` for the breadcrumb browser |
+| `android/feature/playlists/PlaylistFolderTree.kt` | Builds the folder hierarchy the playlist browser renders (position/name ordering, orphan fallback) and answers drill-down queries against it | `buildPlaylistTree()`, `PlaylistFolderNode`, `PlaylistTree`, `foldersIn()`, `playlistsIn()`, `folderById()`, `folderPath()`; `PlaylistsViewModel` keeps `currentFolderId`/`openFolder()`/`navigateUp()` for the breadcrumb browser and `browserItems()` (folders first, then playlists + smart playlists filtered/sorted like the web toolbar) |
 | `android/feature/playlists/SmartPlaylistRules.kt` | Smart playlist rule field/operator descriptors plus `SmartConditionDraft` ⇄ `SmartPlaylistConditionApi` value conversion | `ruleFields()`, `operatorsFor()`, `SmartConditionDraft.toApiCondition()`, `SmartPlaylistConditionApi.toDraft()` |
 | `android/feature/playlists/AddToPlaylistDialog.kt` | Overflow action/dialog for adding song IDs to an editable playlist, plus an `AddToPlaylistMenuItem()` sheet row; hosts its own Hilt VM so any feature can use it | `AddToPlaylistAction()`, `AddToPlaylistMenuItem()`, `AddToPlaylistDialog()` |
 | `android/feature/home/HomeRepository.kt` | Home dashboard per-section reads, stats, and listening review reads | `continueListening()`, `mostPlayedRecently()`, `forgottenFavorites()`, `albumList()`, `similarTracks()`, `playlistSongs()`, `smartPlaylistSongs()`, `stats()`, `listeningStats()`, `periodReview()` |
@@ -488,58 +493,68 @@ typed flows.
 | `android/core/designsystem/theme/GradientPalette.kt` | Deterministic seed-based gradient colors used for artwork fallbacks and detail/now-playing backdrops | `seedGradient()`, `seedGradientBrush()`, `SeedGradient` |
 | `android/core/datastore/ThemePreferencesRepository.kt` | Device-level theme mode persisted in a `ferrotune_ui` DataStore; `ThemeModeStore` interface keeps ViewModels testable | `ThemeModeStore`, `ThemePreferencesRepository`, `themeMode`, `setThemeMode()` |
 | `android/core/testing/FakeFerrotuneApi.kt` | Shared `FerrotuneApi` test double with per-endpoint handler lambdas; consumed as `testImplementation(project(":core:testing"))` | `FakeFerrotuneApi`, `FakeApiProvider`, `FakeAccounts`, `FakeAccountSwitcher`, `testAccount()`, `FakePlaybackStarter` |
-| `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt` (seeded gradient fallback, optional `placeholderTint`), `MediaCard`/`ShelfCard` (shelf + grid cards with play overlay and long-press menu hook), `MediaRow` (circular-cover, multi-select, and `coverPlaceholder`/`coverPlaceholderTint` icon-fallback support), `MediaActionSheet`/`MediaActionRow` (bottom-sheet action list with cover header, matching the web drawer menu), `SectionHeader`, `DetailHeader` (gradient detail header with badges/actions, plus a gradient icon tile via `icon`/`iconGradient` when there is no cover), `DetailActionBar` (web `ActionBar`: 48dp play + outlined shuffle + screen `actions` slot), `ChipTabRow` (web chip tabs: framed row of icon+label pills, active `surfaceContainerHighest`), `SegmentedTabs` (web shadcn `TabsList` segmented control with counts), `FilterPill` (web filter pill: secondary pill with search icon, inline clear), `SearchField` (web `h-12` search input), `FavoriteButton` (filled/outline heart), `WaveformBar` (seekable bar strip: tap/drag scrubbing with the web's scrub affordances — vertical position indicator, current/scrub tooltips, `TOUCH_PREVIEW_DURATION_MS` persistence, collision hiding; the tooltip band stays pointer-transparent), `ShimmerBox`/`MediaRowSkeletonList`/`MediaCardSkeleton`, `SortMenu` (single sort icon with direction toggle), `Formatting.kt` (`formatCount`, `formatTotalDuration`, `formatListeningTime`, `formatClockDuration` — exact ports of the web format helpers), `PagingListFooter`, `ErrorState`, `EmptyState`, `LoadingState` |
+| `android/core/designsystem/components/` | Shared Compose building blocks | `CoverArt` (web `CoverImage` placeholder: seeded `coverPlaceholderColors` gradient + white type icon under the image, optional low-res `fallbackModel`), `TrackRow` (web song row: index/now-playing bars/checkbox column, 40dp cover, title/subtitle, duration, current/selected tint) + `TrackListHeader` (`# Title Time`) + `TrackGroupHeader` ("Disc N"), `NowPlayingBars`, `MediaCard`/`ShelfCard` (web card: 8dp-padded `bg-card` tile, type icon + tint before the title, centered text for circular covers, no touch play overlay; `MediaGridMinCellWidth` gives three columns on phones, `ShelfCardWidth` for home shelves), `MediaRow`, `MediaActionSheet`/`MediaActionRow`/`MediaActionSeparator` (web drawer menu: animated dismiss, scrollable, separators, destructive rows; rows close the sheet via `LocalMediaSheetDismiss`), `SectionHeader`, `DetailHeader` (always clears the status bar; gradient icon tile via `icon`/`iconGradient`, `coverFallbackModel`, `coverPlaceholder`), `DetailHero` (backdrop sized to the header so it scrolls away) + `bleedHorizontal()`, `DetailActionBar` (web `ActionBar`: translucent strip with play/shuffle/`actions`) + `PinnedActionBar`/`rememberActionBarPinned()`/`ACTION_BAR_ITEM_KEY` (the web's sticky action bar), `ChipTabRow`, `SegmentedTabs` (optionally `scrollable`), `FilterPill` (Search IME action dismisses the keyboard), `SearchField`, `FavoriteButton` (web red heart), `WaveformBar`, `ShimmerBox`/`MediaRowSkeletonList`/`MediaCardSkeleton`, `SortMenu` + `SortSheetSection` (sort rows for ⋯ sheets; choosing the active field flips direction), `Formatting.kt`, `PagingListFooter`, `ErrorState`, `EmptyState` (web icon circle + title + description + action), `LoadingState` |
 
 ### Native Android UI Conventions
 
-- Chrome screens (Home, Library, Playlists, Search) and the app shell set
-  `contentWindowInsets = WindowInsets(0)`; detail screens keep default insets and
-  rely on `TopAppBar`/`Scaffold`. Do not add manual status-bar padding.
-- Detail headers follow the web `DetailHeader`: uppercase label, title,
-  muted subtitle/meta lines, optional gradient icon tile
-  (`DetailHeader(icon = ..., iconGradient = seedIconGradient(seed))`) with a
-  `DetailBackdrop` color of `seedBackdropColor(seed)` or a flow-tinted overlay
-  for fixed collections (favorites red, history purple, playlists emerald).
-  The play/shuffle/filter/sort controls live in a separate `DetailActionBar`
-  below the header (`actions` slot hosts `FilterPill` + `SortMenu`), matching
-  the web `ActionBar`, instead of inside the header.
+- The web client is the design reference: match its mobile layout, copy, and
+  "where things live" (e.g. sort lives in the ⋯ drawer, not a separate icon).
+  `ThemeMode.DEFAULT` is dark like the web. Components read `LocalDarkTheme`,
+  never `isSystemInDarkTheme()`, so the in-app theme choice wins.
+- Edge to edge everywhere: screens use `contentWindowInsets = WindowInsets(0)`;
+  `DetailHeader` and the chrome headers clear the status bar themselves.
+- Detail screens (album, artist, genre, playlist, smart playlist, favorites,
+  history, song radio, home section, the Playlists tab) are one lazy list or
+  grid: a `DetailHero` item (backdrop + `DetailHeader`), then the
+  `DetailActionBar` as its own item keyed `ACTION_BAR_ITEM_KEY`, then content.
+  Define the action bar once as a local `@Composable` lambda and also render it
+  in `PinnedActionBar(visible = rememberActionBarPinned(listState))` so it pins
+  under the status bar like the web's sticky `ActionBar`. The bar holds play,
+  shuffle, a `FilterPill`, and a ⋯ button opening the page's
+  `CollectionMenuSheet`/`MediaActionSheet` with download and `SortSheetSection`.
+- Song lists render through `songPagingItems`/`SongListRow` with one
+  `SongMenuSheet` and `rememberNowPlaying()` per screen. Tap plays, long-press
+  opens the song drawer menu (toggles selection while selecting); rows carry no
+  per-row heart/⋯ buttons, like the web on touch. Album/artist/playlist cards use
+  `CollectionMenuSheet`. Navigation from rows and sheets goes through
+  `LocalMediaActions`.
+- Playing from any list must materialize the same list server-side: pass the
+  source type/id, `queueTextFilter(filter)` (or `{query}` for library/search),
+  the active sort, and `startIndex` + `startSongId` of the tapped row (playlist
+  rows use `songIndex`, since playlists can repeat songs and skip missing
+  entries). Home sections carry their discovery seed in `queueFilters`.
+- Lists that restore a stored sort gate paging with `waitFor(sortReady)` and
+  `SORT_PREFERENCES_TIMEOUT_MS` (`core/network/SortPreferencesLoading.kt`) so the
+  first page isn't fetched twice. Sort selections persist through
+  `ViewSortPreferencesRepository` (`ViewSortKey`, native-only `*-native` keys).
+- Report action outcomes with `UserMessages`; keep error *states* for failed
+  page loads only.
 - Collection screens that the web renders as `TabsList` use `SegmentedTabs`
-  (Favorites, Search); library chips use `ChipTabRow`.
-- Detail screens with server-side song filtering/sorting use
-  `DETAIL_SONG_SORT_OPTIONS` (`LibraryScreen.kt`) with `CUSTOM_SORT` ("custom"
-  maps to the API default order) and per-screen `debounce`d filter flows, so
-  every list keeps server materialization in sync with what is displayed.
-  Sort selections are restored and persisted server-side through
-  `ViewSortPreferencesRepository` (`ViewSortKey` per view, native-only
-  `*-native` keys); unknown stored fields/directions fall back to the view's
-  defaults.
+  (Favorites, Search); library chips use `ChipTabRow`. Grids use
+  `GridCells.Adaptive(MediaGridMinCellWidth)` (web: three columns on phones);
+  lists that mix a grid with other sections use `pagedCardRows`
+  (`feature/library/.../LibraryLists.kt`).
 - Top-level navigation (`navigateTopLevel` in `AppNavHost.kt`) pops back to
   Home and launches a single top instance per tab; it intentionally does not
   use `saveState`/`restoreState`, so tapping a tab always lands on that tab's
-  root instead of a stale saved stack.
-- Song rows open the shared `SongActionSheet` bottom sheet on long-press; while
-  a selection is active, long-press toggles selection instead. The sheet's
-  "Select" item (`Icons.Filled.Checklist`) starts selection. Album/artist/
-  playlist rows use `CollectionActionSheet`. Media actions are bottom sheets
-  (matching the web client's drawer menu on touch), not dropdown menus; plain
-  overflow menus without media context may still use `DropdownMenu`.
-- Player surfaces render `WaveformBar` when a song has waveform data and fall back
-  to `LinearProgressIndicator`/`Slider` otherwise; the choice follows the
-  server-synced `progress-bar-style` preference.
-- The Playlists tab is a folder browser, not a `DetailHeader` screen: a compact
-  `PageTitle` + breadcrumb (`Playlists > … > current`, tappable crumbs), folder
-  drill-down rows, and a `New` dropdown whose entries are created inside the
-  currently open folder. Folder names come from `PlaylistTree.folderPath` /
-  `foldersIn` / `playlistsIn`; keep scoping dialogs to `currentFolderId`.
+  root instead of a stale saved stack. The app content is keyed on the active
+  account, so switching accounts starts a fresh navigation stack.
+- Media actions are bottom sheets (the web drawer menu on touch), not dropdown
+  menus; plain overflow menus without media context may still use
+  `DropdownMenu`.
+- The player keeps playback position out of `PlayerUiState`:
+  `PlayerViewModel.progress` + `rememberPlaybackPosition()` interpolate between
+  the engine's once-a-second progress events, and only `PlayerSeekBar` /
+  `PlayerProgressLine` read it. The seek bar shows `WaveformBar` when the
+  server-synced `progress-bar-style` is "waveform" and the song has data, a
+  `Slider` otherwise.
 - The mini player's waveform deliberately lives *outside* the Material3
   `Surface` and is positioned with a placement-based `Modifier.offset`: a
   `Surface` clips hit testing, so a `graphicsLayer` overhang would draw above the
   bar but stay untouchable. Keep the waveform as a sibling of the `Surface` if
   you touch this layout.
-- Scrollable detail screens pass their header as the first list item (like
-  `GenreDetailScreen` and `FavoritesScreen`) so it scrolls away instead of
-  pinning. A `LazyVerticalGrid` item with multiple root layouts overlays them at
-  the same origin, so wrap a multi-composable header slot in a single `Column`
+- A `LazyVerticalGrid` item with multiple root layouts overlays them at the
+  same origin, so wrap a multi-composable header slot in a single `Column`
   before placing it in a grid item.
 
 ---

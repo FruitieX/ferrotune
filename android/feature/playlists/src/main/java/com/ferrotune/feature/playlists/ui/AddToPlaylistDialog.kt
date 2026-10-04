@@ -33,45 +33,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.MediaActionRow
 
-/**
- * Overflow action for song rows that adds the given songs to an editable
- * playlist. Hosts its own dialog so any feature can drop it into a row.
- */
-@Composable
-fun AddToPlaylistAction(
-    songIds: List<String>,
-    modifier: Modifier = Modifier,
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    var dialogOpen by remember { mutableStateOf(false) }
-
-    Box(modifier) {
-        IconButton(onClick = { menuExpanded = true }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "More")
-        }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false },
-        ) {
-            DropdownMenuItem(
-                text = { Text("Add to playlist") },
-                onClick = {
-                    menuExpanded = false
-                    dialogOpen = true
-                },
-            )
-        }
-    }
-
-    if (dialogOpen) {
-        AddToPlaylistDialog(
-            songIds = songIds,
-            onDismiss = { dialogOpen = false },
-            onAdded = { dialogOpen = false },
-        )
-    }
-}
-
 @Composable
 fun AddToPlaylistDialog(
     songIds: List<String>,
@@ -145,17 +106,3 @@ fun AddToPlaylistDialog(
     )
 }
 
-/**
- * Sheet-row variant of [AddToPlaylistAction] for shared action sheets.
- * The caller owns the dialog state and renders [AddToPlaylistDialog] itself.
- */
-@Composable
-fun AddToPlaylistMenuItem(
-    onClick: () -> Unit,
-) {
-    MediaActionRow(
-        icon = Icons.Filled.PlaylistAdd,
-        label = "Add to playlist",
-        onClick = onClick,
-    )
-}

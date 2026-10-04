@@ -5,12 +5,20 @@ import com.ferrotune.core.network.generated.ContinueListeningEntry
 import com.ferrotune.core.network.generated.SongResponse
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 data class HomeSectionData(
     val songs: List<SongResponse> = emptyList(),
     val albums: List<AlbumResponse> = emptyList(),
     val entries: List<ContinueListeningEntry> = emptyList(),
     val seed: Long? = null,
+    /**
+     * Discovery state the server needs to rebuild this exact list as a queue
+     * (seeded shuffles, similar-track seed song), merged into the section's
+     * queue filters like the web home page does.
+     */
+    val queueFilters: Map<String, JsonElement> = emptyMap(),
 )
 
 /** Fetches one dashboard section's preview items, honoring its settings. */
@@ -41,14 +49,29 @@ class HomeSectionLoader @Inject constructor(
             minPlays = section.forgottenMinPlays,
             notPlayedSinceDays = section.forgottenNotPlayedDays,
             size = size,
-        ).let { HomeSectionData(songs = it.song, seed = it.seed) }
+        ).let {
+            HomeSectionData(
+                songs = it.song,
+                seed = it.seed,
+                queueFilters = mapOf("seed" to JsonPrimitive(it.seed)),
+            )
+        }
 
         HomeSectionKind.DISCOVER -> repository.albumList(type = "random", size = size).let {
             HomeSectionData(albums = it.album, seed = it.seed)
         }
 
         HomeSectionKind.SIMILAR_TRACKS -> repository.similarTracks(size).let {
-            HomeSectionData(songs = it.song, seed = it.seed)
+            HomeSectionData(
+                songs = it.song,
+                seed = it.seed,
+                queueFilters = buildMap {
+                    put("seed", JsonPrimitive(it.seed))
+                    put("count", JsonPrimitive(it.count))
+                    put("excludeRecentDays", JsonPrimitive(it.excludeRecentDays))
+                    it.seedSongId?.let { id -> put("seedSongId", JsonPrimitive(id)) }
+                },
+            )
         }
 
         HomeSectionKind.TOP_ALBUMS -> HomeSectionData(

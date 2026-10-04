@@ -1,6 +1,7 @@
 package com.ferrotune.core.designsystem.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -96,5 +97,48 @@ fun SortMenu(
                 },
             )
         }
+    }
+}
+
+/**
+ * Sort rows for the ⋯ action sheet (the web drawer's "Sort" group): the
+ * active field shows its direction, and choosing it again flips the
+ * direction, matching the web toolbar's `handleSort`.
+ */
+@Composable
+fun SortSheetSection(
+    options: List<SortOption>,
+    selectedKey: String,
+    ascending: Boolean,
+    onSelect: (String) -> Unit,
+    onToggleDirection: () -> Unit,
+) {
+    MediaActionSeparator()
+    Text(
+        text = "Sort by",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+    )
+    options.forEach { option ->
+        val selected = option.key == selectedKey
+        MediaActionRow(
+            icon = Icons.AutoMirrored.Filled.Sort,
+            label = option.label,
+            onClick = { if (selected) onToggleDirection() else onSelect(option.key) },
+            trailing = if (selected) {
+                {
+                    Icon(
+                        imageVector = if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                        contentDescription = if (ascending) "Ascending" else "Descending",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                null
+            },
+        )
     }
 }

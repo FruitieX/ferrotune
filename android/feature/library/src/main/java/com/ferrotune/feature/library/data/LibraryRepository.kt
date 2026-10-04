@@ -11,6 +11,7 @@ import com.ferrotune.core.network.generated.FerrotuneArtistResponse
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
 import com.ferrotune.core.network.generated.FerrotuneSimilarSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSongResponse
+import com.ferrotune.core.network.generated.FerrotuneSearchContent
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.SearchParams
 import com.ferrotune.core.network.generated.SongResponse
@@ -154,6 +155,23 @@ class LibraryRepository @Inject constructor(
 
     suspend fun song(songId: String): FerrotuneSongResponse =
         apiProvider.requireApi().song(songId)
+
+    /**
+     * One request for the search "All" tab: the first few artists, albums, and
+     * songs plus each type's total for the tab labels (web search overview).
+     */
+    suspend fun searchOverview(query: String): FerrotuneSearchContent =
+        apiProvider.requireApi().search(
+            SearchParams(
+                query = query,
+                artistCount = 6,
+                albumCount = 6,
+                songCount = 10,
+                songSort = SongSort.TITLE.apiValue,
+                songSortDir = SortDir.ASC.apiValue,
+                inlineImages = INLINE_IMAGES,
+            ).toQueryMap(),
+        ).searchResult
 
     suspend fun genres(): List<GenreResponse> =
         apiProvider.requireApi().genres().genres.genre

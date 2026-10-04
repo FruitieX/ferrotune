@@ -1,5 +1,7 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.waitFor
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,6 +12,8 @@ import androidx.paging.cachedIn
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
+import com.ferrotune.core.media.queueTextFilter
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.network.ViewSortConfig
 import com.ferrotune.core.network.ViewSortKey
@@ -31,6 +35,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class GenreDetailUiState(
     val albumCount: Long = 0,
@@ -38,7 +43,6 @@ data class GenreDetailUiState(
     val filter: String = "",
     val sort: String = CUSTOM_SORT,
     val sortDir: SortDir = SortDir.ASC,
-    val playbackError: String? = null,
 )
 
 @HiltViewModel
@@ -46,6 +50,7 @@ class GenreDetailViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
     private val viewSortPreferences: ViewSortPreferencesRepository,
+    private val messages: UserMessages,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -55,12 +60,14 @@ class GenreDetailViewModel @Inject constructor(
     val uiState: StateFlow<GenreDetailUiState> = state.asStateFlow()
 
     private val filter = MutableStateFlow("")
+    private val sortReady = MutableStateFlow(false)
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val songs: Flow<PagingData<SongResponse>> = combine(
         state.map { it.sort to it.sortDir }.distinctUntilChanged(),
         filter.debounce { if (it.isBlank()) 0L else 300L }.distinctUntilChanged(),
     ) { (sort, sortDir), filter -> Triple(sort, sortDir, filter) }
+        .waitFor(sortReady)
         .flatMapLatest { (sort, sortDir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
                 repository.songs(
@@ -88,7 +95,7 @@ class GenreDetailViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            viewSortPreferences.ensureLoaded()
+            withTimeoutOrNull(SORT_PREFERENCES_TIMEOUT_MS) { viewSortPreferences.ensureLoaded() }
             val stored = viewSortPreferences.config(
                 ViewSortKey.GENRE_DETAIL,
                 ViewSortConfig(CUSTOM_SORT, SortDir.ASC.apiValue),
@@ -101,6 +108,7 @@ class GenreDetailViewModel @Inject constructor(
                     sortDir = SortDir.fromApiValue(stored.direction) ?: SortDir.ASC,
                 )
             }
+            sortReady.value = true
         }
     }
 
@@ -130,27 +138,27 @@ class GenreDetailViewModel @Inject constructor(
         }
     }
 
-    fun play(startSongId: String? = null, shuffle: Boolean = false) {
+    /** Plays the genre as listed (filter and sort included), optionally from one song. */
+    fun play(startSongId: String? = null, startIndex: Int = 0, shuffle: Boolean = false) {
+        val current = state.value
         viewModelScope.launch {
-            try {
+            runCatching {
                 sessionStarter.startQueue(
                     QueueStartSpec(
                         sourceType = "genre",
                         sourceId = genre,
                         sourceName = genre,
-                        sort = state.value.sort
+                        filters = queueTextFilter(current.filter),
+                        sort = current.sort
                             .takeIf { it != CUSTOM_SORT }
-                            ?.let { queueSort(it, state.value.sortDir.apiValue) }
+                            ?.let { queueSort(it, current.sortDir.apiValue) }
                             ?: queueSort("name", "asc"),
                         startSongId = startSongId,
+                        startIndex = startIndex,
                         shuffle = shuffle,
-                    )
+                    ),
                 )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
+            }.onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
-
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
 }

@@ -1,5 +1,6 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.UserMessages
 import androidx.lifecycle.SavedStateHandle
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
@@ -57,6 +58,7 @@ class AlbumDetailViewModelTest {
         repository = LibraryRepository(FakeApiProvider(api)),
         sessionStarter = starter,
         viewSortPreferences = ViewSortPreferencesRepository(FakeApiProvider(api)),
+        messages = UserMessages(),
         savedStateHandle = SavedStateHandle(mapOf("albumId" to "album-1")),
     )
 

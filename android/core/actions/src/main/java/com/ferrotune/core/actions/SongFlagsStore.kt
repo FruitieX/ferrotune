@@ -2,6 +2,7 @@ package com.ferrotune.core.actions
 
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
+import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.StarRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -9,9 +10,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Favorite state for one song. */
+/** Favorite and rating state for one song (`rating` 0 = unrated). */
 data class SongFlags(
     val starred: Boolean,
+    val rating: Int = 0,
 )
 
 /**
@@ -20,13 +22,16 @@ data class SongFlags(
  */
 data class SongFlagsOverride(
     val starred: Boolean? = null,
+    val rating: Int? = null,
 ) {
     fun mergedWith(base: SongFlags): SongFlags = SongFlags(
         starred = starred ?: base.starred,
+        rating = rating ?: base.rating,
     )
 
     /** True once [base] already reflects every overridden field. */
-    fun isSatisfiedBy(base: SongFlags): Boolean = starred == null || starred == base.starred
+    fun isSatisfiedBy(base: SongFlags): Boolean =
+        (starred == null || starred == base.starred) && (rating == null || rating == base.rating)
 }
 
 /**
@@ -49,6 +54,18 @@ class SongFlagsStore @Inject constructor(
         update(songId, (previous[songId] ?: SongFlagsOverride()).copy(starred = starred))
         try {
             starRequest(starred, listOf(songId))
+        } catch (e: Exception) {
+            restore(previous, listOf(songId))
+            throw e
+        }
+    }
+
+    /** Sets a 0-5 star rating (0 clears it); reverts on failure. */
+    suspend fun setRating(songId: String, rating: Int) {
+        val previous = _overrides.value
+        update(songId, (previous[songId] ?: SongFlagsOverride()).copy(rating = rating))
+        try {
+            apiCall { apiProvider.requireApi().setRating(RatingRequest(id = songId, rating = rating)) }
         } catch (e: Exception) {
             restore(previous, listOf(songId))
             throw e

@@ -169,6 +169,23 @@ class PlaybackSessionStarter @Inject constructor(
             startSongId = spec.startSongId,
         ) ?: return false
         if (response.totalCount == 0) return false
+        if (!repository.hasSessionConfig()) {
+            // A cold start without connectivity never connected a session, and
+            // the engine ignores offline playback without credentials (it needs
+            // them for the download cache). Configure the account without a
+            // session id, which also keeps SSE from reconnecting while offline.
+            val account = accountStore.activeAccount.first() ?: return false
+            repository.initSession(
+                config = SessionConfig(
+                    serverUrl = account.serverUrl,
+                    username = account.username,
+                    sessionToken = account.sessionToken,
+                    sessionExpiresAt = account.sessionExpiresAt,
+                    clientId = accountStore.clientId(),
+                ),
+                settings = playbackSettingsRepository.ensureLoaded(),
+            )
+        }
         repository.applySettings(playbackSettingsRepository.ensureLoaded())
         repository.startOfflinePlayback(response, playWhenReady = true)
         return true
@@ -341,3 +358,12 @@ fun queueSort(field: String, direction: String): Map<String, JsonElement> =
     )
 
 private const val CLIENT_NAME = "ferrotune-mobile"
+
+/**
+ * Web `queueTextFilter`: detail pages (album, artist, genre, playlists,
+ * favorites, history) queue only the songs matching the visible text filter.
+ */
+fun queueTextFilter(filter: String): Map<String, JsonElement> {
+    val trimmed = filter.trim()
+    return if (trimmed.isEmpty()) emptyMap() else mapOf("filter" to JsonPrimitive(trimmed))
+}

@@ -1,5 +1,6 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.testing.FakeApiProvider
@@ -40,6 +41,7 @@ class FavoritesViewModelTest {
             repository = LibraryRepository(provider),
             sessionStarter = FakePlaybackStarter(),
             viewSortPreferences = ViewSortPreferencesRepository(provider),
+            messages = UserMessages(),
         )
     }
 

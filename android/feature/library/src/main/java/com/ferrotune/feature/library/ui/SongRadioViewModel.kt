@@ -3,6 +3,7 @@ package com.ferrotune.feature.library.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.network.generated.SongResponse
@@ -20,13 +21,13 @@ data class SongRadioUiState(
     val similar: List<SongResponse> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
-    val playbackError: String? = null,
 )
 
 @HiltViewModel
 class SongRadioViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
+    private val messages: UserMessages,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -47,25 +48,22 @@ class SongRadioViewModel @Inject constructor(
         }
     }
 
-    fun play(startSongId: String? = null, shuffle: Boolean = false) {
+    fun play(startSongId: String? = null, startIndex: Int = 0, shuffle: Boolean = false) {
         viewModelScope.launch {
-            try {
+            runCatching {
                 sessionStarter.startQueue(
                     QueueStartSpec(
                         sourceType = SOURCE_TYPE_SONG_RADIO,
                         sourceId = seedSongId,
-                        sourceName = state.value.seed?.title,
+                        sourceName = state.value.seed?.let { "${it.title} Radio" },
                         startSongId = startSongId,
+                        startIndex = startIndex,
                         shuffle = shuffle,
-                    )
+                    ),
                 )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
+            }.onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
-
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
 
     private companion object {
         const val SOURCE_TYPE_SONG_RADIO = "songRadio"

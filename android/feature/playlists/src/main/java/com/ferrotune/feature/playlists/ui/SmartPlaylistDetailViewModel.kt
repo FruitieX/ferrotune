@@ -7,7 +7,12 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
+import com.ferrotune.core.media.queueSort
+import com.ferrotune.core.media.queueTextFilter
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.waitFor
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SongResponse
@@ -29,6 +34,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class SmartPlaylistDetailUiState(
     val smartPlaylist: SmartPlaylistInfo? = null,
@@ -40,7 +46,6 @@ data class SmartPlaylistDetailUiState(
     val sortDir: String = "asc",
     val deleted: Boolean = false,
     val materializedPlaylistId: String? = null,
-    val playbackError: String? = null,
 )
 
 @HiltViewModel
@@ -48,6 +53,7 @@ class SmartPlaylistDetailViewModel @Inject constructor(
     private val repository: PlaylistRepository,
     private val sessionStarter: PlaybackStarter,
     private val viewSortPreferences: ViewSortPreferencesRepository,
+    private val messages: UserMessages,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -57,12 +63,14 @@ class SmartPlaylistDetailViewModel @Inject constructor(
     val uiState: StateFlow<SmartPlaylistDetailUiState> = state.asStateFlow()
 
     private val filter = MutableStateFlow("")
+    private val sortReady = MutableStateFlow(false)
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val songs: Flow<PagingData<SongResponse>> = combine(
         state.map { it.sort to it.sortDir }.distinctUntilChanged(),
         filter.debounce { if (it.isBlank()) 0L else 300L }.distinctUntilChanged(),
     ) { (sort, sortDir), filter -> Triple(sort, sortDir, filter) }
+        .waitFor(sortReady)
         .flatMapLatest { (sort, sortDir, filter) ->
             Pager(PagingConfig(pageSize = DEFAULT_PAGE_SIZE)) {
                 repository.smartPlaylistSongs(
@@ -78,7 +86,7 @@ class SmartPlaylistDetailViewModel @Inject constructor(
     init {
         load()
         viewModelScope.launch {
-            viewSortPreferences.ensureLoaded()
+            withTimeoutOrNull(SORT_PREFERENCES_TIMEOUT_MS) { viewSortPreferences.ensureLoaded() }
             val stored = viewSortPreferences.config(
                 ViewSortKey.PLAYLIST_DETAIL,
                 ViewSortConfig(PlaylistRepository.PLAYLIST_SORT_CUSTOM, "asc"),
@@ -93,6 +101,7 @@ class SmartPlaylistDetailViewModel @Inject constructor(
                     } ?: "asc",
                 )
             }
+            sortReady.value = true
         }
     }
 
@@ -139,22 +148,27 @@ class SmartPlaylistDetailViewModel @Inject constructor(
         }
     }
 
-    fun play(startSongId: String? = null, shuffle: Boolean = false) {
-        val smartPlaylist = state.value.smartPlaylist ?: return
+    /** Plays the smart playlist as listed (filter and sort included). */
+    fun play(startSongId: String? = null, startIndex: Int = 0, shuffle: Boolean = false) {
+        val current = state.value
+        val smartPlaylist = current.smartPlaylist ?: return
         viewModelScope.launch {
-            try {
+            runCatching {
                 sessionStarter.startQueue(
                     QueueStartSpec(
                         sourceType = SOURCE_TYPE_SMART_PLAYLIST,
                         sourceId = smartPlaylist.id,
                         sourceName = smartPlaylist.name,
+                        filters = queueTextFilter(current.filter),
+                        sort = current.sort
+                            .takeIf { it != PlaylistRepository.PLAYLIST_SORT_CUSTOM }
+                            ?.let { queueSort(it, current.sortDir) },
                         startSongId = startSongId,
+                        startIndex = startIndex,
                         shuffle = shuffle,
-                    )
+                    ),
                 )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
+            }.onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
 
@@ -164,7 +178,7 @@ class SmartPlaylistDetailViewModel @Inject constructor(
                 val response = repository.materializeSmartPlaylist(smartPlaylistId)
                 state.update { it.copy(materializedPlaylistId = response.playlistId) }
             } catch (e: Exception) {
-                state.update { it.copy(error = e.message ?: "Failed to create playlist") }
+                messages.failure("Couldn't create playlist", e)
             }
         }
     }
@@ -175,12 +189,10 @@ class SmartPlaylistDetailViewModel @Inject constructor(
                 repository.deleteSmartPlaylist(smartPlaylistId)
                 state.update { it.copy(deleted = true) }
             } catch (e: Exception) {
-                state.update { it.copy(error = e.message ?: "Failed to delete smart playlist") }
+                messages.failure("Couldn't delete smart playlist", e)
             }
         }
     }
-
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
 
     private companion object {
         const val SOURCE_TYPE_SMART_PLAYLIST = "smartPlaylist"

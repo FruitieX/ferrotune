@@ -1,5 +1,14 @@
 package com.ferrotune.feature.player
 
+import android.os.SystemClock
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameMillis
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.media.PlaybackEvent
@@ -23,27 +32,66 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/**
+ * Everything the player chrome shows except the playback position, which
+ * lives in [PlaybackProgress] so a progress tick never recomposes the whole
+ * player.
+ */
+@Immutable
 data class PlayerUiState(
     val track: TrackInfo? = null,
     val previousTrack: TrackInfo? = null,
     val nextTrack: TrackInfo? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
-    val positionMs: Long = 0,
-    val durationMs: Long = 0,
     val queueIndex: Int = -1,
     val queueLength: Int = 0,
     val isShuffled: Boolean = false,
     val repeatMode: String = "off",
+    val sourceName: String? = null,
+    val sourceType: String? = null,
     val isStartingQueue: Boolean = false,
     val error: String? = null,
     val cast: CastConnectionState = CastConnectionState(),
     val castStatus: CastMediaStatus? = null,
     val progressBarStyle: String = "waveform",
     val waveformHeights: List<Float> = emptyList(),
+)
+
+/**
+ * Last reported position plus when it was reported, so the UI can advance it
+ * smoothly between the engine's once-a-second progress events.
+ */
+@Immutable
+data class PlaybackProgress(
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val playing: Boolean = false,
+    val reportedAtMs: Long = 0,
 ) {
-    val progressFraction: Float
-        get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    /** Estimated position at [nowMs] (an `elapsedRealtime` timestamp). */
+    fun positionAt(nowMs: Long): Long {
+        val advanced = if (playing) positionMs + (nowMs - reportedAtMs).coerceAtLeast(0) else positionMs
+        return if (durationMs > 0) advanced.coerceIn(0, durationMs) else advanced.coerceAtLeast(0)
+    }
+}
+
+/**
+ * Smoothly advancing playback position: re-read every frame while playing,
+ * frozen while paused. Only the composable reading it recomposes.
+ */
+@Composable
+fun rememberPlaybackPosition(progress: PlaybackProgress): State<Long> {
+    val position = remember { mutableLongStateOf(progress.positionAt(SystemClock.elapsedRealtime())) }
+    LaunchedEffect(progress) {
+        position.longValue = progress.positionAt(SystemClock.elapsedRealtime())
+        if (!progress.playing) return@LaunchedEffect
+        while (true) {
+            withFrameMillis { }
+            position.longValue = progress.positionAt(SystemClock.elapsedRealtime())
+        }
+    }
+    return position
 }
 
 @HiltViewModel
@@ -74,33 +122,53 @@ class PlayerViewModel @Inject constructor(
             nextTrack = playback.nextTrack,
             isPlaying = if (cast.isConnected) castStatus.isPlaying else playback.status == PlaybackStatus.PLAYING,
             isBuffering = playback.status == PlaybackStatus.BUFFERING,
-            positionMs = if (cast.isConnected) castStatus.positionMs else playback.positionMs,
-            durationMs = if (cast.isConnected) {
-                castStatus.durationMs.takeIf { it > 0 } ?: playback.durationMs
-            } else {
-                playback.durationMs
-            },
             queueIndex = playback.queueIndex,
             queueLength = playback.queueLength,
             isShuffled = playback.isShuffled,
             repeatMode = playback.repeatMode,
+            sourceName = playback.sourceName,
+            sourceType = playback.sourceType,
             isStartingQueue = starting,
             error = errorMessage,
             cast = cast,
             castStatus = castStatus.takeIf { cast.isConnected },
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
+    }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
 
     val uiState: StateFlow<PlayerUiState> = combine(
         coreState,
         playbackSettingsRepository.settings,
         waveformHeights,
     ) { state, settings, heights ->
-        state.copy(
-            progressBarStyle = settings.progressBarStyle,
-            waveformHeights = heights,
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
+        state.copy(progressBarStyle = settings.progressBarStyle, waveformHeights = heights)
+    }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
+
+    /** Position updates, separate from [uiState] so only progress UI recomposes. */
+    val progress: StateFlow<PlaybackProgress> = combine(
+        repository.state,
+        castManager.state,
+        castManager.status,
+    ) { playback, cast, castStatus ->
+        if (cast.isConnected) {
+            PlaybackProgress(
+                positionMs = castStatus.positionMs,
+                durationMs = castStatus.durationMs.takeIf { it > 0 } ?: playback.durationMs,
+                playing = castStatus.isPlaying,
+                reportedAtMs = SystemClock.elapsedRealtime(),
+            )
+        } else {
+            PlaybackProgress(
+                positionMs = playback.positionMs,
+                durationMs = playback.durationMs,
+                playing = playback.status == PlaybackStatus.PLAYING,
+                reportedAtMs = SystemClock.elapsedRealtime(),
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaybackProgress())
 
     init {
         repository.ensureBound()
@@ -145,7 +213,7 @@ class PlayerViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            if (uiState.value.isPlaying) repository.pause() else repository.play()
+            if (repository.state.value.status == PlaybackStatus.PLAYING) repository.pause() else repository.play()
         }
     }
 
@@ -167,12 +235,12 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleShuffle() {
         viewModelScope.launch {
-            repository.setShuffle(!uiState.value.isShuffled)
+            repository.setShuffle(!repository.state.value.isShuffled)
         }
     }
 
     fun cycleRepeat() {
-        val next = when (uiState.value.repeatMode) {
+        val next = when (repository.state.value.repeatMode) {
             "off" -> "all"
             "all" -> "one"
             else -> "off"
@@ -181,7 +249,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekToFraction(fraction: Float) {
-        val durationMs = uiState.value.durationMs
+        val durationMs = progress.value.durationMs
         if (durationMs <= 0) return
         val positionMs = (fraction.coerceIn(0f, 1f) * durationMs).toLong()
         if (castManager.state.value.isConnected) {

@@ -85,7 +85,7 @@ class SettingsViewModelTest {
     }
 
     private class FakeThemeModeStore(
-        initial: ThemeMode = ThemeMode.SYSTEM,
+        initial: ThemeMode = ThemeMode.DEFAULT,
     ) : ThemeModeStore {
         val mode = MutableStateFlow(initial)
 
@@ -165,14 +165,14 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `theme mode defaults to system and persists changes`() = runTest {
+    fun `theme mode defaults to dark and persists changes`() = runTest {
         val harness = Harness()
 
-        assertEquals(ThemeMode.SYSTEM, harness.viewModel.themeMode.value)
-
-        harness.viewModel.setThemeMode(ThemeMode.DARK)
-
-        assertEquals(ThemeMode.DARK, harness.themeModeStore.mode.value)
         assertEquals(ThemeMode.DARK, harness.viewModel.themeMode.value)
+
+        harness.viewModel.setThemeMode(ThemeMode.LIGHT)
+
+        assertEquals(ThemeMode.LIGHT, harness.themeModeStore.mode.value)
+        assertEquals(ThemeMode.LIGHT, harness.viewModel.themeMode.value)
     }
 }

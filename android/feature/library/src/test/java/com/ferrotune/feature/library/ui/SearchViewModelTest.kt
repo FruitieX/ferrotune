@@ -1,5 +1,6 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
@@ -30,7 +31,7 @@ class SearchViewModelTest {
     }
 
     private fun viewModel(starter: FakePlaybackStarter = FakePlaybackStarter()) =
-        SearchViewModel(LibraryRepository(FakeApiProvider(FakeFerrotuneApi())), starter)
+        SearchViewModel(LibraryRepository(FakeApiProvider(FakeFerrotuneApi())), starter, UserMessages())
 
     @Test
     fun `query changes update state`() {
@@ -47,7 +48,7 @@ class SearchViewModelTest {
         val viewModel = viewModel(starter)
         viewModel.onQueryChange("   ")
 
-        viewModel.playSong("song-1")
+        viewModel.playSong("song-1", position = 0)
 
         assertTrue(starter.specs.isEmpty())
     }
@@ -58,11 +59,12 @@ class SearchViewModelTest {
         val viewModel = viewModel(starter)
         viewModel.onQueryChange("  beach house  ")
 
-        viewModel.playSong("song-4")
+        viewModel.playSong("song-4", position = 3)
 
         val spec = starter.specs.single()
         assertEquals("search", spec.sourceType)
         assertEquals("song-4", spec.startSongId)
+        assertEquals(3, spec.startIndex)
         assertEquals("beach house", (spec.filters["query"] as JsonPrimitive).content)
     }
 }

@@ -3,7 +3,9 @@ package com.ferrotune.feature.home.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
+import kotlinx.serialization.json.JsonElement
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ContinueListeningEntry
@@ -28,8 +30,7 @@ data class HomeSectionDetailUiState(
     val songs: List<SongResponse> = emptyList(),
     val albums: List<AlbumResponse> = emptyList(),
     val entries: List<ContinueListeningEntry> = emptyList(),
-    val serverUrl: String? = null,
-    val playbackError: String? = null,
+    val queueFilters: Map<String, JsonElement> = emptyMap(),
 )
 
 @HiltViewModel
@@ -39,6 +40,7 @@ class HomeSectionDetailViewModel @Inject constructor(
     private val layoutRepository: HomeLayoutPreferencesRepository,
     private val sectionLoader: HomeSectionLoader,
     private val sessionStarter: PlaybackStarter,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val sectionId: String = checkNotNull(savedStateHandle["sectionId"]) {
@@ -71,7 +73,7 @@ class HomeSectionDetailViewModel @Inject constructor(
                         songs = data.songs,
                         albums = data.albums,
                         entries = data.entries,
-                        serverUrl = runCatching { repository.activeServerUrl() }.getOrNull(),
+                        queueFilters = data.queueFilters,
                     )
                 }
             } catch (e: Exception) {
@@ -83,19 +85,15 @@ class HomeSectionDetailViewModel @Inject constructor(
     }
 
     fun playAll(shuffle: Boolean) {
-        val section = state.value.section ?: return
-        startQueue(homeSectionQueueSpec(section, shuffle))
+        val current = state.value
+        val section = current.section ?: return
+        startQueue(homeSectionQueueSpec(section, shuffle, current.queueFilters))
     }
 
-    fun playSong(song: SongResponse) {
-        val section = state.value.section ?: return
-        startQueue(
-            QueueStartSpec(
-                sourceType = homeSectionQueueSpec(section, shuffle = false).sourceType,
-                sourceName = homeSectionLabel(section),
-                startSongId = song.id,
-            ),
-        )
+    fun playSong(song: SongResponse, position: Int) {
+        val current = state.value
+        val section = current.section ?: return
+        startQueue(homeSectionSongQueueSpec(section, current.queueFilters, song.id, position))
     }
 
     fun playAlbum(album: AlbumResponse) {
@@ -131,17 +129,10 @@ class HomeSectionDetailViewModel @Inject constructor(
         startQueue(spec)
     }
 
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
-
     private fun startQueue(spec: QueueStartSpec) {
         viewModelScope.launch {
-            try {
-                sessionStarter.startQueue(spec)
-            } catch (e: Exception) {
-                state.update {
-                    it.copy(playbackError = e.message ?: "Unable to start playback")
-                }
-            }
+            runCatching { sessionStarter.startQueue(spec) }
+                .onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
 

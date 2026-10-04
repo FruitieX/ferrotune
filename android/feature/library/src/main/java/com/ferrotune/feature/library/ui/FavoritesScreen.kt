@@ -1,86 +1,69 @@
 package com.ferrotune.feature.library.ui
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.waitFor
+import com.ferrotune.core.designsystem.components.rememberActionBarPinned
+import com.ferrotune.core.designsystem.components.PinnedActionBar
+import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.paging.LoadState
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
-import com.ferrotune.core.actions.CollectionActionSheet
-import com.ferrotune.core.actions.CollectionSource
-import com.ferrotune.core.actions.CollectionTarget
-import com.ferrotune.core.actions.SongActionSheet
+import com.ferrotune.core.actions.CollectionMenuSheet
+import com.ferrotune.core.actions.LocalMediaActions
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongMenuSheet
 import com.ferrotune.core.actions.SongSelectionActionBar
-import com.ferrotune.core.actions.SongSelectionState
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.SongFavoriteButton
-import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.UserMessages
+import com.ferrotune.core.actions.coverModel
+import com.ferrotune.core.actions.rememberCollectionMenuState
+import com.ferrotune.core.actions.rememberNowPlaying
+import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.rememberSongSelectionState
+import com.ferrotune.core.actions.songPagingItems
 import com.ferrotune.core.designsystem.components.DetailActionBar
-import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.DetailHeader
+import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.FilterPill
-import com.ferrotune.core.designsystem.components.SegmentedTabs
-import com.ferrotune.core.designsystem.components.SortMenu
-import com.ferrotune.core.designsystem.components.SortOption
-import com.ferrotune.core.designsystem.components.formatCount
-import com.ferrotune.core.designsystem.components.formatTotalDuration
-import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.EmptyState
-import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
-import com.ferrotune.core.designsystem.components.MediaCardSkeleton
-import com.ferrotune.core.designsystem.components.MediaRow
-import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
-import com.ferrotune.core.designsystem.components.PagingListFooter
+import com.ferrotune.core.designsystem.components.SegmentedTabs
+import com.ferrotune.core.designsystem.components.SortOption
+import com.ferrotune.core.designsystem.components.SortSheetSection
+import com.ferrotune.core.designsystem.components.TrackListHeader
+import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
+import com.ferrotune.core.media.queueTextFilter
 import com.ferrotune.core.network.ViewSortConfig
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
@@ -88,10 +71,6 @@ import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.SongResponse
-import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
-import com.ferrotune.feature.downloads.ui.SongDownloadMenuItem
-import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
-import com.ferrotune.feature.playlists.ui.AddToPlaylistMenuItem
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.FavoritesCounts
@@ -112,6 +91,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Web `rgba(239,68,68,0.2)` favorites tint. */
 private val FAVORITES_BACKDROP = Color(0x33EF4444)
@@ -135,7 +115,6 @@ data class FavoritesUiState(
     val artistSort: ArtistSort = ArtistSort.NAME,
     val artistSortDir: SortDir = SortDir.ASC,
     val counts: FavoritesCounts? = null,
-    val playbackError: String? = null,
 )
 
 @HiltViewModel
@@ -143,12 +122,14 @@ class FavoritesViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
     private val viewSortPreferences: ViewSortPreferencesRepository,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = state.asStateFlow()
 
     private val filter = MutableStateFlow("")
+    private val sortReady = MutableStateFlow(false)
 
     val songs: Flow<PagingData<SongResponse>> = combine(
         state.map { it.songSort }.distinctUntilChanged(),
@@ -156,14 +137,10 @@ class FavoritesViewModel @Inject constructor(
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.songs(
-                    sort = sort,
-                    sortDir = dir,
-                    starredOnly = true,
-                    filter = filter.ifBlank { null },
-                )
+                repository.songs(sort = sort, sortDir = dir, starredOnly = true, filter = filter.ifBlank { null })
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -174,14 +151,10 @@ class FavoritesViewModel @Inject constructor(
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.albums(
-                    sort = sort,
-                    sortDir = dir,
-                    starredOnly = true,
-                    filter = filter.ifBlank { null },
-                )
+                repository.albums(sort = sort, sortDir = dir, starredOnly = true, filter = filter.ifBlank { null })
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -192,14 +165,10 @@ class FavoritesViewModel @Inject constructor(
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.artists(
-                    sort = sort,
-                    sortDir = dir,
-                    starredOnly = true,
-                    filter = filter.ifBlank { null },
-                )
+                repository.artists(sort = sort, sortDir = dir, starredOnly = true, filter = filter.ifBlank { null })
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -207,7 +176,7 @@ class FavoritesViewModel @Inject constructor(
     init {
         loadCounts()
         viewModelScope.launch {
-            viewSortPreferences.ensureLoaded()
+            withTimeoutOrNull(SORT_PREFERENCES_TIMEOUT_MS) { viewSortPreferences.ensureLoaded() }
             val songs = viewSortPreferences.config(
                 ViewSortKey.FAVORITE_SONGS,
                 ViewSortConfig(SongSort.TITLE.apiValue, SortDir.ASC.apiValue),
@@ -230,16 +199,15 @@ class FavoritesViewModel @Inject constructor(
                     artistSortDir = SortDir.fromApiValue(artists.direction) ?: SortDir.ASC,
                 )
             }
+            sortReady.value = true
         }
     }
 
     fun loadCounts() {
         viewModelScope.launch {
-            try {
-                state.update { it.copy(counts = repository.favoritesCounts()) }
-            } catch (_: Exception) {
-                // Counts are decorative; keep the previous values on failure.
-            }
+            runCatching { repository.favoritesCounts() }
+                .onSuccess { counts -> state.update { it.copy(counts = counts) } }
+            // Counts are decorative; keep the previous values on failure.
         }
     }
 
@@ -253,23 +221,20 @@ class FavoritesViewModel @Inject constructor(
     /** Applies the sort key to whichever favorites tab is active. */
     fun selectSort(key: String) {
         when (state.value.tab) {
-            FavoritesTab.SONGS -> SongSort.fromApiValue(key)
-                ?.let { sort ->
-                    state.update { s -> s.copy(songSort = sort) }
-                    persistSort(ViewSortKey.FAVORITE_SONGS)
-                }
+            FavoritesTab.SONGS -> SongSort.fromApiValue(key)?.let { sort ->
+                state.update { s -> s.copy(songSort = sort) }
+                persistSort(ViewSortKey.FAVORITE_SONGS)
+            }
 
-            FavoritesTab.ALBUMS -> AlbumSort.fromApiValue(key)
-                ?.let { sort ->
-                    state.update { s -> s.copy(albumSort = sort) }
-                    persistSort(ViewSortKey.FAVORITE_ALBUMS)
-                }
+            FavoritesTab.ALBUMS -> AlbumSort.fromApiValue(key)?.let { sort ->
+                state.update { s -> s.copy(albumSort = sort) }
+                persistSort(ViewSortKey.FAVORITE_ALBUMS)
+            }
 
-            FavoritesTab.ARTISTS -> ArtistSort.fromApiValue(key)
-                ?.let { sort ->
-                    state.update { s -> s.copy(artistSort = sort) }
-                    persistSort(ViewSortKey.FAVORITE_ARTISTS)
-                }
+            FavoritesTab.ARTISTS -> ArtistSort.fromApiValue(key)?.let { sort ->
+                state.update { s -> s.copy(artistSort = sort) }
+                persistSort(ViewSortKey.FAVORITE_ARTISTS)
+            }
         }
     }
 
@@ -282,68 +247,48 @@ class FavoritesViewModel @Inject constructor(
                 FavoritesTab.ARTISTS -> current.copy(artistSortDir = current.artistSortDir.opposite())
             }
         }
-        val key = when (state.value.tab) {
-            FavoritesTab.SONGS -> ViewSortKey.FAVORITE_SONGS
-            FavoritesTab.ALBUMS -> ViewSortKey.FAVORITE_ALBUMS
-            FavoritesTab.ARTISTS -> ViewSortKey.FAVORITE_ARTISTS
-        }
-        persistSort(key)
+        persistSort(
+            when (state.value.tab) {
+                FavoritesTab.SONGS -> ViewSortKey.FAVORITE_SONGS
+                FavoritesTab.ALBUMS -> ViewSortKey.FAVORITE_ALBUMS
+                FavoritesTab.ARTISTS -> ViewSortKey.FAVORITE_ARTISTS
+            },
+        )
     }
 
     private fun persistSort(key: ViewSortKey) {
         val current = state.value
         val config = when (key) {
-            ViewSortKey.FAVORITE_SONGS ->
-                ViewSortConfig(current.songSort.apiValue, current.songSortDir.apiValue)
-
-            ViewSortKey.FAVORITE_ALBUMS ->
-                ViewSortConfig(current.albumSort.apiValue, current.albumSortDir.apiValue)
-
-            ViewSortKey.FAVORITE_ARTISTS ->
-                ViewSortConfig(current.artistSort.apiValue, current.artistSortDir.apiValue)
-
+            ViewSortKey.FAVORITE_SONGS -> ViewSortConfig(current.songSort.apiValue, current.songSortDir.apiValue)
+            ViewSortKey.FAVORITE_ALBUMS -> ViewSortConfig(current.albumSort.apiValue, current.albumSortDir.apiValue)
+            ViewSortKey.FAVORITE_ARTISTS -> ViewSortConfig(current.artistSort.apiValue, current.artistSortDir.apiValue)
             else -> return
         }
-        viewModelScope.launch {
-            viewSortPreferences.setSort(key, config.field, config.direction)
-        }
+        viewModelScope.launch { viewSortPreferences.setSort(key, config.field, config.direction) }
     }
 
-    fun playAll(shuffle: Boolean = false) {
+    /**
+     * Plays favorite songs exactly as listed (web: `favorites` source with the
+     * song filter and sort), optionally starting at one song.
+     */
+    fun play(startSongId: String? = null, startIndex: Int = 0, shuffle: Boolean = false) {
+        val current = state.value
         viewModelScope.launch {
-            try {
+            runCatching {
                 sessionStarter.startQueue(
                     QueueStartSpec(
                         sourceType = "favorites",
                         sourceName = "Favorites",
-                        sort = queueSort("name", "asc"),
+                        filters = queueTextFilter(current.filter),
+                        sort = queueSort(current.songSort.apiValue, current.songSortDir.apiValue),
+                        startSongId = startSongId,
+                        startIndex = startIndex,
                         shuffle = shuffle,
-                    )
+                    ),
                 )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
+            }.onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
-
-    fun playSong(songId: String) {
-        viewModelScope.launch {
-            try {
-                sessionStarter.startQueue(
-                    QueueStartSpec(
-                        sourceType = "favorites",
-                        sourceName = "Favorites",
-                        sort = queueSort("name", "asc"),
-                        startSongId = songId,
-                    )
-                )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
-        }
-    }
-
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
 }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -357,49 +302,35 @@ private data class FavoritesSortMenuState(
 )
 
 private fun FavoritesUiState.sortMenuState(): FavoritesSortMenuState = when (tab) {
-    FavoritesTab.SONGS -> FavoritesSortMenuState(
-        SONG_SORT_OPTIONS,
-        songSort.apiValue,
-        songSortDir.isAscending(),
-    )
-
-    FavoritesTab.ALBUMS -> FavoritesSortMenuState(
-        ALBUM_SORT_OPTIONS,
-        albumSort.apiValue,
-        albumSortDir.isAscending(),
-    )
-
-    FavoritesTab.ARTISTS -> FavoritesSortMenuState(
-        ARTIST_SORT_OPTIONS,
-        artistSort.apiValue,
-        artistSortDir.isAscending(),
-    )
+    FavoritesTab.SONGS -> FavoritesSortMenuState(SONG_SORT_OPTIONS, songSort.apiValue, songSortDir.isAscending())
+    FavoritesTab.ALBUMS -> FavoritesSortMenuState(ALBUM_SORT_OPTIONS, albumSort.apiValue, albumSortDir.isAscending())
+    FavoritesTab.ARTISTS -> FavoritesSortMenuState(ARTIST_SORT_OPTIONS, artistSort.apiValue, artistSortDir.isAscending())
 }
 
+/**
+ * Web Favorites page: red heart header with counts, play/shuffle/search/⋯
+ * action bar, "Songs (n) / Albums (n) / Artists (n)" tabs, then the list or
+ * card grid for the active tab, all in one scroll.
+ */
 @Composable
 fun FavoritesScreen(
     onBack: () -> Unit,
-    onOpenAlbum: (String) -> Unit,
-    onOpenArtist: (String) -> Unit,
-    onOpenSongRadio: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FavoritesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val songs = viewModel.songs.collectAsLazyPagingItems()
-    val snackbarHostState = remember { SnackbarHostState() }
-    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
-    val selection = rememberSongSelectionState()
+    val albums = viewModel.albums.collectAsLazyPagingItems()
+    val artists = viewModel.artists.collectAsLazyPagingItems()
+    val actions = LocalMediaActions.current
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
-    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
-
-    LaunchedEffect(state.playbackError) {
-        state.playbackError?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.dismissPlaybackError()
-        }
-    }
+    val selection = rememberSongSelectionState()
+    val songMenu = rememberSongMenuState()
+    val collectionMenu = rememberCollectionMenuState()
+    val nowPlaying = rememberNowPlaying()
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    val columns = gridColumns()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -409,17 +340,11 @@ fun FavoritesScreen(
                 SongSelectionTopBar(
                     selectedCount = selection.count,
                     onClose = selection::clear,
-                    onSelectAll = if (state.tab == FavoritesTab.SONGS) {
-                        {
-                            actionsViewModel.loadAllIds(
-                                sources = listOf(
-                                    QueueSourceRequest(sourceType = "favorites", sourceId = null),
-                                ),
-                                onLoaded = selection::replace,
-                            )
-                        }
-                    } else {
-                        null
+                    onSelectAll = {
+                        actionsViewModel.loadAllIds(
+                            sources = listOf(QueueSourceRequest(sourceType = "favorites", sourceId = null)),
+                            onLoaded = selection::replace,
+                        )
                     },
                     selectingAll = selectingAll,
                 )
@@ -430,406 +355,147 @@ fun FavoritesScreen(
                 SongSelectionActionBar(
                     selectedIds = selection.selectedIds.toList(),
                     onClearSelection = selection::clear,
-                    extraActions = { ids ->
-                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
-                            addToPlaylistSongIds = ids
-                        }
-                        SongSelectionAction(Icons.Filled.Download, "Download") {
-                            downloadViewModel.downloadSongs(ids)
-                            selection.clear()
-                        }
-                    },
                     viewModel = actionsViewModel,
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
+        val actionBar: @Composable () -> Unit = {
+            DetailActionBar(
+                onPlayAll = { viewModel.play() },
+                onShuffle = { viewModel.play(shuffle = true) },
+                playEnabled = (state.counts?.songs ?: 1L) > 0,
+                actions = {
+                    FilterPill(
+                        value = state.filter,
+                        onValueChange = viewModel::setFilter,
+                        placeholder = when (state.tab) {
+                            FavoritesTab.SONGS -> "Search songs..."
+                            FavoritesTab.ALBUMS -> "Search albums..."
+                            FavoritesTab.ARTISTS -> "Search artists..."
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { sortMenuOpen = true }) {
+                        Icon(Icons.Filled.MoreHoriz, contentDescription = "Sort options")
+                    }
+                },
+            )
+        }
+        val listState = rememberLazyListState()
+        val actionBarPinned by rememberActionBarPinned(listState)
         Box(modifier = Modifier.fillMaxSize()) {
-            DetailBackdrop(color = FAVORITES_BACKDROP, height = 300.dp)
-            Box(
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
             ) {
-                // The header, action bar, and tabs are the first item of each
-                // tab's scrolling list so they scroll away like the other
-                // detail screens instead of pinning above the content.
-                val header: @Composable () -> Unit = {
-                    FavoritesDetailHeader(
-                        state = state,
-                        songs = songs,
-                        showBackButton = !selection.isActive,
-                        onBack = onBack,
-                        onPlayAll = { viewModel.playAll() },
-                        onShuffle = { viewModel.playAll(shuffle = true) },
-                        onFilterChange = viewModel::setFilter,
-                        onSelectSort = viewModel::selectSort,
-                        onToggleSortDirection = viewModel::toggleSortDirection,
-                        onSelectTab = { index ->
-                            selection.clear()
-                            viewModel.selectTab(FavoritesTab.entries[index])
-                        },
-                    )
-                }
-                when (state.tab) {
-                    FavoritesTab.SONGS -> PagedSongList(
-                        items = songs,
-                        onPlaySong = viewModel::playSong,
-                        onOpenSongRadio = onOpenSongRadio,
-                        onAddToPlaylist = { addToPlaylistSongIds = listOf(it) },
-                        selection = selection,
-                        header = header,
-                    )
-
-                    FavoritesTab.ALBUMS -> PagedAlbumGrid(
-                        items = viewModel.albums.collectAsLazyPagingItems(),
-                        onOpenAlbum = onOpenAlbum,
-                        header = header,
-                    )
-
-                    FavoritesTab.ARTISTS -> PagedArtistList(
-                        items = viewModel.artists.collectAsLazyPagingItems(),
-                        onOpenArtist = onOpenArtist,
-                        header = header,
-                    )
-                }
-            }
-        }
-    }
-
-    addToPlaylistSongIds?.let { songIds ->
-        AddToPlaylistDialog(
-            songIds = songIds,
-            onDismiss = { addToPlaylistSongIds = null },
-            onAdded = {
-                addToPlaylistSongIds = null
-                selection.clear()
-            },
-        )
-    }
-}
-
-@Composable
-private fun FavoritesDetailHeader(
-    state: FavoritesUiState,
-    songs: LazyPagingItems<SongResponse>,
-    showBackButton: Boolean,
-    onBack: () -> Unit,
-    onPlayAll: () -> Unit,
-    onShuffle: () -> Unit,
-    onFilterChange: (String) -> Unit,
-    onSelectSort: (String) -> Unit,
-    onToggleSortDirection: () -> Unit,
-    onSelectTab: (Int) -> Unit,
-) {
-    DetailHeader(
-        title = "Favorites",
-        icon = Icons.Filled.Favorite,
-        iconGradient = FAVORITES_ICON_GRADIENT,
-        subtitle = state.counts?.let { counts ->
-            val songsLoading = songs.loadState.refresh is LoadState.Loading &&
-                songs.itemCount == 0
-            when (state.tab) {
-                FavoritesTab.SONGS -> if (songsLoading) {
-                    null
-                } else {
-                    val totalDuration = songs.itemSnapshotList.items.sumOf { it.duration }
-                    "${formatCount(counts.songs.toInt(), "song")} • " +
-                        formatTotalDuration(totalDuration)
-                }
-
-                FavoritesTab.ALBUMS -> formatCount(counts.albums.toInt(), "album")
-                FavoritesTab.ARTISTS -> formatCount(counts.artists.toInt(), "artist")
-            }
-        },
-        seed = "favorites",
-        showBackButton = showBackButton,
-        onBack = onBack,
-    )
-    DetailActionBar(
-        onPlayAll = onPlayAll,
-        onShuffle = onShuffle,
-        playEnabled = (state.counts?.songs ?: 1) > 0,
-        actions = {
-            FilterPill(
-                value = state.filter,
-                onValueChange = onFilterChange,
-                placeholder = when (state.tab) {
-                    FavoritesTab.SONGS -> "Search songs..."
-                    FavoritesTab.ALBUMS -> "Search albums..."
-                    FavoritesTab.ARTISTS -> "Search artists..."
-                },
-                modifier = Modifier.weight(1f),
-            )
-            val sort = state.sortMenuState()
-            SortMenu(
-                options = sort.options,
-                selectedKey = sort.selectedKey,
-                ascending = sort.ascending,
-                onSelect = onSelectSort,
-                onToggleDirection = onToggleSortDirection,
-            )
-        },
-    )
-    SegmentedTabs(
-        labels = FavoritesTab.entries.map { tab ->
-            val count = when (tab) {
-                FavoritesTab.SONGS -> state.counts?.songs
-                FavoritesTab.ALBUMS -> state.counts?.albums
-                FavoritesTab.ARTISTS -> state.counts?.artists
-            }
-            if (count != null) "${tab.label()} ($count)" else tab.label()
-        },
-        selectedIndex = state.tab.ordinal,
-        onSelect = onSelectTab,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-}
-
-private fun FavoritesTab.label(): String = when (this) {
-    FavoritesTab.SONGS -> "Songs"
-    FavoritesTab.ALBUMS -> "Albums"
-    FavoritesTab.ARTISTS -> "Artists"
-}
-
-@Composable
-internal fun PagedSongList(
-    items: LazyPagingItems<SongResponse>,
-    onPlaySong: (String) -> Unit,
-    onOpenSongRadio: (String) -> Unit,
-    onAddToPlaylist: ((String) -> Unit)? = null,
-    selection: SongSelectionState? = null,
-    header: (@Composable () -> Unit)? = null,
-) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        if (header != null) {
-            item { Column { header() } }
-        }
-        when {
-            items.loadState.refresh is LoadState.Error -> item {
-                ErrorState(
-                    message = (items.loadState.refresh as LoadState.Error).error.message
-                        ?: "Failed to load songs",
-                    onRetry = { items.retry() },
-                )
-            }
-
-            items.loadState.refresh is LoadState.Loading && items.itemCount == 0 -> item {
-                MediaRowSkeletonList(count = 10)
-            }
-
-            items.itemCount == 0 -> item {
-                EmptyState("No songs found")
-            }
-
-            else -> {
-                items(
-                    count = items.itemCount,
-                    key = items.itemKey { it.id },
-                ) { index ->
-                    val song = items[index] ?: return@items
-                    val flags = rememberSongFlags(
-                        songId = song.id,
-                        starred = song.starred != null,
-                    )
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    MediaRow(
-                        title = song.title,
-                        subtitle = listOfNotNull(song.artist, song.album).joinToString(" • "),
-                        coverModel = inlineCoverModel(song.coverArtData),
-                        coverSeed = song.id,
-                        onClick = { onPlaySong(song.id) },
-                        isSelectionActive = selection?.isActive == true,
-                        isSelected = song.id in (selection?.selectedIds ?: emptySet()),
-                        onToggleSelection = selection?.let { { it.toggle(song.id) } },
-                        onLongClick = selection?.let { state ->
-                            {
-                                if (state.isActive) {
-                                    state.toggle(song.id)
-                                } else {
-                                    menuExpanded = true
-                                }
-                            }
-                        },
-                        trailing = {
-                            SongFavoriteButton(songId = song.id, flags = flags)
-                            Box {
-                                IconButton(onClick = { menuExpanded = true }) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                                }
-                                SongActionSheet(
-                                    expanded = menuExpanded,
-                                    onDismiss = { menuExpanded = false },
-                                    songId = song.id,
-                                    flags = flags,
-                                    title = song.title,
-                                    subtitle = song.artist,
-                                    coverModel = inlineCoverModel(song.coverArtData),
-                                    onOpenSongRadio = { onOpenSongRadio(song.id) },
-                                    onStartSelection = selection?.let { { it.select(song.id) } },
-                                    extraContent = {
-                                        if (onAddToPlaylist != null) {
-                                            AddToPlaylistMenuItem(
-                                                onClick = { onAddToPlaylist(song.id) },
-                                            )
-                                        }
-                                        SongDownloadMenuItem(songId = song.id)
-                                    },
-                                )
-                            }
-                        },
-                    )
-                }
-                item {
-                    PagingListFooter(isLoading = items.loadState.append is LoadState.Loading)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PagedAlbumGrid(
-    items: LazyPagingItems<AlbumResponse>,
-    onOpenAlbum: (String) -> Unit,
-    header: (@Composable () -> Unit)? = null,
-) {
-    // With a header the grid is flush against the screen edges so the header
-    // stays full-bleed like the other detail screens; each cell carries the
-    // former 12dp gutter as padding instead.
-    val fullBleed = header != null
-    val cellPadding = if (fullBleed) 6.dp else 0.dp
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(150.dp),
-        contentPadding = if (fullBleed) PaddingValues(0.dp) else PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (fullBleed) 0.dp else 12.dp),
-        verticalArrangement = Arrangement.spacedBy(if (fullBleed) 0.dp else 12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        if (header != null) {
-            // A lazy grid item lays multiple root layouts on top of each other,
-            // so the header's composables need a single container.
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column { header() }
-            }
-        }
-        when {
-            items.loadState.refresh is LoadState.Error -> item(
-                span = { GridItemSpan(maxLineSpan) },
-            ) {
-                ErrorState(
-                    message = (items.loadState.refresh as LoadState.Error).error.message
-                        ?: "Failed to load albums",
-                    onRetry = { items.retry() },
-                )
-            }
-
-            items.loadState.refresh is LoadState.Loading && items.itemCount == 0 -> items(6) {
-                MediaCardSkeleton(width = 150.dp, modifier = Modifier.padding(cellPadding))
-            }
-
-            items.itemCount == 0 -> item(
-                span = { GridItemSpan(maxLineSpan) },
-            ) {
-                EmptyState("No albums found")
-            }
-
-            else -> items(
-                count = items.itemCount,
-                key = items.itemKey { it.id },
-            ) { index ->
-                val album = items[index] ?: return@items
-                var menuExpanded by remember { mutableStateOf(false) }
-                Box(modifier = Modifier.padding(cellPadding)) {
-                    MediaCard(
-                        title = album.name,
-                        subtitle = album.artist,
-                        seed = album.id,
-                        coverModel = inlineCoverModel(album.coverArtData),
-                        onClick = { onOpenAlbum(album.id) },
-                        onLongClick = { menuExpanded = true },
-                    )
-                    CollectionActionSheet(
-                        expanded = menuExpanded,
-                        onDismiss = { menuExpanded = false },
-                        target = CollectionTarget(
-                            sourceType = CollectionSource.ALBUM,
-                            sourceId = album.id,
-                            name = album.name,
-                        ),
-                        title = album.name,
-                        subtitle = album.artist,
-                        coverModel = inlineCoverModel(album.coverArtData),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PagedArtistList(
-    items: LazyPagingItems<ArtistResponse>,
-    onOpenArtist: (String) -> Unit,
-    header: (@Composable () -> Unit)? = null,
-) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        if (header != null) {
-            item { Column { header() } }
-        }
-        when {
-            items.loadState.refresh is LoadState.Error -> item {
-                ErrorState(
-                    message = (items.loadState.refresh as LoadState.Error).error.message
-                        ?: "Failed to load artists",
-                    onRetry = { items.retry() },
-                )
-            }
-
-            items.loadState.refresh is LoadState.Loading && items.itemCount == 0 -> item {
-                MediaRowSkeletonList(count = 10)
-            }
-
-            items.itemCount == 0 -> item {
-                EmptyState("No artists found")
-            }
-
-            else -> {
-                items(
-                    count = items.itemCount,
-                    key = items.itemKey { it.id },
-                ) { index ->
-                    val artist = items[index] ?: return@items
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    Box {
-                        MediaRow(
-                            title = artist.name,
-                            subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
-                            coverModel = inlineCoverModel(artist.coverArtData),
-                            coverShape = CircleShape,
-                            coverSeed = artist.id,
-                            onClick = { onOpenArtist(artist.id) },
-                            onLongClick = { menuExpanded = true },
-                        )
-                        CollectionActionSheet(
-                            expanded = menuExpanded,
-                            onDismiss = { menuExpanded = false },
-                            target = CollectionTarget(
-                                sourceType = CollectionSource.ARTIST,
-                                sourceId = artist.id,
-                                name = artist.name,
-                            ),
-                            title = artist.name,
-                            subtitle = "${artist.albumCount ?: 0} albums • ${artist.songCount ?: 0} songs",
-                            coverModel = inlineCoverModel(artist.coverArtData),
+                item(key = "hero") {
+                    DetailHero(backdropColor = FAVORITES_BACKDROP) {
+                        DetailHeader(
+                            title = "Favorites",
+                            icon = Icons.Filled.Favorite,
+                            iconGradient = FAVORITES_ICON_GRADIENT,
+                            meta = state.counts?.let { formatCount(it.songs.toInt(), "song") },
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
                         )
                     }
                 }
-                item {
-                    PagingListFooter(isLoading = items.loadState.append is LoadState.Loading)
+                item(key = ACTION_BAR_ITEM_KEY) { actionBar() }
+                item(key = "tabs") {
+                    SegmentedTabs(
+                        labels = listOf(
+                            "Songs" + (state.counts?.let { " (${it.songs})" } ?: ""),
+                            "Albums" + (state.counts?.let { " (${it.albums})" } ?: ""),
+                            "Artists" + (state.counts?.let { " (${it.artists})" } ?: ""),
+                        ),
+                        selectedIndex = state.tab.ordinal,
+                        onSelect = { index ->
+                            selection.clear()
+                            viewModel.selectTab(FavoritesTab.entries[index])
+                        },
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                    )
+                }
+                when (state.tab) {
+                    FavoritesTab.SONGS -> {
+                        item(key = "columns") { TrackListHeader() }
+                        songPagingItems(
+                            songs = songs,
+                            nowPlaying = nowPlaying,
+                            menu = songMenu,
+                            selection = selection,
+                            onPlay = { song, position -> viewModel.play(song.id, position) },
+                            emptyMessage = if (state.filter.isBlank()) "No favorite songs yet" else "No songs match your search",
+                            emptyIcon = Icons.Filled.Favorite,
+                        )
+                    }
+
+                    FavoritesTab.ALBUMS -> pagedCardRows(
+                        items = albums,
+                        columns = columns,
+                        keyPrefix = "albums",
+                        emptyMessage = "No favorite albums yet",
+                    ) { album ->
+                        MediaCard(
+                            title = album.name,
+                            subtitle = albumSubtitle(album),
+                            coverModel = coverModel(album.coverArtData, album.coverArt),
+                            seed = album.name,
+                            titleIcon = Icons.Filled.Album,
+                            onClick = { actions.openAlbum(album.id) },
+                            onLongClick = { collectionMenu.open(album.toCollectionTarget()) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    FavoritesTab.ARTISTS -> pagedCardRows(
+                        items = artists,
+                        columns = columns,
+                        keyPrefix = "artists",
+                        emptyMessage = "No favorite artists yet",
+                    ) { artist ->
+                        MediaCard(
+                            title = artist.name,
+                            subtitle = artistCounts(artist),
+                            coverModel = coverModel(artist.coverArtData, artist.coverArt),
+                            seed = artist.name,
+                            circularCover = true,
+                            titleIcon = Icons.Filled.Person,
+                            onClick = { actions.openArtist(artist.id) },
+                            onLongClick = { collectionMenu.open(artist.toCollectionTarget()) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
+            PinnedActionBar(visible = actionBarPinned) { actionBar() }
         }
+    }
+
+    SongMenuSheet(
+        state = songMenu,
+        onPlay = { viewModel.play(it.id) },
+        onStartSelection = { selection.select(it.id) },
+    )
+    CollectionMenuSheet(state = collectionMenu)
+    if (sortMenuOpen) {
+        val sort = state.sortMenuState()
+        MediaActionSheet(
+            expanded = true,
+            onDismiss = { sortMenuOpen = false },
+            actions = emptyList(),
+            extraContent = {
+                SortSheetSection(
+                    options = sort.options,
+                    selectedKey = sort.selectedKey,
+                    ascending = sort.ascending,
+                    onSelect = viewModel::selectSort,
+                    onToggleDirection = viewModel::toggleSortDirection,
+                )
+            },
+        )
     }
 }

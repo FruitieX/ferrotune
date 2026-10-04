@@ -24,15 +24,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import com.ferrotune.core.actions.LocalServerUrl
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -131,12 +136,16 @@ fun FerrotuneApp(
     }
 
     FerrotuneTheme(darkTheme = darkTheme, accent = state.accent) {
-        FerrotuneAppContent(
-            state = state,
-            viewModel = viewModel,
-            openNowPlaying = openNowPlaying,
-            onOpenNowPlayingHandled = onOpenNowPlayingHandled,
-        )
+        // A different account gets a fresh navigation stack, so no screen or
+        // view model keeps showing the previous account's library.
+        key(state.activeAccount?.id) {
+            FerrotuneAppContent(
+                state = state,
+                viewModel = viewModel,
+                openNowPlaying = openNowPlaying,
+                onOpenNowPlayingHandled = onOpenNowPlayingHandled,
+            )
+        }
     }
 }
 
@@ -185,6 +194,16 @@ private fun FerrotuneAppContent(
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { message ->
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(message.text, withDismissAction = message.isError)
+        }
+    }
+
+    CompositionLocalProvider(LocalServerUrl provides state.activeAccount?.serverUrl) {
+    ProvideMediaActions(navController) {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -207,10 +226,11 @@ private fun FerrotuneAppContent(
             if (!state.isOnline) {
                 OfflineBanner()
             }
+            Box(modifier = Modifier.weight(1f)) {
             NavHost(
                 navController = navController,
                 startDestination = if (state.activeAccount != null) Routes.HOME else Routes.LOGIN,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxSize(),
                 enterTransition = { defaultEnterTransition() },
                 exitTransition = { defaultExitTransition() },
                 popEnterTransition = { defaultPopEnterTransition() },
@@ -227,7 +247,6 @@ private fun FerrotuneAppContent(
                 }
                 composable(Routes.HOME) {
                     HomeScreen(
-                        accountLabel = state.activeAccount?.label,
                         accounts = state.accounts,
                         activeAccountId = state.activeAccount?.id,
                         onSwitchAccount = viewModel::switchAccount,
@@ -239,15 +258,10 @@ private fun FerrotuneAppContent(
                             }
                         },
                         onOpenLink = navController::openHomeLink,
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                        onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
-                        onOpenSmartPlaylist = {
-                            navController.navigate(Routes.smartPlaylist(it))
-                        },
+                        onOpenSearch = { navController.navigateTopLevel(Routes.SEARCH) },
                         onOpenStats = { navController.navigate(Routes.STATS) },
                         onOpenReview = { navController.navigate(Routes.REVIEW) },
                         onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
-                        onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                     )
                 }
                 composable(
@@ -256,21 +270,11 @@ private fun FerrotuneAppContent(
                 ) {
                     HomeSectionDetailScreen(
                         onBack = { navController.popBackStack() },
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                        onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
-                        onOpenSmartPlaylist = {
-                            navController.navigate(Routes.smartPlaylist(it))
-                        },
                         onOpenLink = navController::openHomeLink,
                     )
                 }
                 composable(Routes.LIBRARY) {
-                    LibraryScreen(
-                        onOpenArtist = { navController.navigate(Routes.artist(it)) },
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                        onOpenGenre = { navController.navigate(Routes.genre(it)) },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    LibraryScreen()
                 }
                 composable(Routes.PLAYLISTS) {
                     PlaylistsScreen(
@@ -284,54 +288,31 @@ private fun FerrotuneAppContent(
                     )
                 }
                 composable(Routes.SEARCH) {
-                    SearchScreen(
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                        onOpenArtist = { navController.navigate(Routes.artist(it)) },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    SearchScreen()
                 }
                 composable(Routes.FAVORITES) {
-                    FavoritesScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                        onOpenArtist = { navController.navigate(Routes.artist(it)) },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    FavoritesScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Routes.HISTORY) {
-                    HistoryScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    HistoryScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Routes.ALBUM,
                     arguments = listOf(navArgument("albumId") { type = NavType.StringType }),
                 ) {
-                    AlbumDetailScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenArtist = { navController.navigate(Routes.artist(it)) },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    AlbumDetailScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Routes.ARTIST,
                     arguments = listOf(navArgument("artistId") { type = NavType.StringType }),
                 ) {
-                    ArtistDetailScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    ArtistDetailScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Routes.GENRE,
                     arguments = listOf(navArgument("genre") { type = NavType.StringType }),
                 ) {
-                    GenreDetailScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    GenreDetailScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Routes.SONG_RADIO,
@@ -343,10 +324,7 @@ private fun FerrotuneAppContent(
                     route = Routes.PLAYLIST,
                     arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
                 ) {
-                    PlaylistDetailScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
-                    )
+                    PlaylistDetailScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Routes.SMART_PLAYLIST,
@@ -357,7 +335,6 @@ private fun FerrotuneAppContent(
                     SmartPlaylistDetailScreen(
                         onBack = { navController.popBackStack() },
                         onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
-                        onOpenSongRadio = { navController.navigate(Routes.songRadio(it)) },
                         onEditRules = {
                             val smartPlaylistId = entry.arguments
                                 ?.getString("smartPlaylistId")
@@ -415,6 +392,13 @@ private fun FerrotuneAppContent(
                     )
                 }
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp),
+            )
+            }
             if (showChrome) {
                 MiniPlayerBar(
                     onOpenNowPlaying = { nowPlayingOpen = true },
@@ -436,6 +420,8 @@ private fun FerrotuneAppContent(
             state = nowPlayingSheet,
             onOpenChange = { nowPlayingOpen = it },
         )
+    }
+    }
     }
 
     state.switchError?.let { message ->
@@ -461,7 +447,7 @@ private fun defaultPopEnterTransition(): EnterTransition =
 private fun defaultPopExitTransition(): ExitTransition =
     fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { it / 14 }
 
-private fun androidx.navigation.NavHostController.navigateTopLevel(route: String) {
+internal fun androidx.navigation.NavHostController.navigateTopLevel(route: String) {
     // Match the web client's bottom nav: each tab opens at its root, replacing
     // whatever was stacked on top of Home. The previous saveState/restoreState
     // combination made the Home tab restore stale pushed screens (e.g. Settings

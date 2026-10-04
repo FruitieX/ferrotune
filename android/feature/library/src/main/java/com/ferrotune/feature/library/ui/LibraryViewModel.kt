@@ -1,11 +1,14 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.waitFor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
@@ -29,10 +32,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonPrimitive
 
 enum class LibraryTab {
     ALBUMS,
@@ -53,7 +60,6 @@ data class LibraryUiState(
     val genres: List<GenreResponse> = emptyList(),
     val genresLoading: Boolean = false,
     val genresError: String? = null,
-    val playbackError: String? = null,
 )
 
 @HiltViewModel
@@ -61,6 +67,7 @@ class LibraryViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
     private val viewPreferences: LibraryViewPreferencesRepository,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(LibraryUiState())
@@ -68,12 +75,16 @@ class LibraryViewModel @Inject constructor(
 
     private val filter = MutableStateFlow("")
 
+    /** Paging waits for the stored sort so the first page isn't fetched twice. */
+    private val sortReady = MutableStateFlow(false)
+
     val songs: Flow<PagingData<SongResponse>> = combine(
         state.map { it.songSort }.distinctUntilChanged(),
         state.map { it.songSortDir }.distinctUntilChanged(),
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
                 repository.songs(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
@@ -87,6 +98,7 @@ class LibraryViewModel @Inject constructor(
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
                 repository.albums(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
@@ -100,6 +112,7 @@ class LibraryViewModel @Inject constructor(
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
                 repository.artists(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
@@ -110,7 +123,8 @@ class LibraryViewModel @Inject constructor(
     init {
         loadGenres()
         viewModelScope.launch {
-            val config = viewPreferences.ensureLoaded()
+            val config = withTimeoutOrNull(SORT_PREFERENCES_TIMEOUT_MS) { viewPreferences.ensureLoaded() }
+                ?: viewPreferences.sort.value
             state.update {
                 it.copy(
                     songSort = config.songSort(),
@@ -121,6 +135,7 @@ class LibraryViewModel @Inject constructor(
                     artistSortDir = config.artistDir(),
                 )
             }
+            sortReady.value = true
         }
     }
 
@@ -216,28 +231,30 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun playSong(songId: String) {
+    /**
+     * Plays the songs tab from [songId], materialized server-side with the
+     * same filter and sort as the list (web: `search` source while filtering,
+     * `library` otherwise).
+     */
+    fun playSong(songId: String, position: Int) {
+        val current = state.value
+        val query = current.filter.trim()
         viewModelScope.launch {
-            val current = state.value
-            try {
+            runCatching {
                 sessionStarter.startQueue(
                     QueueStartSpec(
-                        sourceType = "library",
-                        sourceName = "Songs",
-                        sort = queueSort(
-                            current.songSort.apiValue,
-                            current.songSortDir.apiValue,
-                        ),
+                        sourceType = if (query.isEmpty()) "library" else "search",
+                        sourceName = if (query.isEmpty()) "Library" else "Search: $query",
+                        filters = mapOf("query" to JsonPrimitive(query.ifEmpty { "*" })),
+                        sort = queueSort(current.songSort.apiValue, current.songSortDir.apiValue),
+                        startIndex = position,
                         startSongId = songId,
-                    )
+                    ),
                 )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
+            }.onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
 
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
 }
 
 internal fun SortDir.opposite(): SortDir = if (this == SortDir.ASC) SortDir.DESC else SortDir.ASC

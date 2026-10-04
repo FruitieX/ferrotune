@@ -1,27 +1,29 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.waitFor
+import com.ferrotune.core.designsystem.components.rememberActionBarPinned
+import com.ferrotune.core.designsystem.components.PinnedActionBar
+import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,40 +34,35 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
+import androidx.paging.map
 import com.ferrotune.core.actions.SongActionsViewModel
-import com.ferrotune.core.actions.SongFavoriteButton
-import com.ferrotune.core.actions.SongActionSheet
-import com.ferrotune.core.actions.SongSelectionAction
+import com.ferrotune.core.actions.SongMenuSheet
 import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
-import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.UserMessages
+import com.ferrotune.core.actions.rememberNowPlaying
+import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.rememberSongSelectionState
+import com.ferrotune.core.actions.songPagingItems
 import com.ferrotune.core.designsystem.components.DetailActionBar
-import com.ferrotune.core.designsystem.components.DetailBackdrop
 import com.ferrotune.core.designsystem.components.DetailHeader
+import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.FilterPill
-import com.ferrotune.core.designsystem.components.SortMenu
+import com.ferrotune.core.designsystem.components.MediaActionSheet
+import com.ferrotune.core.designsystem.components.SortSheetSection
+import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
-import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.components.EmptyState
-import com.ferrotune.core.designsystem.components.ErrorState
-import com.ferrotune.core.designsystem.components.MediaRow
-import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
-import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
-import com.ferrotune.feature.downloads.ui.DownloadActionViewModel
-import com.ferrotune.feature.downloads.ui.SongDownloadAction
-import com.ferrotune.feature.playlists.ui.AddToPlaylistAction
-import com.ferrotune.feature.playlists.ui.AddToPlaylistDialog
-import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
-import com.ferrotune.core.network.generated.QueueSourceRequest
+import com.ferrotune.core.media.queueTextFilter
 import com.ferrotune.core.network.ViewSortConfig
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
+import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
+import com.ferrotune.core.network.generated.QueueSourceRequest
+import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.SongSort
@@ -83,6 +80,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Web `rgba(147,51,234,0.2)` history tint. */
 private val HISTORY_BACKDROP = Color(0x339333EA)
@@ -94,7 +92,6 @@ data class HistoryUiState(
     val filter: String = "",
     val songSort: SongSort = SongSort.LAST_PLAYED,
     val songSortDir: SortDir = SortDir.DESC,
-    val playbackError: String? = null,
 )
 
 @HiltViewModel
@@ -102,16 +99,18 @@ class HistoryViewModel @Inject constructor(
     private val repository: LibraryRepository,
     private val sessionStarter: PlaybackStarter,
     private val viewSortPreferences: ViewSortPreferencesRepository,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(HistoryUiState())
     val uiState: StateFlow<HistoryUiState> = state.asStateFlow()
 
     private val filter = MutableStateFlow("")
+    private val sortReady = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
-            viewSortPreferences.ensureLoaded()
+            withTimeoutOrNull(SORT_PREFERENCES_TIMEOUT_MS) { viewSortPreferences.ensureLoaded() }
             val stored = viewSortPreferences.config(
                 ViewSortKey.HISTORY,
                 ViewSortConfig(SongSort.LAST_PLAYED.apiValue, SortDir.DESC.apiValue),
@@ -122,24 +121,24 @@ class HistoryViewModel @Inject constructor(
                     songSortDir = SortDir.fromApiValue(stored.direction) ?: SortDir.DESC,
                 )
             }
+            sortReady.value = true
         }
     }
 
-    val entries: Flow<PagingData<FerrotunePlayHistoryEntry>> = combine(
+    /** History rows as songs, so the list shares the app-wide song row. */
+    val entries: Flow<PagingData<SongResponse>> = combine(
         state.map { it.songSort }.distinctUntilChanged(),
         state.map { it.songSortDir }.distinctUntilChanged(),
         filter.debouncedFilter(),
     ) { sort, dir, filter -> Triple(sort, dir, filter) }
         .distinctUntilChanged()
+        .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.history(
-                    filter = filter.ifBlank { null },
-                    sort = sort,
-                    sortDir = dir,
-                )
+                repository.history(filter = filter.ifBlank { null }, sort = sort, sortDir = dir)
             }.flow
         }
+        .map { page -> page.map { it.toSong() } }
         .cachedIn(viewModelScope)
 
     fun setFilter(value: String) {
@@ -161,84 +160,82 @@ class HistoryViewModel @Inject constructor(
     private fun persistSort() {
         val current = state.value
         viewModelScope.launch {
-            viewSortPreferences.setSort(
-                ViewSortKey.HISTORY,
-                current.songSort.apiValue,
-                current.songSortDir.apiValue,
-            )
+            viewSortPreferences.setSort(ViewSortKey.HISTORY, current.songSort.apiValue, current.songSortDir.apiValue)
         }
     }
 
-    fun play(songId: String, shuffle: Boolean = false) {
+    /** Plays history exactly as listed, optionally from one entry. */
+    fun play(startSongId: String? = null, startIndex: Int = 0, shuffle: Boolean = false) {
+        val current = state.value
         viewModelScope.launch {
-            try {
+            runCatching {
                 sessionStarter.startQueue(
                     QueueStartSpec(
                         sourceType = "history",
                         sourceName = "History",
-                        sort = queueSort(
-                            state.value.songSort.apiValue,
-                            state.value.songSortDir.apiValue,
-                        ),
-                        startSongId = if (shuffle) null else songId,
+                        filters = queueTextFilter(current.filter),
+                        sort = queueSort(current.songSort.apiValue, current.songSortDir.apiValue),
+                        startSongId = startSongId,
+                        startIndex = startIndex,
                         shuffle = shuffle,
-                    )
+                    ),
                 )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
+            }.onFailure { messages.failure("Couldn't start playback", it) }
         }
     }
-
-    fun playAll(shuffle: Boolean = false) {
-        viewModelScope.launch {
-            try {
-                sessionStarter.startQueue(
-                    QueueStartSpec(
-                        sourceType = "history",
-                        sourceName = "History",
-                        sort = queueSort(
-                            state.value.songSort.apiValue,
-                            state.value.songSortDir.apiValue,
-                        ),
-                        shuffle = shuffle,
-                    )
-                )
-            } catch (e: Exception) {
-                state.update { it.copy(playbackError = e.message ?: "Unable to start playback") }
-            }
-        }
-    }
-
-    fun dismissPlaybackError() = state.update { it.copy(playbackError = null) }
 }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 private fun Flow<String>.debouncedFilter(): Flow<String> =
     debounce { if (it.isBlank()) 0L else 300L }.distinctUntilChanged()
 
+private fun FerrotunePlayHistoryEntry.toSong() = SongResponse(
+    id = id,
+    parent = parent,
+    title = title,
+    album = album,
+    albumId = albumId,
+    artist = artist,
+    artistId = artistId,
+    track = track,
+    discNumber = discNumber,
+    year = year,
+    genre = genre,
+    coverArt = coverArt,
+    coverArtData = coverArtData,
+    coverArtWidth = coverArtWidth,
+    coverArtHeight = coverArtHeight,
+    size = size,
+    contentType = contentType,
+    suffix = suffix,
+    duration = duration,
+    bitRate = bitRate,
+    path = path,
+    fullPath = fullPath,
+    starred = starred,
+    userRating = userRating,
+    created = created,
+    type = type,
+    playCount = playCount,
+    lastPlayed = lastPlayed ?: playedAt,
+    playStarts = playStarts,
+)
+
+/** Web "Recently Played" page: purple history header, actions, and the list. */
 @Composable
 fun HistoryScreen(
     onBack: () -> Unit,
-    onOpenSongRadio: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val entries = viewModel.entries.collectAsLazyPagingItems()
-    val snackbarHostState = remember { SnackbarHostState() }
-    var addToPlaylistSongIds by remember { mutableStateOf<List<String>?>(null) }
-    val selection = rememberSongSelectionState()
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
-    val downloadViewModel: DownloadActionViewModel = hiltViewModel()
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
-
-    LaunchedEffect(state.playbackError) {
-        state.playbackError?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.dismissPlaybackError()
-        }
-    }
+    val selection = rememberSongSelectionState()
+    val songMenu = rememberSongMenuState()
+    val nowPlaying = rememberNowPlaying()
+    var sortMenuOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -250,9 +247,7 @@ fun HistoryScreen(
                     onClose = selection::clear,
                     onSelectAll = {
                         actionsViewModel.loadAllIds(
-                            sources = listOf(
-                                QueueSourceRequest(sourceType = "history", sourceId = null),
-                            ),
+                            sources = listOf(QueueSourceRequest(sourceType = "history", sourceId = null)),
                             onLoaded = selection::replace,
                         )
                     },
@@ -265,149 +260,92 @@ fun HistoryScreen(
                 SongSelectionActionBar(
                     selectedIds = selection.selectedIds.toList(),
                     onClearSelection = selection::clear,
-                    extraActions = { ids ->
-                        SongSelectionAction(Icons.Filled.PlaylistAdd, "Playlist") {
-                            addToPlaylistSongIds = ids
-                        }
-                        SongSelectionAction(Icons.Filled.Download, "Download") {
-                            downloadViewModel.downloadSongs(ids)
-                            selection.clear()
-                        }
-                    },
                     viewModel = actionsViewModel,
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
+        val actionBar: @Composable () -> Unit = {
+            DetailActionBar(
+                onPlayAll = { viewModel.play() },
+                onShuffle = { viewModel.play(shuffle = true) },
+                playEnabled = entries.itemCount > 0,
+                actions = {
+                    FilterPill(
+                        value = state.filter,
+                        onValueChange = viewModel::setFilter,
+                        placeholder = "Filter history...",
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { sortMenuOpen = true }) {
+                        Icon(Icons.Filled.MoreHoriz, contentDescription = "Sort options")
+                    }
+                },
+            )
+        }
+        val listState = rememberLazyListState()
+        val actionBarPinned by rememberActionBarPinned(listState)
         Box(modifier = Modifier.fillMaxSize()) {
-            DetailBackdrop(color = HISTORY_BACKDROP, height = 300.dp)
-            Column(
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
             ) {
-                DetailHeader(
-                    title = "Recently Played",
-                    label = "History",
-                    icon = Icons.Filled.History,
-                    iconGradient = HISTORY_ICON_GRADIENT,
-                    subtitle = if (entries.loadState.refresh is LoadState.Loading &&
-                        entries.itemCount == 0
-                    ) {
-                        null
-                    } else {
-                        val loaded = entries.itemSnapshotList.items
-                        "${formatCount(loaded.size, "song")} • " +
-                            formatTotalDuration(loaded.sumOf { it.duration })
-                    },
-                    seed = "history",
-                    showBackButton = !selection.isActive,
-                    onBack = onBack,
-                )
-                DetailActionBar(
-                    onPlayAll = { viewModel.playAll() },
-                    onShuffle = { viewModel.playAll(shuffle = true) },
-                    playEnabled = entries.itemCount > 0,
-                    actions = {
-                        FilterPill(
-                            value = state.filter,
-                            onValueChange = viewModel::setFilter,
-                            placeholder = "Filter history...",
-                            modifier = Modifier.weight(1f),
+                item(key = "hero") {
+                    DetailHero(backdropColor = HISTORY_BACKDROP) {
+                        DetailHeader(
+                            title = "Recently Played",
+                            label = "History",
+                            icon = Icons.Filled.History,
+                            iconGradient = HISTORY_ICON_GRADIENT,
+                            meta = if (entries.loadState.refresh is LoadState.Loading && entries.itemCount == 0) {
+                                null
+                            } else {
+                                val loaded = entries.itemSnapshotList.items
+                                "${formatCount(loaded.size, "song")} • ${formatTotalDuration(loaded.sumOf { it.duration })}"
+                            },
+                            showBackButton = !selection.isActive,
+                            onBack = onBack,
                         )
-                        SortMenu(
-                            options = SONG_SORT_OPTIONS,
-                            selectedKey = state.songSort.apiValue,
-                            ascending = state.songSortDir == SortDir.ASC,
-                            onSelect = viewModel::selectSort,
-                            onToggleDirection = viewModel::toggleSortDirection,
-                        )
-                    },
-                )
-                when {
-                    entries.loadState.refresh is LoadState.Error -> ErrorState(
-                        message = (entries.loadState.refresh as LoadState.Error).error.message
-                            ?: "Failed to load history",
-                        onRetry = { entries.retry() },
-                    )
-
-                    entries.loadState.refresh is LoadState.Loading && entries.itemCount == 0 ->
-                        MediaRowSkeletonList(
-                            count = 10,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-
-                    entries.itemCount == 0 -> EmptyState("No listening history yet")
-
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        items(
-                            count = entries.itemCount,
-                            key = entries.itemKey { "${it.playedAt}-${it.id}" },
-                        ) { index ->
-                            val entry = entries[index] ?: return@items
-                            val flags = rememberSongFlags(
-                                songId = entry.id,
-                                starred = entry.starred != null,
-                            )
-                            var menuExpanded by remember { mutableStateOf(false) }
-                            MediaRow(
-                                title = entry.title,
-                                subtitle = listOfNotNull(
-                                    entry.artist,
-                                    entry.playedAt.take(10),
-                                ).joinToString(" • "),
-                                coverModel = inlineCoverModel(entry.coverArtData),
-                                coverSeed = entry.id,
-                                onClick = { viewModel.play(entry.id) },
-                                isSelectionActive = selection.isActive,
-                                isSelected = entry.id in selection.selectedIds,
-                                onToggleSelection = { selection.toggle(entry.id) },
-                                onLongClick = {
-                                    if (selection.isActive) {
-                                        selection.toggle(entry.id)
-                                    } else {
-                                        menuExpanded = true
-                                    }
-                                },
-                                trailing = {
-                                    Box {
-                                        SongFavoriteButton(songId = entry.id, flags = flags)
-                                        SongActionSheet(
-                                            expanded = menuExpanded,
-                                            onDismiss = { menuExpanded = false },
-                                            songId = entry.id,
-                                            flags = flags,
-                                            title = entry.title,
-                                            subtitle = entry.artist,
-                                            coverModel = inlineCoverModel(entry.coverArtData),
-                                            onOpenSongRadio = { onOpenSongRadio(entry.id) },
-                                            onStartSelection = { selection.select(entry.id) },
-                                        )
-                                    }
-                                    AddToPlaylistAction(songIds = listOf(entry.id))
-                                    SongDownloadAction(songId = entry.id)
-                                },
-                            )
-                        }
-                        item {
-                            PagingListFooter(isLoading = entries.loadState.append is LoadState.Loading)
-                        }
                     }
                 }
+                item(key = ACTION_BAR_ITEM_KEY) { actionBar() }
+                item(key = "columns") { TrackListHeader() }
+                songPagingItems(
+                    songs = entries,
+                    nowPlaying = nowPlaying,
+                    menu = songMenu,
+                    selection = selection,
+                    onPlay = { song, position -> viewModel.play(song.id, position) },
+                    emptyMessage = if (state.filter.isBlank()) "No listening history yet" else "No songs match your filter",
+                    emptyIcon = Icons.Filled.History,
+                    // The same song can appear more than once; keys fall back to positions.
+                    key = null,
+                )
             }
+            PinnedActionBar(visible = actionBarPinned) { actionBar() }
         }
     }
 
-    addToPlaylistSongIds?.let { songIds ->
-        AddToPlaylistDialog(
-            songIds = songIds,
-            onDismiss = { addToPlaylistSongIds = null },
-            onAdded = {
-                addToPlaylistSongIds = null
-                selection.clear()
+    SongMenuSheet(
+        state = songMenu,
+        onPlay = { viewModel.play(it.id) },
+        onStartSelection = { selection.select(it.id) },
+    )
+    if (sortMenuOpen) {
+        MediaActionSheet(
+            expanded = true,
+            onDismiss = { sortMenuOpen = false },
+            actions = emptyList(),
+            extraContent = {
+                SortSheetSection(
+                    options = SONG_SORT_OPTIONS,
+                    selectedKey = state.songSort.apiValue,
+                    ascending = state.songSortDir == SortDir.ASC,
+                    onSelect = viewModel::selectSort,
+                    onToggleDirection = viewModel::toggleSortDirection,
+                )
             },
         )
     }

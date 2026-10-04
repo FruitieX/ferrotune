@@ -1,7 +1,8 @@
 package com.ferrotune.feature.player
 
+import android.os.Build
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -34,10 +37,11 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,29 +49,41 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ferrotune.core.actions.SongFavoriteButton
+import coil3.compose.AsyncImage
+import com.ferrotune.core.actions.LocalMediaActions
+import com.ferrotune.core.actions.MediaActions
+import com.ferrotune.core.actions.SongMenuSheet
+import com.ferrotune.core.actions.SongMenuTarget
 import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.rememberSongMenuState
+import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.designsystem.components.CoverArt
-import com.ferrotune.core.designsystem.components.WaveformBar
-import com.ferrotune.core.designsystem.components.formatClockDuration
+import com.ferrotune.core.designsystem.components.FavoriteButton
 import com.ferrotune.core.designsystem.components.inlineCoverModel
-import com.ferrotune.core.designsystem.theme.seedGradient
 import com.ferrotune.core.media.TrackInfo
 import kotlin.math.abs
 
 private val ART_GAP = 16.dp
 
+/**
+ * Web fullscreen player: blurred-cover background, "Playing from <source>"
+ * header with the song's ⋯ menu, swipeable artwork, left-aligned title and
+ * artist with the favorite heart, seek bar, transport controls, and a bottom
+ * row with Cast and the "Queue" pill.
+ */
 @Composable
 fun NowPlayingScreen(
     onBack: () -> Unit,
@@ -76,235 +92,309 @@ fun NowPlayingScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val progress by viewModel.progress.collectAsStateWithLifecycle()
     var queueOpen by remember { mutableStateOf(false) }
-    val darkTheme = isSystemInDarkTheme()
-    val backdrop = seedGradient(state.track?.id ?: state.track?.title, darkTheme)
+    val songMenu = rememberSongMenuState()
+    val haptics = LocalHapticFeedback.current
+    val track = state.track
+    val appActions = LocalMediaActions.current
+    // Navigating from the player ("Go to album", song radio, ...) closes it first.
+    val actions = remember(appActions, onBack) { ClosingMediaActions(appActions, onBack) }
 
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            backdrop.glow.copy(alpha = if (darkTheme) 0.28f else 0.45f),
-                            backdrop.end.copy(alpha = if (darkTheme) 0.12f else 0.22f),
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
+    CompositionLocalProvider(LocalMediaActions provides actions) {
+        Surface(
+            modifier = modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.KeyboardArrowDown,
-                            contentDescription = "Close now playing",
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = "Now Playing",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        if (state.cast.isConnected) {
-                            Text(
-                                text = "Casting to ${state.cast.deviceName ?: "device"}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (state.cast.isConnected) {
-                        IconButton(onClick = viewModel::disconnectCast) {
-                            Icon(
-                                Icons.Filled.CastConnected,
-                                contentDescription = "Disconnect Cast",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    } else if (state.cast.available) {
-                        CastRouteButton(modifier = Modifier.padding(horizontal = 4.dp))
-                    }
-                    IconButton(onClick = { queueOpen = true }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.QueueMusic,
-                            contentDescription = "Queue",
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(24.dp))
-
-                SwipeableArtwork(
-                    track = state.track,
-                    previousTrack = state.previousTrack,
-                    nextTrack = state.nextTrack,
-                    offsetX = sheetState.artOffsetX,
-                    onDistanceChanged = { sheetState.artDistancePx = it },
-                )
-
-                Spacer(Modifier.weight(1f))
-
-                Text(
-                    text = state.track?.title ?: "Nothing playing",
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = state.track?.artist.orEmpty(),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                state.track?.album?.takeIf { it.isNotBlank() }?.let { album ->
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = album,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                state.track?.let { track ->
-                    val flags = rememberSongFlags(
-                        songId = track.id,
-                        starred = track.starred != null,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    SongFavoriteButton(songId = track.id, flags = flags, iconSize = 26.dp)
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                state.error?.let { message ->
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                if (state.progressBarStyle == "waveform" && state.waveformHeights.isNotEmpty()) {
-                    WaveformBar(
-                        heights = state.waveformHeights,
-                        progress = state.progressFraction,
-                        onSeek = viewModel::seekToFraction,
-                        positionMs = state.positionMs,
-                        durationMs = state.durationMs,
-                        height = 40.dp,
-                        barWidth = 3.dp,
-                        barGap = 2.dp,
-                    )
-                } else {
-                    Slider(
-                        value = state.progressFraction,
-                        onValueChange = viewModel::seekToFraction,
-                        enabled = state.durationMs > 0,
-                    )
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(formatClockDuration(state.positionMs), style = MaterialTheme.typography.labelSmall)
-                    Text(formatClockDuration(state.durationMs), style = MaterialTheme.typography.labelSmall)
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
+            Box(modifier = Modifier.fillMaxSize()) {
+                NowPlayingBackground(track)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
                 ) {
-                    IconButton(onClick = viewModel::toggleShuffle) {
-                        Icon(
-                            Icons.Filled.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (state.isShuffled) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                    IconButton(onClick = viewModel::previous) {
-                        Icon(
-                            Icons.Filled.SkipPrevious,
-                            contentDescription = "Previous track",
-                            modifier = Modifier.size(40.dp),
-                        )
-                    }
-                    FilledIconButton(
-                        onClick = viewModel::togglePlayPause,
-                        shape = CircleShape,
+                    Header(
+                        sourceName = state.sourceName,
+                        sourceType = state.sourceType,
+                        castDevice = state.cast.deviceName.takeIf { state.cast.isConnected },
+                        onClose = onBack,
+                        onMore = { track?.let { songMenu.open(it.toMenuTarget()) } },
+                    )
+                    SwipeableArtwork(
+                        track = track,
+                        previousTrack = state.previousTrack,
+                        nextTrack = state.nextTrack,
+                        offsetX = sheetState.artOffsetX,
+                        onDistanceChanged = { sheetState.artDistancePx = it },
                         modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .size(68.dp),
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(vertical = 20.dp),
+                    )
+                    TitleRow(track = track, onOpenArtist = { track?.artistId?.let(actions::openArtist) })
+                    Spacer(Modifier.height(20.dp))
+                    state.error?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                    PlayerSeekBar(
+                        progress = progress,
+                        style = state.progressBarStyle,
+                        waveformHeights = state.waveformHeights,
+                        onSeek = viewModel::seekToFraction,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    TransportControls(
+                        state = state,
+                        onShuffle = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.toggleShuffle()
+                        },
+                        onPrevious = { viewModel.previous() },
+                        onPlayPause = viewModel::togglePlayPause,
+                        onNext = viewModel::next,
+                        onRepeat = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.cycleRepeat()
+                        },
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (state.isBuffering) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(30.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        } else {
+                        if (state.cast.isConnected) {
+                            IconButton(onClick = viewModel::disconnectCast) {
+                                Icon(
+                                    Icons.Filled.CastConnected,
+                                    contentDescription = "Disconnect Cast",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        } else if (state.cast.available) {
+                            CastRouteButton()
+                        }
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { queueOpen = true },
+                            shape = CircleShape,
+                        ) {
                             Icon(
-                                imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(38.dp),
+                                Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
                             )
+                            Text("Queue", modifier = Modifier.padding(start = 8.dp))
                         }
                     }
-                    IconButton(onClick = viewModel::next) {
-                        Icon(
-                            Icons.Filled.SkipNext,
-                            contentDescription = "Next track",
-                            modifier = Modifier.size(40.dp),
-                        )
-                    }
-                    IconButton(onClick = viewModel::cycleRepeat) {
-                        Icon(
-                            imageVector = if (state.repeatMode == "one") {
-                                Icons.Filled.RepeatOne
-                            } else {
-                                Icons.Filled.Repeat
-                            },
-                            contentDescription = "Repeat ${state.repeatMode}",
-                            tint = if (state.repeatMode == "off") {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                        )
-                    }
                 }
-
-                Spacer(Modifier.height(24.dp))
             }
         }
-    }
 
-    if (queueOpen) {
-        QueueSheet(onDismiss = { queueOpen = false })
+        SongMenuSheet(state = songMenu)
+        if (queueOpen) {
+            QueueSheet(onDismiss = { queueOpen = false })
+        }
+    }
+}
+
+/** Delegates to the app actions, closing the player before any navigation. */
+private class ClosingMediaActions(
+    private val delegate: MediaActions,
+    private val close: () -> Unit,
+) : MediaActions by delegate {
+    override fun openAlbum(albumId: String) = close().also { delegate.openAlbum(albumId) }
+
+    override fun openArtist(artistId: String) = close().also { delegate.openArtist(artistId) }
+
+    override fun openGenre(genre: String) = close().also { delegate.openGenre(genre) }
+
+    override fun openSongRadio(songId: String) = close().also { delegate.openSongRadio(songId) }
+
+    override fun openPlaylist(playlistId: String) = close().also { delegate.openPlaylist(playlistId) }
+
+    override fun openSmartPlaylist(smartPlaylistId: String) =
+        close().also { delegate.openSmartPlaylist(smartPlaylistId) }
+}
+
+internal fun TrackInfo.toMenuTarget() = SongMenuTarget(
+    id = id,
+    title = title,
+    artist = artist,
+    artistId = artistId,
+    album = album.takeIf { it.isNotBlank() },
+    albumId = albumId,
+    coverModel = inlineCoverModel(coverArtData) ?: coverArtUrl,
+    starred = starred != null,
+    rating = 0,
+)
+
+/**
+ * Web `FullscreenBackground`: the cover, heavily blurred under a 70%
+ * background wash (a plain wash before Android 12, which can't blur).
+ */
+@Composable
+private fun NowPlayingBackground(track: TrackInfo?) {
+    val model = inlineCoverModel(track?.coverArtData) ?: track?.coverArtUrl
+    if (model != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        AsyncImage(
+            model = model,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(64.dp),
+        )
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f)),
+    )
+}
+
+@Composable
+private fun Header(
+    sourceName: String?,
+    sourceType: String?,
+    castDevice: String?,
+    onClose: () -> Unit,
+    onMore: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onClose) {
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = "Close now playing",
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = if (castDevice != null) "PLAYING ON" else "PLAYING FROM",
+                style = MaterialTheme.typography.labelSmall,
+                letterSpacing = MaterialTheme.typography.labelSmall.letterSpacing * 1.5f,
+                color = if (castDevice != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = castDevice ?: sourceName ?: if (sourceType == "library") "Library" else "Queue",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onMore) {
+            Icon(Icons.Filled.MoreHoriz, contentDescription = "More options")
+        }
+    }
+}
+
+@Composable
+private fun TitleRow(track: TrackInfo?, onOpenArtist: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track?.title ?: "Nothing playing",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = track?.artist.orEmpty(),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(enabled = track?.artistId != null, onClick = onOpenArtist),
+            )
+        }
+        if (track != null) {
+            val flags = rememberSongFlags(songId = track.id, starred = track.starred != null)
+            val songActions: SongActionsViewModel = hiltViewModel()
+            FavoriteButton(
+                isFavorite = flags.starred,
+                onToggle = { songActions.toggleStar(track.id, flags) },
+                iconSize = 26.dp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TransportControls(
+    state: PlayerUiState,
+    onShuffle: () -> Unit,
+    onPrevious: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onRepeat: () -> Unit,
+) {
+    val active = MaterialTheme.colorScheme.primary
+    val inactive = MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        IconButton(onClick = onShuffle) {
+            Icon(
+                Icons.Filled.Shuffle,
+                contentDescription = if (state.isShuffled) "Shuffle on" else "Shuffle off",
+                tint = if (state.isShuffled) active else inactive,
+            )
+        }
+        IconButton(onClick = onPrevious, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous track", modifier = Modifier.size(34.dp))
+        }
+        FilledIconButton(
+            onClick = onPlayPause,
+            shape = CircleShape,
+            modifier = Modifier.size(68.dp),
+        ) {
+            if (state.isBuffering) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 3.dp,
+                )
+            } else {
+                Icon(
+                    imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (state.isPlaying) "Pause" else "Play",
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
+        IconButton(onClick = onNext, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Filled.SkipNext, contentDescription = "Next track", modifier = Modifier.size(34.dp))
+        }
+        IconButton(onClick = onRepeat) {
+            Icon(
+                imageVector = if (state.repeatMode == "one") Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                contentDescription = "Repeat ${state.repeatMode}",
+                tint = if (state.repeatMode == "off") inactive else active,
+            )
+        }
     }
 }
 
 /**
  * Album artwork that follows horizontal swipes, revealing the adjacent track's
- * artwork underneath in the swipe direction.
+ * artwork in the swipe direction. Uses the full-size cover with the inline
+ * thumbnail underneath while it loads.
  */
 @Composable
 private fun SwipeableArtwork(
@@ -313,72 +403,56 @@ private fun SwipeableArtwork(
     nextTrack: TrackInfo?,
     offsetX: Float,
     onDistanceChanged: (Float) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val gapPx = with(LocalDensity.current) { ART_GAP.toPx() }
     var widthPx by remember { mutableIntStateOf(0) }
-    val distancePx = (widthPx + gapPx).toFloat()
-    val progress = if (distancePx > 0f) {
-        (abs(offsetX) / distancePx).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    val distancePx = (widthPx + gapPx)
+    val progress = if (distancePx > 0f) (abs(offsetX) / distancePx).coerceIn(0f, 1f) else 0f
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .onSizeChanged {
-                widthPx = it.width
-                onDistanceChanged(it.width + gapPx)
-            },
-    ) {
-        if (offsetX > 0f && previousTrack != null) {
-            AdjacentArtwork(
-                track = previousTrack,
-                translationX = offsetX - distancePx,
-                alpha = progress,
-                scale = 0.92f + 0.08f * progress,
-            )
-        }
-        if (offsetX < 0f && nextTrack != null) {
-            AdjacentArtwork(
-                track = nextTrack,
-                translationX = offsetX + distancePx,
-                alpha = progress,
-                scale = 0.92f + 0.08f * progress,
-            )
-        }
-        CoverArt(
-            model = inlineCoverModel(track?.coverArtData) ?: track?.coverArtUrl,
-            contentDescription = track?.album,
-            seed = track?.id,
-            shape = RoundedCornerShape(20.dp),
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = offsetX
-                    alpha = 1f - 0.7f * progress
-                    val scale = 1f - 0.04f * progress
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .shadow(16.dp, RoundedCornerShape(20.dp)),
-        )
+                .widthIn(max = 600.dp)
+                .aspectRatio(1f, matchHeightConstraintsFirst = true)
+                .onSizeChanged {
+                    widthPx = it.width
+                    onDistanceChanged(it.width + gapPx)
+                },
+        ) {
+            if (offsetX > 0f && previousTrack != null) {
+                Artwork(previousTrack, translationX = offsetX - distancePx, alpha = progress, scale = 0.92f + 0.08f * progress)
+            }
+            if (offsetX < 0f && nextTrack != null) {
+                Artwork(nextTrack, translationX = offsetX + distancePx, alpha = progress, scale = 0.92f + 0.08f * progress)
+            }
+            Artwork(
+                track,
+                translationX = offsetX,
+                alpha = 1f - 0.7f * progress,
+                scale = 1f - 0.04f * progress,
+                elevated = true,
+            )
+        }
     }
 }
 
 @Composable
-private fun AdjacentArtwork(
-    track: TrackInfo,
+private fun Artwork(
+    track: TrackInfo?,
     translationX: Float,
     alpha: Float,
     scale: Float,
+    elevated: Boolean = false,
 ) {
+    val shape = RoundedCornerShape(8.dp)
     CoverArt(
-        model = inlineCoverModel(track.coverArtData) ?: track.coverArtUrl,
-        contentDescription = null,
-        seed = track.id,
-        shape = RoundedCornerShape(20.dp),
+        model = track?.coverArtUrl,
+        fallbackModel = inlineCoverModel(track?.coverArtData),
+        contentDescription = track?.album,
+        seed = track?.album ?: track?.title,
+        shape = shape,
+        iconFraction = 0.3f,
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
@@ -386,6 +460,7 @@ private fun AdjacentArtwork(
                 this.alpha = alpha
                 scaleX = scale
                 scaleY = scale
-            },
+            }
+            .then(if (elevated) Modifier.shadow(24.dp, shape) else Modifier),
     )
 }

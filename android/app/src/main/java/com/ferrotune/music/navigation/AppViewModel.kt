@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.datastore.ThemePreferencesRepository
+import com.ferrotune.core.actions.UserMessage
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.designsystem.theme.OklchColor
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.model.Account
@@ -16,6 +18,7 @@ import com.ferrotune.feature.settings.data.AccentSettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -30,7 +33,7 @@ data class AppUiState(
     val accounts: List<Account> = emptyList(),
     val accent: OklchColor? = null,
     val isOnline: Boolean = true,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DEFAULT,
     val switchError: String? = null,
 )
 
@@ -41,11 +44,15 @@ class AppViewModel @Inject constructor(
     private val accountSwitcher: AccountSwitcher,
     private val playbackSessionResetter: PlaybackSessionResetter,
     private val playbackStarter: PlaybackStarter,
+    userMessages: UserMessages,
     themePreferencesRepository: ThemePreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
 ) : ViewModel() {
 
     private val switchError = MutableStateFlow<String?>(null)
+
+    /** Confirmations and errors from actions anywhere in the app. */
+    val messages: SharedFlow<UserMessage> = userMessages.messages
 
     val uiState: StateFlow<AppUiState> = combine(
         combine(

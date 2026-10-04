@@ -1,5 +1,6 @@
 package com.ferrotune.core.designsystem.components
 
+import com.ferrotune.core.designsystem.theme.FavoriteRed
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -26,7 +27,7 @@ fun FavoriteButton(
             imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
             contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
             tint = if (isFavorite) {
-                MaterialTheme.colorScheme.primary
+                FavoriteRed
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },

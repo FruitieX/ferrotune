@@ -1,5 +1,7 @@
 package com.ferrotune.feature.home.ui
 
+import com.ferrotune.core.actions.UserMessage
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.AccountSwitchResult
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.AvailablePeriod
@@ -42,7 +44,9 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 import kotlinx.serialization.json.JsonElement
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestDispatcher
@@ -278,7 +282,18 @@ class HomeViewModelTest {
             sessionStarter = starter,
             accounts = FakeAccounts(listOf(account), account.id),
             accountSwitcher = switcher,
+            messages = messages,
         ).also { drain() }
+    }
+
+    private val messages = UserMessages()
+    private val receivedMessages = mutableListOf<UserMessage>()
+
+    @Before
+    fun recordMessages() {
+        CoroutineScope(UnconfinedTestDispatcher()).launch {
+            messages.messages.collect { receivedMessages += it }
+        }
     }
 
     @Test
@@ -394,7 +409,6 @@ class HomeViewModelTest {
         val viewModel = viewModel(starter = starter)
         val section = viewModel.uiState.value.sections
             .first { it.config.kind == HomeSectionKind.MOST_PLAYED_RECENTLY }
-            .config
 
         viewModel.playSection(section, shuffle = true)
         drain()
@@ -425,17 +439,34 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `playback failure surfaces an error`() {
+    fun `playback failure is reported as a message`() {
         val viewModel = viewModel(starter = FakePlaybackStarter(failure = "offline"))
-        val song = viewModel.uiState.value.sections
+        val section = viewModel.uiState.value.sections
             .first { it.config.kind == HomeSectionKind.SIMILAR_TRACKS }
-            .songs
-            .single()
 
-        viewModel.playSong("similarTracks", "Similar", song)
+        viewModel.playSong(section, section.songs.single(), position = 0)
         drain()
 
-        assertEquals("offline", viewModel.uiState.value.playbackError)
+        assertEquals(UserMessage("Couldn't start playback: offline", isError = true), receivedMessages.single())
+    }
+
+    @Test
+    fun `playing a section song keeps the section's discovery seed`() {
+        val starter = FakePlaybackStarter()
+        val viewModel = viewModel(starter = starter)
+        val section = viewModel.uiState.value.sections
+            .first { it.config.kind == HomeSectionKind.SIMILAR_TRACKS }
+        val song = section.songs.single()
+
+        viewModel.playSong(section, song, position = 0)
+        drain()
+
+        val spec = starter.specs.single()
+        assertEquals("similarTracks", spec.sourceType)
+        assertEquals(song.id, spec.startSongId)
+        assertEquals(0, spec.startIndex)
+        assertNotNull(spec.filters["seed"])
+        assertNotNull(spec.filters["count"])
     }
 
     @Test
@@ -450,6 +481,7 @@ class HomeViewModelTest {
             sessionStarter = FakePlaybackStarter(),
             accounts = FakeAccounts(listOf(testAccount()), testAccount().id),
             accountSwitcher = FakeAccountSwitcher(),
+            messages = UserMessages(),
         )
         drain()
         assertEquals(DEFAULT_HOME_TILES.size, viewModel.uiState.value.tiles.size)
@@ -492,7 +524,7 @@ class HomeViewModelTest {
         drain()
 
         assertEquals(listOf("other@http://localhost:4040"), switcher.switchedTo)
-        assertNull(viewModel.uiState.value.switchError)
+        assertTrue(receivedMessages.isEmpty())
     }
 
     @Test
@@ -515,6 +547,6 @@ class HomeViewModelTest {
         viewModel.onTileAction(state.tiles.single().action)
         drain()
 
-        assertEquals("token expired", viewModel.uiState.value.switchError)
+        assertEquals(UserMessage("token expired", isError = true), receivedMessages.single())
     }
 }

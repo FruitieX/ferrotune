@@ -8,7 +8,10 @@ enum class ThemeMode {
     ;
 
     companion object {
+        /** The web client defaults to its dark theme; so does the native app. */
+        val DEFAULT = DARK
+
         fun fromStorage(value: String?): ThemeMode =
-            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: SYSTEM
+            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
     }
 }

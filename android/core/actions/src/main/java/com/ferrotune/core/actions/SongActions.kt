@@ -26,6 +26,7 @@ import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueAddPosition
 import com.ferrotune.core.media.QueueAddSpec
+import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.SearchParams
@@ -56,10 +57,10 @@ interface SongActionsEntryPoint {
  * catches up.
  */
 @Composable
-fun rememberSongFlags(songId: String, starred: Boolean): SongFlags {
+fun rememberSongFlags(songId: String, starred: Boolean, rating: Int = 0): SongFlags {
     val store = rememberSongFlagsStore()
     val overrides by store.overrides.collectAsStateWithLifecycle()
-    val base = SongFlags(starred = starred)
+    val base = SongFlags(starred = starred, rating = rating)
     val override = overrides[songId]
     val current = override?.mergedWith(base) ?: base
     LaunchedEffect(songId, override, base) {
@@ -71,10 +72,10 @@ fun rememberSongFlags(songId: String, starred: Boolean): SongFlags {
 @Composable
 private fun rememberSongFlagsStore(): SongFlagsStore {
     val context = LocalContext.current
-    return remember(context) { songFlagsEntryPoint(context).songFlagsStore() }
+    return remember(context) { songActionsEntryPoint(context).songFlagsStore() }
 }
 
-private fun songFlagsEntryPoint(context: Context): SongActionsEntryPoint =
+internal fun songActionsEntryPoint(context: Context): SongActionsEntryPoint =
     EntryPointAccessors.fromApplication(
         context.applicationContext,
         SongActionsEntryPoint::class.java,
@@ -86,6 +87,7 @@ class SongActionsViewModel @Inject constructor(
     private val store: SongFlagsStore,
     private val playbackStarter: PlaybackStarter,
     private val apiProvider: FerrotuneApiProvider,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val _selectingAll = MutableStateFlow(false)
@@ -94,12 +96,27 @@ class SongActionsViewModel @Inject constructor(
     fun toggleStar(songId: String, base: SongFlags) {
         viewModelScope.launch {
             runCatching { store.setStarred(songId, !base.starred, base) }
+                .onFailure { messages.failure("Couldn't update favorites", it) }
+        }
+    }
+
+    fun setRating(songId: String, rating: Int) {
+        viewModelScope.launch {
+            runCatching { store.setRating(songId, rating) }
+                .onFailure { messages.failure("Couldn't save rating", it) }
         }
     }
 
     fun setStarredBulk(songIds: List<String>, starred: Boolean) {
         viewModelScope.launch {
             runCatching { store.setStarredBulk(songIds, starred) }
+                .onSuccess {
+                    messages.show(
+                        if (starred) "Added ${songCount(songIds.size)} to favorites"
+                        else "Removed ${songCount(songIds.size)} from favorites",
+                    )
+                }
+                .onFailure { messages.failure("Couldn't update favorites", it) }
         }
     }
 
@@ -123,103 +140,52 @@ class SongActionsViewModel @Inject constructor(
                     else -> apiProvider.requireApi()
                         .songIds(searchParams!!.toQueryMap()).ids
                 }
-            }.getOrDefault(emptyList())
+            }.onFailure { messages.failure("Couldn't select all songs", it) }
+                .getOrDefault(emptyList())
             _selectingAll.value = false
             onLoaded(ids)
         }
     }
 
-    fun playNext(songIds: List<String>) {
-        viewModelScope.launch {
-            runCatching { playbackStarter.addToQueue(QueueAddSpec(songIds = songIds), QueueAddPosition.NEXT) }
-        }
-    }
+    fun playNext(songIds: List<String>) = queue(QueueAddSpec(songIds = songIds), QueueAddPosition.NEXT)
 
-    fun addToQueue(songIds: List<String>) {
-        viewModelScope.launch {
-            runCatching { playbackStarter.addToQueue(QueueAddSpec(songIds = songIds), QueueAddPosition.END) }
-        }
-    }
+    fun addToQueue(songIds: List<String>) = queue(QueueAddSpec(songIds = songIds), QueueAddPosition.END)
 
-    fun playNextSources(sources: List<QueueSourceRequest>) {
-        viewModelScope.launch {
-            runCatching {
-                playbackStarter.addToQueue(QueueAddSpec(sources = sources), QueueAddPosition.NEXT)
-            }
-        }
-    }
+    fun playNextSources(sources: List<QueueSourceRequest>) =
+        queue(QueueAddSpec(sources = sources), QueueAddPosition.NEXT)
 
-    fun addSourcesToQueue(sources: List<QueueSourceRequest>) {
+    fun addSourcesToQueue(sources: List<QueueSourceRequest>) =
+        queue(QueueAddSpec(sources = sources), QueueAddPosition.END)
+
+    /** Plays just [songId] (the web "Play" item on a song). */
+    fun playSong(songId: String) {
         viewModelScope.launch {
             runCatching {
-                playbackStarter.addToQueue(QueueAddSpec(sources = sources), QueueAddPosition.END)
-            }
+                playbackStarter.startQueue(
+                    QueueStartSpec(sourceType = "other", songIds = listOf(songId), startSongId = songId),
+                )
+            }.onFailure { messages.failure("Couldn't start playback", it) }
+        }
+    }
+
+    private fun queue(spec: QueueAddSpec, position: QueueAddPosition) {
+        viewModelScope.launch {
+            runCatching { playbackStarter.addToQueue(spec, position) }
+                .onSuccess {
+                    val what = if (spec.songIds.isNotEmpty()) songCount(spec.songIds.size).replaceFirstChar { it.uppercase() } else "Songs"
+                    messages.show(
+                        when (position) {
+                            QueueAddPosition.NEXT -> "$what will play next"
+                            QueueAddPosition.END -> "$what added to queue"
+                        },
+                    )
+                }
+                .onFailure { messages.failure("Couldn't add to queue", it) }
         }
     }
 }
 
-/**
- * Rows for the shared song action sheet: play next, add to queue, song radio,
- * favorite toggle, and selection.
- */
-fun songMenuActions(
-    flags: SongFlags,
-    onPlayNext: () -> Unit,
-    onAddToQueue: () -> Unit,
-    onToggleStar: () -> Unit,
-    onOpenSongRadio: (() -> Unit)? = null,
-    onStartSelection: (() -> Unit)? = null,
-): List<MediaAction> = buildList {
-    add(MediaAction(label = "Play next", icon = Icons.Filled.PlaylistPlay, onClick = onPlayNext))
-    add(MediaAction(label = "Add to queue", icon = Icons.Filled.Add, onClick = onAddToQueue))
-    onOpenSongRadio?.let { add(MediaAction(label = "Song radio", icon = Icons.Filled.Radio, onClick = it)) }
-    add(
-        MediaAction(
-            label = if (flags.starred) "Remove from favorites" else "Add to favorites",
-            icon = if (flags.starred) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-            onClick = onToggleStar,
-        ),
-    )
-    onStartSelection?.let { add(MediaAction(label = "Select", icon = Icons.Filled.Checklist, onClick = it)) }
-}
-
-/**
- * Self-contained song action sheet. Hosts its own ViewModel so any feature can
- * use it without extra wiring; features append their own rows via
- * [extraContent].
- */
-@Composable
-fun SongActionSheet(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    songId: String,
-    flags: SongFlags,
-    title: String? = null,
-    subtitle: String? = null,
-    coverModel: Any? = null,
-    onOpenSongRadio: (() -> Unit)? = null,
-    onStartSelection: (() -> Unit)? = null,
-    extraContent: (@Composable () -> Unit)? = null,
-    viewModel: SongActionsViewModel = hiltViewModel(),
-) {
-    MediaActionSheet(
-        expanded = expanded,
-        onDismiss = onDismiss,
-        title = title,
-        subtitle = subtitle,
-        coverModel = coverModel,
-        seed = songId,
-        actions = songMenuActions(
-            flags = flags,
-            onPlayNext = { viewModel.playNext(listOf(songId)) },
-            onAddToQueue = { viewModel.addToQueue(listOf(songId)) },
-            onToggleStar = { viewModel.toggleStar(songId, flags) },
-            onOpenSongRadio = onOpenSongRadio,
-            onStartSelection = onStartSelection,
-        ),
-        extraContent = extraContent,
-    )
-}
+internal fun songCount(count: Int): String = if (count == 1) "1 song" else "$count songs"
 
 /** Favorite toggle with its own mutation wiring, for row/header placement. */
 @Composable

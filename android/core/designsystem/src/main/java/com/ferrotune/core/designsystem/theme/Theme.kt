@@ -8,6 +8,8 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -103,6 +105,16 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = oklch(0.95, 0.03, 25.0),
 )
 
+/**
+ * Whether the app (not the system) is rendering its dark scheme. Components
+ * that pick colors outside the Material scheme read this instead of
+ * `isSystemInDarkTheme()`, so an explicit Light/Dark choice in Settings wins.
+ */
+val LocalDarkTheme = staticCompositionLocalOf { true }
+
+/** Web `text-red-500`: favorite hearts are red in both themes. */
+val FavoriteRed = Color(0xFFEF4444)
+
 @Composable
 fun FerrotuneTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -123,10 +135,12 @@ fun FerrotuneTheme(
         ?.let { AccentColors.withAccent(baseScheme, it, darkTheme) }
         ?: baseScheme
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = FerrotuneTypography,
-        shapes = FerrotuneShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = FerrotuneTypography,
+            shapes = FerrotuneShapes,
+            content = content,
+        )
+    }
 }

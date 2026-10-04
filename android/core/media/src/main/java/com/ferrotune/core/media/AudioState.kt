@@ -16,6 +16,8 @@ data class TrackInfo(
     val durationMs: Long,
     val replayGainDb: Float? = null,
     val starred: String? = null,
+    val artistId: String? = null,
+    val albumId: String? = null,
 )
 
 /**
