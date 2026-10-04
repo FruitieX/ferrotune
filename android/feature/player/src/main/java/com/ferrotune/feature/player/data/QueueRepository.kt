@@ -38,22 +38,8 @@ data class QueueSnapshot(
 class QueueRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
 ) {
-    suspend fun loadQueue(
-        sessionId: String,
-        currentIndex: Int,
-        radius: Int = DEFAULT_RADIUS,
-    ): QueueSnapshot {
-        val offset = (currentIndex - radius).coerceAtLeast(0)
-        val response = apiProvider.requireApi().queue(
-            QueueParams(
-                    sessionId = sessionId,
-                    offset = offset,
-                    limit = radius * 2,
-                    inlineImages = "small",
-                ).toQueryMap(),
-        )
-        return response.toSnapshot()
-    }
+    /** Paged view of the whole queue for the queue sheet. */
+    fun queuePages(sessionId: String): QueuePagingSource = QueuePagingSource(apiProvider, sessionId)
 
     suspend fun removeEntry(sessionId: String, position: Long) {
         apiProvider.requireApi().removeFromQueue(
@@ -86,10 +72,6 @@ class QueueRepository @Inject constructor(
         apiProvider.requireApi().setQueueRepeatMode(
             RepeatModeRequest(sessionId = sessionId, mode = mode),
         )
-    }
-
-    private companion object {
-        const val DEFAULT_RADIUS = 50
     }
 }
 

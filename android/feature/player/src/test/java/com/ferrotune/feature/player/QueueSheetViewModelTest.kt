@@ -1,21 +1,28 @@
 package com.ferrotune.feature.player
 
+import androidx.paging.PagingSource
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackState
-import com.ferrotune.core.network.generated.GetQueueResponse
+import com.ferrotune.core.media.PlaybackStatus
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.feature.player.data.FakeQueueApi
+import com.ferrotune.feature.player.data.QueueEntry
+import com.ferrotune.feature.player.data.QueuePagingSource
 import com.ferrotune.feature.player.data.QueueRepository
+import com.ferrotune.feature.player.data.alignedQueueKey
 import com.ferrotune.feature.player.data.testQueueResponse
-import kotlinx.coroutines.CompletableDeferred
+import com.ferrotune.feature.player.data.testSong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -35,36 +42,38 @@ class QueueSheetViewModelTest {
     }
 
     private fun starter(): FakePlaybackStarter = FakePlaybackStarter().apply {
-        state.value = PlaybackState(sessionId = "session-1", queueIndex = 1, queueLength = 3)
+        state.value = PlaybackState(
+            sessionId = "session-1",
+            queueIndex = 1,
+            queueLength = 3,
+            status = PlaybackStatus.PLAYING,
+            sourceName = "Library",
+            sourceType = "library",
+        )
     }
 
     private fun viewModel(
         api: FakeQueueApi = FakeQueueApi(),
         starter: FakePlaybackStarter = starter(),
-    ) = QueueSheetViewModel(QueueRepository(FakeApiProvider(api)), starter)
-
-    @Test
-    fun `loads the queue for the active playback session`() {
-        val api = FakeQueueApi()
-
-        val viewModel = viewModel(api)
-
-        val state = viewModel.uiState.value
-        assertFalse(state.loading)
-        assertEquals(3, state.totalCount)
-        assertEquals(3, state.entries.size)
-        assertEquals("Library", state.sourceName)
-        assertEquals("session-1", api.queueParams?.get("sessionId"))
+    ) = QueueSheetViewModel(QueueRepository(FakeApiProvider(api)), starter, UserMessages()).also {
+        it.uiState.launchIn(TestScope(UnconfinedTestDispatcher()))
     }
 
+    private fun entry(position: Long) = QueueEntry(
+        position = position,
+        entryId = "entry-$position",
+        song = testSong("song-$position"),
+    )
+
     @Test
-    fun `without a session the sheet stays empty`() {
-        val starter = FakePlaybackStarter()
+    fun `header mirrors the engine's session, index, and source`() {
+        val viewModel = viewModel()
 
-        val viewModel = viewModel(starter = starter)
-
-        assertFalse(viewModel.uiState.value.loading)
-        assertTrue(viewModel.uiState.value.entries.isEmpty())
+        val state = viewModel.uiState.value
+        assertEquals("session-1", state.sessionId)
+        assertEquals(1, state.currentIndex)
+        assertTrue(state.isPlaying)
+        assertEquals("Library", state.sourceName)
     }
 
     @Test
@@ -78,116 +87,60 @@ class QueueSheetViewModelTest {
     }
 
     @Test
-    fun `mutations go through the API and reload the window`() {
+    fun `remove, clear, and move go through the API for the session`() {
         val api = FakeQueueApi()
         val viewModel = viewModel(api)
 
-        viewModel.remove(1)
+        viewModel.remove(entry(1))
         assertEquals(1L, api.removedPosition)
+        assertEquals("session-1", api.removeParams?.get("sessionId"))
+
+        viewModel.moveTo(entry(2), 0)
+        assertEquals(2L, api.moveRequest?.fromPosition)
+        assertEquals(0L, api.moveRequest?.toPosition)
 
         viewModel.clear()
         assertTrue(api.cleared)
-
-        viewModel.toggleShuffle()
-        assertEquals(true, api.shuffleRequest?.enabled)
-
-        viewModel.cycleRepeat()
-        assertEquals("all", api.repeatRequest?.mode)
     }
 
     @Test
-    fun `drag move maps slot deltas onto queue positions`() {
+    fun `moving onto the same position is a no-op`() {
         val api = FakeQueueApi()
         val viewModel = viewModel(api)
-        val entry = viewModel.uiState.value.entries.first { it.position == 1L }
 
-        viewModel.move(entry, -1)
+        viewModel.moveTo(entry(0), -3)
 
-        assertEquals(1L, api.moveRequest?.fromPosition)
-        assertEquals(0L, api.moveRequest?.toPosition)
+        assertNull(api.moveRequest)
     }
 
     @Test
-    fun `drag move clamps at the start of the queue`() {
-        val api = FakeQueueApi()
-        val viewModel = viewModel(api)
-        val entry = viewModel.uiState.value.entries.first { it.position == 0L }
-
-        viewModel.move(entry, -3)
-
-        assertEquals(null, api.moveRequest)
-    }
-
-    @Test
-    fun `the playing index wins over a stale server index`() {
-        // FakeQueueApi reports the window offset as the server current index,
-        // so queueIndex = 1 with a snapshot index of 0 mimics a server index
-        // that lagged behind while the app played in the background.
-        val viewModel = viewModel()
-
-        assertEquals(1, viewModel.uiState.value.currentIndex)
-    }
-
-    @Test
-    fun `falls back to the server index when the playing index is outside the window`() {
-        val api = FakeQueueApi().apply {
-            queueHandler = { testQueueResponse(currentIndex = 0, totalCount = 3, offset = 0) }
-        }
-        val starter = FakePlaybackStarter().apply {
-            state.value = PlaybackState(sessionId = "session-1", queueIndex = 99, queueLength = 3)
-        }
-
-        val viewModel = viewModel(api, starter)
-
-        assertEquals(0, viewModel.uiState.value.currentIndex)
-    }
-
-    @Test
-    fun `reload refetches the queue window`() {
-        var totalCount = 3
+    fun `queue pages are aligned and report placeholders around them`() = runBlocking {
         val api = FakeQueueApi().apply {
             queueHandler = { params ->
-                val offset = params["offset"]?.toInt() ?: 0
-                testQueueResponse(
-                    currentIndex = offset,
-                    totalCount = totalCount,
-                    offset = offset,
-                )
+                val offset = params["offset"]!!.toInt()
+                val limit = params["limit"]!!.toInt()
+                testQueueResponse(currentIndex = 0, totalCount = minOf(limit, 130 - offset), offset = offset)
+                    .copy(totalCount = 130)
             }
         }
-        val viewModel = viewModel(api)
-        assertEquals(3, viewModel.uiState.value.totalCount)
+        val source = QueuePagingSource(FakeApiProvider(api), "session-1", pageSize = 50)
 
-        totalCount = 5
-        viewModel.reload()
+        val result = source.load(
+            PagingSource.LoadParams.Refresh(key = 73, loadSize = 50, placeholdersEnabled = true),
+        ) as PagingSource.LoadResult.Page
 
-        assertEquals(5, viewModel.uiState.value.totalCount)
+        assertEquals("50", api.queueParams?.get("offset"))
+        assertEquals(50, result.itemsBefore)
+        assertEquals(0, result.prevKey)
+        assertEquals(50 + result.data.size, result.nextKey)
+        assertEquals(130 - 50 - result.data.size, result.itemsAfter)
     }
 
     @Test
-    fun `a superseded load cannot overwrite a newer snapshot`() {
-        val staleResponse = CompletableDeferred<GetQueueResponse>()
-        var calls = 0
-        val api = FakeQueueApi().apply {
-            queueHandler = { params ->
-                calls++
-                val offset = params["offset"]?.toInt() ?: 0
-                if (calls == 1) staleResponse.await()
-                testQueueResponse(currentIndex = offset, totalCount = 5, offset = offset)
-            }
-        }
-        val starter = starter()
-        val viewModel = viewModel(api, starter)
-
-        // The first window fetch is still in flight when the engine advances.
-        assertEquals(1, calls)
-        starter.state.value = PlaybackState(sessionId = "session-1", queueIndex = 2, queueLength = 5)
-        assertEquals(2, calls)
-        assertEquals(2, viewModel.uiState.value.currentIndex)
-
-        // The abandoned response arrives late and must be ignored.
-        staleResponse.complete(testQueueResponse(currentIndex = 0, totalCount = 5, offset = 0))
-        assertEquals(2, viewModel.uiState.value.currentIndex)
-        assertNull(viewModel.uiState.value.error)
+    fun `aligned keys round down to the page start`() {
+        assertEquals(0, alignedQueueKey(-4))
+        assertEquals(0, alignedQueueKey(49))
+        assertEquals(50, alignedQueueKey(50))
+        assertEquals(100, alignedQueueKey(149))
     }
 }

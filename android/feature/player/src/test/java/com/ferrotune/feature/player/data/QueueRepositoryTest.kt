@@ -59,33 +59,6 @@ internal fun testQueueResponse(
 class QueueRepositoryTest {
 
     @Test
-    fun `loads a window centred on the current index`() = runTest {
-        val api = FakeQueueApi()
-        val repository = QueueRepository(FakeApiProvider(api))
-
-        val snapshot = repository.loadQueue(sessionId = "session-1", currentIndex = 10)
-
-        assertEquals("session-1", api.queueParams?.get("sessionId"))
-        assertEquals("100", api.queueParams?.get("limit"))
-        assertEquals("0", api.queueParams?.get("offset"))
-        assertEquals("small", api.queueParams?.get("inlineImages"))
-        assertEquals(3, snapshot.totalCount)
-        assertEquals(3, snapshot.entries.size)
-        assertEquals("song-0", snapshot.entries.first().song.id)
-        assertEquals("Library", snapshot.sourceName)
-    }
-
-    @Test
-    fun `offset is clamped so the window always includes the current track`() = runTest {
-        val api = FakeQueueApi()
-        val repository = QueueRepository(FakeApiProvider(api))
-
-        repository.loadQueue(sessionId = "session-1", currentIndex = 3)
-
-        assertEquals("0", api.queueParams?.get("offset"))
-    }
-
-    @Test
     fun `queue edits carry the session id`() = runTest {
         val api = FakeQueueApi()
         val repository = QueueRepository(FakeApiProvider(api))

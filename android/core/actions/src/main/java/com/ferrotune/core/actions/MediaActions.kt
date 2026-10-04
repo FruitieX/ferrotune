@@ -56,3 +56,28 @@ object NoOpMediaActions : MediaActions {
 }
 
 val LocalMediaActions = staticCompositionLocalOf<MediaActions> { NoOpMediaActions }
+
+/**
+ * Wraps these actions so every navigation first runs [close], for overlays
+ * (player, queue) that must get out of the way of the destination screen.
+ */
+fun MediaActions.closingBeforeNavigation(close: () -> Unit): MediaActions =
+    ClosingMediaActions(this, close)
+
+private class ClosingMediaActions(
+    private val delegate: MediaActions,
+    private val close: () -> Unit,
+) : MediaActions by delegate {
+    override fun openAlbum(albumId: String) = close().also { delegate.openAlbum(albumId) }
+
+    override fun openArtist(artistId: String) = close().also { delegate.openArtist(artistId) }
+
+    override fun openGenre(genre: String) = close().also { delegate.openGenre(genre) }
+
+    override fun openSongRadio(songId: String) = close().also { delegate.openSongRadio(songId) }
+
+    override fun openPlaylist(playlistId: String) = close().also { delegate.openPlaylist(playlistId) }
+
+    override fun openSmartPlaylist(smartPlaylistId: String) =
+        close().also { delegate.openSmartPlaylist(smartPlaylistId) }
+}

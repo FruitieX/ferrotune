@@ -97,13 +97,13 @@ fun MiniPlayerBar(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val track = state.track
-    var queueOpen by remember { mutableStateOf(false) }
+    val queuePanel = LocalQueuePanel.current
 
     Box(modifier = modifier.fillMaxWidth()) {
         Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)) {
             Box {
                 if (track == null) {
-                    NotPlayingRow(onOpenQueue = { queueOpen = true })
+                    NotPlayingRow(onOpenQueue = { queuePanel.open() })
                 } else {
                     NowPlayingRow(
                         state = state,
@@ -111,7 +111,7 @@ fun MiniPlayerBar(
                         onOpenNowPlaying = onOpenNowPlaying,
                         onExpandDrag = onExpandDrag,
                         onExpandDragEnd = onExpandDragEnd,
-                        onOpenQueue = { queueOpen = true },
+                        onOpenQueue = { queuePanel.open() },
                         viewModel = viewModel,
                     )
                 }
@@ -146,10 +146,6 @@ fun MiniPlayerBar(
                 barGap = 2.dp,
             )
         }
-    }
-
-    if (queueOpen) {
-        QueueSheet(onDismiss = { queueOpen = false })
     }
 }
 

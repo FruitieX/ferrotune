@@ -73,7 +73,10 @@ import com.ferrotune.feature.library.ui.LibraryScreen
 import com.ferrotune.feature.library.ui.SearchScreen
 import com.ferrotune.feature.library.ui.SongRadioScreen
 import com.ferrotune.feature.player.MiniPlayerBar
+import com.ferrotune.feature.player.LocalQueuePanel
 import com.ferrotune.feature.player.NowPlayingOverlay
+import com.ferrotune.feature.player.QueuePanelHost
+import com.ferrotune.feature.player.QueuePanelState
 import com.ferrotune.feature.player.rememberNowPlayingSheetState
 import com.ferrotune.feature.playlists.ui.PlaylistDetailScreen
 import com.ferrotune.feature.playlists.ui.PlaylistsScreen
@@ -202,7 +205,11 @@ private fun FerrotuneAppContent(
         }
     }
 
-    CompositionLocalProvider(LocalServerUrl provides state.activeAccount?.serverUrl) {
+    val queuePanel = remember { QueuePanelState() }
+    CompositionLocalProvider(
+        LocalServerUrl provides state.activeAccount?.serverUrl,
+        LocalQueuePanel provides queuePanel,
+    ) {
     ProvideMediaActions(navController) {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
@@ -420,6 +427,7 @@ private fun FerrotuneAppContent(
             state = nowPlayingSheet,
             onOpenChange = { nowPlayingOpen = it },
         )
+        QueuePanelHost(state = queuePanel)
     }
     }
     }

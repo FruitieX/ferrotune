@@ -64,7 +64,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.ferrotune.core.actions.LocalMediaActions
-import com.ferrotune.core.actions.MediaActions
+import com.ferrotune.core.actions.closingBeforeNavigation
 import com.ferrotune.core.actions.SongMenuSheet
 import com.ferrotune.core.actions.SongMenuTarget
 import com.ferrotune.core.actions.rememberSongFlags
@@ -93,13 +93,13 @@ fun NowPlayingScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
-    var queueOpen by remember { mutableStateOf(false) }
+    val queuePanel = LocalQueuePanel.current
     val songMenu = rememberSongMenuState()
     val haptics = LocalHapticFeedback.current
     val track = state.track
     val appActions = LocalMediaActions.current
     // Navigating from the player ("Go to album", song radio, ...) closes it first.
-    val actions = remember(appActions, onBack) { ClosingMediaActions(appActions, onBack) }
+    val actions = remember(appActions, onBack) { appActions.closingBeforeNavigation(onBack) }
 
     CompositionLocalProvider(LocalMediaActions provides actions) {
         Surface(
@@ -182,7 +182,7 @@ fun NowPlayingScreen(
                         }
                         Spacer(Modifier.weight(1f))
                         OutlinedButton(
-                            onClick = { queueOpen = true },
+                            onClick = { queuePanel.open() },
                             shape = CircleShape,
                         ) {
                             Icon(
@@ -198,30 +198,9 @@ fun NowPlayingScreen(
         }
 
         SongMenuSheet(state = songMenu)
-        if (queueOpen) {
-            QueueSheet(onDismiss = { queueOpen = false })
-        }
     }
 }
 
-/** Delegates to the app actions, closing the player before any navigation. */
-private class ClosingMediaActions(
-    private val delegate: MediaActions,
-    private val close: () -> Unit,
-) : MediaActions by delegate {
-    override fun openAlbum(albumId: String) = close().also { delegate.openAlbum(albumId) }
-
-    override fun openArtist(artistId: String) = close().also { delegate.openArtist(artistId) }
-
-    override fun openGenre(genre: String) = close().also { delegate.openGenre(genre) }
-
-    override fun openSongRadio(songId: String) = close().also { delegate.openSongRadio(songId) }
-
-    override fun openPlaylist(playlistId: String) = close().also { delegate.openPlaylist(playlistId) }
-
-    override fun openSmartPlaylist(smartPlaylistId: String) =
-        close().also { delegate.openSmartPlaylist(smartPlaylistId) }
-}
 
 internal fun TrackInfo.toMenuTarget() = SongMenuTarget(
     id = id,
