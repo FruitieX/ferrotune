@@ -36,6 +36,13 @@ class FakePlaybackStarter(private val failure: String? = null) : PlaybackStarter
         specs += spec
     }
 
+    var restoreCount = 0
+
+    override suspend fun restoreSession(): Boolean {
+        restoreCount++
+        return false
+    }
+
     val queueAdds = mutableListOf<Pair<QueueAddSpec, QueueAddPosition>>()
 
     override suspend fun addToQueue(spec: QueueAddSpec, position: QueueAddPosition) {

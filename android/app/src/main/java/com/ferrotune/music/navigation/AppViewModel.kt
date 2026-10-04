@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.datastore.ThemePreferencesRepository
 import com.ferrotune.core.designsystem.theme.OklchColor
+import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.model.Account
 import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.core.network.AccountSwitchResult
@@ -39,6 +40,7 @@ class AppViewModel @Inject constructor(
     private val accentSettingsRepository: AccentSettingsRepository,
     private val accountSwitcher: AccountSwitcher,
     private val playbackSessionResetter: PlaybackSessionResetter,
+    private val playbackStarter: PlaybackStarter,
     themePreferencesRepository: ThemePreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
 ) : ViewModel() {
@@ -71,11 +73,21 @@ class AppViewModel @Inject constructor(
             accounts.activeAccount
                 .map { it?.id }
                 .distinctUntilChanged()
-                .collect {
+                .collect { accountId ->
                     accentSettingsRepository.invalidate()
+                    if (accountId != null) restorePlaybackSession()
                     runCatching { accentSettingsRepository.ensureLoaded() }
                 }
         }
+    }
+
+    /** Reattaches to the server playback session when the app returns to the foreground. */
+    fun onForeground() {
+        if (uiState.value.activeAccount != null) restorePlaybackSession()
+    }
+
+    private fun restorePlaybackSession() {
+        viewModelScope.launch { runCatching { playbackStarter.restoreSession() } }
     }
 
     fun switchAccount(accountId: String) {

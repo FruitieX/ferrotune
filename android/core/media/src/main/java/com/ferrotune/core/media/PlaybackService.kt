@@ -246,6 +246,7 @@ class PlaybackService : MediaSessionService() {
     // Queue source info for scrobbling (so "Continue Listening" can show playlists)
     private var queueSourceType: String? = null
     private var queueSourceId: String? = null
+    private var queueSourceName: String? = null
     // Range of server positions currently loaded in ExoPlayer
     // e.g. if positions 10-30 are loaded: loadedRangeStart=10, loadedRangeEnd=30
     private var loadedRangeStart: Int = 0
@@ -1057,6 +1058,7 @@ class PlaybackService : MediaSessionService() {
                         }
 
                         response.sourceType?.let { queueSourceType = it }
+                        response.sourceName?.let { queueSourceName = it }
                         response.sourceId?.let { queueSourceId = it }
                         serverQueueIndex = response.currentIndex
                         resetScrobbleState()
@@ -1156,6 +1158,7 @@ class PlaybackService : MediaSessionService() {
         queue = emptyList()
         queueIndex = -1
         queueSourceType = null
+        queueSourceName = null
         queueSourceId = null
         isOfflinePlaybackQueue = false
         handler.removeCallbacks(positionSyncRunnable)
@@ -1221,6 +1224,7 @@ class PlaybackService : MediaSessionService() {
         queue = emptyList()
         queueIndex = -1
         queueSourceType = null
+        queueSourceName = null
         queueSourceId = null
         exoIndexToServerPosition.clear()
         exoIndexToQueueSong.clear()
@@ -1491,6 +1495,7 @@ class PlaybackService : MediaSessionService() {
                             if (!isQueueLoadGenerationCurrent(generation, "SSE QueueChanged")) return@post
                             // Update source info from the new queue
                             response.sourceType?.let { queueSourceType = it }
+                            response.sourceName?.let { queueSourceName = it }
                             response.sourceId?.let { queueSourceId = it }
 
                             // Check if the currently playing track is the same as
@@ -1683,6 +1688,7 @@ class PlaybackService : MediaSessionService() {
         sessionOwnerClientId = event.ownerClientId
         sessionOwnerClientName = event.ownerClientName
         nativeOwnsSession = isCurrentClientOwner
+        emitStateChange()
 
         if (isCurrentClientOwner) {
             if (event.resumePlayback && (!wasOwner || !player.playWhenReady)) {
@@ -1712,6 +1718,20 @@ class PlaybackService : MediaSessionService() {
         } else {
             hideLocalMediaNotificationForCastOwner("owner changed")
         }
+    }
+
+    /**
+     * Seeds the session owner reported by `POST /sessions/connect` when the app
+     * reattaches to an existing session, without claiming ownership. A paused
+     * restore must not heartbeat over another client that is still playing;
+     * explicit play() claims ownership as usual.
+     */
+    fun applyConnectedSessionOwner(ownerClientId: String?, ownerClientName: String?) {
+        val myClientId = apiClient.getClientId()
+        sessionOwnerClientId = ownerClientId
+        sessionOwnerClientName = ownerClientName
+        nativeOwnsSession = myClientId != null && ownerClientId == myClientId
+        emitStateChange()
     }
 
     private fun claimNativeSessionOwnership(
@@ -1777,6 +1797,7 @@ class PlaybackService : MediaSessionService() {
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, reason)) return@post
                     response.sourceType?.let { queueSourceType = it }
+                    response.sourceName?.let { queueSourceName = it }
                     response.sourceId?.let { queueSourceId = it }
                     val startPositionMs = startPositionOverrideMs ?: response.positionMs
 
@@ -1838,6 +1859,7 @@ class PlaybackService : MediaSessionService() {
         sessionId: String? = null,
         sourceType: String? = null,
         sourceId: String? = null,
+        sourceName: String? = null,
     ) {
         Log.d(TAG, "startPlayback(total=$totalCount, index=$currentIndex, " +
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
@@ -1879,6 +1901,7 @@ class PlaybackService : MediaSessionService() {
 
         queueSourceType = sourceType
         queueSourceId = sourceId
+        queueSourceName = sourceName
         serverTotalCount = totalCount
         serverQueueIndex = currentIndex
         this.isShuffled = isShuffled
@@ -2002,6 +2025,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         queueSourceType = sourceType ?: response.sourceType
+        queueSourceName = response.sourceName
         queueSourceId = sourceId ?: response.sourceId
         serverTotalCount = response.totalCount
         serverQueueIndex = response.currentIndex
@@ -4204,7 +4228,12 @@ class PlaybackService : MediaSessionService() {
             queueLength = queue.size,
             sessionId = apiClient.currentSessionId(),
             isShuffled = isShuffled,
-            repeatMode = repeatMode
+            repeatMode = repeatMode,
+            sourceType = queueSourceType,
+            sourceId = queueSourceId,
+            sourceName = queueSourceName,
+            ownsSession = nativeOwnsSession,
+            sessionOwnerClientName = sessionOwnerClientName,
         )
     }
 

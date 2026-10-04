@@ -4,6 +4,8 @@ import com.ferrotune.core.datastore.AccountStore
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.ConnectSessionRequest
+import com.ferrotune.core.network.dto.QueueParams
+import com.ferrotune.core.network.toQueryMap
 import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
@@ -11,6 +13,8 @@ import com.ferrotune.core.network.generated.StartQueueResponse
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -44,7 +48,74 @@ class PlaybackSessionStarter @Inject constructor(
     private val offlineQueueSource: OfflineQueueSource,
     private val playbackSettingsRepository: PlaybackSettingsRepository,
 ) : PlaybackStarter {
+    /** Serializes explicit queue starts with launch-time session restores. */
+    private val sessionMutex = Mutex()
+
+    @Volatile
+    private var explicitStarts = 0L
+
     override suspend fun startQueue(spec: QueueStartSpec) {
+        explicitStarts++
+        sessionMutex.withLock { startQueueLocked(spec) }
+    }
+
+    /**
+     * Reattaches to the account's server playback session after launch or an
+     * account switch: connects the session (and its SSE stream), records who
+     * owns it, and loads the saved queue paused at the saved position so the
+     * mini player shows what was playing. Never starts audio and never claims
+     * ownership; pressing play does that. Returns false when nothing was
+     * restored (no account, already attached, empty queue, or offline).
+     */
+    override suspend fun restoreSession(): Boolean {
+        val startsBefore = explicitStarts
+        return sessionMutex.withLock {
+            if (explicitStarts != startsBefore) return@withLock false
+            val account = accountStore.activeAccount.first() ?: return@withLock false
+            val current = repository.refreshState()
+            if (current.sessionId != null && current.track != null) return@withLock false
+
+            val clientId = accountStore.clientId()
+            val api = apiProvider.requireApi()
+            val session = apiCall { api.connectSession(ConnectSessionRequest(clientId = clientId)) }
+            repository.initSession(
+                config = SessionConfig(
+                    serverUrl = account.serverUrl,
+                    username = account.username,
+                    sessionToken = account.sessionToken,
+                    sessionExpiresAt = account.sessionExpiresAt,
+                    sessionId = session.id,
+                    clientId = clientId,
+                ),
+                settings = playbackSettingsRepository.ensureLoaded(),
+            )
+            repository.applyConnectedSessionOwner(
+                ownerClientId = session.ownerClientId,
+                ownerClientName = session.ownerClientName,
+            )
+            if (session.isNewSession) return@withLock false
+
+            val queue = apiCall {
+                api.queue(QueueParams(sessionId = session.id, offset = 0, limit = 1).toQueryMap())
+            }
+            val restore = restoredQueue(queue) ?: return@withLock false
+            repository.startPlayback(
+                totalCount = restore.totalCount,
+                currentIndex = restore.currentIndex,
+                isShuffled = queue.isShuffled,
+                repeatMode = queue.repeatMode,
+                startPositionMs = restore.positionMs,
+                sessionId = session.id,
+                sourceType = queue.source.type,
+                sourceId = queue.source.id,
+                sourceName = queue.source.name,
+                playWhenReady = false,
+            )
+            true
+        }
+    }
+
+    private suspend fun startQueueLocked(spec: QueueStartSpec) {
         val account = accountStore.activeAccount.first()
             ?: throw IllegalStateException("Not signed in")
         val clientId = accountStore.clientId()
@@ -83,6 +154,7 @@ class PlaybackSessionStarter @Inject constructor(
             sessionId = session.id,
             sourceType = spec.sourceType,
             sourceId = spec.sourceId,
+            sourceName = spec.sourceName,
         )
     }
 
@@ -202,6 +274,23 @@ internal fun queueStartSpecForAdd(spec: QueueAddSpec): QueueStartSpec = QueueSta
 )
 
 internal const val QUEUE_SOURCE_OTHER = "other"
+
+internal data class RestoredQueue(val totalCount: Int, val currentIndex: Int, val positionMs: Long)
+
+/**
+ * Where a launch-time restore should resume the saved server queue, or null
+ * when there is nothing to show. The index is clamped because the server keeps
+ * the last index even after entries were removed.
+ */
+internal fun restoredQueue(queue: com.ferrotune.core.network.generated.GetQueueResponse): RestoredQueue? {
+    val total = queue.totalCount.toInt()
+    if (total <= 0) return null
+    return RestoredQueue(
+        totalCount = total,
+        currentIndex = queue.currentIndex.toInt().coerceIn(0, total - 1),
+        positionMs = queue.positionMs.coerceAtLeast(0),
+    )
+}
 
 internal fun buildStartQueueRequest(
     spec: QueueStartSpec,

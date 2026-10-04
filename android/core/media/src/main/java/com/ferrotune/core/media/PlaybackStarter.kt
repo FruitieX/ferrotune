@@ -26,6 +26,9 @@ data class QueueAddSpec(
 interface PlaybackStarter {
     suspend fun startQueue(spec: QueueStartSpec)
 
+    /** Reattaches to the server session and loads its queue paused; see [PlaybackSessionStarter.restoreSession]. */
+    suspend fun restoreSession(): Boolean
+
     suspend fun addToQueue(spec: QueueAddSpec, position: QueueAddPosition)
 
     suspend fun startRandomQueue(size: Int = 50)

@@ -55,7 +55,14 @@ data class PlaybackState(
     val queueLength: Int = 0,
     val sessionId: String? = null,
     val isShuffled: Boolean = false,
-    val repeatMode: String = "off"
+    val repeatMode: String = "off",
+    /** Server queue source (`album`, `playlist`, ...) and its display name. */
+    val sourceType: String? = null,
+    val sourceId: String? = null,
+    val sourceName: String? = null,
+    /** False while another client owns the shared playback session. */
+    val ownsSession: Boolean = true,
+    val sessionOwnerClientName: String? = null,
 )
 
 /**

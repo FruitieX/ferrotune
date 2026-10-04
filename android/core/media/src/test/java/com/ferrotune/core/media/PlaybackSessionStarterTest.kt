@@ -1,6 +1,9 @@
 package com.ferrotune.core.media
 
 import com.ferrotune.core.network.FerrotuneJson
+import com.ferrotune.core.network.generated.GetQueueResponse
+import com.ferrotune.core.network.generated.QueueSourceInfo
+import com.ferrotune.core.network.generated.QueueWindow
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import kotlinx.serialization.json.JsonPrimitive
@@ -133,4 +136,34 @@ class PlaybackSessionStarterTest {
 
         assertEquals(sources, request.sources)
     }
+
+    @Test
+    fun `restore skips an empty server queue`() {
+        assertNull(restoredQueue(queueResponse(total = 0, index = 0, positionMs = 0)))
+    }
+
+    @Test
+    fun `restore resumes the saved index and position`() {
+        val restore = restoredQueue(queueResponse(total = 12, index = 4, positionMs = 61_000))
+
+        assertEquals(RestoredQueue(totalCount = 12, currentIndex = 4, positionMs = 61_000), restore)
+    }
+
+    @Test
+    fun `restore clamps a stale index past the end of the queue`() {
+        val restore = restoredQueue(queueResponse(total = 3, index = 7, positionMs = -5))
+
+        assertEquals(RestoredQueue(totalCount = 3, currentIndex = 2, positionMs = 0), restore)
+    }
+
+    private fun queueResponse(total: Long, index: Long, positionMs: Long) = GetQueueResponse(
+        totalCount = total,
+        currentIndex = index,
+        positionMs = positionMs,
+        isShuffled = false,
+        repeatMode = "off",
+        source = QueueSourceInfo(type = "album", id = "album-1", name = "Album", instanceId = "i-1"),
+        window = QueueWindow(offset = 0, songs = emptyList()),
+        version = 1,
+    )
 }

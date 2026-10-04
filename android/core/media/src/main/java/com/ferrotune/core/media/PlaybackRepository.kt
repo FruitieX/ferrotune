@@ -96,19 +96,25 @@ class PlaybackRepository @Inject constructor(
         sessionId: String? = null,
         sourceType: String? = null,
         sourceId: String? = null,
+        sourceName: String? = null,
+        playWhenReady: Boolean = true,
     ) {
         awaitService().startPlayback(
             totalCount = totalCount,
             currentIndex = currentIndex,
             isShuffled = isShuffled,
             repeatMode = repeatMode,
-            playWhenReady = true,
+            playWhenReady = playWhenReady,
             startPositionMs = startPositionMs,
             sessionId = sessionId,
             sourceType = sourceType,
             sourceId = sourceId,
+            sourceName = sourceName,
         )
     }
+
+    suspend fun applyConnectedSessionOwner(ownerClientId: String?, ownerClientName: String?) =
+        awaitService().applyConnectedSessionOwner(ownerClientId, ownerClientName)
 
     suspend fun play() = awaitService().play()
 

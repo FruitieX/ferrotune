@@ -86,6 +86,7 @@ data class QueueWindow(
 data class GetQueueResponse(
     val sourceType: String? = null,
     val sourceId: String? = null,
+    val sourceName: String? = null,
     val totalCount: Int,
     val currentIndex: Int,
     val positionMs: Long,
@@ -765,8 +766,9 @@ class FerrotuneApiClient {
         }
         val sourceJson = json.optJSONObject("source")
         return GetQueueResponse(
-            sourceType = sourceJson?.optString("type")?.ifEmpty { null },
-            sourceId = sourceJson?.optString("id")?.ifEmpty { null },
+            sourceType = sourceJson?.optNullableString("type")?.ifEmpty { null },
+            sourceId = sourceJson?.optNullableString("id")?.ifEmpty { null },
+            sourceName = sourceJson?.optNullableString("name")?.ifEmpty { null },
             totalCount = json.getInt("totalCount"),
             currentIndex = json.getInt("currentIndex"),
             positionMs = json.optLong("positionMs", 0),
