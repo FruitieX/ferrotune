@@ -11,6 +11,7 @@ import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
 import com.ferrotune.core.network.generated.PeriodReviewResponse
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.network.generated.StatsResponse
+import com.ferrotune.core.network.generated.UserInfo
 import com.ferrotune.core.network.toQueryMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -107,6 +108,8 @@ class HomeRepository @Inject constructor(
     ).songs
 
     suspend fun stats(): StatsResponse = apiProvider.requireApi().stats()
+
+    suspend fun currentUser(): UserInfo = apiProvider.requireApi().currentUser()
 
     suspend fun listeningStats(): ListeningStatsResponse =
         apiProvider.requireApi().listeningStats()

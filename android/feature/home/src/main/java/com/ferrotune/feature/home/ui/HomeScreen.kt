@@ -28,7 +28,6 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.EventNote
@@ -311,7 +310,7 @@ private fun AccountMenuSheet(
                 }
                 MediaActionSeparator()
             }
-            MediaActionRow(icon = Icons.Filled.BarChart, label = "Profile & stats", onClick = onOpenStats)
+            MediaActionRow(icon = Icons.Filled.Person, label = "Profile", onClick = onOpenStats)
             MediaActionRow(icon = Icons.Filled.EventNote, label = "Listening review", onClick = onOpenReview)
             MediaActionRow(icon = Icons.Filled.DownloadForOffline, label = "Downloads", onClick = onOpenDownloads)
             MediaActionRow(icon = Icons.Filled.Add, label = "Add account", onClick = onAddAccount)

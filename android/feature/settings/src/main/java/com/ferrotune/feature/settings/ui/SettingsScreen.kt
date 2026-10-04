@@ -67,6 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.designsystem.components.PageIconHeader
+import com.ferrotune.core.designsystem.components.SectionCard
+import com.ferrotune.core.designsystem.components.StatTile
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.theme.AccentColors
@@ -122,34 +125,13 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-                .statusBarsPadding(),
+                .background(MaterialTheme.colorScheme.background),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(22.dp))
-                }
-                Column {
-                    Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Manage your preferences",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            PageIconHeader(
+                icon = Icons.Filled.Settings,
+                title = "Settings",
+                subtitle = "Manage your preferences",
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -190,7 +172,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item(key = SettingsSection.CONNECTION) {
-                SettingsCard(
+                SectionCard(
                     icon = Icons.Filled.Storage,
                     title = "Server Connection",
                     description = "Your Ferrotune server connection details",
@@ -222,8 +204,8 @@ fun SettingsScreen(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        InfoTile(label = "Username", value = username.orEmpty(), icon = Icons.Filled.Person, modifier = Modifier.weight(1f))
-                        InfoTile(label = "Account", value = accountLabel.orEmpty(), icon = Icons.Filled.PhoneAndroid, modifier = Modifier.weight(1f))
+                        StatTile(label = "Username", value = username.orEmpty(), icon = Icons.Filled.Person, modifier = Modifier.weight(1f))
+                        StatTile(label = "Account", value = accountLabel.orEmpty(), icon = Icons.Filled.PhoneAndroid, modifier = Modifier.weight(1f))
                     }
                     val others = accounts.filter { it.id != activeAccountId }
                     if (others.isNotEmpty()) {
@@ -267,7 +249,7 @@ fun SettingsScreen(
             }
 
             item(key = SettingsSection.LIBRARY) {
-                SettingsCard(
+                SectionCard(
                     icon = Icons.Filled.BarChart,
                     title = "Library Statistics",
                     description = "Overview of your music library",
@@ -285,19 +267,19 @@ fun SettingsScreen(
                         )
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            InfoTile("Songs", s.songCount.toString(), Icons.Filled.MusicNote, Modifier.weight(1f))
-                            InfoTile("Albums", s.albumCount.toString(), Icons.Filled.ViewAgenda, Modifier.weight(1f))
+                            StatTile("Songs", s.songCount.toString(), Icons.Filled.MusicNote, Modifier.weight(1f))
+                            StatTile("Albums", s.albumCount.toString(), Icons.Filled.ViewAgenda, Modifier.weight(1f))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            InfoTile("Artists", s.artistCount.toString(), Icons.Filled.Person, Modifier.weight(1f))
-                            InfoTile("Playtime", formatTotalDuration(s.totalDurationSeconds), Icons.Filled.BarChart, Modifier.weight(1f))
+                            StatTile("Artists", s.artistCount.toString(), Icons.Filled.Person, Modifier.weight(1f))
+                            StatTile("Playtime", formatTotalDuration(s.totalDurationSeconds), Icons.Filled.BarChart, Modifier.weight(1f))
                         }
                     }
                 }
             }
 
             item(key = SettingsSection.HOME) {
-                SettingsCard(
+                SectionCard(
                     icon = Icons.Filled.ViewAgenda,
                     title = "Home",
                     description = "Quick tiles and sections on the Home page",
@@ -311,7 +293,7 @@ fun SettingsScreen(
             }
 
             item(key = SettingsSection.PLAYBACK) {
-                SettingsCard(
+                SectionCard(
                     icon = Icons.Filled.MusicNote,
                     title = "Playback",
                     description = "Volume normalization, streaming quality, and the seek bar",
@@ -369,7 +351,7 @@ fun SettingsScreen(
             }
 
             item(key = SettingsSection.DOWNLOADS) {
-                SettingsCard(
+                SectionCard(
                     icon = Icons.Filled.Download,
                     title = "Downloads",
                     description = "Offline copies for listening without a connection",
@@ -405,7 +387,7 @@ fun SettingsScreen(
             }
 
             item(key = SettingsSection.APPEARANCE) {
-                SettingsCard(
+                SectionCard(
                     icon = Icons.Filled.Palette,
                     title = "Appearance",
                     description = "Theme and accent color",
@@ -456,7 +438,7 @@ fun SettingsScreen(
             }
 
             item(key = SettingsSection.ABOUT) {
-                SettingsCard(icon = Icons.Filled.Info, title = "About Ferrotune", description = null) {
+                SectionCard(icon = Icons.Filled.Info, title = "About Ferrotune", description = null) {
                     Text(
                         "Ferrotune for Android (native) — a self-hosted music server and client.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -465,68 +447,6 @@ fun SettingsScreen(
                 }
             }
         }
-    }
-}
-
-/** Web settings `Card`: rounded `bg-card` panel with an icon title and description. */
-@Composable
-private fun SettingsCard(
-    icon: ImageVector,
-    title: String,
-    description: String?,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        }
-        if (description != null) {
-            Text(
-                description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        content()
-    }
-}
-
-/** Web settings stat/info tile: uppercase label over a value. */
-@Composable
-private fun InfoTile(label: String, value: String, icon: ImageVector, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-            Text(
-                label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                letterSpacing = 0.8.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text(
-            value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 

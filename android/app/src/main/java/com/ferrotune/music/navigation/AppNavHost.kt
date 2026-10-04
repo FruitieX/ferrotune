@@ -65,7 +65,7 @@ import com.ferrotune.feature.home.ui.HomeLinkTarget
 import com.ferrotune.feature.home.ui.HomeScreen
 import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
 import com.ferrotune.feature.home.ui.ReviewScreen
-import com.ferrotune.feature.home.ui.StatsScreen
+import com.ferrotune.feature.home.ui.ProfileScreen
 import com.ferrotune.feature.library.ui.AlbumDetailScreen
 import com.ferrotune.feature.library.ui.ArtistDetailScreen
 import com.ferrotune.feature.library.ui.FavoritesScreen
@@ -402,7 +402,16 @@ private fun FerrotuneAppContent(
                     HomeLayoutSettingsScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Routes.STATS) {
-                    StatsScreen(onBack = { navController.popBackStack() })
+                    ProfileScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenReview = { navController.navigate(Routes.REVIEW) },
+                        onSignOut = {
+                            viewModel.signOutLocally()
+                            navController.navigate(Routes.LOGIN) {
+                                popUpTo(Routes.HOME) { inclusive = true }
+                            }
+                        },
+                    )
                 }
                 composable(Routes.REVIEW) {
                     ReviewScreen(

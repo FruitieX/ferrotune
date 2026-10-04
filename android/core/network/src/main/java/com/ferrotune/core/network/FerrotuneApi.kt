@@ -85,6 +85,7 @@ import com.ferrotune.core.network.generated.UnmatchEntryRequest
 import com.ferrotune.core.network.generated.UpdatePlaylistRequest
 import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.UpdateSmartPlaylistRequest
+import com.ferrotune.core.network.generated.UserInfo
 import com.ferrotune.core.network.generated.WaveformResponse
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -107,6 +108,9 @@ interface FerrotuneApi {
 
     @GET("api/auth/me")
     suspend fun me(): AuthMeResponseDto
+
+    @GET("api/users/me")
+    suspend fun currentUser(): UserInfo
 
     @POST("api/auth/refresh")
     suspend fun refresh(): AuthSessionRefreshResponseDto

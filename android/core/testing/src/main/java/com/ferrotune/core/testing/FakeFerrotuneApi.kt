@@ -88,6 +88,7 @@ import com.ferrotune.core.network.generated.UnmatchEntryRequest
 import com.ferrotune.core.network.generated.UpdatePlaylistRequest
 import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.UpdateSmartPlaylistRequest
+import com.ferrotune.core.network.generated.UserInfo
 import com.ferrotune.core.network.generated.WaveformResponse
 
 fun testAccount(): Account = Account(
@@ -144,6 +145,8 @@ open class FakeFerrotuneApi(
         error("unused")
 
     override suspend fun sessionClients(): ClientListResponse = error("unused")
+
+    override suspend fun currentUser(): UserInfo = error("unused")
 
     override suspend fun sessionCommand(
         sessionId: String,
