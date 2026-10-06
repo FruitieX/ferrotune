@@ -3,6 +3,8 @@ package com.ferrotune.feature.library.ui
 import com.ferrotune.core.actions.UserMessage
 import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.ViewModePreferencesRepository
+import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
+import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.GenresList
@@ -124,6 +126,27 @@ class LibraryViewModelTest {
         assertEquals("search", spec.sourceType)
         assertEquals("Search: gold", spec.sourceName)
         assertEquals(JsonPrimitive("gold"), spec.filters["query"])
+    }
+
+    @Test
+    fun `saving filters creates a private smart playlist with all rules required`() {
+        val api = object : FakeFerrotuneApi() {
+            var request: CreateSmartPlaylistRequest? = null
+
+            override suspend fun createSmartPlaylist(request: CreateSmartPlaylistRequest): CreateSmartPlaylistResponse {
+                this.request = request
+                return CreateSmartPlaylistResponse(id = "sp1", name = request.name)
+            }
+        }
+        val viewModel = viewModel(api)
+
+        viewModel.saveAsSmartPlaylist(" 90s favorites ", LibraryFilters(minYear = 1990, maxYear = 1999, starredOnly = true))
+
+        val request = api.request
+        assertEquals("90s favorites", request?.name)
+        assertEquals(false, request?.isPublic)
+        assertEquals("and", request?.rules?.logic)
+        assertEquals(listOf("year", "year", "starred"), request?.rules?.conditions?.map { it.field })
     }
 
     @Test

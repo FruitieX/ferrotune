@@ -59,4 +59,27 @@ class LibraryFiltersTest {
         assertEquals(listOf("Year: 1990–1999", "Duration ≥ 2:05", "Favorites"), badges.map { it.label })
         assertEquals(LibraryFilters(minDuration = 125, starredOnly = true), badges.first().without)
     }
+
+    @Test
+    fun `smart playlist rules follow the web mapping`() {
+        val rules = LibraryFilters(
+            minYear = 1990,
+            maxRating = 4,
+            starredOnly = true,
+            addedAfter = "2024-01-01",
+            missingCoverArt = true,
+        ).toSmartPlaylistConditions()
+
+        assertEquals(
+            listOf(
+                Triple("year", "gte", JsonPrimitive(1990)),
+                Triple("rating", "lte", JsonPrimitive(4)),
+                Triple("starred", "eq", JsonPrimitive(true)),
+                Triple("dateAdded", "gt", JsonPrimitive("2024-01-01")),
+                Triple("coverArt", "neq", JsonPrimitive("any")),
+            ),
+            rules.map { Triple(it.field, it.operator, it.value) },
+        )
+        assertTrue(LibraryFilters.NONE.toSmartPlaylistConditions().isEmpty())
+    }
 }

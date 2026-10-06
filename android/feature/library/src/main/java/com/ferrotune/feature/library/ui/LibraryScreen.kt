@@ -341,6 +341,7 @@ fun LibraryScreen(
             scope = filterScope,
             genres = state.genres.map { it.value },
             onApply = viewModel::setFilters,
+            onSaveSmartPlaylist = viewModel::saveAsSmartPlaylist,
             onDismiss = { filtersOpen = false },
         )
     }

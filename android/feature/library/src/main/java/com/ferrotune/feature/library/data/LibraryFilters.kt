@@ -1,6 +1,7 @@
 package com.ferrotune.feature.library.data
 
 import com.ferrotune.core.network.generated.SearchParams
+import com.ferrotune.core.network.generated.SmartPlaylistConditionApi
 import java.util.Locale
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -98,6 +99,34 @@ data class LibraryFilters(
         if (missingCoverArt) put("missingCoverArt", JsonPrimitive(true))
         if (shuffleExcludedOnly) put("shuffleExcludedOnly", JsonPrimitive(true))
         if (disabledOnly) put("disabledOnly", JsonPrimitive(true))
+    }
+
+    /**
+     * Smart playlist rules matching these filters (web `flatToRules`), all
+     * required ("and"), for "Save as smart playlist".
+     */
+    fun toSmartPlaylistConditions(): List<SmartPlaylistConditionApi> = buildList {
+        fun rule(field: String, operator: String, value: JsonElement) = add(SmartPlaylistConditionApi(field, operator, value))
+        minYear?.let { rule("year", "gte", JsonPrimitive(it)) }
+        maxYear?.let { rule("year", "lte", JsonPrimitive(it)) }
+        genre?.let { rule("genre", "eq", JsonPrimitive(it)) }
+        minDuration?.let { rule("duration", "gte", JsonPrimitive(it)) }
+        maxDuration?.let { rule("duration", "lte", JsonPrimitive(it)) }
+        minRating?.let { rule("rating", "gte", JsonPrimitive(it)) }
+        maxRating?.let { rule("rating", "lte", JsonPrimitive(it)) }
+        if (starredOnly) rule("starred", "eq", JsonPrimitive(true))
+        minPlayCount?.let { rule("playCount", "gte", JsonPrimitive(it)) }
+        maxPlayCount?.let { rule("playCount", "lte", JsonPrimitive(it)) }
+        if (shuffleExcludedOnly) rule("shuffleExcluded", "eq", JsonPrimitive(true))
+        minBitrate?.let { rule("bitrate", "gte", JsonPrimitive(it)) }
+        maxBitrate?.let { rule("bitrate", "lte", JsonPrimitive(it)) }
+        addedAfter?.let { rule("dateAdded", "gt", JsonPrimitive(it)) }
+        addedBefore?.let { rule("dateAdded", "lt", JsonPrimitive(it)) }
+        lastPlayedAfter?.let { rule("lastPlayed", "gt", JsonPrimitive(it)) }
+        lastPlayedBefore?.let { rule("lastPlayed", "lt", JsonPrimitive(it)) }
+        fileFormat?.let { rule("fileFormat", "eq", JsonPrimitive(it)) }
+        if (missingCoverArt) rule("coverArt", "neq", JsonPrimitive("any"))
+        if (disabledOnly) rule("disabled", "eq", JsonPrimitive(true))
     }
 
     /** One removable chip per active filter (web `ActiveFilterBadges`). */

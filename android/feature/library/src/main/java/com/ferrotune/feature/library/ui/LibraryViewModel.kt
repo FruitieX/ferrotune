@@ -163,6 +163,14 @@ class LibraryViewModel @Inject constructor(
 
     fun setFilters(filters: LibraryFilters) = state.update { it.copy(filters = filters) }
 
+    fun saveAsSmartPlaylist(name: String, filters: LibraryFilters) {
+        viewModelScope.launch {
+            runCatching { repository.createSmartPlaylist(name.trim(), filters) }
+                .onSuccess { messages.show("Smart playlist \"${it.name}\" created") }
+                .onFailure { messages.failure("Couldn't create smart playlist", it) }
+        }
+    }
+
     fun setFilter(value: String) {
         state.update { it.copy(filter = value) }
         filter.value = value

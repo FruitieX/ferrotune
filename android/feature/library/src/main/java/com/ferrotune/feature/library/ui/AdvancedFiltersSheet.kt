@@ -18,8 +18,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +33,7 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -44,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -162,11 +166,15 @@ fun AdvancedFiltersSheet(
     scope: FilterScope,
     genres: List<String>,
     onApply: (LibraryFilters) -> Unit,
+    onSaveSmartPlaylist: (name: String, filters: LibraryFilters) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var draft by remember { mutableStateOf(FilterDraft.from(filters)) }
+    var naming by remember { mutableStateOf(false) }
+    val savable = draft.isValid && draft.toFilters().forScope(scope).isActive
     val songs = scope == FilterScope.SONGS
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val close = {
         keyboard?.hide()
         onDismiss()
@@ -257,6 +265,20 @@ fun AdvancedFiltersSheet(
                     }
                 }
             }
+            if (savable) {
+                OutlinedButton(
+                    onClick = {
+                        // Otherwise the sheet scrolls back to the focused field when the dialog closes.
+                        focusManager.clearFocus()
+                        naming = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Save as smart playlist")
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { draft = FilterDraft() }) { Text("Clear all") }
                 Spacer(Modifier.weight(1f))
@@ -271,6 +293,39 @@ fun AdvancedFiltersSheet(
             }
         }
     }
+    if (naming) {
+        SmartPlaylistNameDialog(
+            onSave = { name ->
+                onSaveSmartPlaylist(name, draft.toFilters().forScope(scope))
+                naming = false
+            },
+            onDismiss = { naming = false },
+        )
+    }
+}
+
+/** Web `SmartPlaylistNameDialog`: names the smart playlist saved from the filters. */
+@Composable
+private fun SmartPlaylistNameDialog(onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
+        title = { Text("Save as smart playlist") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name.trim()) }, enabled = name.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**
