@@ -17,13 +17,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +58,8 @@ fun DetailHeader(
     meta: String? = null,
     coverModel: Any? = null,
     coverFallbackModel: Any? = null,
+    /** Full-size cover; when set, tapping the cover opens [CoverViewer] (web cover modal). */
+    fullCoverModel: Any? = null,
     coverPlaceholder: ImageVector = Icons.Filled.Album,
     seed: String? = null,
     icon: ImageVector? = null,
@@ -138,6 +144,15 @@ fun DetailHeader(
                     )
                 }
             } else {
+                var viewerOpen by remember { mutableStateOf(false) }
+                if (viewerOpen) {
+                    CoverViewer(
+                        model = fullCoverModel,
+                        fallbackModel = coverModel,
+                        contentDescription = title,
+                        onDismiss = { viewerOpen = false },
+                    )
+                }
                 CoverArt(
                     model = coverModel,
                     fallbackModel = coverFallbackModel,
@@ -152,7 +167,10 @@ fun DetailHeader(
                             elevation = 24.dp,
                             shape = if (circularCover) CircleShape else RoundedCornerShape(8.dp),
                         )
-                        .clip(if (circularCover) CircleShape else RoundedCornerShape(8.dp)),
+                        .clip(if (circularCover) CircleShape else RoundedCornerShape(8.dp))
+                        .then(
+                            if (fullCoverModel != null) Modifier.clickable { viewerOpen = true } else Modifier,
+                        ),
                 )
             }
             Column(

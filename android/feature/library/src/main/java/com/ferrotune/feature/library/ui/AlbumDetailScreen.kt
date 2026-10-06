@@ -169,6 +169,7 @@ fun AlbumDetailScreen(
                             seed = album?.name,
                             coverModel = largeCover,
                             coverFallbackModel = inlineCover,
+                            fullCoverModel = album?.coverArt?.let { id -> state.serverUrl?.let { coverArtUrl(it, id) } },
                             showBackButton = !selection.isActive,
                             onBack = onBack,
                             onSubtitleClick = album?.let { { actions.openArtist(it.artistId) } },

@@ -1,11 +1,7 @@
 package com.ferrotune.feature.library.ui
 
-import com.ferrotune.core.designsystem.components.rememberActionBarPinned
-import com.ferrotune.core.designsystem.components.PinnedActionBar
-import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -50,11 +47,13 @@ import com.ferrotune.core.actions.SongSelectionActionBar
 import com.ferrotune.core.actions.SongSelectionTopBar
 import com.ferrotune.core.actions.coverModel
 import com.ferrotune.core.actions.coverUrl
+import com.ferrotune.core.actions.fullCoverUrl
 import com.ferrotune.core.actions.rememberCollectionMenuState
 import com.ferrotune.core.actions.rememberNowPlaying
 import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.actions.songPagingItems
+import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
 import com.ferrotune.core.designsystem.components.DetailActionBar
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.DetailHero
@@ -65,9 +64,11 @@ import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
+import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.SortSheetSection
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.designsystem.theme.seedBackdropColor
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.QueueSourceRequest
@@ -184,6 +185,7 @@ fun ArtistDetailScreen(
                             circularCover = true,
                             coverModel = artist?.coverArt?.let { coverUrl(it, CoverSize.LARGE) },
                             coverFallbackModel = inlineCoverModel(artist?.coverArtData),
+                            fullCoverModel = fullCoverUrl(artist?.coverArt),
                             coverPlaceholder = Icons.Filled.Person,
                             showBackButton = !selection.isActive,
                             onBack = onBack,

@@ -32,3 +32,10 @@ fun coverUrl(coverArtId: String?, size: CoverSize = CoverSize.MEDIUM): String? {
     val serverUrl = LocalServerUrl.current ?: return null
     return coverArtId?.takeIf { it.isNotBlank() }?.let { coverArtUrl(serverUrl, it, size.apiValue) }
 }
+
+/** The original, full-size cover (web cover modal), or null without one. */
+@Composable
+fun fullCoverUrl(coverArtId: String?): String? {
+    val serverUrl = LocalServerUrl.current ?: return null
+    return coverArtId?.takeIf { it.isNotBlank() }?.let { coverArtUrl(serverUrl, it) }
+}

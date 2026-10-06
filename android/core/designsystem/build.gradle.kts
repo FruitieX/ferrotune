@@ -29,6 +29,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(libs.androidx.core.ktx)
     implementation(project(":core:model"))
 
     implementation(platform(libs.androidx.compose.bom))
