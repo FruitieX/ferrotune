@@ -17,9 +17,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -60,6 +63,15 @@ class QueueSheetViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val refreshes = MutableStateFlow(0)
+
+    private val _pageRefreshes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /**
+     * Asks the panel to refresh its current pages in place after an edit that
+     * keeps the queue's length (a move). Unlike [reload], the old rows stay up
+     * until the new ones arrive, so the list keeps its scroll anchor.
+     */
+    val pageRefreshes: SharedFlow<Unit> = _pageRefreshes.asSharedFlow()
 
     val uiState: StateFlow<QueueSheetUiState> = playbackStarter.state
         .map {
@@ -130,18 +142,23 @@ class QueueSheetViewModel @Inject constructor(
     fun moveTo(entry: QueueEntry, toPosition: Long) {
         val target = toPosition.coerceAtLeast(0)
         if (target == entry.position) return
-        mutate("Couldn't move the track") { session ->
+        mutate("Couldn't move the track", refreshInPlace = true) { session ->
             queueRepository.moveEntry(session, entry.position, target)
         }
     }
 
-    private fun mutate(failure: String, success: String? = null, block: suspend (String) -> Unit) {
+    private fun mutate(
+        failure: String,
+        success: String? = null,
+        refreshInPlace: Boolean = false,
+        block: suspend (String) -> Unit,
+    ) {
         val session = uiState.value.sessionId ?: playbackStarter.state.value.sessionId ?: return
         viewModelScope.launch {
             runCatching { block(session) }
                 .onSuccess {
                     success?.let(messages::show)
-                    reload()
+                    if (refreshInPlace) _pageRefreshes.tryEmit(Unit) else reload()
                     // Don't wait for the server's queue event: skipping right
                     // after a move must play the new next track.
                     runCatching { playbackStarter.refreshQueue() }

@@ -3,8 +3,8 @@ package com.ferrotune.feature.player
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -51,23 +53,31 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.LocalPinnableContainer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -82,8 +92,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.ferrotune.core.actions.CoverSize
 import com.ferrotune.core.actions.LocalMediaActions
-import com.ferrotune.core.actions.closingBeforeNavigation
 import com.ferrotune.core.actions.SongMenuSheet
+import com.ferrotune.core.actions.closingBeforeNavigation
 import com.ferrotune.core.actions.coverModel
 import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.toMenuTarget
@@ -94,6 +104,7 @@ import com.ferrotune.core.designsystem.components.NowPlayingBars
 import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.formatClockDuration
 import com.ferrotune.feature.player.data.QueueEntry
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -161,14 +172,47 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
 
     LaunchedEffect(Unit) { shown.animateTo(1f, tween(320)) }
     LaunchedEffect(Unit) { viewModel.reload() }
+    LaunchedEffect(Unit) { viewModel.pageRefreshes.collect { entries.refresh() } }
     LaunchedEffect(state.sessionId, entries.itemCount) { reorder.cancel() }
     // A settled move leaves the preview up until the reloaded rows show it;
     // clear it then, or after a while when the move failed.
     val preview = reorder.visiblePreview { entries.peek(it)?.entryId }
     val pendingMove = reorder.preview?.takeIf { it.settled }
+
+    // Scroll while a held row is near the list's top or bottom edge; the row
+    // follows the content by the scrolled distance so it stays under the finger.
+    var listTop by remember { mutableFloatStateOf(0f) }
+    var listBottom by remember { mutableFloatStateOf(0f) }
+    val holding = reorder.preview?.settled == false
+    LaunchedEffect(holding) {
+        if (!holding) return@LaunchedEffect
+        val slotPx = with(density) { (QueueRowHeight + QueueRowGap).toPx() }
+        val edgePx = with(density) { 72.dp.toPx() }
+        val maxSpeed = with(density) { 18.dp.toPx() }
+        while (reorder.preview?.settled == false) {
+            withFrameNanos { }
+            val speed = queueAutoScrollSpeed(reorder.pointerY, listTop, listBottom, edgePx, maxSpeed)
+            if (speed != 0f) {
+                val scrolled = listState.scrollBy(speed)
+                if (scrolled != 0f) reorder.dragBy(scrolled, slotPx, entries.itemCount)
+            }
+        }
+    }
+    // The list keeps its first visible row in place by key when the reloaded
+    // rows arrive. If the preview had shifted that row to make room, undo the
+    // shift by scrolling, so nothing moves when the move lands.
+    var anchorShift by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pendingMove) {
+        anchorShift = pendingMove?.displacement(listState.firstVisibleItemIndex) ?: 0
+    }
     LaunchedEffect(pendingMove, preview == null) {
         if (pendingMove == null) return@LaunchedEffect
-        if (preview == null) reorder.cancel() else {
+        if (preview == null) {
+            if (anchorShift != 0) {
+                listState.scrollBy(-anchorShift * with(density) { (QueueRowHeight + QueueRowGap).toPx() })
+            }
+            reorder.cancel()
+        } else {
             delay(5_000)
             reorder.cancel()
         }
@@ -257,12 +301,18 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                         icon = Icons.AutoMirrored.Filled.QueueMusic,
                         description = "Play something to fill the queue.",
                     )
-                } else {
+                } else Box(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
                         state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInRoot()
+                                listTop = bounds.top
+                                listBottom = bounds.bottom
+                            },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(QueueRowGap),
-                        modifier = Modifier.fillMaxSize(),
                     ) {
                         items(
                             count = entries.itemCount,
@@ -284,7 +334,9 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                     reorderState = reorder,
                                     preview = preview,
                                     queueSize = entries.itemCount,
-                                    modifier = Modifier.animateItem(),
+                                    // Reorders draw their own motion; a placement animation would
+                                    // replay the move from the old slot when the reloaded rows land.
+                                    modifier = Modifier.animateItem(placementSpec = null),
                                     isCurrent = isCurrent,
                                     isPlaying = isCurrent && state.isPlaying,
                                     onPlay = { viewModel.jumpTo(index) },
@@ -296,6 +348,24 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                 )
                             }
                         }
+                    }
+                    // The held row, floating under the finger above the list.
+                    val floating = reorder.held
+                    val pointerY = reorder.pointerY
+                    if (floating != null && !pointerY.isNaN()) {
+                        val floatingCurrent = floating.position.toInt() == state.currentIndex
+                        QueueRow(
+                            entry = floating,
+                            isCurrent = floatingCurrent,
+                            isPlaying = floatingCurrent && state.isPlaying,
+                            onPlay = {},
+                            onLongPress = {},
+                            onMove = {},
+                            floating = true,
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp)
+                                .offset { IntOffset(0, (pointerY - reorder.grabOffset - listTop).roundToInt()) },
+                        )
                     }
                 }
             }
@@ -416,6 +486,7 @@ internal fun QueueRow(
     reorderState: QueueReorderState? = null,
     preview: QueueReorderPreview? = reorderState?.preview,
     queueSize: Int = Int.MAX_VALUE,
+    floating: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val reorder = reorderState ?: remember { QueueReorderState() }
@@ -425,19 +496,31 @@ internal fun QueueRow(
     val slotPx = with(density) { (QueueRowHeight + QueueRowGap).toPx() }
     val dragging = preview?.entryId == entry.entryId
     val held = dragging && preview?.settled == false
-    // While held the row follows the finger; on release it springs into the target slot.
+    // While held the row follows the finger; on release it springs into the
+    // target slot. When the preview ends (the reloaded rows already sit in
+    // their new slots) every row snaps to its layout position.
     val translation by animateFloatAsState(
         targetValue = if (dragging) preview?.offsetY ?: 0f
             else (preview?.displacement(entry.position.toInt()) ?: 0) * slotPx,
-        animationSpec = if (held) snap() else spring(),
+        animationSpec = if (held || preview == null) snap() else spring(),
         label = "Queue insertion preview",
     )
     val move by rememberUpdatedState(onMove)
+    // Keep the held row composed while edge scrolling carries its slot off screen,
+    // or the drag gesture would be cancelled.
+    val pinnable = LocalPinnableContainer.current
+    DisposableEffect(held, pinnable) {
+        val handle = if (held) pinnable?.pin() else null
+        onDispose { handle?.release() }
+    }
+    var handleCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var rowCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val song = entry.song
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(QueueRowHeight)
+            .onGloballyPositioned { rowCoordinates = it }
             .zIndex(if (dragging) 1f else 0f),
     ) {
         if (held && preview != null) {
@@ -454,11 +537,13 @@ internal fun QueueRow(
                 .fillMaxSize()
                 .graphicsLayer {
                     translationY = translation
-                    shadowElevation = if (held) 8.dp.toPx() else 0f
+                    shadowElevation = if (floating) 8.dp.toPx() else 0f
+                    // The panel draws the held row floating under the finger.
+                    alpha = if (held) 0f else 1f
                 }
                 .background(
                     when {
-                        held -> colors.surfaceContainerHigh
+                        floating -> colors.surfaceContainerHigh
                         isCurrent -> colors.primary.copy(alpha = 0.1f)
                         else -> colors.surfaceContainerLow
                     },
@@ -518,14 +603,23 @@ internal fun QueueRow(
                 tint = colors.onSurfaceVariant,
                 modifier = Modifier
                     .size(44.dp)
+                    .onGloballyPositioned { handleCoordinates = it }
                     .pointerInput(entry.entryId, entry.position, queueSize, slotPx) {
                         detectDragGesturesAfterLongPress(
-                            onDragStart = {
+                            onDragStart = { offset ->
                                 reorder.start(entry.entryId, entry.position.toInt())
+                                val handle = handleCoordinates?.takeIf { it.isAttached }
+                                val row = rowCoordinates?.takeIf { it.isAttached }
+                                if (handle != null && row != null) {
+                                    reorder.grab(entry, handle.localToRoot(offset).y, row.positionInRoot().y)
+                                }
                             },
                             onDrag = { change, amount ->
                                 change.consume()
                                 reorder.dragBy(amount.y, slotPx, queueSize)
+                                handleCoordinates?.takeIf { it.isAttached }?.let {
+                                    reorder.pointerY = it.localToRoot(change.position).y
+                                }
                             },
                             onDragEnd = {
                                 val slots = reorder.finish(slotPx)

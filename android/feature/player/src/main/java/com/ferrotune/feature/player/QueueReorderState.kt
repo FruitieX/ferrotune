@@ -2,8 +2,10 @@ package com.ferrotune.feature.player
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.ferrotune.feature.player.data.QueueEntry
 import kotlin.math.roundToInt
 
 /**
@@ -30,6 +32,25 @@ class QueueReorderState {
     var preview by mutableStateOf<QueueReorderPreview?>(null)
         private set
 
+    /** The finger's root Y while dragging, for scrolling near the list edges. */
+    var pointerY by mutableFloatStateOf(Float.NaN)
+
+    /**
+     * The held entry and where the finger grabbed it (px below the row top),
+     * so the panel can draw the row floating under the finger even after
+     * edge scrolling carries its list slot off screen.
+     */
+    var held by mutableStateOf<QueueEntry?>(null)
+        private set
+    var grabOffset = 0f
+        private set
+
+    fun grab(entry: QueueEntry, pointerRootY: Float, rowTopRootY: Float) {
+        held = entry
+        pointerY = pointerRootY
+        grabOffset = pointerRootY - rowTopRootY
+    }
+
     fun start(entryId: String, position: Int) {
         preview = QueueReorderPreview(entryId, position, position)
     }
@@ -48,6 +69,7 @@ class QueueReorderState {
         val drag = preview ?: return 0
         val slots = drag.target - drag.from
         preview = if (slots == 0) null else drag.copy(offsetY = slots * slotPx, settled = true)
+        release()
         return slots
     }
 
@@ -60,5 +82,25 @@ class QueueReorderState {
 
     fun cancel() {
         preview = null
+        release()
+    }
+
+    private fun release() {
+        pointerY = Float.NaN
+        held = null
+    }
+}
+
+/**
+ * Scroll speed (px per frame) while dragging at [pointerY] in a list spanning
+ * [top]..[bottom]: zero away from the edges, ramping up to [maxSpeed] as the
+ * finger reaches or passes an edge within [edgePx].
+ */
+fun queueAutoScrollSpeed(pointerY: Float, top: Float, bottom: Float, edgePx: Float, maxSpeed: Float): Float {
+    if (pointerY.isNaN() || edgePx <= 0f || bottom <= top) return 0f
+    return when {
+        pointerY < top + edgePx -> -maxSpeed * ((top + edgePx - pointerY) / edgePx).coerceIn(0f, 1f)
+        pointerY > bottom - edgePx -> maxSpeed * ((pointerY - (bottom - edgePx)) / edgePx).coerceIn(0f, 1f)
+        else -> 0f
     }
 }

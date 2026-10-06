@@ -71,4 +71,23 @@ class QueueReorderStateTest {
         assertNull(state.preview)
         assertEquals(0, state.finish(64f))
     }
+
+    @Test fun `auto-scroll ramps up near the edges and stops in the middle`() {
+        fun speed(y: Float) = queueAutoScrollSpeed(y, top = 100f, bottom = 1100f, edgePx = 100f, maxSpeed = 20f)
+
+        assertEquals(0f, speed(600f), 0f)
+        assertEquals(-10f, speed(150f), 0.001f)
+        assertEquals(-20f, speed(40f), 0f)
+        assertEquals(10f, speed(1050f), 0.001f)
+        assertEquals(20f, speed(1300f), 0f)
+        assertEquals(0f, speed(Float.NaN), 0f)
+    }
+
+    @Test fun `ending a drag forgets the pointer`() {
+        val state = QueueReorderState()
+        state.start("entry", 1)
+        state.pointerY = 500f
+        state.finish(64f)
+        assertTrue(state.pointerY.isNaN())
+    }
 }

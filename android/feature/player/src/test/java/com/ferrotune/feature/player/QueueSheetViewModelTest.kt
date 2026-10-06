@@ -16,6 +16,7 @@ import com.ferrotune.feature.player.data.testSong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -107,10 +108,14 @@ class QueueSheetViewModelTest {
     fun `a move makes the player reload its upcoming tracks`() {
         val starter = starter()
         val viewModel = viewModel(starter = starter)
+        var pageRefreshes = 0
+        TestScope(UnconfinedTestDispatcher()).launch { viewModel.pageRefreshes.collect { pageRefreshes++ } }
 
         viewModel.moveTo(entry(5), 1)
 
         assertEquals(1, starter.queueRefreshes)
+        // Moves refresh the shown pages in place instead of rebuilding the pager.
+        assertEquals(1, pageRefreshes)
     }
 
     @Test
