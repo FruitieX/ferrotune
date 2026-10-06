@@ -1,8 +1,7 @@
 <resources>
-    <!-- colorPrimary/colorAccent/isLightTheme are consumed by the Cast
-         MediaRouteButton theming, which reads AppCompat attributes from the
-         activity theme. -->
-    <style name="Theme.Ferrotune" parent="android:Theme.Material.Light.NoActionBar">
+    <!-- The Cast route button and chooser dialog both require AppCompat
+         theme attributes, even though the rest of the UI uses Compose. -->
+    <style name="Theme.Ferrotune" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="colorPrimary">#E07A3D</item>
         <item name="colorAccent">#E07A3D</item>
         <item name="isLightTheme">true</item>

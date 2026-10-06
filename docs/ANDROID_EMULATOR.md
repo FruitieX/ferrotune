@@ -46,6 +46,32 @@ moon run client:test-android-emulator
 
 That task always rebuilds and reinstalls the debug Android app before running Playwright, so it does not rely on whatever APK is already present on the device.
 
+## Native Android regression checks
+
+Run these inside `nix develop .#android` with an emulator running:
+
+```bash
+moon run android:test-cast
+moon run android:test-gestures
+moon run android:test-release-contracts
+```
+
+`test-cast` opens the Cast chooser from the real native activity with its
+application theme in both light and dark mode, catching activity-host and
+AppCompat theme failures.
+
+`test-gestures` installs a separate Compose test APK and verifies that queue
+handle dragging moves the song without opening its context menu, while a
+long press on the song content still opens the menu. It also verifies the
+animated insertion preview before the move is committed. The fixture uses
+fake song data. All three tasks select an emulator and reject a physical-device
+serial. Set `ANDROID_SERIAL` to choose among emulators.
+
+`test-release-contracts` builds the minified native APK and loads it on the
+emulator without installing it. It checks the queue move method's suspend
+response type and runtime serializer. It honors `ANDROID_ADB_SERVER_ADDRESS`
+and `ANDROID_SERIAL`.
+
 ## Preferred incident log collection: authenticated SSE pull
 
 When the Android client has an active session SSE connection, prefer the authenticated server-mediated diagnostics pull over ADB. The server sends a `DiagnosticsRequest` event over the target client's SSE stream, waits up to 20 seconds for the client to upload its sanitized native-audio bundle, and returns the bundle in the HTTP response.

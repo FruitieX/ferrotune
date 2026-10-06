@@ -2,6 +2,9 @@ package com.ferrotune.feature.player
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -56,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,7 +95,6 @@ import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.formatClockDuration
 import com.ferrotune.feature.player.data.QueueEntry
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 private val QueueRowHeight = 60.dp
 private val QueueRowGap = 4.dp
@@ -134,6 +137,7 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val entries = viewModel.entries.collectAsLazyPagingItems()
     val listState = rememberLazyListState()
+    val reorder = remember { QueueReorderState() }
     val scope = rememberCoroutineScope()
     val songMenu = rememberSongMenuState()
     var menuEntry by remember { mutableStateOf<QueueEntry?>(null) }
@@ -156,6 +160,7 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
 
     LaunchedEffect(Unit) { shown.animateTo(1f, tween(320)) }
     LaunchedEffect(Unit) { viewModel.reload() }
+    LaunchedEffect(state.sessionId, entries.itemCount) { reorder.cancel() }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.reload() }
     BackHandler { close() }
 
@@ -264,6 +269,9 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                 val isCurrent = index == state.currentIndex
                                 QueueRow(
                                     entry = entry,
+                                    reorderState = reorder,
+                                    queueSize = entries.itemCount,
+                                    modifier = Modifier.animateItem(),
                                     isCurrent = isCurrent,
                                     isPlaying = isCurrent && state.isPlaying,
                                     onPlay = { viewModel.jumpTo(index) },
@@ -385,108 +393,137 @@ private fun QueueHeader(
 /** Web queue row: card tile, now-playing bars, cover, title + "artist · album", duration, drag handle. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QueueRow(
+internal fun QueueRow(
     entry: QueueEntry,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onPlay: () -> Unit,
     onLongPress: () -> Unit,
     onMove: (Int) -> Unit,
+    reorderState: QueueReorderState? = null,
+    queueSize: Int = Int.MAX_VALUE,
+    modifier: Modifier = Modifier,
 ) {
+    val reorder = reorderState ?: remember { QueueReorderState() }
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(8.dp)
     val density = LocalDensity.current
     val slotPx = with(density) { (QueueRowHeight + QueueRowGap).toPx() }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    var dragging by remember { mutableStateOf(false) }
+    val preview = reorder.preview
+    val dragging = preview?.entryId == entry.entryId
+    val translation by animateFloatAsState(
+        targetValue = if (dragging) preview?.offsetY ?: 0f
+            else (preview?.displacement(entry.position.toInt()) ?: 0) * slotPx,
+        animationSpec = if (dragging) snap() else spring(),
+        label = "Queue insertion preview",
+    )
+    val move by rememberUpdatedState(onMove)
     val song = entry.song
-    Row(
-        modifier = Modifier
+    Box(
+        modifier = modifier
             .fillMaxWidth()
             .height(QueueRowHeight)
-            .zIndex(if (dragging) 1f else 0f)
-            .graphicsLayer {
-                if (dragging) {
-                    translationY = dragOffsetY
-                    shadowElevation = 8.dp.toPx()
-                }
-            }
-            .background(
-                when {
-                    dragging -> colors.surfaceContainerHigh
-                    isCurrent -> colors.primary.copy(alpha = 0.1f)
-                    else -> colors.surfaceContainerLow
-                },
-                shape,
-            )
-            .then(if (isCurrent) Modifier.border(1.dp, colors.primary.copy(alpha = 0.2f), shape) else Modifier)
-            .combinedClickable(onClick = onPlay, onLongClick = onLongPress)
-            .padding(start = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .zIndex(if (dragging) 1f else 0f),
     ) {
-        if (isCurrent) {
-            NowPlayingBars(isAnimating = isPlaying, modifier = Modifier.width(20.dp))
-        }
-        CoverArt(
-            model = coverModel(song.coverArtData, song.coverArt, CoverSize.SMALL),
-            contentDescription = null,
-            seed = song.album ?: song.title,
-            shape = RoundedCornerShape(4.dp),
-            modifier = Modifier.size(40.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (isCurrent) colors.primary else colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = listOfNotNull(song.artist, song.album).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        if (dragging && preview != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { translationY = (preview.target - preview.from) * slotPx }
+                    .background(colors.primary.copy(alpha = 0.08f), shape)
+                    .border(1.dp, colors.primary.copy(alpha = 0.4f), shape),
             )
         }
-        Text(
-            text = formatClockDuration(song.duration * 1000),
-            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-            color = colors.onSurfaceVariant,
-        )
-        Icon(
-            imageVector = Icons.Filled.DragHandle,
-            contentDescription = "Reorder ${song.title}",
-            tint = colors.onSurfaceVariant,
+        Row(
             modifier = Modifier
-                .size(44.dp)
-                .padding(10.dp)
-                .pointerInput(entry.entryId) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = {
-                            dragging = true
-                            dragOffsetY = 0f
-                        },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            dragOffsetY += amount.y
-                        },
-                        onDragEnd = {
-                            val slots = (dragOffsetY / slotPx).roundToInt()
-                            dragging = false
-                            dragOffsetY = 0f
-                            if (slots != 0) onMove(slots)
-                        },
-                        onDragCancel = {
-                            dragging = false
-                            dragOffsetY = 0f
-                        },
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = if (dragging) preview?.offsetY ?: 0f else translation
+                    shadowElevation = if (dragging) 8.dp.toPx() else 0f
+                }
+                .background(
+                    when {
+                        dragging -> colors.surfaceContainerHigh
+                        isCurrent -> colors.primary.copy(alpha = 0.1f)
+                        else -> colors.surfaceContainerLow
+                    },
+                    shape,
+                )
+                .then(if (isCurrent) Modifier.border(1.dp, colors.primary.copy(alpha = 0.2f), shape) else Modifier)
+                .padding(start = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Keep the handle outside the clickable content so its long press
+            // cannot also open the song menu.
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .combinedClickable(onClick = onPlay, onLongClick = onLongPress),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (isCurrent) {
+                    NowPlayingBars(isAnimating = isPlaying, modifier = Modifier.width(20.dp))
+                }
+                CoverArt(
+                    model = coverModel(song.coverArtData, song.coverArt, CoverSize.SMALL),
+                    contentDescription = null,
+                    seed = song.album ?: song.title,
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.size(40.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = song.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isCurrent) colors.primary else colors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                },
-        )
+                    Text(
+                        text = listOfNotNull(song.artist, song.album).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = formatClockDuration(song.duration * 1000),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                    color = colors.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.DragHandle,
+                contentDescription = "Reorder ${song.title}",
+                tint = colors.onSurfaceVariant,
+                modifier = Modifier
+                    .size(44.dp)
+                    .pointerInput(entry.entryId, entry.position, queueSize, slotPx) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                reorder.start(entry.entryId, entry.position.toInt())
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                reorder.dragBy(amount.y, slotPx, queueSize)
+                            },
+                            onDragEnd = {
+                                val slots = reorder.finish()
+                                if (slots != 0) move(slots)
+                            },
+                            onDragCancel = {
+                                reorder.cancel()
+                            },
+                        )
+                    }
+                    .padding(10.dp),
+            )
+        }
     }
 }
 
