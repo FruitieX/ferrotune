@@ -145,23 +145,6 @@
             echo "JAVA_HOME=$JAVA_HOME"
             echo ""
 
-            # Auto-configure ADB bridge when running in a VM
-            # Points the Android SDK's ADB client at the host-side ADB server
-            # where the Android device/emulator is connected.
-            if [ -n "''${ANDROID_ADB_SERVER_ADDRESS:-}" ]; then
-              echo "Using pre-configured ADB server: $ANDROID_ADB_SERVER_ADDRESS"
-            elif grep -qi microsoft /proc/version 2>/dev/null; then
-              # WSL2 mirrored networking mode shares localhost with Windows
-              WINDOWS_HOST="''${ADB_WINDOWS_HOST:-127.0.0.1}"
-              export ANDROID_ADB_SERVER_ADDRESS="$WINDOWS_HOST"
-              echo "WSL2 detected: ADB bridged to Windows host at $WINDOWS_HOST"
-            fi
-            if [ -n "''${ANDROID_ADB_SERVER_ADDRESS:-}" ]; then
-              echo "  (ANDROID_ADB_SERVER_ADDRESS=$ANDROID_ADB_SERVER_ADDRESS)"
-              echo "  Make sure the Windows ADB server is running with:"
-              echo "  > adb -a nodaemon server"
-            fi
-
             echo ""
             echo "Build debug APK:  moon run android:assemble-debug"
             echo "Unit tests:       moon run android:test-unit"

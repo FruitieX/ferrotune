@@ -22,9 +22,7 @@
 		// "source=/path/to/music,target=/music,type=bind,readonly"
 	],
 	"containerEnv": {
-		"FERROTUNE_DATA_DIR": "/data",
-		// ADB: reach host's ADB server for Android device/emulator debugging
-		"ANDROID_ADB_SERVER_ADDRESS": "host.docker.internal"
+		"FERROTUNE_DATA_DIR": "/data"
 	},
 	"forwardPorts": [
 		4040,

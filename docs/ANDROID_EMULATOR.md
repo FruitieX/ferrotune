@@ -69,8 +69,7 @@ serial. Set `ANDROID_SERIAL` to choose among emulators.
 
 `test-release-contracts` builds the minified native APK and loads it on the
 emulator without installing it. It checks the queue move method's suspend
-response type and runtime serializer. It honors `ANDROID_ADB_SERVER_ADDRESS`
-and `ANDROID_SERIAL`.
+response type and runtime serializer. It honors `ANDROID_SERIAL`.
 
 ## Preferred incident log collection: authenticated SSE pull
 
@@ -119,7 +118,6 @@ If the external app-specific directory is unavailable, the script tries a `run-a
 ## Device selection
 
 - Use `ANDROID_SERIAL` to target a specific emulator/device when multiple are attached.
-- Use `ANDROID_ADB_SERVER_ADDRESS` if your ADB server is not on `127.0.0.1`.
 
 Example:
 

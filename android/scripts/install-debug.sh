@@ -10,9 +10,6 @@ if [[ ! -f "$apk" ]]; then
 fi
 
 adb_args=()
-if [[ -n "${ANDROID_ADB_SERVER_ADDRESS:-}" ]]; then
-  adb_args+=(-H "$ANDROID_ADB_SERVER_ADDRESS")
-fi
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then
   adb_args+=(-s "$ANDROID_SERIAL")
 fi

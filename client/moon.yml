@@ -537,7 +537,7 @@ tasks:
       runInCI: false
 
   tauri-android-deploy:
-    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json && APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) && $APKSIGNER sign --ks $HOME/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} shell am start -S -n com.ferrotune.music/.MainActivity'"
+    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json && APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) && $APKSIGNER sign --ks $HOME/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb shell am start -S -n com.ferrotune.music/.MainActivity'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -552,7 +552,6 @@ tasks:
       ANDROID_HOME: "${ANDROID_HOME}"
       ANDROID_SDK_ROOT: "${ANDROID_SDK_ROOT}"
       NDK_HOME: "${NDK_HOME}"
-      ANDROID_ADB_SERVER_ADDRESS: "${ANDROID_ADB_SERVER_ADDRESS}"
     options:
       runInCI: false
       cache: false
@@ -564,8 +563,8 @@ tasks:
       pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json &&
       APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) &&
       "$APKSIGNER" sign --ks "${FERROTUNE_RELEASE_KEYSTORE:?Set FERROTUNE_RELEASE_KEYSTORE to the keystore file path}" --ks-pass "pass:${FERROTUNE_RELEASE_KEYSTORE_PASSWORD:?Set FERROTUNE_RELEASE_KEYSTORE_PASSWORD}" --ks-key-alias "${FERROTUNE_RELEASE_KEY_ALIAS:?Set FERROTUNE_RELEASE_KEY_ALIAS}" --key-pass "pass:${FERROTUNE_RELEASE_KEY_PASSWORD:?Set FERROTUNE_RELEASE_KEY_PASSWORD}" src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
-      adb -H "${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1}" install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
-      adb -H "${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1}" shell am start -S -n com.ferrotune.music/.MainActivity
+      adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
+      adb shell am start -S -n com.ferrotune.music/.MainActivity
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -580,7 +579,6 @@ tasks:
       ANDROID_HOME: "${ANDROID_HOME}"
       ANDROID_SDK_ROOT: "${ANDROID_SDK_ROOT}"
       NDK_HOME: "${NDK_HOME}"
-      ANDROID_ADB_SERVER_ADDRESS: "${ANDROID_ADB_SERVER_ADDRESS}"
       FERROTUNE_RELEASE_KEYSTORE: "${FERROTUNE_RELEASE_KEYSTORE}"
       FERROTUNE_RELEASE_KEYSTORE_PASSWORD: "${FERROTUNE_RELEASE_KEYSTORE_PASSWORD}"
       FERROTUNE_RELEASE_KEY_ALIAS: "${FERROTUNE_RELEASE_KEY_ALIAS}"
@@ -590,7 +588,7 @@ tasks:
       cache: false
 
   tauri-android-deploy-debug:
-    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --debug --target aarch64 --config tauri.android-deploy.conf.json && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} shell am start -S -n com.ferrotune.music/.MainActivity'"
+    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --debug --target aarch64 --config tauri.android-deploy.conf.json && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb shell am start -S -n com.ferrotune.music/.MainActivity'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -605,7 +603,6 @@ tasks:
       ANDROID_HOME: "${ANDROID_HOME}"
       ANDROID_SDK_ROOT: "${ANDROID_SDK_ROOT}"
       NDK_HOME: "${NDK_HOME}"
-      ANDROID_ADB_SERVER_ADDRESS: "${ANDROID_ADB_SERVER_ADDRESS}"
     options:
       runInCI: false
       cache: false
