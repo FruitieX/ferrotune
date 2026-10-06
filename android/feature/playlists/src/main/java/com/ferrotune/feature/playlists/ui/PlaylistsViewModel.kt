@@ -5,9 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
+import com.ferrotune.core.network.ViewMode
+import com.ferrotune.core.network.ViewModeKey
+import com.ferrotune.core.network.ViewModePreferencesRepository
 import com.ferrotune.core.network.generated.PlaylistInFolder
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.SmartPlaylistInfo
+import com.ferrotune.core.network.mapState
 import com.ferrotune.feature.playlists.data.PlaylistFolderNode
 import com.ferrotune.feature.playlists.data.PlaylistRepository
 import com.ferrotune.feature.playlists.data.PlaylistTree
@@ -124,13 +128,24 @@ class PlaylistsViewModel @Inject constructor(
     private val repository: PlaylistRepository,
     private val sessionStarter: PlaybackStarter,
     private val messages: UserMessages,
+    private val viewModePreferences: ViewModePreferencesRepository,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(PlaylistsUiState())
     val uiState: StateFlow<PlaylistsUiState> = state.asStateFlow()
 
+    /** Web playlists grid/list toggle, server-synced. */
+    val asList: StateFlow<Boolean> = viewModePreferences.modes.mapState { it[ViewModeKey.PLAYLISTS] == ViewMode.LIST }
+
     init {
         load()
+        viewModelScope.launch { viewModePreferences.ensureLoaded() }
+    }
+
+    fun setListMode(list: Boolean) {
+        viewModelScope.launch {
+            viewModePreferences.setMode(ViewModeKey.PLAYLISTS, if (list) ViewMode.LIST else ViewMode.GRID)
+        }
     }
 
     fun load() {

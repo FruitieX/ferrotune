@@ -1,7 +1,5 @@
 package com.ferrotune.feature.library.ui
 
-import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
-import com.ferrotune.core.network.waitFor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.Pager
@@ -12,10 +10,15 @@ import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.ViewMode
+import com.ferrotune.core.network.ViewModeKey
+import com.ferrotune.core.network.ViewModePreferencesRepository
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.core.network.waitFor
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
@@ -68,7 +71,15 @@ class LibraryViewModel @Inject constructor(
     private val sessionStarter: PlaybackStarter,
     private val viewPreferences: LibraryViewPreferencesRepository,
     private val messages: UserMessages,
+    private val viewModePreferences: ViewModePreferencesRepository,
 ) : ViewModel() {
+
+    /** Grid or list per collection tab (web toolbar toggle). */
+    val viewModes: StateFlow<Map<ViewModeKey, ViewMode>> = viewModePreferences.modes
+
+    fun setViewMode(key: ViewModeKey, list: Boolean) {
+        viewModelScope.launch { viewModePreferences.setMode(key, if (list) ViewMode.LIST else ViewMode.GRID) }
+    }
 
     private val state = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = state.asStateFlow()

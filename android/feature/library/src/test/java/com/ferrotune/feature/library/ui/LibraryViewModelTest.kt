@@ -2,6 +2,7 @@ package com.ferrotune.feature.library.ui
 
 import com.ferrotune.core.actions.UserMessage
 import com.ferrotune.core.actions.UserMessages
+import com.ferrotune.core.network.ViewModePreferencesRepository
 import com.ferrotune.core.network.generated.FerrotuneGenresResponse
 import com.ferrotune.core.network.generated.GenreResponse
 import com.ferrotune.core.network.generated.GenresList
@@ -51,6 +52,7 @@ class LibraryViewModelTest {
         starter,
         LibraryViewPreferencesRepository(testServerPreferences(api)),
         messages,
+        ViewModePreferencesRepository(testServerPreferences(api)),
     )
 
     @Test

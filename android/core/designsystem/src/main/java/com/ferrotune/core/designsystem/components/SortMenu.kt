@@ -5,8 +5,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -142,3 +145,42 @@ fun SortSheetSection(
         )
     }
 }
+
+/**
+ * "View as" rows for a ⋯ sheet: the web toolbar's grid/list toggle. Placed
+ * above [SortSheetSection] on collection pages.
+ */
+@Composable
+fun ViewModeSheetSection(
+    isList: Boolean,
+    onSelect: (isList: Boolean) -> Unit,
+) {
+    MediaActionSeparator()
+    Text(
+        text = "View as",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+    )
+    listOf(false to "Grid", true to "List").forEach { (list, label) ->
+        MediaActionRow(
+            icon = if (list) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.GridView,
+            label = label,
+            onClick = { onSelect(list) },
+            trailing = if (list == isList) {
+                {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                null
+            },
+        )
+    }
+}
+

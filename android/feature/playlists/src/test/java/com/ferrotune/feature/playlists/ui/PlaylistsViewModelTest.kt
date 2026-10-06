@@ -1,23 +1,32 @@
 package com.ferrotune.feature.playlists.ui
 
 import com.ferrotune.core.actions.UserMessages
+import com.ferrotune.core.network.ViewModePreferencesRepository
+import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistFoldersResponse
 import com.ferrotune.core.network.generated.PlaylistInFolder
+import com.ferrotune.core.network.generated.PreferencesResponse
 import com.ferrotune.core.network.generated.RecentPlaylistsResponse
+import com.ferrotune.core.network.generated.SetPreferenceRequest
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
+import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.playlists.data.PlaylistRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -30,6 +39,15 @@ private class FakeBrowseApi(
     override suspend fun recentlyPlayedPlaylists() = RecentPlaylistsResponse(emptyList())
 
     override suspend fun smartPlaylists() = SmartPlaylistsResponse(emptyList())
+
+    val savedPreferences = mutableMapOf<String, JsonElement>()
+
+    override suspend fun preferences() = PreferencesResponse(accentColor = "rust", preferences = savedPreferences.toMap())
+
+    override suspend fun setPreference(key: String, request: SetPreferenceRequest): GetPreferenceResponse {
+        savedPreferences[key] = request.value
+        return GetPreferenceResponse(key, request.value)
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -80,7 +98,20 @@ class PlaylistsViewModelTest {
         repository = PlaylistRepository(FakeApiProvider(api)),
         sessionStarter = starter,
         messages = UserMessages(),
+        viewModePreferences = ViewModePreferencesRepository(testServerPreferences(api)),
     )
+
+    @Test
+    fun `list mode restores and saves the playlists view preference`() {
+        val api = FakeBrowseApi().apply { savedPreferences["playlists-view-native"] = JsonPrimitive("list") }
+        val viewModel = viewModel(api)
+        assertTrue(viewModel.asList.value)
+
+        viewModel.setListMode(false)
+
+        assertFalse(viewModel.asList.value)
+        assertEquals(JsonPrimitive("grid"), api.savedPreferences["playlists-view-native"])
+    }
 
     @Test
     fun `load builds the tree and starts at the root`() {

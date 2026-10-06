@@ -1,14 +1,10 @@
 package com.ferrotune.feature.playlists.ui
 
-import com.ferrotune.core.designsystem.components.rememberActionBarPinned
-import com.ferrotune.core.designsystem.components.PinnedActionBar
-import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.layout.Box
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
@@ -47,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -55,6 +53,7 @@ import com.ferrotune.core.actions.CollectionMenuSheet
 import com.ferrotune.core.actions.CollectionSource
 import com.ferrotune.core.actions.CollectionTarget
 import com.ferrotune.core.actions.rememberCollectionMenuState
+import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
 import com.ferrotune.core.designsystem.components.ConfirmDialog
 import com.ferrotune.core.designsystem.components.DetailActionBar
 import com.ferrotune.core.designsystem.components.DetailHeader
@@ -68,12 +67,16 @@ import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
 import com.ferrotune.core.designsystem.components.MediaGridMinCellWidth
-import com.ferrotune.core.designsystem.components.bleedHorizontal
+import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.SortSheetSection
+import com.ferrotune.core.designsystem.components.ViewModeSheetSection
+import com.ferrotune.core.designsystem.components.bleedHorizontal
 import com.ferrotune.core.designsystem.components.formatClockDuration
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
+import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.network.coverArtUrl
 import com.ferrotune.core.network.generated.PlaylistFolderResponse
 import com.ferrotune.core.network.generated.PlaylistInFolder
@@ -120,6 +123,7 @@ fun PlaylistsScreen(
     viewModel: PlaylistsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val asList by viewModel.asList.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<PlaylistsDialog?>(null) }
     var pageMenuOpen by remember { mutableStateOf(false) }
     var folderMenu by remember { mutableStateOf<PlaylistFolderNode?>(null) }
@@ -152,18 +156,20 @@ fun PlaylistsScreen(
     val actionBarPinned by rememberActionBarPinned(gridState)
 
     Box(modifier = modifier.fillMaxSize()) {
+        // List mode is a one-column grid of rows (web grid/list toggle).
+        val gutter = if (asList) 0.dp else 12.dp
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(MediaGridMinCellWidth),
+            columns = if (asList) GridCells.Fixed(1) else GridCells.Adaptive(MediaGridMinCellWidth),
             state = gridState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = gutter, end = gutter, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (asList) 0.dp else 8.dp),
         ) {
             item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                 DetailHero(
                     backdropColor = Color(0x3310B981),
-                    modifier = Modifier.bleedHorizontal(12.dp),
+                    modifier = Modifier.bleedHorizontal(gutter),
                 ) {
                     DetailHeader(
                         title = currentFolder?.name ?: "Playlists",
@@ -188,7 +194,7 @@ fun PlaylistsScreen(
             }
 
             item(key = ACTION_BAR_ITEM_KEY, span = { GridItemSpan(maxLineSpan) }) {
-                Box(modifier = Modifier.bleedHorizontal(12.dp).padding(bottom = 4.dp)) { actionBar() }
+                Box(modifier = Modifier.bleedHorizontal(gutter).padding(bottom = 4.dp)) { actionBar() }
             }
 
             when {
@@ -219,6 +225,7 @@ fun PlaylistsScreen(
                 else -> items(items, key = { it.key }) { item ->
                     when (item) {
                         is PlaylistBrowserItem.Folder -> FolderCard(
+                            list = asList,
                             item = item,
                             serverUrl = state.serverUrl,
                             onOpen = { viewModel.openFolder(item.node.folder.id) },
@@ -226,6 +233,7 @@ fun PlaylistsScreen(
                         )
 
                         is PlaylistBrowserItem.Playlist -> PlaylistCard(
+                            list = asList,
                             playlist = item.playlist,
                             serverUrl = state.serverUrl,
                             onOpen = { onOpenPlaylist(item.playlist.id) },
@@ -234,14 +242,15 @@ fun PlaylistsScreen(
                             },
                         )
 
-                        is PlaylistBrowserItem.Smart -> MediaCard(
+                        is PlaylistBrowserItem.Smart -> BrowserTile(
+                            list = asList,
                             title = item.smartPlaylist.name,
                             subtitle = item.smartPlaylist.songCount?.let { formatCount(it.toInt(), "song") }
                                 ?: "Smart playlist",
                             coverModel = smartCover(state.serverUrl, item.smartPlaylist.id),
                             seed = "smart-${item.smartPlaylist.id}",
-                            titleIcon = Icons.Filled.AutoAwesome,
-                            titleIconTint = SmartPurple,
+                            icon = Icons.Filled.AutoAwesome,
+                            iconTint = SmartPurple,
                             onClick = { onOpenSmartPlaylist(item.smartPlaylist.id) },
                             onLongClick = {
                                 collectionMenu.open(
@@ -343,6 +352,7 @@ fun PlaylistsScreen(
                 }
             },
             extraContent = {
+                ViewModeSheetSection(isList = asList, onSelect = viewModel::setListMode)
                 SortSheetSection(
                     options = PlaylistsSort.entries.map { SortOption(it.name, it.label) },
                     selectedKey = state.sort.name,
@@ -511,6 +521,7 @@ private fun Breadcrumb(
 
 @Composable
 private fun FolderCard(
+    list: Boolean,
     item: PlaylistBrowserItem.Folder,
     serverUrl: String?,
     onOpen: () -> Unit,
@@ -521,15 +532,16 @@ private fun FolderCard(
         if (item.node.children.isNotEmpty()) add(formatCount(item.node.children.size, "folder"))
         add(if (item.playlistCount > 0) formatCount(item.playlistCount, "playlist") else "Empty")
     }.joinToString(" • ")
-    MediaCard(
+    BrowserTile(
+        list = list,
         title = folder.name,
         subtitle = subtitle,
         coverModel = serverUrl
             ?.takeIf { folder.hasCoverArt }
             ?.let { coverArtUrl(serverUrl = it, coverArtId = "pf-${folder.id}", size = "medium") },
         seed = folder.name,
-        titleIcon = Icons.Filled.Folder,
-        titleIconTint = FolderAmber,
+        icon = Icons.Filled.Folder,
+        iconTint = FolderAmber,
         placeholderColors = FolderPlaceholder,
         placeholderTint = FolderAmber,
         onClick = onOpen,
@@ -539,21 +551,65 @@ private fun FolderCard(
 
 @Composable
 private fun PlaylistCard(
+    list: Boolean,
     playlist: PlaylistInFolder,
     serverUrl: String?,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    MediaCard(
+    BrowserTile(
+        list = list,
         title = playlist.name,
         subtitle = "${formatCount(playlist.songCount.toInt(), "song")} • ${formatClockDuration(playlist.duration * 1000)}",
         coverModel = playlistCover(serverUrl, playlist),
         seed = playlist.name,
-        titleIcon = Icons.AutoMirrored.Filled.QueueMusic,
-        titleIconTint = PlaylistEmerald,
+        icon = Icons.AutoMirrored.Filled.QueueMusic,
+        iconTint = PlaylistEmerald,
         onClick = onOpen,
         onLongClick = onLongClick,
     )
+}
+
+/** A folder/playlist entry as a web card (grid) or row (list). */
+@Composable
+private fun BrowserTile(
+    list: Boolean,
+    title: String,
+    subtitle: String,
+    coverModel: Any?,
+    seed: String,
+    icon: ImageVector,
+    iconTint: Color,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    placeholderColors: List<Color>? = null,
+    placeholderTint: Color? = null,
+) {
+    if (list) {
+        MediaRow(
+            title = title,
+            subtitle = subtitle,
+            coverModel = coverModel,
+            coverSeed = seed,
+            coverPlaceholder = icon,
+            coverPlaceholderTint = placeholderTint ?: iconTint,
+            onClick = onClick,
+            onLongClick = onLongClick,
+        )
+    } else {
+        MediaCard(
+            title = title,
+            subtitle = subtitle,
+            coverModel = coverModel,
+            seed = seed,
+            titleIcon = icon,
+            titleIconTint = iconTint,
+            placeholderColors = placeholderColors,
+            placeholderTint = placeholderTint,
+            onClick = onClick,
+            onLongClick = onLongClick,
+        )
+    }
 }
 
 private fun playlistCover(serverUrl: String?, playlist: PlaylistInFolder): String? =

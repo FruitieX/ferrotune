@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
@@ -79,15 +80,19 @@ import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
 import com.ferrotune.core.designsystem.components.MediaGridMinCellWidth
+import com.ferrotune.core.designsystem.components.MediaRow
 import com.ferrotune.core.designsystem.components.PageTitle
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.SortSheetSection
+import com.ferrotune.core.designsystem.components.ViewModeSheetSection
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.theme.genreGradientColors
 import com.ferrotune.core.network.MATCH_ALL_SONGS_QUERY
+import com.ferrotune.core.network.ViewMode
+import com.ferrotune.core.network.ViewModeKey
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.GenreResponse
@@ -154,6 +159,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val viewModes by viewModel.viewModes.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
@@ -247,12 +253,14 @@ fun LibraryScreen(
                     items = viewModel.albums.collectAsLazyPagingItems(),
                     gridState = albumsGrid,
                     collectionMenu = collectionMenu,
+                    list = viewModes[ViewModeKey.LIBRARY_ALBUMS] == ViewMode.LIST,
                 )
 
                 LibraryTab.ARTISTS -> ArtistsGrid(
                     items = viewModel.artists.collectAsLazyPagingItems(),
                     gridState = artistsGrid,
                     collectionMenu = collectionMenu,
+                    list = viewModes[ViewModeKey.LIBRARY_ARTISTS] == ViewMode.LIST,
                 )
 
                 LibraryTab.SONGS -> {
@@ -297,6 +305,12 @@ fun LibraryScreen(
             onDismiss = { menuOpen = false },
             actions = emptyList(),
             extraContent = {
+                state.tab.viewModeKey()?.let { key ->
+                    ViewModeSheetSection(
+                        isList = viewModes[key] == ViewMode.LIST,
+                        onSelect = { viewModel.setViewMode(key, it) },
+                    )
+                }
                 SortSheetSection(
                     options = sort.options,
                     selectedKey = sort.selectedKey,
@@ -307,6 +321,12 @@ fun LibraryScreen(
             },
         )
     }
+}
+
+private fun LibraryTab.viewModeKey(): ViewModeKey? = when (this) {
+    LibraryTab.ALBUMS -> ViewModeKey.LIBRARY_ALBUMS
+    LibraryTab.ARTISTS -> ViewModeKey.LIBRARY_ARTISTS
+    else -> null
 }
 
 private data class SortMenuState(
@@ -358,16 +378,18 @@ private fun <T : Any> PagedGrid(
     gridState: LazyGridState,
     emptyMessage: String,
     key: (T) -> Any,
+    list: Boolean = false,
     content: @Composable (T) -> Unit,
 ) {
     val refresh = items.loadState.refresh
+    // List mode is a one-column grid of rows, so both modes share paging and state.
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(MediaGridMinCellWidth),
+        columns = if (list) GridCells.Fixed(1) else GridCells.Adaptive(MediaGridMinCellWidth),
         state = gridState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
+        contentPadding = if (list) PaddingValues(vertical = 8.dp) else PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (list) 0.dp else 8.dp),
     ) {
         when {
             refresh is LoadState.Error && items.itemCount == 0 -> item(span = { GridItemSpan(maxLineSpan) }) {
@@ -397,9 +419,22 @@ private fun AlbumsGrid(
     items: LazyPagingItems<AlbumResponse>,
     gridState: LazyGridState,
     collectionMenu: CollectionMenuState,
+    list: Boolean,
 ) {
     val actions = LocalMediaActions.current
-    PagedGrid(items = items, gridState = gridState, emptyMessage = "No albums found", key = { it.id }) { album ->
+    PagedGrid(items = items, gridState = gridState, emptyMessage = "No albums found", key = { it.id }, list = list) { album ->
+        if (list) {
+            MediaRow(
+                title = album.name,
+                subtitle = albumSubtitle(album),
+                coverModel = coverModel(album.coverArtData, album.coverArt),
+                coverSeed = album.name,
+                coverPlaceholder = Icons.Filled.Album,
+                onClick = { actions.openAlbum(album.id) },
+                onLongClick = { collectionMenu.open(album.toCollectionTarget()) },
+            )
+            return@PagedGrid
+        }
         MediaCard(
             title = album.name,
             subtitle = albumSubtitle(album),
@@ -417,9 +452,23 @@ private fun ArtistsGrid(
     items: LazyPagingItems<ArtistResponse>,
     gridState: LazyGridState,
     collectionMenu: CollectionMenuState,
+    list: Boolean,
 ) {
     val actions = LocalMediaActions.current
-    PagedGrid(items = items, gridState = gridState, emptyMessage = "No artists found", key = { it.id }) { artist ->
+    PagedGrid(items = items, gridState = gridState, emptyMessage = "No artists found", key = { it.id }, list = list) { artist ->
+        if (list) {
+            MediaRow(
+                title = artist.name,
+                subtitle = artistCounts(artist),
+                coverModel = coverModel(artist.coverArtData, artist.coverArt),
+                coverSeed = artist.name,
+                coverShape = CircleShape,
+                coverPlaceholder = Icons.Filled.Person,
+                onClick = { actions.openArtist(artist.id) },
+                onLongClick = { collectionMenu.open(artist.toCollectionTarget()) },
+            )
+            return@PagedGrid
+        }
         MediaCard(
             title = artist.name,
             subtitle = artistCounts(artist),

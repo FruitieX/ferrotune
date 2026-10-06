@@ -1,16 +1,12 @@
 package com.ferrotune.feature.library.ui
 
-import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
-import com.ferrotune.core.network.waitFor
-import com.ferrotune.core.designsystem.components.rememberActionBarPinned
-import com.ferrotune.core.designsystem.components.PinnedActionBar
-import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
@@ -49,21 +45,30 @@ import com.ferrotune.core.actions.rememberNowPlaying
 import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.actions.songPagingItems
+import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
 import com.ferrotune.core.designsystem.components.DetailActionBar
 import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
+import com.ferrotune.core.designsystem.components.MediaRow
+import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.SegmentedTabs
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.SortSheetSection
 import com.ferrotune.core.designsystem.components.TrackListHeader
+import com.ferrotune.core.designsystem.components.ViewModeSheetSection
 import com.ferrotune.core.designsystem.components.formatCount
+import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
 import com.ferrotune.core.media.queueTextFilter
+import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
+import com.ferrotune.core.network.ViewMode
+import com.ferrotune.core.network.ViewModeKey
+import com.ferrotune.core.network.ViewModePreferencesRepository
 import com.ferrotune.core.network.ViewSortConfig
 import com.ferrotune.core.network.ViewSortKey
 import com.ferrotune.core.network.ViewSortPreferencesRepository
@@ -71,6 +76,7 @@ import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.core.network.waitFor
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.FavoritesCounts
@@ -123,7 +129,15 @@ class FavoritesViewModel @Inject constructor(
     private val sessionStarter: PlaybackStarter,
     private val viewSortPreferences: ViewSortPreferencesRepository,
     private val messages: UserMessages,
+    private val viewModePreferences: ViewModePreferencesRepository,
 ) : ViewModel() {
+
+    /** Grid or list for the albums and artists tabs (web toolbar toggle). */
+    val viewModes: StateFlow<Map<ViewModeKey, ViewMode>> = viewModePreferences.modes
+
+    fun setViewMode(key: ViewModeKey, list: Boolean) {
+        viewModelScope.launch { viewModePreferences.setMode(key, if (list) ViewMode.LIST else ViewMode.GRID) }
+    }
 
     private val state = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = state.asStateFlow()
@@ -319,6 +333,9 @@ fun FavoritesScreen(
     viewModel: FavoritesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val viewModes by viewModel.viewModes.collectAsStateWithLifecycle()
+    val albumsAsList = viewModes[ViewModeKey.FAVORITE_ALBUMS] == ViewMode.LIST
+    val artistsAsList = viewModes[ViewModeKey.FAVORITE_ARTISTS] == ViewMode.LIST
     val songs = viewModel.songs.collectAsLazyPagingItems()
     val albums = viewModel.albums.collectAsLazyPagingItems()
     val artists = viewModel.artists.collectAsLazyPagingItems()
@@ -438,7 +455,21 @@ fun FavoritesScreen(
                         columns = columns,
                         keyPrefix = "albums",
                         emptyMessage = "No favorite albums yet",
+                        list = albumsAsList,
                     ) { album ->
+                        if (albumsAsList) {
+                            MediaRow(
+                                title = album.name,
+                                subtitle = albumSubtitle(album),
+                                coverModel = coverModel(album.coverArtData, album.coverArt),
+                                coverSeed = album.name,
+                                coverPlaceholder = Icons.Filled.Album,
+                                onClick = { actions.openAlbum(album.id) },
+                                onLongClick = { collectionMenu.open(album.toCollectionTarget()) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            return@pagedCardRows
+                        }
                         MediaCard(
                             title = album.name,
                             subtitle = albumSubtitle(album),
@@ -456,7 +487,22 @@ fun FavoritesScreen(
                         columns = columns,
                         keyPrefix = "artists",
                         emptyMessage = "No favorite artists yet",
+                        list = artistsAsList,
                     ) { artist ->
+                        if (artistsAsList) {
+                            MediaRow(
+                                title = artist.name,
+                                subtitle = artistCounts(artist),
+                                coverModel = coverModel(artist.coverArtData, artist.coverArt),
+                                coverSeed = artist.name,
+                                coverShape = CircleShape,
+                                coverPlaceholder = Icons.Filled.Person,
+                                onClick = { actions.openArtist(artist.id) },
+                                onLongClick = { collectionMenu.open(artist.toCollectionTarget()) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            return@pagedCardRows
+                        }
                         MediaCard(
                             title = artist.name,
                             subtitle = artistCounts(artist),
@@ -488,6 +534,12 @@ fun FavoritesScreen(
             onDismiss = { sortMenuOpen = false },
             actions = emptyList(),
             extraContent = {
+                state.tab.viewModeKey()?.let { key ->
+                    ViewModeSheetSection(
+                        isList = viewModes[key] == ViewMode.LIST,
+                        onSelect = { viewModel.setViewMode(key, it) },
+                    )
+                }
                 SortSheetSection(
                     options = sort.options,
                     selectedKey = sort.selectedKey,
@@ -498,4 +550,10 @@ fun FavoritesScreen(
             },
         )
     }
+}
+
+private fun FavoritesTab.viewModeKey(): ViewModeKey? = when (this) {
+    FavoritesTab.ALBUMS -> ViewModeKey.FAVORITE_ALBUMS
+    FavoritesTab.ARTISTS -> ViewModeKey.FAVORITE_ARTISTS
+    else -> null
 }

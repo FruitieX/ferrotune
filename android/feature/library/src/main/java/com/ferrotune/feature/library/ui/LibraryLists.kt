@@ -27,8 +27,11 @@ internal fun <T : Any> LazyListScope.pagedCardRows(
     columns: Int,
     keyPrefix: String,
     emptyMessage: String,
+    /** List mode: one full-width row per item, no card padding (rows bring their own). */
+    list: Boolean = false,
     card: @Composable RowScope.(T) -> Unit,
 ) {
+    val columns = if (list) 1 else columns
     val refresh = items.loadState.refresh
     when {
         refresh is LoadState.Error && items.itemCount == 0 -> item(key = "$keyPrefix-error") {
@@ -50,7 +53,7 @@ internal fun <T : Any> LazyListScope.pagedCardRows(
             val rowCount = (items.itemCount + columns - 1) / columns
             items(count = rowCount, key = { "$keyPrefix-row-$it" }, contentType = { "$keyPrefix-row" }) { row ->
                 Row(
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    modifier = if (list) Modifier else Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     for (column in 0 until columns) {
