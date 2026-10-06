@@ -20,6 +20,7 @@ import com.ferrotune.core.network.dto.RepeatModeRequest
 import com.ferrotune.core.network.dto.SessionCommandRequest
 import com.ferrotune.core.network.dto.SessionHeartbeatRequest
 import com.ferrotune.core.network.dto.SessionParams
+import com.ferrotune.core.network.dto.SetDisabledRequest
 import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
@@ -29,11 +30,15 @@ import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
 import com.ferrotune.core.network.generated.BatchMatchEntriesRequest
 import com.ferrotune.core.network.generated.BatchMatchEntriesResponse
+import com.ferrotune.core.network.generated.BulkDisabledResponse
+import com.ferrotune.core.network.generated.BulkSetDisabledRequest
 import com.ferrotune.core.network.generated.ClientListResponse
 import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.ConnectSessionResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
+import com.ferrotune.core.network.generated.DisabledSongsResponse
+import com.ferrotune.core.network.generated.DisabledStatusResponse
 import com.ferrotune.core.network.generated.DiscoveryResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
@@ -147,6 +152,12 @@ open class FakeFerrotuneApi(
         error("unused")
 
     override suspend fun sessionClients(): ClientListResponse = error("unused")
+
+    override suspend fun disabledSongs(): DisabledSongsResponse = error("unused")
+
+    override suspend fun setSongDisabled(id: String, request: SetDisabledRequest): DisabledStatusResponse = error("unused")
+
+    override suspend fun setSongsDisabled(request: BulkSetDisabledRequest): BulkDisabledResponse = error("unused")
 
     override suspend fun updateQueuePosition(request: UpdateQueuePositionRequest): QueueSuccessResponse = error("unused")
 

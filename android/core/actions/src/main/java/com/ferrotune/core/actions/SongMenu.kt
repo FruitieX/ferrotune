@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -83,12 +85,24 @@ class SongMenuState {
     var target by mutableStateOf<SongMenuTarget?>(null)
         private set
 
+    /** The song whose "View details" sheet is open (it outlives the menu). */
+    var detailsFor by mutableStateOf<SongMenuTarget?>(null)
+        private set
+
     fun open(target: SongMenuTarget) {
         this.target = target
     }
 
     fun close() {
         target = null
+    }
+
+    fun showDetails(target: SongMenuTarget) {
+        detailsFor = target
+    }
+
+    fun closeDetails() {
+        detailsFor = null
     }
 }
 
@@ -143,6 +157,7 @@ fun SongListRow(
     selection: SongSelectionState? = null,
     isCurrent: Boolean = nowPlaying.songId == song.id,
     onLongPress: (() -> Unit)? = null,
+    disabled: Boolean = song.id in rememberDisabledSongIds(),
 ) {
     val selecting = selection?.isActive == true
     val selected = selection != null && song.id in selection.selectedIds
@@ -169,6 +184,19 @@ fun SongListRow(
         duration = formatClockDuration(song.duration * 1000),
         selectionActive = selecting,
         selected = selected,
+        dimmed = disabled,
+        trailing = if (disabled) {
+            {
+                Icon(
+                    Icons.Filled.Block,
+                    contentDescription = "Disabled: skipped in automatic playback",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        } else {
+            null
+        },
     )
 }
 
@@ -192,9 +220,11 @@ fun SongMenuSheet(
     extraActions: (SongMenuTarget) -> List<MediaAction> = { emptyList() },
     viewModel: SongActionsViewModel = hiltViewModel(),
 ) {
+    state.detailsFor?.let { SongDetailsSheet(it, onDismiss = state::closeDetails) }
     val target = state.target ?: return
     val actions = LocalMediaActions.current
     val flags = rememberSongFlags(target.id, target.starred, target.rating)
+    val disabled = target.id in rememberDisabledSongIds()
     MediaActionSheet(
         expanded = true,
         onDismiss = state::close,
@@ -242,8 +272,18 @@ fun SongMenuSheet(
                     onClick = { actions.openAlbum(albumId) },
                 )
             }
+            MediaActionRow(
+                icon = Icons.Outlined.Info,
+                label = "View details",
+                onClick = { state.showDetails(target) },
+            )
             MediaActionSeparator()
             actions.SongDownloadMenuItem(target.id)
+            MediaActionRow(
+                icon = Icons.Filled.Block,
+                label = if (disabled) "Enable track" else "Disable track",
+                onClick = { viewModel.setDisabled(listOf(target.id), !disabled) },
+            )
             if (onStartSelection != null) {
                 MediaActionRow(
                     icon = Icons.Filled.Checklist,

@@ -49,6 +49,21 @@ interface SongActionsEntryPoint {
     fun songFlagsStore(): SongFlagsStore
 
     fun playbackStarter(): PlaybackStarter
+
+    fun disabledSongsStore(): DisabledSongsStore
+}
+
+/**
+ * The account's disabled song ids, loaded on first use, for dimming rows
+ * (web: disabled tracks are 50% opacity with a "blocked" icon).
+ */
+@Composable
+fun rememberDisabledSongIds(): Set<String> {
+    val context = LocalContext.current
+    val store = remember(context) { songActionsEntryPoint(context).disabledSongsStore() }
+    LaunchedEffect(store) { store.ensureLoaded() }
+    val disabled by store.disabled.collectAsStateWithLifecycle()
+    return disabled
 }
 
 /**
@@ -85,6 +100,7 @@ internal fun songActionsEntryPoint(context: Context): SongActionsEntryPoint =
 @HiltViewModel
 class SongActionsViewModel @Inject constructor(
     private val store: SongFlagsStore,
+    private val disabledSongs: DisabledSongsStore,
     private val playbackStarter: PlaybackStarter,
     private val apiProvider: FerrotuneApiProvider,
     private val messages: UserMessages,
@@ -97,6 +113,20 @@ class SongActionsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { store.setStarred(songId, !base.starred, base) }
                 .onFailure { messages.failure("Couldn't update favorites", it) }
+        }
+    }
+
+    /** Web "Disable Track" / "Enable Track": excludes the song from automatic playback. */
+    fun setDisabled(songIds: List<String>, disabled: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                if (songIds.size == 1) disabledSongs.setDisabled(songIds.single(), disabled) else disabledSongs.setDisabled(songIds, disabled)
+            }
+                .onSuccess {
+                    val what = if (songIds.size == 1) "Track" else songCount(songIds.size)
+                    messages.show(if (disabled) "$what disabled" else "$what enabled")
+                }
+                .onFailure { messages.failure(if (disabled) "Couldn't disable" else "Couldn't enable", it) }
         }
     }
 

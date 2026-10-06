@@ -65,7 +65,7 @@ class SongActionsViewModelTest {
         playback: FakePlaybackStarter = FakePlaybackStarter(),
     ): Pair<SongActionsViewModel, FakePlaybackStarter> {
         val store = SongFlagsStore(FakeApiProvider(api))
-        return SongActionsViewModel(store, playback, FakeApiProvider(api), UserMessages()) to playback
+        return SongActionsViewModel(store, DisabledSongsStore(FakeApiProvider(api)), playback, FakeApiProvider(api), UserMessages()) to playback
     }
 
     @Test
