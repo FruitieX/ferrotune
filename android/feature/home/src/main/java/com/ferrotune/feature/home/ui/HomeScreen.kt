@@ -145,10 +145,10 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
             ) {
-                if (state.tiles.isNotEmpty()) {
+                if (state.visibleTiles.isNotEmpty()) {
                     item(key = "tiles") {
                         QuickTiles(
-                            tiles = state.tiles,
+                            tiles = state.visibleTiles,
                             onTileClick = { tile ->
                                 when (val action = tile.action) {
                                     is HomeTileAction.Link -> onOpenLink(action.target)

@@ -567,6 +567,22 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `switch account tiles show only for accounts signed in on this device`() {
+        val api = FakeHomeApi(
+            tiles = listOf(
+                HomeTileConfig(id = "favorites", kind = HomeTileKind.FAVORITES),
+                HomeTileConfig(id = "known", kind = HomeTileKind.ACCOUNT_SWITCH, accountKey = testAccount().id),
+                HomeTileConfig(id = "unknown", kind = HomeTileKind.ACCOUNT_SWITCH, accountKey = "7@http://elsewhere:4040"),
+            ),
+        )
+
+        val state = viewModel(api).uiState.value
+
+        assertEquals(3, state.tiles.size)
+        assertEquals(listOf("favorites", "known"), state.visibleTiles.map { it.id })
+    }
+
+    @Test
     fun `switch failure surfaces an error`() {
         val switcher = FakeAccountSwitcher(
             result = AccountSwitchResult.Failure("token expired"),

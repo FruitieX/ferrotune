@@ -54,7 +54,17 @@ data class HomeUiState(
     val sections: List<HomeSectionUi> = emptyList(),
     val accounts: List<Account> = emptyList(),
     val offline: Boolean = false,
-)
+) {
+    /**
+     * Tiles to show: "switch account" tiles only for accounts signed in on this
+     * device (tiles are shared with other clients through server preferences).
+     */
+    val visibleTiles: List<HomeTilePresentation>
+        get() = tiles.filter { tile ->
+            val action = tile.action
+            action !is HomeTileAction.SwitchAccount || accounts.any { it.id == action.accountKey }
+        }
+}
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
