@@ -316,6 +316,9 @@ class PlaybackService : MediaSessionService() {
     private var nativeOwnsSession = true
     private var lastLocalOwnershipClaimElapsedRealtimeMs: Long? = null
     private var sessionOwnerClientId: String? = null
+
+    /** The owner's playback while following another client; null while this app owns it. */
+    private var remotePlayback: RemotePlayback? = null
     private var sessionOwnerClientName: String? = null
     // Invalidates asynchronous queue fetches when a newer account/session or
     // playback command supersedes them.
@@ -1602,8 +1605,24 @@ class PlaybackService : MediaSessionService() {
                 applyVolume()
             }
             is SessionEvent.PositionUpdate -> {
-                // Owner's position updates — ignore when we ARE the owner (autonomous mode)
-                // These are useful when this device becomes a follower in the future
+                // The owner's own updates echo back; only followers mirror them.
+                if (nativeOwnsSession) return
+                val previousIndex = remotePlayback?.queueIndex ?: serverQueueIndex
+                remotePlayback = RemotePlayback(
+                    isPlaying = event.isPlaying,
+                    positionMs = event.positionMs,
+                    reportedAtElapsedMs = SystemClock.elapsedRealtime(),
+                    queueIndex = event.currentIndex,
+                )
+                if (event.currentIndex != previousIndex || event.currentIndex != serverQueueIndex) {
+                    // Show the owner's track: move the paused local cursor there.
+                    loadCurrentQueueFromServer(
+                        playWhenReady = false,
+                        reason = "follower track change",
+                        startPositionOverrideMs = event.positionMs,
+                    )
+                }
+                emitStateChange()
             }
             is SessionEvent.ClientListChanged -> {
                 Log.d(TAG, "SSE ClientListChanged: ignoring on Android")
@@ -1690,6 +1709,7 @@ class PlaybackService : MediaSessionService() {
         sessionOwnerClientId = event.ownerClientId
         sessionOwnerClientName = event.ownerClientName
         nativeOwnsSession = isCurrentClientOwner
+        if (isCurrentClientOwner || event.ownerClientId == null) remotePlayback = null
         emitStateChange()
 
         if (isCurrentClientOwner) {
@@ -4240,6 +4260,7 @@ class PlaybackService : MediaSessionService() {
             ownsSession = nativeOwnsSession,
             sessionOwnerClientName = sessionOwnerClientName,
             sessionOwnerClientId = sessionOwnerClientId,
+            remote = remotePlayback.takeIf { !nativeOwnsSession },
         )
     }
 

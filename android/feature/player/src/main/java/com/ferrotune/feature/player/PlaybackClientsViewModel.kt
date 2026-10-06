@@ -8,6 +8,7 @@ import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackStatus
 import com.ferrotune.core.media.cast.CastSessionPort
 import com.ferrotune.core.media.cast.castClientId
+import com.ferrotune.core.media.isFollowing
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.SessionCommandRequest
@@ -64,7 +65,7 @@ class PlaybackClientsViewModel @Inject constructor(
         .map {
             Ownership(
                 sessionId = it.sessionId,
-                following = it.sessionId != null && !it.ownsSession && it.sessionOwnerClientId != null,
+                following = it.isFollowing,
                 ownerClientName = it.sessionOwnerClientName,
                 ownerClientId = it.sessionOwnerClientId,
             )
@@ -111,7 +112,12 @@ class PlaybackClientsViewModel @Inject constructor(
         val sessionId = uiState.value.sessionId ?: return
         if (client.isOwner) return
         val state = playbackStarter.state.value
-        val resume = state.status == PlaybackStatus.PLAYING || state.status == PlaybackStatus.BUFFERING || uiState.value.isFollowing
+        // Keep the music going only if it was playing, wherever that was.
+        val resume = if (state.isFollowing) {
+            state.remote?.isPlaying ?: true
+        } else {
+            state.status == PlaybackStatus.PLAYING || state.status == PlaybackStatus.BUFFERING
+        }
         viewModelScope.launch {
             runCatching {
                 apiCall {

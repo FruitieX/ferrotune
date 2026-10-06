@@ -67,6 +67,19 @@ data class PlaybackState(
     val sessionOwnerClientName: String? = null,
     /** The owning client, or null while nobody owns the session (e.g. after a long pause). */
     val sessionOwnerClientId: String? = null,
+    /** The owning client's playback while this app follows it (web remote control). */
+    val remote: RemotePlayback? = null,
+)
+
+/**
+ * Another client's playback, from its session `positionUpdate` events.
+ * [positionMs] was current at [reportedAtElapsedMs] (`SystemClock.elapsedRealtime`).
+ */
+data class RemotePlayback(
+    val isPlaying: Boolean,
+    val positionMs: Long,
+    val reportedAtElapsedMs: Long,
+    val queueIndex: Int,
 )
 
 /**

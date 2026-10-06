@@ -112,6 +112,8 @@ fun HomeScreen(
     onOpenReview: () -> Unit,
     onOpenDownloads: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Extra account-menu content from the app shell (the "Connected Clients" section). */
+    accountMenuExtra: @Composable () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -216,6 +218,7 @@ fun HomeScreen(
             onOpenStats = onOpenStats,
             onOpenReview = onOpenReview,
             onOpenDownloads = onOpenDownloads,
+            extra = accountMenuExtra,
         )
     }
 }
@@ -274,6 +277,7 @@ private fun AccountMenuSheet(
     onOpenStats: () -> Unit,
     onOpenReview: () -> Unit,
     onOpenDownloads: () -> Unit,
+    extra: @Composable () -> Unit,
 ) {
     MediaActionSheet(
         expanded = true,
@@ -314,6 +318,7 @@ private fun AccountMenuSheet(
             MediaActionRow(icon = Icons.AutoMirrored.Filled.TrendingUp, label = "Your Review", onClick = onOpenReview)
             MediaActionRow(icon = Icons.Filled.DownloadForOffline, label = "Downloads", onClick = onOpenDownloads)
             MediaActionRow(icon = Icons.Filled.Add, label = "Add account", onClick = onAddAccount)
+            extra()
             MediaActionSeparator()
             MediaActionRow(icon = Icons.Filled.Logout, label = "Sign out", onClick = onSignOut)
         },

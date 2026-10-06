@@ -22,6 +22,15 @@ data class SessionParams(
     val sessionId: String? = null,
 )
 
+/** `POST /api/queue/position`: only the session owner (or anyone, once it disconnects) may move it. */
+@Serializable
+data class UpdateQueuePositionRequest(
+    val sessionId: String?,
+    val clientId: String?,
+    val currentIndex: Int,
+    val positionMs: Long = 0,
+)
+
 @Serializable
 data class MoveInQueueRequest(
     val sessionId: String?,

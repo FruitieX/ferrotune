@@ -4,6 +4,8 @@ import com.ferrotune.core.media.PlaybackState
 import com.ferrotune.core.media.TrackInfo
 import com.ferrotune.core.network.dto.SessionCommandRequest
 import com.ferrotune.core.network.dto.SessionHeartbeatRequest
+import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
+import com.ferrotune.core.network.generated.QueueSuccessResponse
 import com.ferrotune.core.network.generated.SessionSuccessResponse
 import com.ferrotune.core.testing.FakeAccounts
 import com.ferrotune.core.testing.FakeApiProvider
@@ -45,6 +47,12 @@ class CastPlaybackHandoffTest {
     private class FakeSessionApi : FakeFerrotuneApi() {
         val commands = mutableListOf<SessionCommandRequest>()
         val heartbeats = mutableListOf<SessionHeartbeatRequest>()
+        val positions = mutableListOf<UpdateQueuePositionRequest>()
+
+        override suspend fun updateQueuePosition(request: UpdateQueuePositionRequest): QueueSuccessResponse {
+            positions += request
+            return QueueSuccessResponse(success = true)
+        }
 
         override suspend fun sessionCommand(sessionId: String, request: SessionCommandRequest): SessionSuccessResponse {
             commands += request
@@ -159,6 +167,10 @@ class CastPlaybackHandoffTest {
             assertEquals(13, last.currentIndex)
             assertEquals(10_000L, last.positionMs)
             assertEquals("c", last.currentSongId)
+            // The queue's current entry moves once per receiver track, as the receiver.
+            val position = harness.api.positions.single()
+            assertEquals(receiver, position.clientId)
+            assertEquals(13, position.currentIndex)
         } finally {
             harness.handoff.stop()
         }
@@ -177,6 +189,10 @@ class CastPlaybackHandoffTest {
             val finalBeat = harness.api.heartbeats.last()
             assertEquals(receiver, finalBeat.clientId)
             assertFalse(finalBeat.isPlaying)
+            val finalPosition = harness.api.positions.last()
+            assertEquals(receiver, finalPosition.clientId)
+            assertEquals(14, finalPosition.currentIndex)
+            assertEquals(42_000L, finalPosition.positionMs)
             val handBack = harness.api.commands.last()
             assertEquals(TEST_CLIENT_ID, handBack.clientId)
             assertEquals(false, handBack.resumePlayback)

@@ -23,6 +23,7 @@ import com.ferrotune.core.network.dto.SessionParams
 import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
+import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
 import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
@@ -146,6 +147,8 @@ open class FakeFerrotuneApi(
         error("unused")
 
     override suspend fun sessionClients(): ClientListResponse = error("unused")
+
+    override suspend fun updateQueuePosition(request: UpdateQueuePositionRequest): QueueSuccessResponse = error("unused")
 
     override suspend fun sessionHeartbeat(
         sessionId: String,

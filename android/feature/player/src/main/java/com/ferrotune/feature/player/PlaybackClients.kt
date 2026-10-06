@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.MediaActionRow
+import com.ferrotune.core.designsystem.components.MediaActionSeparator
 import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.network.generated.ClientResponse
 
@@ -119,32 +121,7 @@ private fun PlaybackClientsSheet(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
                 )
             }
-            state.clients.forEach { client ->
-                val isMe = client.clientId == state.myClientId
-                val detail = client.deviceLabel ?: client.networkLabel
-                MediaActionRow(
-                    icon = clientIcon(client.clientName),
-                    label = buildString {
-                        append(client.displayName)
-                        if (isMe) append(" (this phone)")
-                        if (detail != null && detail != client.displayName) append(" · ").append(detail)
-                    },
-                    onClick = { onSelect(client) },
-                    closesSheet = true,
-                    trailing = if (client.isOwner) {
-                        {
-                            Icon(
-                                Icons.Filled.Check,
-                                contentDescription = "Playing here",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                )
-            }
+            PlaybackClientRows(state, onSelect)
         },
     )
 }
@@ -163,4 +140,55 @@ internal fun friendlyClientName(clientName: String?): String = when {
     clientName == "ferrotune-mobile" -> "another phone"
     clientName.startsWith("ferrotune-web") -> "the web player"
     else -> "another device"
+}
+
+/** One row per connected client; the owner gets a check (web `ConnectedClientsMenuItems`). */
+@Composable
+private fun PlaybackClientRows(state: PlaybackClientsUiState, onSelect: (ClientResponse) -> Unit) {
+    state.clients.forEach { client ->
+        val isMe = client.clientId == state.myClientId
+        val detail = client.deviceLabel ?: client.networkLabel
+        MediaActionRow(
+            icon = clientIcon(client.clientName),
+            label = buildString {
+                append(client.displayName)
+                if (isMe) append(" (this phone)")
+                if (detail != null && detail != client.displayName) append(" · ").append(detail)
+            },
+            onClick = { onSelect(client) },
+            closesSheet = true,
+            trailing = if (client.isOwner) {
+                {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = "Playing here",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            } else {
+                null
+            },
+        )
+    }
+}
+
+/**
+ * The account menu's "Connected Clients" section (web account menu): every
+ * client of the shared session, with a check on the one playing; tapping a
+ * client moves playback there. Hidden when nothing else is connected.
+ */
+@Composable
+fun PlaybackClientsMenuSection(viewModel: PlaybackClientsViewModel = hiltViewModel()) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refresh() }
+    if (state.clients.isEmpty()) return
+    MediaActionSeparator()
+    Text(
+        "Connected Clients",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+    )
+    PlaybackClientRows(state, viewModel::transferTo)
 }

@@ -6,6 +6,7 @@ import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.SessionCommandRequest
 import com.ferrotune.core.network.dto.SessionHeartbeatRequest
+import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -130,13 +131,36 @@ class CastPlaybackHandoff(
             }
         }
         // Report the receiver until the session ends (collectLatest cancels this loop).
+        // Heartbeats carry live progress to other clients; the queue's current
+        // entry only moves through the owner's position updates (web use-cast).
+        var reportedIndex: Int? = null
         while (true) {
             val status = cast.status.value
             if (status.songId != null) {
                 lastStatus = status
                 heartbeat(sessionId, receiverId, CAST_CLIENT_NAME, status, status.isPlaying)
+                val index = status.queuePosition
+                if (index != null && index != reportedIndex) {
+                    reportedIndex = index
+                    updatePosition(sessionId, receiverId, index, status.positionMs)
+                }
             }
             delay(heartbeatIntervalMs)
+        }
+    }
+
+    private suspend fun updatePosition(sessionId: String, clientId: String, index: Int, positionMs: Long) {
+        runCatching {
+            apiCall {
+                apiProvider.requireApi().updateQueuePosition(
+                    UpdateQueuePositionRequest(
+                        sessionId = sessionId,
+                        clientId = clientId,
+                        currentIndex = index,
+                        positionMs = positionMs.coerceAtLeast(0),
+                    ),
+                )
+            }
         }
     }
 
@@ -165,8 +189,10 @@ class CastPlaybackHandoff(
         lastStatus = null
         runCatching {
             if (status != null) {
-                // The receiver's final position, before the phone takes over.
-                heartbeat(sessionId, castClientId(myClientId), CAST_CLIENT_NAME, status, isPlaying = false)
+                // The receiver's final entry and position, written while it still owns the session.
+                val receiverId = castClientId(myClientId)
+                heartbeat(sessionId, receiverId, CAST_CLIENT_NAME, status, isPlaying = false)
+                status.queuePosition?.let { updatePosition(sessionId, receiverId, it, status.positionMs) }
             }
             apiCall {
                 apiProvider.requireApi().sessionCommand(

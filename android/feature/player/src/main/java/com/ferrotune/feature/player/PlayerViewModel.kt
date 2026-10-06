@@ -11,17 +11,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameMillis
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackEvent
 import com.ferrotune.core.media.PlaybackRepository
 import com.ferrotune.core.media.PlaybackSettingsRepository
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackStatus
+import com.ferrotune.core.media.SessionRemoteControl
 import com.ferrotune.core.media.TrackInfo
 import com.ferrotune.core.media.WaveformRepository
 import com.ferrotune.core.media.cast.CastConnectionState
 import com.ferrotune.core.media.cast.CastManager
 import com.ferrotune.core.media.cast.CastMediaStatus
 import com.ferrotune.core.media.cast.CastPlaybackHandoff
+import com.ferrotune.core.media.isFollowing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,6 +106,8 @@ class PlayerViewModel @Inject constructor(
     private val playbackSettingsRepository: PlaybackSettingsRepository,
     private val waveformRepository: WaveformRepository,
     private val castHandoff: CastPlaybackHandoff,
+    private val remoteControl: SessionRemoteControl,
+    private val messages: UserMessages,
 ) : ViewModel() {
 
     private val isStartingQueue = MutableStateFlow(false)
@@ -120,7 +125,11 @@ class PlayerViewModel @Inject constructor(
             track = playback.track,
             previousTrack = playback.previousTrack,
             nextTrack = playback.nextTrack,
-            isPlaying = if (cast.isConnected) castStatus.isPlaying else playback.status == PlaybackStatus.PLAYING,
+            isPlaying = when {
+                cast.isConnected -> castStatus.isPlaying
+                playback.isFollowing -> playback.remote?.isPlaying == true
+                else -> playback.status == PlaybackStatus.PLAYING
+            },
             isBuffering = playback.status == PlaybackStatus.BUFFERING,
             queueIndex = playback.queueIndex,
             queueLength = playback.queueLength,
@@ -159,6 +168,15 @@ class PlayerViewModel @Inject constructor(
                 durationMs = castStatus.durationMs.takeIf { it > 0 } ?: playback.durationMs,
                 playing = castStatus.isPlaying,
                 reportedAtMs = SystemClock.elapsedRealtime(),
+            )
+        } else if (playback.isFollowing && playback.remote != null) {
+            // The owner's position, reported by its session updates.
+            val remote = playback.remote!!
+            PlaybackProgress(
+                positionMs = remote.positionMs,
+                durationMs = playback.durationMs,
+                playing = remote.isPlaying,
+                reportedAtMs = remote.reportedAtElapsedMs,
             )
         } else {
             PlaybackProgress(
@@ -204,14 +222,33 @@ class PlayerViewModel @Inject constructor(
             if (castManager.status.value.isPlaying) castManager.pause() else castManager.play()
             return
         }
+        val playback = repository.state.value
+        if (playback.isFollowing) {
+            val sessionId = playback.sessionId ?: return
+            remote("Couldn't control the other device") {
+                if (playback.remote?.isPlaying == true) remoteControl.pause(sessionId) else remoteControl.play(sessionId)
+            }
+            return
+        }
         viewModelScope.launch {
-            if (repository.state.value.status == PlaybackStatus.PLAYING) repository.pause() else repository.play()
+            if (playback.status == PlaybackStatus.PLAYING) repository.pause() else repository.play()
         }
     }
+
+    /** Runs a remote-control command for the session owner, reporting failures. */
+    private fun remote(failure: String, block: suspend () -> Unit) {
+        viewModelScope.launch { runCatching { block() }.onFailure { messages.failure(failure, it) } }
+    }
+
+    private fun followedSessionId(): String? = repository.state.value.takeIf { it.isFollowing }?.sessionId
 
     fun next() {
         if (castManager.state.value.isConnected) {
             castManager.next()
+            return
+        }
+        followedSessionId()?.let { sessionId ->
+            remote("Couldn't control the other device") { remoteControl.next(sessionId) }
             return
         }
         viewModelScope.launch { repository.nextTrack() }
@@ -220,6 +257,10 @@ class PlayerViewModel @Inject constructor(
     fun previous(force: Boolean = false) {
         if (castManager.state.value.isConnected) {
             castManager.previous()
+            return
+        }
+        followedSessionId()?.let { sessionId ->
+            remote("Couldn't control the other device") { remoteControl.previous(sessionId) }
             return
         }
         viewModelScope.launch { repository.previousTrack(force) }
@@ -246,6 +287,10 @@ class PlayerViewModel @Inject constructor(
         val positionMs = (fraction.coerceIn(0f, 1f) * durationMs).toLong()
         if (castManager.state.value.isConnected) {
             castManager.seek(positionMs)
+            return
+        }
+        followedSessionId()?.let { sessionId ->
+            remote("Couldn't control the other device") { remoteControl.seek(sessionId, positionMs) }
             return
         }
         viewModelScope.launch { repository.seek(positionMs) }

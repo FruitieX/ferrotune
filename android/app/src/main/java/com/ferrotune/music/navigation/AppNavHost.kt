@@ -64,8 +64,8 @@ import com.ferrotune.feature.home.ui.HomeLayoutSettingsScreen
 import com.ferrotune.feature.home.ui.HomeLinkTarget
 import com.ferrotune.feature.home.ui.HomeScreen
 import com.ferrotune.feature.home.ui.HomeSectionDetailScreen
-import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.home.ui.ProfileScreen
+import com.ferrotune.feature.home.ui.ReviewScreen
 import com.ferrotune.feature.library.ui.AlbumDetailScreen
 import com.ferrotune.feature.library.ui.ArtistDetailScreen
 import com.ferrotune.feature.library.ui.FavoritesScreen
@@ -77,6 +77,7 @@ import com.ferrotune.feature.library.ui.SongRadioScreen
 import com.ferrotune.feature.player.LocalQueuePanel
 import com.ferrotune.feature.player.MiniPlayerBar
 import com.ferrotune.feature.player.NowPlayingOverlay
+import com.ferrotune.feature.player.PlaybackClientsMenuSection
 import com.ferrotune.feature.player.PlaybackOwnerStrip
 import com.ferrotune.feature.player.QueuePanelHost
 import com.ferrotune.feature.player.QueuePanelState
@@ -282,6 +283,7 @@ private fun FerrotuneAppContent(
                         onOpenStats = { navController.navigate(Routes.STATS) },
                         onOpenReview = { navController.navigate(Routes.REVIEW) },
                         onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
+                        accountMenuExtra = { PlaybackClientsMenuSection() },
                     )
                 }
                 composable(
