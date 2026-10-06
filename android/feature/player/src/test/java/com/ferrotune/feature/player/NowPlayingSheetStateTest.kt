@@ -41,29 +41,34 @@ class NowPlayingSheetStateTest {
     }
 
     @Test
-    fun `release closes only past a quarter of the height`() {
-        val state = state()
+    fun `release closes after the web's 100dp pull or a fast flick past 40dp`() {
+        val state = state().apply { density = 2f }
+        state.dragToFraction(0f)
 
-        state.dragBy(-200f)
-        assertEquals(0.8f, state.fraction, 0.01f)
+        state.dragBy(150f) // 75dp
+        assertFalse(state.shouldCloseOnRelease())
+        assertTrue(state.shouldCloseOnRelease(velocityY = 1_200f)) // 600dp/s
+
+        state.dragBy(60f) // 105dp
         assertTrue(state.shouldCloseOnRelease())
 
-        state.dragBy(-600f)
-        assertEquals(0.2f, state.fraction, 0.01f)
-        assertFalse(state.shouldCloseOnRelease())
+        state.dragToFraction(0f)
+        state.dragBy(60f) // 30dp: even a fast flick is too short
+        assertFalse(state.shouldCloseOnRelease(velocityY = 2_000f))
     }
 
     @Test
-    fun `expand drag opens after a fifth of the height is pulled`() {
-        val state = state()
+    fun `expand drag opens after the web's 50dp pull or an upward flick`() {
+        val state = state().apply { density = 2f }
 
-        state.dragBy(-100f)
-        assertEquals(0.9f, state.fraction, 0.01f)
+        state.dragBy(-80f) // 40dp
         assertFalse(state.shouldOpenOnRelease())
+        assertTrue(state.shouldOpenOnRelease(velocityY = -800f))
 
-        state.dragBy(-150f)
-        assertEquals(0.75f, state.fraction, 0.01f)
+        state.dragBy(-40f) // 60dp
         assertTrue(state.shouldOpenOnRelease())
+        // Flicking back down at release cancels.
+        assertFalse(state.shouldOpenOnRelease(velocityY = 800f))
     }
 
     @Test

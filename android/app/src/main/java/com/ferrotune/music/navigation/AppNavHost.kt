@@ -429,8 +429,8 @@ private fun FerrotuneAppContent(
                 MiniPlayerBar(
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     onExpandDrag = nowPlayingSheet::dragBy,
-                    onExpandDragEnd = {
-                        if (nowPlayingSheet.shouldOpenOnRelease()) {
+                    onExpandDragEnd = { velocityY ->
+                        if (nowPlayingSheet.shouldOpenOnRelease(velocityY)) {
                             nowPlayingOpen = true
                         } else {
                             nowPlayingSheet.close()

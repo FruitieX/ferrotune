@@ -12,9 +12,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
@@ -93,13 +95,18 @@ fun NowPlayingOverlay(
                 .pointerInput(Unit) {
                     var vertical: Boolean? = null
                     val skipThresholdPx = SKIP_THRESHOLD.toPx()
+                    // The sheet follows the finger, so velocity comes from the accumulated drag.
+                    val tracker = VelocityTracker()
+                    var dragY = 0f
                     detectDragGestures(
                         onDragStart = {
                             vertical = null
+                            tracker.resetTracking()
+                            dragY = 0f
                         },
                         onDragEnd = {
                             if (vertical == true) {
-                                if (state.shouldCloseOnRelease()) {
+                                if (state.shouldCloseOnRelease(tracker.calculateVelocity().y)) {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onOpenChange(false)
                                 } else {
@@ -139,6 +146,8 @@ fun NowPlayingOverlay(
                         },
                         onDrag = { change, amount ->
                             change.consume()
+                            dragY += amount.y
+                            tracker.addPosition(change.uptimeMillis, Offset(0f, dragY))
                             if (vertical == null && (abs(amount.x) > 2f || abs(amount.y) > 2f)) {
                                 vertical = abs(amount.y) >= abs(amount.x)
                             }

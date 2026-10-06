@@ -1,6 +1,7 @@
 package com.ferrotune.feature.player
 
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -64,15 +66,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.ferrotune.core.actions.LocalMediaActions
-import com.ferrotune.core.actions.closingBeforeNavigation
+import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.SongMenuSheet
 import com.ferrotune.core.actions.SongMenuTarget
+import com.ferrotune.core.actions.closingBeforeNavigation
 import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongMenuState
-import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.FavoriteButton
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.theme.LocalDarkTheme
 import com.ferrotune.core.media.TrackInfo
 import kotlin.math.abs
 
@@ -181,9 +184,16 @@ fun NowPlayingScreen(
                             CastRouteButton()
                         }
                         Spacer(Modifier.weight(1f))
+                        // Web shadcn `outline` button: foreground text on an `--input` border and fill.
+                        val input = MaterialTheme.colorScheme.outlineVariant
                         OutlinedButton(
                             onClick = { queuePanel.open() },
                             shape = CircleShape,
+                            border = BorderStroke(1.dp, input),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (LocalDarkTheme.current) input.copy(alpha = 0.3f) else MaterialTheme.colorScheme.background,
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.QueueMusic,

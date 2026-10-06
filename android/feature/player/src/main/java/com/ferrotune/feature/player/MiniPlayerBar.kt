@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInFull
@@ -28,12 +29,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -90,7 +88,8 @@ private val WAVEFORM_TOOLTIP_HEIGHT = 22.dp
 fun MiniPlayerBar(
     onOpenNowPlaying: () -> Unit,
     onExpandDrag: (Float) -> Unit,
-    onExpandDragEnd: () -> Unit,
+    /** Called with the release velocity in px/s (down positive). */
+    onExpandDragEnd: (velocityY: Float) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -196,7 +195,8 @@ private fun NowPlayingRow(
     track: TrackInfo,
     onOpenNowPlaying: () -> Unit,
     onExpandDrag: (Float) -> Unit,
-    onExpandDragEnd: () -> Unit,
+    /** Called with the release velocity in px/s (down positive). */
+    onExpandDragEnd: (velocityY: Float) -> Unit,
     onOpenQueue: () -> Unit,
     viewModel: PlayerViewModel,
 ) {
@@ -282,7 +282,7 @@ private fun NowPlayingRow(
                             }
                         }
                         when {
-                            vertical == true -> onExpandDragEnd()
+                            vertical == true -> onExpandDragEnd(tracker.calculateVelocity().y)
 
                             vertical == false -> {
                                 val velocityX = tracker.calculateVelocity().x
@@ -454,7 +454,7 @@ private fun MoreMenu(
     viewModel: PlayerViewModel,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val haptics = LocalHapticFeedback.current
+    val castChooser = rememberCastChooser()
 
     Box {
         IconButton(
@@ -471,56 +471,6 @@ private fun MoreMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = {
-                        expanded = false
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.previous()
-                    },
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.SkipPrevious,
-                        contentDescription = "Previous track",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        expanded = false
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.togglePlayPause()
-                    },
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Icon(
-                        imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        expanded = false
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.next()
-                    },
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.SkipNext,
-                        contentDescription = "Next track",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(if (state.isShuffled) "Shuffle on" else "Shuffle") },
                 leadingIcon = { Icon(Icons.Filled.Shuffle, contentDescription = null) },
@@ -554,6 +504,16 @@ private fun MoreMenu(
                     viewModel.cycleRepeat()
                 },
             )
+            if (!state.cast.isConnected && state.cast.available) {
+                DropdownMenuItem(
+                    text = { Text("Cast…") },
+                    leadingIcon = { Icon(Icons.Filled.Cast, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        castChooser.open()
+                    },
+                )
+            }
             if (state.cast.isConnected) {
                 DropdownMenuItem(
                     text = { Text("Casting to ${state.cast.deviceName ?: "device"}") },

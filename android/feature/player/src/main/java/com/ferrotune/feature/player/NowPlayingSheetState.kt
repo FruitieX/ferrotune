@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -55,6 +56,9 @@ class NowPlayingSheetState internal constructor(
 ) {
     constructor(scope: CoroutineScope) : this(scope, DefaultSheetAnimator)
     var hiddenOffsetPx by mutableFloatStateOf(0f)
+
+    /** Pixels per dp, for the web's dp-based swipe thresholds. */
+    var density = 1f
 
     var rendered by mutableStateOf(false)
         private set
@@ -102,11 +106,23 @@ class NowPlayingSheetState internal constructor(
         offsetY = progress.coerceIn(0f, 1f) * hiddenOffsetPx
     }
 
-    /** True when a release at the current offset should dismiss the sheet. */
-    fun shouldCloseOnRelease(): Boolean = fraction > CLOSE_THRESHOLD
+    /**
+     * Web fullscreen player: dismiss after a 100dp pull down, or a quick
+     * downward flick once past 40dp. [velocityY] is in px/s, down positive.
+     */
+    fun shouldCloseOnRelease(velocityY: Float = 0f): Boolean =
+        offsetY > CLOSE_DISTANCE_DP * density ||
+            (offsetY > CLOSE_FLICK_MIN_DP * density && velocityY > CLOSE_VELOCITY_DP * density)
 
-    /** True when a release after an expand drag should open the sheet. */
-    fun shouldOpenOnRelease(): Boolean = fraction < OPEN_THRESHOLD
+    /**
+     * Web swipeable footer: open after a 50dp pull up, or any upward flick; a
+     * downward flick at release cancels. [velocityY] is in px/s, down positive.
+     */
+    fun shouldOpenOnRelease(velocityY: Float = 0f): Boolean {
+        val pulled = hiddenOffsetPx - offsetY
+        if (velocityY > OPEN_VELOCITY_DP * density) return false
+        return pulled > OPEN_DISTANCE_DP * density || (pulled > 0f && velocityY < -OPEN_VELOCITY_DP * density)
+    }
 
     fun open() {
         if (!rendered) {
@@ -207,8 +223,12 @@ class NowPlayingSheetState internal constructor(
     }
 
     companion object {
-        const val CLOSE_THRESHOLD = 0.25f
-        const val OPEN_THRESHOLD = 0.8f
+        // The web's thresholds (CSS px ≈ dp): fullscreen-player.tsx and swipeable-footer.tsx.
+        const val OPEN_DISTANCE_DP = 50f
+        const val OPEN_VELOCITY_DP = 300f
+        const val CLOSE_DISTANCE_DP = 100f
+        const val CLOSE_FLICK_MIN_DP = 40f
+        const val CLOSE_VELOCITY_DP = 500f
         const val ART_COMMIT_TIMEOUT_MS = 3000L
     }
 }
@@ -216,5 +236,6 @@ class NowPlayingSheetState internal constructor(
 @Composable
 fun rememberNowPlayingSheetState(): NowPlayingSheetState {
     val scope = rememberCoroutineScope()
-    return remember(scope) { NowPlayingSheetState(scope) }
+    val density = LocalDensity.current.density
+    return remember(scope) { NowPlayingSheetState(scope) }.also { it.density = density }
 }
