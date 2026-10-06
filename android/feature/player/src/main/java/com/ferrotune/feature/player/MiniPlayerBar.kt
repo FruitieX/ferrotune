@@ -115,7 +115,7 @@ fun MiniPlayerBar(
                     )
                 }
 
-                if (track != null && (state.progressBarStyle != "waveform" || state.waveformHeights.isEmpty())) {
+                if (track != null && !state.showsWaveform) {
                     PlayerProgressLine(
                         progress = progress,
                         modifier = Modifier.align(Alignment.TopCenter),
@@ -126,12 +126,12 @@ fun MiniPlayerBar(
 
         // Keep the waveform outside the clipping Surface so its overhang (and
         // touch target) straddles the bar's top edge like the web client.
-        if (track != null && state.progressBarStyle == "waveform" && state.waveformHeights.isNotEmpty()) {
+        if (track != null && state.showsWaveform) {
             val tooltipHeight = if (progress.durationMs > 0) WAVEFORM_TOOLTIP_HEIGHT else 0.dp
             PlayerSeekBar(
                 progress = progress,
-                style = state.progressBarStyle,
-                waveformHeights = state.waveformHeights,
+                showWaveform = state.showsWaveform,
+                waveform = state.waveform,
                 onSeek = viewModel::seekToFraction,
                 showTimes = false,
                 modifier = Modifier

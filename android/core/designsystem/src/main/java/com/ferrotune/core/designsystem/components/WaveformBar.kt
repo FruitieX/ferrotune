@@ -12,10 +12,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -33,8 +35,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlin.math.max
+import kotlinx.coroutines.delay
 
 /** Web `TOUCH_PROGRESS_PREVIEW_DURATION_MS`: keep the tapped-position label visible after a touch seek. */
 private const val TOUCH_PREVIEW_DURATION_MS = 1000L
@@ -63,6 +65,10 @@ internal fun progressTooltipsCollide(
  * tappable and draggable, reporting a 0..1 fraction, and scrubbing shows the
  * web client's progress affordances: a vertical position bar plus
  * start/end/current time tooltips that stay visible briefly after release.
+ *
+ * Empty [heights] draw flat bars (still loading). When [trackKey] changes, the
+ * bars run the web's sweep: the previous track's waveform flattens behind a
+ * moving front and the new one rises behind a second front.
  */
 @Composable
 fun WaveformBar(
@@ -77,8 +83,42 @@ fun WaveformBar(
     onSeek: ((Float) -> Unit)? = null,
     positionMs: Long = 0,
     durationMs: Long = 0,
+    trackKey: Any? = null,
 ) {
-    if (heights.isEmpty()) return
+    // Track-change sweep (web waveform-progress-bar): previous heights out, new ones in.
+    var lastHeights by remember { mutableStateOf(heights) }
+    var outgoing by remember { mutableStateOf(emptyList<Float>()) }
+    var outProgress by remember { mutableFloatStateOf(0f) }
+    var inProgress by remember { mutableFloatStateOf(0f) }
+    var seenKey by remember { mutableStateOf(trackKey) }
+    if (trackKey != seenKey) {
+        // A first key (nothing shown yet) appears without a sweep, like the web on mount.
+        if (seenKey != null) {
+            outgoing = lastHeights
+            outProgress = 0.001f
+            inProgress = 0f
+        }
+        seenKey = trackKey
+    }
+    if (heights.isNotEmpty()) lastHeights = heights
+    LaunchedEffect(trackKey) {
+        var last = 0L
+        while (outProgress > 0f || inProgress > 0f) {
+            withFrameNanos { now ->
+                val delta = if (last == 0L) 0.016f else (now - last) / 1_000_000_000f
+                last = now
+                val (out, inP) = advanceWaveformTransition(outProgress, inProgress, delta)
+                if (out >= WAVE_END && inP >= WAVE_END) {
+                    outProgress = 0f
+                    inProgress = 0f
+                } else {
+                    outProgress = out
+                    inProgress = inP
+                }
+            }
+        }
+    }
+
     val clampedProgress = progress.coerceIn(0f, 1f)
     val showTooltips = onSeek != null && durationMs > 0
     val tooltipHeight = if (showTooltips) 22.dp else 0.dp
@@ -124,12 +164,16 @@ fun WaveformBar(
             val barW = barWidth.toPx()
             val radius = CornerRadius(barW / 2f, barW / 2f)
             val playedBars = (barCount * clampedProgress).toInt()
+            val incoming = downsampleHeights(heights, barCount)
+            val sweeping = outProgress > 0f || inProgress > 0f
+            val leaving = if (sweeping) downsampleHeights(outgoing, barCount) else incoming
 
             for (index in 0 until barCount) {
-                val sampleIndex = (index.toLong() * heights.size / barCount)
-                    .toInt()
-                    .coerceIn(0, heights.size - 1)
-                val sample = heights[sampleIndex].coerceIn(0f, 1f)
+                val sample = if (sweeping) {
+                    waveformTransitionHeight(index.toFloat() / barCount, outProgress, inProgress, leaving[index], incoming[index])
+                } else {
+                    incoming[index]
+                }.coerceIn(0f, 1f)
                 val barHeight = max(barW, sample * barAreaHeight)
                 val left = index * step
                 val top = barTop + (barAreaHeight - barHeight) / 2f

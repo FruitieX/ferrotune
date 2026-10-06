@@ -33,8 +33,8 @@ private fun fractionOf(positionMs: Long, durationMs: Long): Float =
 @Composable
 internal fun PlayerSeekBar(
     progress: PlaybackProgress,
-    style: String,
-    waveformHeights: List<Float>,
+    showWaveform: Boolean,
+    waveform: WaveformData,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
     waveformHeight: Dp = 40.dp,
@@ -44,9 +44,10 @@ internal fun PlayerSeekBar(
 ) {
     val position by rememberPlaybackPosition(progress)
     Column(modifier = modifier.fillMaxWidth()) {
-        if (style == "waveform" && waveformHeights.isNotEmpty()) {
+        if (showWaveform) {
             WaveformBar(
-                heights = waveformHeights,
+                heights = waveform.heights,
+                trackKey = waveform.trackId,
                 progress = fractionOf(position, progress.durationMs),
                 onSeek = onSeek,
                 positionMs = position,

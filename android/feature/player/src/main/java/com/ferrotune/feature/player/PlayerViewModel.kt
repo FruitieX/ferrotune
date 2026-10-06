@@ -59,8 +59,20 @@ data class PlayerUiState(
     val cast: CastConnectionState = CastConnectionState(),
     val castStatus: CastMediaStatus? = null,
     val progressBarStyle: String = "waveform",
-    val waveformHeights: List<Float> = emptyList(),
+    val waveform: WaveformData = WaveformData(),
 )
+
+/** The current song's waveform: flat bars while [loading], none when the song has no data. */
+@Immutable
+data class WaveformData(
+    val trackId: String? = null,
+    val heights: List<Float> = emptyList(),
+    val loading: Boolean = false,
+)
+
+/** Whether the player draws a waveform (web: flat bars while loading, the simple bar without data). */
+val PlayerUiState.showsWaveform: Boolean
+    get() = progressBarStyle == "waveform" && (waveform.loading || waveform.heights.isNotEmpty())
 
 /**
  * Last reported position plus when it was reported, so the UI can advance it
@@ -112,7 +124,7 @@ class PlayerViewModel @Inject constructor(
 
     private val isStartingQueue = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
-    private val waveformHeights = MutableStateFlow<List<Float>>(emptyList())
+    private val waveform = MutableStateFlow(WaveformData())
 
     private val coreState: StateFlow<PlayerUiState> = combine(
         repository.state,
@@ -149,9 +161,9 @@ class PlayerViewModel @Inject constructor(
     val uiState: StateFlow<PlayerUiState> = combine(
         coreState,
         playbackSettingsRepository.settings,
-        waveformHeights,
-    ) { state, settings, heights ->
-        state.copy(progressBarStyle = settings.progressBarStyle, waveformHeights = heights)
+        waveform,
+    ) { state, settings, waveform ->
+        state.copy(progressBarStyle = settings.progressBarStyle, waveform = waveform)
     }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
@@ -201,11 +213,13 @@ class PlayerViewModel @Inject constructor(
                 .map { it.track?.id }
                 .distinctUntilChanged()
                 .collect { songId ->
-                    waveformHeights.value = if (songId == null) {
-                        emptyList()
-                    } else {
-                        waveformRepository.heights(songId)
+                    if (songId == null) {
+                        waveform.value = WaveformData()
+                        return@collect
                     }
+                    // Flat bars while loading (web), then this song's heights.
+                    waveform.value = WaveformData(trackId = songId, loading = true)
+                    waveform.value = WaveformData(trackId = songId, heights = waveformRepository.heights(songId))
                 }
         }
         viewModelScope.launch {

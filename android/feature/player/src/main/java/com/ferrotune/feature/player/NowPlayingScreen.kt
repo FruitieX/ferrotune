@@ -148,8 +148,8 @@ fun NowPlayingScreen(
                     }
                     PlayerSeekBar(
                         progress = progress,
-                        style = state.progressBarStyle,
-                        waveformHeights = state.waveformHeights,
+                        showWaveform = state.showsWaveform,
+                        waveform = state.waveform,
                         onSeek = viewModel::seekToFraction,
                     )
                     Spacer(Modifier.height(16.dp))
