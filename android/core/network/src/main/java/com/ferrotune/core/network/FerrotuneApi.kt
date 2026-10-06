@@ -34,6 +34,7 @@ import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.ConnectSessionResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
+import com.ferrotune.core.network.generated.DirectoryPagedResponse
 import com.ferrotune.core.network.generated.DisabledSongsResponse
 import com.ferrotune.core.network.generated.DisabledStatusResponse
 import com.ferrotune.core.network.generated.DiscoveryResponse
@@ -54,6 +55,7 @@ import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.HomePageResponse
 import com.ferrotune.core.network.generated.ImportPlaylistRequest
 import com.ferrotune.core.network.generated.ImportPlaylistResponse
+import com.ferrotune.core.network.generated.LibrariesResponse
 import com.ferrotune.core.network.generated.ListeningStatsResponse
 import com.ferrotune.core.network.generated.LogListeningResponse
 import com.ferrotune.core.network.generated.MatchMissingEntryRequest
@@ -197,6 +199,12 @@ interface FerrotuneApi {
         @Path("id") id: String,
         @QueryMap params: Map<String, String>,
     ): CollectionSongsResponse
+
+    @GET("api/libraries")
+    suspend fun libraries(): LibrariesResponse
+
+    @GET("api/directory")
+    suspend fun directory(@QueryMap params: Map<String, String>): DirectoryPagedResponse
 
     @GET("api/albums")
     suspend fun albums(@QueryMap params: Map<String, String>): FerrotuneAlbumListResponse

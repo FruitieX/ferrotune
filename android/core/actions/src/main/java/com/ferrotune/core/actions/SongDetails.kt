@@ -109,7 +109,7 @@ fun songDetailRows(song: SongResponse, locale: Locale = Locale.getDefault()): Li
 private fun formatGain(db: Double): String = "${if (db >= 0) "+" else ""}${"%.2f".format(Locale.ROOT, db)} dB"
 
 /** Web `formatFileSize`: binary units with one decimal. */
-internal fun formatFileSize(bytes: Long): String {
+fun formatFileSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val units = listOf("KB", "MB", "GB", "TB")
     var value = bytes / 1024.0

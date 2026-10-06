@@ -29,6 +29,7 @@ enum class ViewSortKey(val preferenceKey: String) {
     GENRE_DETAIL("genre-detail-sort-native"),
     HISTORY("history-sort-native"),
     PLAYLIST_DETAIL("playlist-sort-native"),
+    FILES("files-sort-native"),
 }
 
 /**

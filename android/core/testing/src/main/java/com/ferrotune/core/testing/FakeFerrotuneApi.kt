@@ -37,6 +37,7 @@ import com.ferrotune.core.network.generated.CollectionSongsResponse
 import com.ferrotune.core.network.generated.ConnectSessionResponse
 import com.ferrotune.core.network.generated.CreateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.CreateSmartPlaylistResponse
+import com.ferrotune.core.network.generated.DirectoryPagedResponse
 import com.ferrotune.core.network.generated.DisabledSongsResponse
 import com.ferrotune.core.network.generated.DisabledStatusResponse
 import com.ferrotune.core.network.generated.DiscoveryResponse
@@ -57,6 +58,7 @@ import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.HomePageResponse
 import com.ferrotune.core.network.generated.ImportPlaylistRequest
 import com.ferrotune.core.network.generated.ImportPlaylistResponse
+import com.ferrotune.core.network.generated.LibrariesResponse
 import com.ferrotune.core.network.generated.ListeningStatsResponse
 import com.ferrotune.core.network.generated.LogListeningResponse
 import com.ferrotune.core.network.generated.MatchMissingEntryRequest
@@ -339,6 +341,10 @@ open class FakeFerrotuneApi(
     override suspend fun shareableUsers(): ShareableUsersResponse = error("unused")
 
     override suspend fun musicFolders(): MusicFoldersResponse = error("unused")
+
+    override suspend fun libraries(): LibrariesResponse = error("unused")
+
+    override suspend fun directory(params: Map<String, String>): DirectoryPagedResponse = error("unused")
 
     override suspend fun preferences(): PreferencesResponse = error("unused")
 

@@ -6,13 +6,17 @@ import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.CollectionSongsParams
+import com.ferrotune.core.network.generated.DirectoryChildPaged
+import com.ferrotune.core.network.generated.DirectoryPagedResponse
 import com.ferrotune.core.network.generated.FerrotuneAlbumResponse
 import com.ferrotune.core.network.generated.FerrotuneArtistResponse
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
+import com.ferrotune.core.network.generated.FerrotuneSearchContent
 import com.ferrotune.core.network.generated.FerrotuneSimilarSongsResponse
 import com.ferrotune.core.network.generated.FerrotuneSongResponse
-import com.ferrotune.core.network.generated.FerrotuneSearchContent
 import com.ferrotune.core.network.generated.GenreResponse
+import com.ferrotune.core.network.generated.GetDirectoryPagedParams
+import com.ferrotune.core.network.generated.LibraryInfo
 import com.ferrotune.core.network.generated.SearchParams
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.network.toQueryMap
@@ -172,6 +176,28 @@ class LibraryRepository @Inject constructor(
                 inlineImages = INLINE_IMAGES,
             ).toQueryMap(),
         ).searchResult
+
+    /** Music libraries the account can browse (web Files root). */
+    suspend fun libraries(): List<LibraryInfo> = apiProvider.requireApi().libraries().libraries
+
+    fun directory(
+        libraryId: Long,
+        path: String,
+        sort: String,
+        sortDir: String,
+        filter: String?,
+        onFirstPage: (DirectoryPagedResponse) -> Unit,
+    ): PagingSource<Int, DirectoryChildPaged> = DirectoryPagingSource(
+        apiProvider,
+        GetDirectoryPagedParams(
+            libraryId = libraryId,
+            path = path.ifEmpty { null },
+            sort = sort,
+            sortDir = sortDir,
+            filter = filter,
+        ),
+        onFirstPage,
+    )
 
     suspend fun genres(): List<GenreResponse> =
         apiProvider.requireApi().genres().genres.genre

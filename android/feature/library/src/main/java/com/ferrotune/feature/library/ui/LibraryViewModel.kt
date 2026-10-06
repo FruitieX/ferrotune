@@ -49,6 +49,9 @@ enum class LibraryTab {
     ARTISTS,
     SONGS,
     GENRES,
+
+    /** Folder browser; its state lives in [FilesViewModel]. */
+    FILES,
 }
 
 data class LibraryUiState(
@@ -169,7 +172,7 @@ class LibraryViewModel @Inject constructor(
             LibraryTab.ARTISTS -> ArtistSort.entries.firstOrNull { it.apiValue == key }
                 ?.let(::selectArtistSort)
 
-            LibraryTab.GENRES -> Unit
+            LibraryTab.GENRES, LibraryTab.FILES -> Unit
         }
     }
 
@@ -179,7 +182,7 @@ class LibraryViewModel @Inject constructor(
             LibraryTab.SONGS -> toggleSongSortDir()
             LibraryTab.ALBUMS -> toggleAlbumSortDir()
             LibraryTab.ARTISTS -> toggleArtistSortDir()
-            LibraryTab.GENRES -> Unit
+            LibraryTab.GENRES, LibraryTab.FILES -> Unit
         }
     }
 

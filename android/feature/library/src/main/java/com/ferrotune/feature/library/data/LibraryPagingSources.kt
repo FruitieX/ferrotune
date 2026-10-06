@@ -4,7 +4,10 @@ import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.CollectionSongsResponse
+import com.ferrotune.core.network.generated.DirectoryChildPaged
+import com.ferrotune.core.network.generated.DirectoryPagedResponse
 import com.ferrotune.core.network.generated.FerrotunePlayHistoryEntry
+import com.ferrotune.core.network.generated.GetDirectoryPagedParams
 import com.ferrotune.core.network.generated.SearchParams
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.network.paging.DEFAULT_PAGE_SIZE
@@ -74,6 +77,27 @@ class CollectionSongsPagingSource(
     override suspend fun loadPage(offset: Int, count: Int): PageResult<SongResponse> {
         val response = fetch(offset, count)
         return PageResult(response.songs, response.total)
+    }
+}
+
+/**
+ * One directory's folders, then files (web Files browser). [onFirstPage]
+ * receives the first response, which carries the directory's name, counts,
+ * and breadcrumbs.
+ */
+class DirectoryPagingSource(
+    private val apiProvider: FerrotuneApiProvider,
+    private val params: GetDirectoryPagedParams,
+    private val onFirstPage: (DirectoryPagedResponse) -> Unit,
+    override val pageSize: Int = LIBRARY_PAGE_SIZE,
+) : OffsetPagingSource<DirectoryChildPaged>() {
+    override suspend fun loadPage(offset: Int, count: Int): PageResult<DirectoryChildPaged> {
+        val response = apiProvider.requireApi().directory(
+            params.copy(offset = offset, count = count).toQueryMap() +
+                ("inlineImages" to LibraryRepository.INLINE_IMAGES),
+        )
+        if (offset == 0) onFirstPage(response)
+        return PageResult(response.children, response.total)
     }
 }
 

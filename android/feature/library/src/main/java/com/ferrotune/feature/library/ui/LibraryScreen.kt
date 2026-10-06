@@ -25,11 +25,17 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +82,7 @@ import com.ferrotune.core.designsystem.components.ChipTabRow
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.FilterPill
+import com.ferrotune.core.designsystem.components.MediaAction
 import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaCardSkeleton
@@ -90,6 +97,7 @@ import com.ferrotune.core.designsystem.components.ViewModeSheetSection
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.theme.genreGradientColors
+import com.ferrotune.core.media.QueueAddPosition
 import com.ferrotune.core.network.MATCH_ALL_SONGS_QUERY
 import com.ferrotune.core.network.ViewMode
 import com.ferrotune.core.network.ViewModeKey
@@ -146,6 +154,7 @@ private val LIBRARY_TABS = listOf(
     ChipTab("Artists", Icons.Filled.Person),
     ChipTab("Songs", Icons.Filled.MusicNote),
     ChipTab("Genres", Icons.Filled.Label),
+    ChipTab("Files", Icons.Filled.FolderOpen),
 )
 
 /**
@@ -166,12 +175,15 @@ fun LibraryScreen(
     val collectionMenu = rememberCollectionMenuState()
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
+    val filesViewModel: FilesViewModel = hiltViewModel()
+    val filesState by filesViewModel.uiState.collectAsStateWithLifecycle()
 
     // Hoisted per tab so switching tabs keeps each tab's scroll position.
     val albumsGrid = rememberLazyGridState()
     val artistsGrid = rememberLazyGridState()
     val genresGrid = rememberLazyGridState()
     val songsList = rememberLazyListState()
+    val filesList = rememberLazyListState()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -288,17 +300,27 @@ fun LibraryScreen(
                     gridState = genresGrid,
                     onRetry = viewModel::loadGenres,
                 )
+
+                LibraryTab.FILES -> FilesBrowser(
+                    filter = state.filter,
+                    songMenu = songMenu,
+                    listState = filesList,
+                    viewModel = filesViewModel,
+                )
             }
         }
     }
 
     SongMenuSheet(
         state = songMenu,
-        onStartSelection = { selection.select(it.id) },
+        // The Files tab lists folders and files together, so it has no song selection.
+        onStartSelection = if (state.tab == LibraryTab.FILES) null else { target -> selection.select(target.id) },
     )
     CollectionMenuSheet(state = collectionMenu)
 
-    if (menuOpen) {
+    if (menuOpen && state.tab == LibraryTab.FILES) {
+        FilesMenuSheet(state = filesState, viewModel = filesViewModel, onDismiss = { menuOpen = false })
+    } else if (menuOpen) {
         val sort = state.sortMenuState()
         MediaActionSheet(
             expanded = true,
@@ -323,6 +345,41 @@ fun LibraryScreen(
     }
 }
 
+/** Files ⋯ sheet: folder playback (inside a library) and the web files sort. */
+@Composable
+private fun FilesMenuSheet(state: FilesUiState, viewModel: FilesViewModel, onDismiss: () -> Unit) {
+    val inFolder = state.location != null
+    MediaActionSheet(
+        expanded = true,
+        onDismiss = onDismiss,
+        title = if (inFolder) state.currentSummary?.name ?: "Folder" else null,
+        placeholder = Icons.Filled.Folder,
+        actions = if (inFolder) {
+            listOf(
+                MediaAction("Play all", Icons.Filled.PlayArrow) { viewModel.playCurrentFolder(shuffle = false) },
+                MediaAction("Shuffle all", Icons.Filled.Shuffle) { viewModel.playCurrentFolder(shuffle = true) },
+                MediaAction("Play next", Icons.AutoMirrored.Filled.PlaylistPlay, separatorBefore = true) {
+                    viewModel.addCurrentFolderToQueue(QueueAddPosition.NEXT)
+                },
+                MediaAction("Add all to queue", Icons.AutoMirrored.Filled.PlaylistAdd) {
+                    viewModel.addCurrentFolderToQueue(QueueAddPosition.END)
+                },
+            )
+        } else {
+            emptyList()
+        },
+        extraContent = {
+            SortSheetSection(
+                options = FilesSort.entries.map { SortOption(it.apiValue, it.label) },
+                selectedKey = state.sort.apiValue,
+                ascending = state.ascending,
+                onSelect = viewModel::selectSort,
+                onToggleDirection = viewModel::toggleSortDirection,
+            )
+        },
+    )
+}
+
 private fun LibraryTab.viewModeKey(): ViewModeKey? = when (this) {
     LibraryTab.ALBUMS -> ViewModeKey.LIBRARY_ALBUMS
     LibraryTab.ARTISTS -> ViewModeKey.LIBRARY_ARTISTS
@@ -339,7 +396,7 @@ private fun LibraryUiState.sortMenuState(): SortMenuState = when (tab) {
     LibraryTab.SONGS -> SortMenuState(SONG_SORT_OPTIONS, songSort.apiValue, songSortDir.isAscending())
     LibraryTab.ALBUMS -> SortMenuState(ALBUM_SORT_OPTIONS, albumSort.apiValue, albumSortDir.isAscending())
     LibraryTab.ARTISTS -> SortMenuState(ARTIST_SORT_OPTIONS, artistSort.apiValue, artistSortDir.isAscending())
-    LibraryTab.GENRES -> SortMenuState(emptyList(), "", true)
+    LibraryTab.GENRES, LibraryTab.FILES -> SortMenuState(emptyList(), "", true)
 }
 
 internal fun com.ferrotune.feature.library.data.SortDir.isAscending(): Boolean =
