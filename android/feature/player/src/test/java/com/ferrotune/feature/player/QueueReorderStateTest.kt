@@ -2,6 +2,7 @@ package com.ferrotune.feature.player
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QueueReorderStateTest {
@@ -12,8 +13,22 @@ class QueueReorderStateTest {
         val preview = state.preview!!
         assertEquals(3, preview.target)
         assertEquals(listOf(0, 0, -1, -1, 0, 0), (0..5).map(preview::displacement))
-        assertEquals(2, state.finish())
-        assertNull(state.preview)
+        assertEquals(2, state.finish(64f))
+    }
+
+    @Test fun `a released move stays at its target until the reloaded queue shows it`() {
+        val state = QueueReorderState()
+        state.start("moved", 1)
+        state.dragBy(150f, 64f, 6)
+
+        assertEquals(2, state.finish(64f))
+        val settled = state.preview!!
+        assertTrue(settled.settled)
+        assertEquals(128f, settled.offsetY, 0f)
+        // Old rows: the target slot still holds another entry, so keep drawing the move.
+        assertEquals(settled, state.visiblePreview { if (it == 3) "other" else null })
+        // Reloaded rows put the moved entry at its target: stop drawing the preview.
+        assertNull(state.visiblePreview { if (it == 3) "moved" else null })
     }
 
     @Test fun `dragging up shifts intervening rows down`() {
@@ -23,7 +38,7 @@ class QueueReorderStateTest {
         val preview = state.preview!!
         assertEquals(1, preview.target)
         assertEquals(listOf(0, 1, 1, 1, 0, 0), (0..5).map(preview::displacement))
-        assertEquals(-3, state.finish())
+        assertEquals(-3, state.finish(64f))
     }
 
     @Test fun `preview clamps to queue ends while the item follows the pointer`() {
@@ -49,11 +64,11 @@ class QueueReorderStateTest {
         val state = QueueReorderState()
         state.start("entry", 1)
         state.dragBy(20f, 64f, 5)
-        assertEquals(0, state.finish())
+        assertEquals(0, state.finish(64f))
         state.start("entry", 1)
         state.dragBy(100f, 64f, 5)
         state.cancel()
         assertNull(state.preview)
-        assertEquals(0, state.finish())
+        assertEquals(0, state.finish(64f))
     }
 }

@@ -94,6 +94,7 @@ import com.ferrotune.core.designsystem.components.NowPlayingBars
 import com.ferrotune.core.designsystem.components.ShimmerBox
 import com.ferrotune.core.designsystem.components.formatClockDuration
 import com.ferrotune.feature.player.data.QueueEntry
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val QueueRowHeight = 60.dp
@@ -161,6 +162,17 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
     LaunchedEffect(Unit) { shown.animateTo(1f, tween(320)) }
     LaunchedEffect(Unit) { viewModel.reload() }
     LaunchedEffect(state.sessionId, entries.itemCount) { reorder.cancel() }
+    // A settled move leaves the preview up until the reloaded rows show it;
+    // clear it then, or after a while when the move failed.
+    val preview = reorder.visiblePreview { entries.peek(it)?.entryId }
+    val pendingMove = reorder.preview?.takeIf { it.settled }
+    LaunchedEffect(pendingMove, preview == null) {
+        if (pendingMove == null) return@LaunchedEffect
+        if (preview == null) reorder.cancel() else {
+            delay(5_000)
+            reorder.cancel()
+        }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.reload() }
     BackHandler { close() }
 
@@ -270,6 +282,7 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                 QueueRow(
                                     entry = entry,
                                     reorderState = reorder,
+                                    preview = preview,
                                     queueSize = entries.itemCount,
                                     modifier = Modifier.animateItem(),
                                     isCurrent = isCurrent,
@@ -401,6 +414,7 @@ internal fun QueueRow(
     onLongPress: () -> Unit,
     onMove: (Int) -> Unit,
     reorderState: QueueReorderState? = null,
+    preview: QueueReorderPreview? = reorderState?.preview,
     queueSize: Int = Int.MAX_VALUE,
     modifier: Modifier = Modifier,
 ) {
@@ -409,12 +423,13 @@ internal fun QueueRow(
     val shape = RoundedCornerShape(8.dp)
     val density = LocalDensity.current
     val slotPx = with(density) { (QueueRowHeight + QueueRowGap).toPx() }
-    val preview = reorder.preview
     val dragging = preview?.entryId == entry.entryId
+    val held = dragging && preview?.settled == false
+    // While held the row follows the finger; on release it springs into the target slot.
     val translation by animateFloatAsState(
         targetValue = if (dragging) preview?.offsetY ?: 0f
             else (preview?.displacement(entry.position.toInt()) ?: 0) * slotPx,
-        animationSpec = if (dragging) snap() else spring(),
+        animationSpec = if (held) snap() else spring(),
         label = "Queue insertion preview",
     )
     val move by rememberUpdatedState(onMove)
@@ -425,7 +440,7 @@ internal fun QueueRow(
             .height(QueueRowHeight)
             .zIndex(if (dragging) 1f else 0f),
     ) {
-        if (dragging && preview != null) {
+        if (held && preview != null) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -438,12 +453,12 @@ internal fun QueueRow(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = if (dragging) preview?.offsetY ?: 0f else translation
-                    shadowElevation = if (dragging) 8.dp.toPx() else 0f
+                    translationY = translation
+                    shadowElevation = if (held) 8.dp.toPx() else 0f
                 }
                 .background(
                     when {
-                        dragging -> colors.surfaceContainerHigh
+                        held -> colors.surfaceContainerHigh
                         isCurrent -> colors.primary.copy(alpha = 0.1f)
                         else -> colors.surfaceContainerLow
                     },
@@ -513,7 +528,7 @@ internal fun QueueRow(
                                 reorder.dragBy(amount.y, slotPx, queueSize)
                             },
                             onDragEnd = {
-                                val slots = reorder.finish()
+                                val slots = reorder.finish(slotPx)
                                 if (slots != 0) move(slots)
                             },
                             onDragCancel = {
