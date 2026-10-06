@@ -1541,59 +1541,7 @@ class PlaybackService : MediaSessionService() {
                     Log.d(TAG, "Ignoring QueueUpdated while not session owner")
                     return
                 }
-                val versionAtStart = invalidateVersion
-                val generation = nextQueueLoadGeneration("SSE QueueUpdated")
-                apiExecutor.execute {
-                    try {
-                        val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
-                        handler.post {
-                            if (!isQueueLoadGenerationCurrent(generation, "SSE QueueUpdated")) return@post
-                            // Check if the currently playing track is still the track
-                            // at the target position. If not (e.g., current track was
-                            // removed), do a full reload to start the new current track.
-                            if (!isCurrentTrackAtTarget(response, response.currentIndex)) {
-                                val currentPlaybackPosition = currentPlaybackPositionInResponse(response)
-                                if (currentPlaybackPosition != null) {
-                                    Log.d(
-                                        TAG,
-                                        "SSE QueueUpdated: preserving active track at position $currentPlaybackPosition " +
-                                            "instead of stale target ${response.currentIndex}"
-                                    )
-                                    syncQueueWithoutRestart(response, currentPlaybackPosition, emitQueueState = false)
-                                    syncPositionToServer()
-                                    return@post
-                                }
-
-                                // If invalidateQueue() was called since we started this
-                                // fetch, skip the full reload — invalidateQueue already
-                                // handles it with the correct absolute playback position.
-                                if (invalidateVersion != versionAtStart) {
-                                    Log.d(TAG, "SSE QueueUpdated: skipping full reload, invalidateQueue pending")
-                                    handleShuffleQueueUpdate(response, response.currentIndex)
-                                } else {
-                                    Log.d(TAG, "SSE QueueUpdated: current track removed, doing full reload")
-                                    // Use the local absolute position instead of response.positionMs
-                                    // because the DB value may be stale during queue edits.
-                                    handleQueueWindowResponse(
-                                        response, response.currentIndex,
-                                        getAbsolutePlaybackPositionMs(), player.playWhenReady)
-                                }
-                            } else {
-                                // Surgically update ExoPlayer's queue without restarting
-                                // the currently playing track. This handles follower-initiated
-                                // changes (shuffle, repeat, add/remove/move) gracefully.
-                                syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = false)
-                            }
-                            // Don't emit queue-state-changed here: the JS SSE handler
-                            // also receives QueueUpdated and calls fetchQueueSilent which
-                            // updates both serverQueueStateAtom and queueWindowAtom
-                            // atomically. Emitting here would cause a transient mismatch
-                            // where currentIndex points to a different song in the old window.
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "SSE: failed to refetch queue after QueueUpdated", e)
-                    }
-                }
+                refreshQueueAfterEdit("SSE QueueUpdated")
             }
             is SessionEvent.VolumeChange -> {
                 if (!nativeOwnsSession) {
@@ -2752,6 +2700,67 @@ class PlaybackService : MediaSessionService() {
             "media button preferences: starred=$isCurrentTrackStarred shuffled=$isShuffled repeat=$repeatMode"
         )
         mediaSession.setMediaButtonPreferences(listOf(starButton, shuffleButton, repeatButton))
+    }
+
+    /**
+     * Re-reads the queue window after an edit (move, remove, add, clear)
+     * without restarting the current track. Runs for the server's
+     * QueueUpdated event and directly after this app's own edits, so the
+     * upcoming tracks are right even when the SSE event is late or lost.
+     */
+    fun refreshQueueAfterEdit(reason: String) {
+        if (!nativeOwnsSession) return
+        val versionAtStart = invalidateVersion
+        val generation = nextQueueLoadGeneration(reason)
+        apiExecutor.execute {
+            try {
+                val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
+                handler.post {
+                    if (!isQueueLoadGenerationCurrent(generation, reason)) return@post
+                    // Check if the currently playing track is still the track
+                    // at the target position. If not (e.g., current track was
+                    // removed), do a full reload to start the new current track.
+                    if (!isCurrentTrackAtTarget(response, response.currentIndex)) {
+                        val currentPlaybackPosition = currentPlaybackPositionInResponse(response)
+                        if (currentPlaybackPosition != null) {
+                            Log.d(
+                                TAG,
+                                "$reason: preserving active track at position $currentPlaybackPosition " +
+                                    "instead of stale target ${response.currentIndex}"
+                            )
+                            syncQueueWithoutRestart(response, currentPlaybackPosition, emitQueueState = false)
+                            syncPositionToServer()
+                            return@post
+                        }
+
+                        // If invalidateQueue() was called since we started this
+                        // fetch, skip the full reload — invalidateQueue already
+                        // handles it with the correct absolute playback position.
+                        if (invalidateVersion != versionAtStart) {
+                            Log.d(TAG, "$reason: skipping full reload, invalidateQueue pending")
+                            handleShuffleQueueUpdate(response, response.currentIndex)
+                        } else {
+                            Log.d(TAG, "$reason: current track removed, doing full reload")
+                            // Use the local absolute position instead of response.positionMs
+                            // because the DB value may be stale during queue edits.
+                            handleQueueWindowResponse(
+                                response, response.currentIndex,
+                                getAbsolutePlaybackPositionMs(), player.playWhenReady)
+                        }
+                    } else {
+                        // Surgically update ExoPlayer's queue without restarting
+                        // the currently playing track. This handles follower-initiated
+                        // changes (shuffle, repeat, add/remove/move) gracefully.
+                        syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = false)
+                    }
+                    // No queue-state-changed here: the queue panel reloads its
+                    // pages from the server after the edit, and emitting the
+                    // window now would briefly pair the new index with old rows.
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "$reason: failed to refetch queue", e)
+            }
+        }
     }
 
     /**

@@ -54,6 +54,12 @@ interface PlaybackStarter {
 
     suspend fun playAtIndex(index: Int)
 
+    /**
+     * Makes the player pick up a queue edit this app just made (move,
+     * remove, clear) instead of waiting for the server's queue event.
+     */
+    suspend fun refreshQueue()
+
     suspend fun startOfflineQueue(
         response: GetQueueResponse,
         playWhenReady: Boolean = true,

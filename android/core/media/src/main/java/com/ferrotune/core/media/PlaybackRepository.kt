@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Application-scoped front end for [PlaybackService]. Binds on first use,
@@ -138,6 +139,12 @@ class PlaybackRepository @Inject constructor(
     suspend fun seek(positionMs: Long) = awaitService().seek(positionMs)
 
     suspend fun playAtIndex(index: Int) = awaitService().playAtIndex(index)
+
+    /** Reloads the upcoming tracks after a queue edit; see [PlaybackService.refreshQueueAfterEdit]. */
+    suspend fun refreshQueue(reason: String) {
+        val service = awaitService()
+        withContext(Dispatchers.Main.immediate) { service.refreshQueueAfterEdit(reason) }
+    }
 
     suspend fun startOfflinePlayback(
         response: GetQueueResponse,

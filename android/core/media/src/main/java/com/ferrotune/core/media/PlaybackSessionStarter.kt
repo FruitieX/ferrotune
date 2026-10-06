@@ -199,7 +199,10 @@ class PlaybackSessionStarter @Inject constructor(
             currentIndex = currentIndex,
         )
         apiCall { apiProvider.requireApi().addToQueue(request) }
+        refreshQueue()
     }
+
+    override suspend fun refreshQueue() = repository.refreshQueue("queue edit")
 
     override suspend fun startRandomQueue(size: Int) {
         val songs = apiCall { apiProvider.requireApi().randomSongs(size) }.song

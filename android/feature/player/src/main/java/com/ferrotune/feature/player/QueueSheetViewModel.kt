@@ -142,6 +142,9 @@ class QueueSheetViewModel @Inject constructor(
                 .onSuccess {
                     success?.let(messages::show)
                     reload()
+                    // Don't wait for the server's queue event: skipping right
+                    // after a move must play the new next track.
+                    runCatching { playbackStarter.refreshQueue() }
                 }
                 .onFailure { messages.failure(failure, it) }
         }

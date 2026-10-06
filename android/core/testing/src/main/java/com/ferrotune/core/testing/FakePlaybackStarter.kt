@@ -34,6 +34,12 @@ class FakePlaybackStarter(private val failure: String? = null) : PlaybackStarter
         playedAtIndex += index
     }
 
+    var queueRefreshes = 0
+
+    override suspend fun refreshQueue() {
+        queueRefreshes++
+    }
+
     override suspend fun startQueue(spec: QueueStartSpec) {
         failure?.let { throw IllegalStateException(it) }
         specs += spec

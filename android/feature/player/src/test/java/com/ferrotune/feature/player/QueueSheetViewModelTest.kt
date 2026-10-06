@@ -104,6 +104,16 @@ class QueueSheetViewModelTest {
     }
 
     @Test
+    fun `a move makes the player reload its upcoming tracks`() {
+        val starter = starter()
+        val viewModel = viewModel(starter = starter)
+
+        viewModel.moveTo(entry(5), 1)
+
+        assertEquals(1, starter.queueRefreshes)
+    }
+
+    @Test
     fun `moving onto the same position is a no-op`() {
         val api = FakeQueueApi()
         val viewModel = viewModel(api)
