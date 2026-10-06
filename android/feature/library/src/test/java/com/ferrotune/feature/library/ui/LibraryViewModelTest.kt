@@ -10,6 +10,7 @@ import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.testServerPreferences
+import com.ferrotune.feature.library.data.LibraryFilters
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
 import com.ferrotune.feature.library.data.SongSort
@@ -123,6 +124,21 @@ class LibraryViewModelTest {
         assertEquals("search", spec.sourceType)
         assertEquals("Search: gold", spec.sourceName)
         assertEquals(JsonPrimitive("gold"), spec.filters["query"])
+    }
+
+    @Test
+    fun `playSong queues the advanced filters the list shows`() {
+        val starter = FakePlaybackStarter()
+        val viewModel = viewModel(starter = starter)
+        viewModel.setFilters(LibraryFilters(minYear = 1990, fileFormat = "flac", starredOnly = true))
+
+        viewModel.playSong("song-2", position = 1)
+
+        val filters = starter.specs.single().filters
+        assertEquals(JsonPrimitive(1990), filters["minYear"])
+        assertEquals(JsonPrimitive("flac"), filters["fileFormat"])
+        assertEquals(JsonPrimitive(true), filters["starredOnly"])
+        assertEquals(JsonPrimitive("*"), filters["query"])
     }
 
     @Test

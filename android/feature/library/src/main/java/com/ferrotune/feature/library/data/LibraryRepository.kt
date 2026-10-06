@@ -38,6 +38,7 @@ class LibraryRepository @Inject constructor(
         starredOnly: Boolean = false,
         genre: String? = null,
         filter: String? = null,
+        filters: LibraryFilters = LibraryFilters.NONE,
     ): PagingSource<Int, SongResponse> = SearchSongsPagingSource(
         apiProvider,
         SearchParams(
@@ -48,7 +49,7 @@ class LibraryRepository @Inject constructor(
             starredOnly = starredOnly.takeIf { it },
             genre = genre,
             titleFilter = filter,
-        ),
+        ).let(filters::applyTo),
     )
 
     fun albums(
@@ -57,6 +58,7 @@ class LibraryRepository @Inject constructor(
         sortDir: SortDir = SortDir.ASC,
         starredOnly: Boolean = false,
         filter: String? = null,
+        filters: LibraryFilters = LibraryFilters.NONE,
     ): PagingSource<Int, AlbumResponse> = SearchAlbumsPagingSource(
         apiProvider,
         SearchParams(
@@ -66,7 +68,7 @@ class LibraryRepository @Inject constructor(
             albumSortDir = sortDir.apiValue,
             starredOnly = starredOnly.takeIf { it },
             albumFilter = filter,
-        ),
+        ).let(filters.forAlbums()::applyTo),
     )
 
     fun artists(
@@ -75,6 +77,7 @@ class LibraryRepository @Inject constructor(
         sortDir: SortDir = SortDir.ASC,
         starredOnly: Boolean = false,
         filter: String? = null,
+        filters: LibraryFilters = LibraryFilters.NONE,
     ): PagingSource<Int, ArtistResponse> = SearchArtistsPagingSource(
         apiProvider,
         SearchParams(
@@ -84,7 +87,7 @@ class LibraryRepository @Inject constructor(
             artistSortDir = sortDir.apiValue,
             starredOnly = starredOnly.takeIf { it },
             artistFilter = filter,
-        ),
+        ).let(filters.forArtists()::applyTo),
     )
 
     fun history(

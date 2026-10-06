@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Label
@@ -170,6 +171,8 @@ fun LibraryScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val viewModes by viewModel.viewModes.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
+    var filtersOpen by remember { mutableStateOf(false) }
+    val filterScope = state.tab.filterScope()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
     val collectionMenu = rememberCollectionMenuState()
@@ -195,10 +198,12 @@ fun LibraryScreen(
                     onClose = selection::clear,
                     onSelectAll = {
                         actionsViewModel.loadAllIds(
-                            searchParams = SearchParams(
-                                query = state.filter.trim().ifEmpty { MATCH_ALL_SONGS_QUERY },
-                                songSort = state.songSort.apiValue,
-                                songSortDir = state.songSortDir.apiValue,
+                            searchParams = state.filters.applyTo(
+                                SearchParams(
+                                    query = state.filter.trim().ifEmpty { MATCH_ALL_SONGS_QUERY },
+                                    songSort = state.songSort.apiValue,
+                                    songSortDir = state.songSortDir.apiValue,
+                                ),
                             ),
                             onLoaded = selection::replace,
                         )
@@ -242,6 +247,14 @@ fun LibraryScreen(
                         },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    filterScope?.let { scope ->
+                        ActiveFilterChips(
+                            filters = state.filters,
+                            scope = scope,
+                            onChange = viewModel::setFilters,
+                            onEdit = { filtersOpen = true },
+                        )
+                    }
                 }
             }
         },
@@ -285,7 +298,11 @@ fun LibraryScreen(
                             menu = songMenu,
                             selection = selection,
                             onPlay = { song, position -> viewModel.playSong(song.id, position) },
-                            emptyMessage = if (state.filter.isBlank()) "No songs found" else "No songs match your filter",
+                            emptyMessage = if (state.filter.isBlank() && !state.filters.isActive) {
+                                "No songs found"
+                            } else {
+                                "No songs match your filters"
+                            },
                             index = null,
                         )
                     }
@@ -318,6 +335,16 @@ fun LibraryScreen(
     )
     CollectionMenuSheet(state = collectionMenu)
 
+    if (filtersOpen && filterScope != null) {
+        AdvancedFiltersSheet(
+            filters = state.filters,
+            scope = filterScope,
+            genres = state.genres.map { it.value },
+            onApply = viewModel::setFilters,
+            onDismiss = { filtersOpen = false },
+        )
+    }
+
     if (menuOpen && state.tab == LibraryTab.FILES) {
         FilesMenuSheet(state = filesState, viewModel = filesViewModel, onDismiss = { menuOpen = false })
     } else if (menuOpen) {
@@ -325,7 +352,11 @@ fun LibraryScreen(
         MediaActionSheet(
             expanded = true,
             onDismiss = { menuOpen = false },
-            actions = emptyList(),
+            actions = if (filterScope != null) {
+                listOf(MediaAction("Advanced filters", Icons.Filled.FilterList) { filtersOpen = true })
+            } else {
+                emptyList()
+            },
             extraContent = {
                 state.tab.viewModeKey()?.let { key ->
                     ViewModeSheetSection(
@@ -378,6 +409,13 @@ private fun FilesMenuSheet(state: FilesUiState, viewModel: FilesViewModel, onDis
             )
         },
     )
+}
+
+private fun LibraryTab.filterScope(): FilterScope? = when (this) {
+    LibraryTab.SONGS -> FilterScope.SONGS
+    LibraryTab.ALBUMS -> FilterScope.ALBUMS
+    LibraryTab.ARTISTS -> FilterScope.ARTISTS
+    else -> null
 }
 
 private fun LibraryTab.viewModeKey(): ViewModeKey? = when (this) {

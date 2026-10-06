@@ -22,6 +22,7 @@ import com.ferrotune.core.network.waitFor
 import com.ferrotune.feature.library.data.AlbumSort
 import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
+import com.ferrotune.feature.library.data.LibraryFilters
 import com.ferrotune.feature.library.data.LibraryRepository
 import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
 import com.ferrotune.feature.library.data.SongSort
@@ -66,6 +67,8 @@ data class LibraryUiState(
     val genres: List<GenreResponse> = emptyList(),
     val genresLoading: Boolean = false,
     val genresError: String? = null,
+    /** Web advanced filters for the songs/albums/artists tabs; not persisted. */
+    val filters: LibraryFilters = LibraryFilters.NONE,
 )
 
 @HiltViewModel
@@ -96,12 +99,13 @@ class LibraryViewModel @Inject constructor(
         state.map { it.songSort }.distinctUntilChanged(),
         state.map { it.songSortDir }.distinctUntilChanged(),
         filter.debouncedFilter(),
-    ) { sort, dir, filter -> Triple(sort, dir, filter) }
+        state.map { it.filters }.distinctUntilChanged(),
+    ) { sort, dir, filter, filters -> PageKey(sort, dir, filter, filters) }
         .distinctUntilChanged()
         .waitFor(sortReady)
-        .flatMapLatest { (sort, dir, filter) ->
+        .flatMapLatest { (sort, dir, filter, filters) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.songs(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
+                repository.songs(sort = sort, sortDir = dir, filter = filter.ifBlank { null }, filters = filters)
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -110,12 +114,13 @@ class LibraryViewModel @Inject constructor(
         state.map { it.albumSort }.distinctUntilChanged(),
         state.map { it.albumSortDir }.distinctUntilChanged(),
         filter.debouncedFilter(),
-    ) { sort, dir, filter -> Triple(sort, dir, filter) }
+        state.map { it.filters }.distinctUntilChanged(),
+    ) { sort, dir, filter, filters -> PageKey(sort, dir, filter, filters) }
         .distinctUntilChanged()
         .waitFor(sortReady)
-        .flatMapLatest { (sort, dir, filter) ->
+        .flatMapLatest { (sort, dir, filter, filters) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.albums(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
+                repository.albums(sort = sort, sortDir = dir, filter = filter.ifBlank { null }, filters = filters)
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -124,12 +129,13 @@ class LibraryViewModel @Inject constructor(
         state.map { it.artistSort }.distinctUntilChanged(),
         state.map { it.artistSortDir }.distinctUntilChanged(),
         filter.debouncedFilter(),
-    ) { sort, dir, filter -> Triple(sort, dir, filter) }
+        state.map { it.filters }.distinctUntilChanged(),
+    ) { sort, dir, filter, filters -> PageKey(sort, dir, filter, filters) }
         .distinctUntilChanged()
         .waitFor(sortReady)
-        .flatMapLatest { (sort, dir, filter) ->
+        .flatMapLatest { (sort, dir, filter, filters) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.artists(sort = sort, sortDir = dir, filter = filter.ifBlank { null })
+                repository.artists(sort = sort, sortDir = dir, filter = filter.ifBlank { null }, filters = filters)
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -154,6 +160,8 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun selectTab(tab: LibraryTab) = state.update { it.copy(tab = tab) }
+
+    fun setFilters(filters: LibraryFilters) = state.update { it.copy(filters = filters) }
 
     fun setFilter(value: String) {
         state.update { it.copy(filter = value) }
@@ -260,7 +268,8 @@ class LibraryViewModel @Inject constructor(
                     QueueStartSpec(
                         sourceType = if (query.isEmpty()) "library" else "search",
                         sourceName = if (query.isEmpty()) "Library" else "Search: $query",
-                        filters = mapOf("query" to JsonPrimitive(query.ifEmpty { "*" })),
+                        filters = mapOf("query" to JsonPrimitive(query.ifEmpty { "*" })) +
+                            current.filters.toQueueFilters(),
                         sort = queueSort(current.songSort.apiValue, current.songSortDir.apiValue),
                         startIndex = position,
                         startSongId = songId,
@@ -271,6 +280,9 @@ class LibraryViewModel @Inject constructor(
     }
 
 }
+
+/** Paging inputs for one library tab. */
+private data class PageKey<S>(val sort: S, val dir: SortDir, val filter: String, val filters: LibraryFilters)
 
 internal fun SortDir.opposite(): SortDir = if (this == SortDir.ASC) SortDir.DESC else SortDir.ASC
 
