@@ -238,9 +238,10 @@ class LibraryViewModel @Inject constructor(
      */
     fun playSong(songId: String, position: Int) {
         val current = state.value
-        val query = current.filter.trim()
         viewModelScope.launch {
             runCatching {
+                // With "Apply search terms to queues" off, play the whole library from the song.
+                val query = current.filter.trim().takeIf { sessionStarter.appliesSearchTermsToQueue() }.orEmpty()
                 sessionStarter.startQueue(
                     QueueStartSpec(
                         sourceType = if (query.isEmpty()) "library" else "search",

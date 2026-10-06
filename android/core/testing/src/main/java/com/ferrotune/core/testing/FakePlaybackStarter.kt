@@ -20,6 +20,9 @@ class FakePlaybackStarter(private val failure: String? = null) : PlaybackStarter
     val playedAtIndex = mutableListOf<Int>()
     val offlineQueues = mutableListOf<GetQueueResponse>()
     override val state = MutableStateFlow(PlaybackState())
+    var applySearchTerms = true
+
+    override suspend fun appliesSearchTermsToQueue(): Boolean = applySearchTerms
 
     override suspend fun startOfflineQueue(response: GetQueueResponse, playWhenReady: Boolean) {
         failure?.let { throw IllegalStateException(it) }

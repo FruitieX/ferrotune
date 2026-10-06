@@ -166,4 +166,23 @@ class PlaybackSessionStarterTest {
         window = QueueWindow(offset = 0, songs = emptyList()),
         version = 1,
     )
+
+    @Test
+    fun `without search terms a filtered view queues its full list from the tapped song`() {
+        val spec = QueueStartSpec(
+            sourceType = "album",
+            sourceId = "al-1",
+            filters = queueTextFilter("blue") + mapOf("minYear" to JsonPrimitive(1990)),
+            startIndex = 2,
+            startSongId = "so-9",
+        )
+
+        val full = spec.withoutSearchTerm()
+
+        assertNull(full.filters["filter"])
+        assertEquals(JsonPrimitive(1990), full.filters["minYear"])
+        assertEquals("so-9", full.startSongId)
+        val unfiltered = QueueStartSpec(sourceType = "album")
+        assertEquals(unfiltered, unfiltered.withoutSearchTerm())
+    }
 }

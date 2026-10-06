@@ -58,7 +58,13 @@ class PlaybackSessionStarter @Inject constructor(
 
     override suspend fun startQueue(spec: QueueStartSpec) {
         explicitStarts++
-        sessionMutex.withLock { startQueueLocked(spec) }
+        val queued = if (appliesSearchTermsToQueue()) spec else spec.withoutSearchTerm()
+        sessionMutex.withLock { startQueueLocked(queued) }
+    }
+
+    override suspend fun appliesSearchTermsToQueue(): Boolean {
+        playbackSettingsRepository.ensureLoaded()
+        return playbackSettingsRepository.applySearchTermsToQueue.value
     }
 
     /**
@@ -401,6 +407,16 @@ private const val CLIENT_NAME = "ferrotune-mobile"
  * Web `queueTextFilter`: detail pages (album, artist, genre, playlists,
  * favorites, history) queue only the songs matching the visible text filter.
  */
+/**
+ * With "Apply search terms to queues" off, a filtered view queues its full
+ * list: the view's text filter is dropped, and the server finds the tapped
+ * song by [QueueStartSpec.startSongId] in the unfiltered list.
+ */
+internal fun QueueStartSpec.withoutSearchTerm(): QueueStartSpec =
+    if (FILTER_KEY in filters) copy(filters = filters - FILTER_KEY) else this
+
+private const val FILTER_KEY = "filter"
+
 fun queueTextFilter(filter: String): Map<String, JsonElement> {
     val trimmed = filter.trim()
     return if (trimmed.isEmpty()) emptyMap() else mapOf("filter" to JsonPrimitive(trimmed))

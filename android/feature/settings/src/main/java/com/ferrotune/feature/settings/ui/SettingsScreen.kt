@@ -113,6 +113,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val playback by viewModel.playbackSettings.collectAsStateWithLifecycle()
+    val applySearchTerms by viewModel.applySearchTermsToQueue.collectAsStateWithLifecycle()
     val downloads by viewModel.downloadSettings.collectAsStateWithLifecycle()
     val accent by viewModel.accent.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -298,6 +299,12 @@ fun SettingsScreen(
                     title = "Playback",
                     description = "Volume normalization, streaming quality, and the seek bar",
                 ) {
+                    SwitchRow(
+                        title = "Apply search terms to queues",
+                        subtitle = "Queue only matching songs from filtered views. Turn off to search for a starting track while queueing the full view.",
+                        checked = applySearchTerms,
+                        onCheckedChange = viewModel::setApplySearchTermsToQueue,
+                    )
                     ChoiceRow(
                         label = "ReplayGain",
                         options = PlaybackSettingsRepository.REPLAY_GAIN_MODES,

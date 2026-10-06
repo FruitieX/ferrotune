@@ -40,6 +40,18 @@ class PlaybackSettingsRepository @Inject constructor(
         )
     }
 
+    /**
+     * Web "Apply search terms to queues": filtered views queue only matching
+     * songs (default) or, when off, the full view starting at the tapped song.
+     */
+    val applySearchTermsToQueue: StateFlow<Boolean> = preferences.snapshot.mapState { snapshot ->
+        snapshot.preferences.primitive(KEY_APPLY_SEARCH_TERMS)?.booleanOrNull ?: true
+    }
+
+    suspend fun setApplySearchTermsToQueue(apply: Boolean) {
+        preferences.set(KEY_APPLY_SEARCH_TERMS, JsonPrimitive(apply))
+    }
+
     /** Best-effort settings for playback start; never throws. */
     suspend fun ensureLoaded(): PlaybackSettings {
         runCatching { preferences.ensureLoaded() }
@@ -87,6 +99,7 @@ class PlaybackSettingsRepository @Inject constructor(
         this[key] as? JsonPrimitive
 
     companion object {
+        const val KEY_APPLY_SEARCH_TERMS = "apply-search-terms-to-queue"
         const val DEFAULT_REPLAY_GAIN_MODE = "computed"
         const val DEFAULT_REPLAY_GAIN_OFFSET = 0f
         const val DEFAULT_TRANSCODING_ENABLED = true

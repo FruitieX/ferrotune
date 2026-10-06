@@ -44,6 +44,7 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val playbackSettings: StateFlow<PlaybackSettings> = playbackSettingsRepository.settings
+    val applySearchTermsToQueue: StateFlow<Boolean> = playbackSettingsRepository.applySearchTermsToQueue
     val downloadSettings: StateFlow<DownloadSettings> = downloadSettingsRepository.settings
     val accent: StateFlow<AccentState> = accentSettingsRepository.state
     val themeMode: StateFlow<ThemeMode> = themeModeStore.themeMode
@@ -103,6 +104,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setReplayGainOffset(offsetDb: Float) {
         save(PLAYBACK_FAILURE) { playbackSettingsRepository.setReplayGainOffset(offsetDb) }
+    }
+
+    fun setApplySearchTermsToQueue(apply: Boolean) {
+        save(PLAYBACK_FAILURE) { playbackSettingsRepository.setApplySearchTermsToQueue(apply) }
     }
 
     fun setTranscodingEnabled(enabled: Boolean) {

@@ -124,6 +124,20 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `with search terms off a filtered library still queues the whole library`() {
+        val starter = FakePlaybackStarter().apply { applySearchTerms = false }
+        val viewModel = viewModel(starter = starter)
+        viewModel.setFilter("gold")
+
+        viewModel.playSong("song-2", position = 1)
+
+        val spec = starter.specs.single()
+        assertEquals("library", spec.sourceType)
+        assertEquals(JsonPrimitive("*"), spec.filters["query"])
+        assertEquals("song-2", spec.startSongId)
+    }
+
+    @Test
     fun `playSong failure is reported as a message`() = runTest {
         val messages = UserMessages()
         val received = mutableListOf<UserMessage>()

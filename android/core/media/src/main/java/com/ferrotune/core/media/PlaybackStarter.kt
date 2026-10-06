@@ -60,4 +60,7 @@ interface PlaybackStarter {
     )
 
     val state: StateFlow<PlaybackState>
+
+    /** Web "Apply search terms to queues" (default on); see [PlaybackSettingsRepository.applySearchTermsToQueue]. */
+    suspend fun appliesSearchTermsToQueue(): Boolean
 }
