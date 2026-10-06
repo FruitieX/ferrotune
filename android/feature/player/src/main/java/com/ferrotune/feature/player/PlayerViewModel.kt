@@ -21,6 +21,7 @@ import com.ferrotune.core.media.WaveformRepository
 import com.ferrotune.core.media.cast.CastConnectionState
 import com.ferrotune.core.media.cast.CastManager
 import com.ferrotune.core.media.cast.CastMediaStatus
+import com.ferrotune.core.media.cast.CastPlaybackHandoff
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,9 +102,8 @@ class PlayerViewModel @Inject constructor(
     private val castManager: CastManager,
     private val playbackSettingsRepository: PlaybackSettingsRepository,
     private val waveformRepository: WaveformRepository,
+    private val castHandoff: CastPlaybackHandoff,
 ) : ViewModel() {
-
-    private var castQueueLoaded = false
 
     private val isStartingQueue = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
@@ -173,6 +173,8 @@ class PlayerViewModel @Inject constructor(
     init {
         repository.ensureBound()
         castManager.initialize()
+        // App-scoped: moves the session to a Cast receiver and back.
+        castHandoff.start()
         viewModelScope.launch {
             runCatching { playbackSettingsRepository.ensureLoaded() }
         }
@@ -187,16 +189,6 @@ class PlayerViewModel @Inject constructor(
                         waveformRepository.heights(songId)
                     }
                 }
-        }
-        viewModelScope.launch {
-            castManager.state.collect { cast ->
-                if (cast.isConnected && !castQueueLoaded) {
-                    castQueueLoaded = true
-                    loadCastQueue()
-                } else if (!cast.isConnected) {
-                    castQueueLoaded = false
-                }
-            }
         }
         viewModelScope.launch {
             repository.events.collect { event ->
@@ -261,22 +253,6 @@ class PlayerViewModel @Inject constructor(
 
     fun disconnectCast() {
         castManager.endSession()
-    }
-
-    private suspend fun loadCastQueue() {
-        val items = repository.castMediaItems()
-        if (items.isEmpty()) return
-        val playback = repository.state.value
-        val index = items
-            .indexOfFirst { it.songId == playback.track?.id }
-            .takeIf { it >= 0 }
-            ?: 0
-        castManager.loadQueue(
-            items = items,
-            startIndex = index,
-            startTimeMs = playback.positionMs,
-            repeatMode = playback.repeatMode,
-        )
     }
 
     fun startRandomPlayback(size: Int = 50) {

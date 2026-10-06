@@ -18,6 +18,7 @@ import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.ReorderPlaylistRequest
 import com.ferrotune.core.network.dto.RepeatModeRequest
 import com.ferrotune.core.network.dto.SessionCommandRequest
+import com.ferrotune.core.network.dto.SessionHeartbeatRequest
 import com.ferrotune.core.network.dto.SessionParams
 import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
@@ -145,6 +146,11 @@ open class FakeFerrotuneApi(
         error("unused")
 
     override suspend fun sessionClients(): ClientListResponse = error("unused")
+
+    override suspend fun sessionHeartbeat(
+        sessionId: String,
+        request: SessionHeartbeatRequest,
+    ): SessionSuccessResponse = error("unused")
 
     override suspend fun currentUser(): UserInfo = error("unused")
 

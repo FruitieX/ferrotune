@@ -1,15 +1,17 @@
 package com.ferrotune.core.media
 
 import com.ferrotune.core.datastore.AccountStore
+import com.ferrotune.core.media.cast.CastHandoffPlayback
+import com.ferrotune.core.media.cast.CastMediaItem
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.ConnectSessionRequest
 import com.ferrotune.core.network.dto.QueueParams
-import com.ferrotune.core.network.toQueryMap
 import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.QueueSourceRequest
 import com.ferrotune.core.network.generated.StartQueueRequest
 import com.ferrotune.core.network.generated.StartQueueResponse
+import com.ferrotune.core.network.toQueryMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -47,7 +49,7 @@ class PlaybackSessionStarter @Inject constructor(
     private val repository: PlaybackRepository,
     private val offlineQueueSource: OfflineQueueSource,
     private val playbackSettingsRepository: PlaybackSettingsRepository,
-) : PlaybackStarter {
+) : PlaybackStarter, CastHandoffPlayback {
     /** Serializes explicit queue starts with launch-time session restores. */
     private val sessionMutex = Mutex()
 
@@ -281,6 +283,32 @@ class PlaybackSessionStarter @Inject constructor(
     }
 
     override val state = repository.state
+
+    override suspend fun pauseLocal() = repository.pause()
+
+    override suspend fun castMediaItems(): List<CastMediaItem> = repository.castMediaItems()
+
+    override suspend fun resyncFromServer() {
+        sessionMutex.withLock {
+            val sessionId = repository.state.value.sessionId ?: return@withLock
+            val queue = apiCall {
+                apiProvider.requireApi().queue(QueueParams(sessionId = sessionId, offset = 0, limit = 1).toQueryMap())
+            }
+            val restore = restoredQueue(queue) ?: return@withLock
+            repository.startPlayback(
+                totalCount = restore.totalCount,
+                currentIndex = restore.currentIndex,
+                isShuffled = queue.isShuffled,
+                repeatMode = queue.repeatMode,
+                startPositionMs = restore.positionMs,
+                sessionId = sessionId,
+                sourceType = queue.source.type,
+                sourceId = queue.source.id,
+                sourceName = queue.source.name,
+                playWhenReady = false,
+            )
+        }
+    }
 
     private companion object {
         const val DEFAULT_RANDOM_QUEUE_SIZE = 50

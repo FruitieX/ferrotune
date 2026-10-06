@@ -6,6 +6,8 @@ import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.PlaybackStatus
+import com.ferrotune.core.media.cast.CastSessionPort
+import com.ferrotune.core.media.cast.castClientId
 import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.SessionCommandRequest
@@ -34,6 +36,8 @@ data class PlaybackClientsUiState(
     val ownerClientName: String? = null,
     val clients: List<ClientResponse> = emptyList(),
     val myClientId: String? = null,
+    /** This phone's own Cast receiver owns the session: the receiver's name. */
+    val castingTo: String? = null,
 )
 
 @HiltViewModel
@@ -42,6 +46,7 @@ class PlaybackClientsViewModel @Inject constructor(
     private val playbackStarter: PlaybackStarter,
     private val accounts: Accounts,
     private val messages: UserMessages,
+    cast: CastSessionPort,
 ) : ViewModel() {
 
     private val clients = MutableStateFlow<List<ClientResponse>>(emptyList())
@@ -52,6 +57,7 @@ class PlaybackClientsViewModel @Inject constructor(
         /** Another client owns the session; a cleared owner means nobody plays. */
         val following: Boolean,
         val ownerClientName: String?,
+        val ownerClientId: String?,
     )
 
     private val owner = playbackStarter.state
@@ -60,12 +66,15 @@ class PlaybackClientsViewModel @Inject constructor(
                 sessionId = it.sessionId,
                 following = it.sessionId != null && !it.ownsSession && it.sessionOwnerClientId != null,
                 ownerClientName = it.sessionOwnerClientName,
+                ownerClientId = it.sessionOwnerClientId,
             )
         }
         .distinctUntilChanged()
 
-    val uiState: StateFlow<PlaybackClientsUiState> = combine(owner, clients, myClientId) { ownership, list, me ->
+    val uiState: StateFlow<PlaybackClientsUiState> = combine(owner, clients, myClientId, cast.state) { ownership, list, me, castState ->
+        val ownCast = me != null && ownership.ownerClientId == castClientId(me)
         PlaybackClientsUiState(
+            castingTo = if (ownCast) castState.deviceName ?: "Cast device" else null,
             sessionId = ownership.sessionId,
             isFollowing = ownership.following,
             ownerDisplayName = list.firstOrNull { it.isOwner }?.displayName,

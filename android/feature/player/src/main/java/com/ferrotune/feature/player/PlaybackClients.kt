@@ -78,7 +78,8 @@ fun PlaybackOwnerStrip(
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                text = "Playing on ${state.ownerDisplayName ?: friendlyClientName(state.ownerClientName)}",
+                text = state.castingTo?.let { "Casting to $it" }
+                    ?: "Playing on ${state.ownerDisplayName ?: friendlyClientName(state.ownerClientName)}",
                 style = MaterialTheme.typography.labelMedium,
                 color = primary,
                 maxLines = 1,

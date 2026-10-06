@@ -77,14 +77,14 @@ data class CastMediaStatus(
 @Singleton
 class CastManager @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : CastSessionPort {
     private val handler = Handler(Looper.getMainLooper())
 
     private val _state = MutableStateFlow(CastConnectionState())
-    val state: StateFlow<CastConnectionState> = _state.asStateFlow()
+    override val state: StateFlow<CastConnectionState> = _state.asStateFlow()
 
     private val _status = MutableStateFlow(CastMediaStatus())
-    val status: StateFlow<CastMediaStatus> = _status.asStateFlow()
+    override val status: StateFlow<CastMediaStatus> = _status.asStateFlow()
 
     @Volatile
     private var initialized = false
@@ -182,7 +182,7 @@ class CastManager @Inject constructor(
         handler.post { castContext?.sessionManager?.endCurrentSession(true) }
     }
 
-    suspend fun loadQueue(
+    override suspend fun loadQueue(
         items: List<CastMediaItem>,
         startIndex: Int,
         startTimeMs: Long,

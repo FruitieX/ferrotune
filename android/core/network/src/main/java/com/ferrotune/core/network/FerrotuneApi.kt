@@ -15,6 +15,7 @@ import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.ReorderPlaylistRequest
 import com.ferrotune.core.network.dto.RepeatModeRequest
 import com.ferrotune.core.network.dto.SessionCommandRequest
+import com.ferrotune.core.network.dto.SessionHeartbeatRequest
 import com.ferrotune.core.network.dto.SessionParams
 import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
@@ -123,6 +124,12 @@ interface FerrotuneApi {
 
     @GET("api/sessions/clients")
     suspend fun sessionClients(): ClientListResponse
+
+    @POST("api/sessions/{id}/heartbeat")
+    suspend fun sessionHeartbeat(
+        @Path("id") sessionId: String,
+        @Body request: SessionHeartbeatRequest,
+    ): SessionSuccessResponse
 
     @POST("api/sessions/{id}/command")
     suspend fun sessionCommand(

@@ -4,12 +4,14 @@ import com.ferrotune.core.actions.UserMessage
 import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.media.PlaybackState
 import com.ferrotune.core.media.PlaybackStatus
+import com.ferrotune.core.media.cast.castClientId
 import com.ferrotune.core.network.dto.SessionCommandRequest
 import com.ferrotune.core.network.generated.ClientListResponse
 import com.ferrotune.core.network.generated.ClientResponse
 import com.ferrotune.core.network.generated.SessionSuccessResponse
 import com.ferrotune.core.testing.FakeAccounts
 import com.ferrotune.core.testing.FakeApiProvider
+import com.ferrotune.core.testing.FakeCastSession
 import com.ferrotune.core.testing.FakeFerrotuneApi
 import com.ferrotune.core.testing.FakePlaybackStarter
 import com.ferrotune.core.testing.TEST_CLIENT_ID
@@ -66,12 +68,13 @@ class PlaybackClientsViewModelTest {
         val api = FakeSessionApi()
         val starter = FakePlaybackStarter().apply { this.state.value = state }
         val messages = UserMessages()
+        val cast = FakeCastSession()
         val received = mutableListOf<UserMessage>()
         val viewModel: PlaybackClientsViewModel
 
         init {
             CoroutineScope(UnconfinedTestDispatcher()).launch { messages.messages.collect { received += it } }
-            viewModel = PlaybackClientsViewModel(FakeApiProvider(api), starter, FakeAccounts(), messages)
+            viewModel = PlaybackClientsViewModel(FakeApiProvider(api), starter, FakeAccounts(), messages, cast)
             viewModel.uiState.launchIn(TestScope(UnconfinedTestDispatcher()))
         }
     }
@@ -161,6 +164,16 @@ class PlaybackClientsViewModelTest {
         harness.viewModel.transferTo(harness.api.clients.first { it.isOwner })
 
         assertTrue(harness.api.commands.isEmpty())
+    }
+
+    @Test
+    fun `casting from this phone reads as casting, not as another device`() {
+        val harness = Harness(following.copy(sessionOwnerClientName = "ferrotune-cast", sessionOwnerClientId = castClientId(TEST_CLIENT_ID)))
+        harness.cast.connect("Kitchen speaker")
+
+        val state = harness.viewModel.uiState.value
+        assertTrue(state.isFollowing)
+        assertEquals("Kitchen speaker", state.castingTo)
     }
 
     @Test
