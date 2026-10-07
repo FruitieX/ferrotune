@@ -127,6 +127,19 @@ jsonpath "$.folders" count == 0
 jsonpath "$.items" count == 1
 jsonpath "$.items[0].playlist.id" == "{{nested_id}}"
 
+# Library stats count the same playlists (smart ones included)
+GET {{base_url}}/api/playlists/browse?recursive=true
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+visible_count: jsonpath "$.items" count
+
+GET {{base_url}}/api/stats
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.playlistCount" == {{visible_count}}
+
 GET {{base_url}}/api/playlists/browse
 HTTP 401
 

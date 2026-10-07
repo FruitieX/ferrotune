@@ -31,6 +31,7 @@ Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
 lib_id: jsonpath "$.libraries[0].id"
+lib_size: jsonpath "$.libraries[0].totalSize"
 
 # Test: Get directory contents at root
 GET {{base_url}}/api/directory?libraryId={{lib_id}}
@@ -41,3 +42,6 @@ jsonpath "$.children" isCollection
 jsonpath "$.total" isInteger
 jsonpath "$.folderCount" isInteger
 jsonpath "$.fileCount" isInteger
+# The size covers subfolders, so the root matches the whole library
+jsonpath "$.totalSize" > 0
+jsonpath "$.totalSize" == {{lib_size}}

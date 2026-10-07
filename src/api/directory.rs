@@ -127,7 +127,7 @@ pub struct DirectoryPagedResponse {
     /// Total number of files (songs)
     #[ts(type = "number")]
     pub file_count: i64,
-    /// Total size of all files in directory (bytes)
+    /// Total size of all files in the directory, subfolders included (bytes)
     #[ts(type = "number")]
     pub total_size: i64,
     /// Children on this page
@@ -535,7 +535,12 @@ async fn get_directory_contents_for_library(
             total_count: folder_page.total + song_page.total,
             folder_count: folder_page.total,
             file_count: song_page.total,
-            total_size: song_page.total_size,
+            total_size: crate::db::repo::browse::directory_total_size(
+                database,
+                library_id,
+                &path_prefix,
+            )
+            .await?,
         },
     ))
 }

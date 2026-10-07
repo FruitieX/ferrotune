@@ -1210,6 +1210,36 @@ fn directory_filter_condition(filter: &str, columns: &[SimpleExpr]) -> Condition
         })
 }
 
+/// Total file size of every song under `prefix` (subfolders included).
+pub async fn directory_total_size(
+    database: &Database,
+    folder_id: i64,
+    prefix: &str,
+) -> Result<i64> {
+    use entity::songs::Column as Song;
+
+    let mut query = entity::songs::Entity::find()
+        .select_only()
+        .expr_as(
+            Expr::expr(Func::coalesce([
+                Expr::col(Song::FileSize).sum(),
+                Expr::val(0_i64).into(),
+            ]))
+            .cast_as("BIGINT"),
+            "total_size",
+        )
+        .filter(Song::MusicFolderId.eq(folder_id))
+        .filter(Song::MarkedForDeletionAt.is_null());
+    if !prefix.is_empty() {
+        query = query.filter(Song::FilePath.starts_with(prefix));
+    }
+    Ok(query
+        .into_tuple::<i64>()
+        .one(database.conn())
+        .await?
+        .unwrap_or(0))
+}
+
 pub async fn page_directory_folders(
     database: &Database,
     folder_id: i64,

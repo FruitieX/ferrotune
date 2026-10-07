@@ -31,7 +31,7 @@ folderCount: number,
  */
 fileCount: number, 
 /**
- * Total size of all files in directory (bytes)
+ * Total size of all files in the directory, subfolders included (bytes)
  */
 totalSize: number, 
 /**

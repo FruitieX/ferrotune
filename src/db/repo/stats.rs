@@ -33,11 +33,31 @@ struct SumRow {
     total_size: Option<i64>,
 }
 
+/// Playlists the user sees on the Playlists page: their own, ones shared
+/// with them, and smart playlists they own or that are public.
+async fn visible_playlist_count(database: &Database, user_id: i64) -> Result<i64> {
+    let owned = entity::playlists::Entity::find()
+        .filter(entity::playlists::Column::OwnerId.eq(user_id))
+        .count(database.conn())
+        .await?;
+    let shared = entity::playlist_shares::Entity::find()
+        .filter(entity::playlist_shares::Column::SharedWithUserId.eq(user_id))
+        .count(database.conn())
+        .await?;
+    let smart = entity::smart_playlists::Entity::find()
+        .filter(
+            sea_orm::Condition::any()
+                .add(entity::smart_playlists::Column::OwnerId.eq(user_id))
+                .add(entity::smart_playlists::Column::IsPublic.eq(true)),
+        )
+        .count(database.conn())
+        .await?;
+    Ok((owned + shared + smart) as i64)
+}
+
 pub async fn get_user_library_stats(database: &Database, user_id: i64) -> Result<StatsSummary> {
     let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
-    let playlist_count = entity::playlists::Entity::find()
-        .count(database.conn())
-        .await? as i64;
+    let playlist_count = visible_playlist_count(database, user_id).await?;
     let total_plays = entity::scrobbles::Entity::find()
         .filter(entity::scrobbles::Column::UserId.eq(user_id))
         .filter(entity::scrobbles::Column::Submission.eq(true))
