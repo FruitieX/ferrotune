@@ -736,7 +736,7 @@ export function Sidebar() {
                 key={link.href}
                 variant="ghost"
                 className={cn(
-                  "h-10 gap-3 px-3 hover:bg-sidebar-accent overflow-hidden",
+                  "h-10 gap-2 px-2 hover:bg-sidebar-accent overflow-hidden",
                   isCollapsed
                     ? "w-full justify-center px-0"
                     : "flex-1 min-w-0 justify-start",

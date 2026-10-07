@@ -401,4 +401,39 @@ test.describe("Playlists", () => {
     );
     expect(titles).toEqual([songs[2].title, songs[0].title, songs[1].title]);
   });
+
+  test("resolve missing entries loads every missing entry", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const name = `Missing Entries ${Date.now()}`;
+    const created = await page.request.post(
+      `${server.url}/api/playlists/import`,
+      {
+        headers: { Authorization: basicAuthHeader(server) },
+        data: {
+          name,
+          comment: null,
+          folderId: null,
+          entries: Array.from({ length: 3 }, (_, index) => ({
+            songId: null,
+            missing: {
+              title: `Nowhere ${index}`,
+              artist: "Nobody",
+              album: null,
+              duration: null,
+              raw: `Nobody - Nowhere ${index}`,
+            },
+          })),
+        },
+      },
+    );
+    const playlistId = getImportedPlaylistId(await created.json());
+
+    await page.goto(`/playlists/details?id=${playlistId}`);
+    await page.getByText("3 not found").click();
+    await expect(
+      page.getByRole("dialog").getByText("3 missing entries to resolve"),
+    ).toBeVisible();
+  });
 });

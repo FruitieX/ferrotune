@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Trash2,
   RotateCcw,
@@ -41,6 +46,9 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { CoverImage } from "@/components/shared/cover-image";
 
+const PAGE_SIZE = 200;
+const ROW_HEIGHT = 60;
+
 interface DeleteProgress {
   current: number;
   total: number;
@@ -55,20 +63,60 @@ export function RecycleBin() {
     null,
   );
 
-  // Fetch recycle bin contents
+  // Fetch recycle bin contents page by page as the list scrolls
   const {
-    data: recycleBin,
+    data: recycleBinPages,
     isLoading,
     error,
-  } = useQuery({
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
     queryKey: ["recycleBin"],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.getRecycleBin({ limit: 500 });
+      return client.getRecycleBin({ offset: pageParam, limit: PAGE_SIZE });
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + page.songs.length, 0);
+      return loaded < lastPage.totalCount && lastPage.songs.length > 0
+        ? loaded
+        : undefined;
     },
     staleTime: 30000,
   });
+  const recycleBin = recycleBinPages
+    ? {
+        songs: recycleBinPages.pages.flatMap((page) => page.songs),
+        totalCount: recycleBinPages.pages[0]?.totalCount ?? 0,
+      }
+    : undefined;
+  const listRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: recycleBin?.songs.length ?? 0,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
+  const virtualRows = virtualizer.getVirtualItems();
+  const lastVirtualIndex = virtualRows[virtualRows.length - 1]?.index ?? -1;
+  useEffect(() => {
+    if (
+      hasNextPage &&
+      !isFetchingNextPage &&
+      lastVirtualIndex >= (recycleBin?.songs.length ?? 0) - 10
+    ) {
+      void fetchNextPage();
+    }
+  }, [
+    lastVirtualIndex,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    recycleBin?.songs.length,
+  ]);
 
   // Restore mutation
   const restoreMutation = useMutation({
@@ -144,8 +192,8 @@ export function RecycleBin() {
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const bin = await client.getRecycleBin({ limit: 10000 });
-      if (bin.songs.length === 0) {
+      let bin = await client.getRecycleBin({ limit: PAGE_SIZE });
+      if (bin.totalCount === 0) {
         return {
           success: true,
           deletedCount: 0,
@@ -153,22 +201,35 @@ export function RecycleBin() {
           errors: [] as string[],
         };
       }
-      const total = bin.songs.length;
+      // Deleted songs leave the list, so keep reading the first page;
+      // songs that failed to delete stay put and are skipped by offset.
+      const total = bin.totalCount;
       let deletedCount = 0;
+      let failedCount = 0;
+      let processed = 0;
       const errors: string[] = [];
-      for (let i = 0; i < total; i++) {
-        setDeleteProgress({ current: i + 1, total });
-        try {
-          const result = await client.deletePermanently([bin.songs[i].id]);
-          deletedCount += result.deletedCount;
-          if (!result.success) {
-            errors.push(...(result.errors ?? []));
+      while (bin.songs.length > 0) {
+        for (const song of bin.songs) {
+          processed += 1;
+          setDeleteProgress({ current: processed, total });
+          try {
+            const result = await client.deletePermanently([song.id]);
+            deletedCount += result.deletedCount;
+            if (!result.success || result.deletedCount === 0) {
+              failedCount += 1;
+              errors.push(...(result.errors ?? []));
+            }
+          } catch (e) {
+            failedCount += 1;
+            errors.push(
+              `Failed to delete song: ${e instanceof Error ? e.message : "Unknown error"}`,
+            );
           }
-        } catch (e) {
-          errors.push(
-            `Failed to delete song: ${e instanceof Error ? e.message : "Unknown error"}`,
-          );
         }
+        bin = await client.getRecycleBin({
+          offset: failedCount,
+          limit: PAGE_SIZE,
+        });
       }
       setDeleteProgress(null);
       return {
@@ -372,56 +433,70 @@ export function RecycleBin() {
               </div>
 
               {/* Song list */}
-              <div className="max-h-[400px] overflow-y-auto space-y-1">
-                {recycleBin.songs.map((song) => (
-                  <div
-                    key={song.id}
-                    className={`flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 active:bg-muted/70 cursor-pointer touch-manipulation active:scale-[0.995] ${
-                      selectedIds.has(song.id) ? "bg-muted" : ""
-                    }`}
-                    onClick={() => toggleSelection(song.id)}
-                  >
-                    <Checkbox
-                      checked={selectedIds.has(song.id)}
-                      onCheckedChange={() => toggleSelection(song.id)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <CoverImage
-                        src={getClient()?.getCoverArtUrl(
-                          song.id,
-                          "small",
-                          song.coverArtHash ?? undefined,
-                        )}
-                        alt={song.title}
-                        type="song"
-                        size="sm"
-                        className="shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{song.title}</p>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {song.artistName}
-                          {song.albumName && ` · ${song.albumName}`}
-                        </p>
+              <div ref={listRef} className="max-h-[400px] overflow-y-auto">
+                <div
+                  className="relative"
+                  style={{ height: virtualizer.getTotalSize() }}
+                >
+                  {virtualRows.map(({ index, start }) => {
+                    const song = recycleBin.songs[index];
+                    return (
+                      <div
+                        key={song.id}
+                        className={`absolute left-0 right-0 flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 active:bg-muted/70 cursor-pointer touch-manipulation active:scale-[0.995] ${
+                          selectedIds.has(song.id) ? "bg-muted" : ""
+                        }`}
+                        style={{
+                          height: ROW_HEIGHT,
+                          transform: `translateY(${start}px)`,
+                        }}
+                        onClick={() => toggleSelection(song.id)}
+                      >
+                        <Checkbox
+                          checked={selectedIds.has(song.id)}
+                          onCheckedChange={() => toggleSelection(song.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <CoverImage
+                            src={getClient()?.getCoverArtUrl(
+                              song.id,
+                              "small",
+                              song.coverArtHash ?? undefined,
+                            )}
+                            alt={song.title}
+                            type="song"
+                            size="sm"
+                            className="shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{song.title}</p>
+                            <p className="text-sm text-muted-foreground truncate">
+                              {song.artistName}
+                              {song.albumName && ` · ${song.albumName}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
+                          <span>{formatDuration(song.duration)}</span>
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span
+                              className={
+                                song.daysRemaining <= 7
+                                  ? "text-destructive"
+                                  : ""
+                              }
+                            >
+                              {song.daysRemaining} day
+                              {song.daysRemaining !== 1 && "s"}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
-                      <span>{formatDuration(song.duration / 1000)}</span>
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span
-                          className={
-                            song.daysRemaining <= 7 ? "text-destructive" : ""
-                          }
-                        >
-                          {song.daysRemaining} day
-                          {song.daysRemaining !== 1 && "s"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

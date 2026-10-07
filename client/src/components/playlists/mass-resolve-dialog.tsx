@@ -58,6 +58,9 @@ interface MissingEntry {
   };
 }
 
+/** Entries per request when loading a playlist's missing entries. */
+const MISSING_PAGE_SIZE = 500;
+
 export function MassResolveDialog({
   open,
   onOpenChange,
@@ -110,15 +113,27 @@ export function MassResolveDialog({
         // This is much more efficient than fetching all entries and filtering client-side
         // Always use "custom" sort since missing entries are filtered out with other sorts
         // (they don't have sortable fields like play count, artist name, etc.)
-        const response = await client.getPlaylistSongs(playlistId, {
-          count: 10000,
-          sort: "custom",
-          sortDir: "asc",
-          entryType: "missing", // Only fetch missing entries
-        });
+        // The server caps a page at 500 entries, so read them all page by page.
+        const entries: PlaylistSongEntry[] = [];
+        for (;;) {
+          const response = await client.getPlaylistSongs(playlistId, {
+            offset: entries.length,
+            count: MISSING_PAGE_SIZE,
+            sort: "custom",
+            sortDir: "asc",
+            entryType: "missing", // Only fetch missing entries
+          });
+          entries.push(...response.entries);
+          if (
+            response.entries.length === 0 ||
+            entries.length >= response.filteredCount
+          ) {
+            break;
+          }
+        }
 
         // Convert entries to MissingEntry format
-        const missing: MissingEntry[] = response.entries.map(
+        const missing: MissingEntry[] = entries.map(
           (entry: PlaylistSongEntry) => ({
             position: entry.position,
             entryId: entry.entryId,

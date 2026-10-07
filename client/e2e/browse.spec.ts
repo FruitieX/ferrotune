@@ -110,6 +110,15 @@ test.describe("Library Browsing", () => {
   }) => {
     await page.goto("/");
     const sidebar = page.locator("aside").first();
+    // The shared footer row fits the full labels.
+    for (const name of ["Manage", "Settings"]) {
+      const label = sidebar.getByRole("link", { name }).locator("span");
+      await expect
+        .poll(() =>
+          label.evaluate((span) => span.scrollWidth <= span.clientWidth),
+        )
+        .toBe(true);
+    }
     await sidebar.getByRole("link", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);
     await sidebar.getByRole("link", { name: "Manage" }).click();
