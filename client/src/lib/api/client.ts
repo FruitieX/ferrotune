@@ -12,8 +12,6 @@ import type {
   GenresResponse,
   AlbumListResponse,
   RandomSongsResponse,
-  SongsByGenreResponse,
-  SongsByGenreParams,
   SearchResponse,
   StarredResponse,
   PlayHistoryResponse,
@@ -143,7 +141,6 @@ import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
 import type { FerrotuneAlbumListResponse } from "./generated/FerrotuneAlbumListResponse";
 import type { FerrotuneSearchResponse } from "./generated/FerrotuneSearchResponse";
 import type { FerrotunePlayHistoryResponse } from "./generated/FerrotunePlayHistoryResponse";
-import type { FerrotuneSongsByGenreResponse } from "./generated/FerrotuneSongsByGenreResponse";
 import type { ManagedHistoryEntriesResponse } from "./generated/ManagedHistoryEntriesResponse";
 import type { DeleteManagedHistoryEntriesRequest } from "./generated/DeleteManagedHistoryEntriesRequest";
 import type { DeleteMatchingManagedHistoryEntriesRequest } from "./generated/DeleteMatchingManagedHistoryEntriesRequest";
@@ -619,23 +616,6 @@ export class FerrotuneClient {
   ): Promise<RandomSongsResponse> {
     const endpoint = buildEndpoint("/api/songs/random", params);
     return this.request<RandomSongsResponse>(endpoint);
-  }
-
-  async getSongsByGenre(
-    genre: string,
-    params: Partial<Omit<SongsByGenreParams, "genre">> = {},
-  ): Promise<SongsByGenreResponse> {
-    const endpoint = buildEndpoint("/api/songs/by-genre", {
-      genre,
-      ...params,
-    });
-    const res = await this.request<FerrotuneSongsByGenreResponse>(endpoint);
-
-    return {
-      songsByGenre: {
-        song: res.song,
-      },
-    };
   }
 
   async getForgottenFavorites(

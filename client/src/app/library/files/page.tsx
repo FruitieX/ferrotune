@@ -522,12 +522,25 @@ function FilesPageContent() {
                     Shuffle All
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      addToQueue({
-                        songIds: songs.map((s) => s.id),
+                    onClick={async () => {
+                      if (!libraryId) return;
+                      // Same recursive folder source as Play All, so every
+                      // file is added, not just the loaded rows.
+                      const result = await addToQueue({
+                        sources: [
+                          {
+                            sourceType: "directory",
+                            sourceId: `${libraryId}:${pathParam}`,
+                          },
+                        ],
+                        sourceName: directoryInfo?.name ?? "Folder",
                         position: "end",
                       });
-                      toast.success(`Added ${songs.length} songs to queue`);
+                      if (result.success) {
+                        toast.success(
+                          `Added ${result.addedCount} songs to queue`,
+                        );
+                      }
                     }}
                   >
                     <ListEnd className="w-4 h-4 mr-2" />

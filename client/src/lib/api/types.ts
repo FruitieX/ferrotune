@@ -17,7 +17,6 @@ import type {
   FerrotuneSearchContent as _FerrotuneSearchContent,
   FerrotuneSimilarSongsResponse as _FerrotuneSimilarSongsResponse,
   FerrotuneSongResponse as _FerrotuneSongResponse,
-  FerrotuneSongsByGenreResponse as _FerrotuneSongsByGenreResponse,
   FerrotuneStarredResponse as _FerrotuneStarredResponse,
   IndexesData as _IndexesData,
   MusicFolderInfo as _MusicFolderInfo,
@@ -105,11 +104,6 @@ export type AlbumListResponse = {
 
 // getRandomSongs response
 export type RandomSongsResponse = _FerrotuneRandomSongsResponse;
-
-// getSongsByGenre response
-export type SongsByGenreResponse = {
-  songsByGenre: { song: _FerrotuneSongsByGenreResponse["song"] };
-};
 
 // getForgottenFavorites response
 export type { ForgottenFavoritesResponse } from "./generated";

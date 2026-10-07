@@ -391,4 +391,53 @@ test.describe.serial("Queue Management", () => {
       "Second Song",
     );
   });
+
+  test("genre card adds the whole genre through a server source", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    await page.goto("/library/genres");
+    const card = page.getByText("Electronic", { exact: true }).first();
+    await expect(card).toBeVisible();
+    const added = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).pathname === "/api/queue/add" &&
+        request.method() === "POST",
+    );
+    await card.click({ button: "right" });
+    await page.getByRole("menuitem", { name: /add to queue/i }).click();
+    const body = (await added).postDataJSON();
+    expect(body.sources).toEqual([
+      { sourceType: "genre", sourceId: "Electronic" },
+    ]);
+
+    // The two Electronic tracks follow the three album tracks.
+    const queuePanel = await openQueuePanel(page);
+    await expect(queuePanel.locator('[data-testid="queue-item"]')).toHaveCount(
+      5,
+    );
+  });
+
+  test("Files Add All to Queue adds the folder through a server source", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    await page.goto("/library/files?libraryId=1");
+    await expect(page.getByRole("button", { name: "Play All" })).toBeVisible();
+    const added = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).pathname === "/api/queue/add" &&
+        request.method() === "POST",
+    );
+    await page.getByRole("button", { name: "Folder options" }).click();
+    await page.getByRole("menuitem", { name: /add all to queue/i }).click();
+    const body = (await added).postDataJSON();
+    expect(body.sources).toEqual([{ sourceType: "directory", sourceId: "1:" }]);
+  });
 });

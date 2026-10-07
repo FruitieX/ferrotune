@@ -35,8 +35,7 @@ import {
   RowActions,
 } from "@/components/shared/media-row";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
-import { getClient } from "@/lib/api/client";
-import type { Genre, Song } from "@/lib/api/types";
+import type { Genre } from "@/lib/api/types";
 
 // Helper to generate a consistent color from genre name
 function getGenreColor(genreName: string): { hue: number; gradient: string } {
@@ -48,22 +47,6 @@ function getGenreColor(genreName: string): { hue: number; gradient: string } {
     hue,
     gradient: `linear-gradient(135deg, hsl(${hue}, 70%, 35%) 0%, hsl(${(hue + 30) % 360}, 60%, 25%) 100%)`,
   };
-}
-
-// Helper to fetch songs by genre
-async function fetchGenreSongs(
-  genreName: string,
-): Promise<{ songs: Song[]; error: boolean }> {
-  const client = getClient();
-  if (!client) return { songs: [], error: true };
-
-  try {
-    const response = await client.getSongsByGenre(genreName, { count: 500 });
-    return { songs: response.songsByGenre.song ?? [], error: false };
-  } catch (error) {
-    console.error("Failed to fetch genre songs:", error);
-    return { songs: [], error: true };
-  }
 }
 
 interface GenreCardProps {
@@ -276,11 +259,15 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   };
 
   const handlePlayNext = async () => {
-    const { songs, error } = await fetchGenreSongs(genre.value);
-    if (error) {
-      toast.error("Failed to load genre songs");
-    } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
+    // The server materializes the whole genre, not a capped first page.
+    const result = await addToQueue({
+      sources: [{ sourceType: "genre", sourceId: genre.value }],
+      sourceName: genre.value,
+      position: "next",
+    });
+    if (!result.success) {
+      toast.error("Failed to add genre songs");
+    } else if (result.addedCount > 0) {
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
       toast.error("No songs found in this genre");
@@ -288,11 +275,15 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   };
 
   const handleAddToQueue = async () => {
-    const { songs, error } = await fetchGenreSongs(genre.value);
-    if (error) {
-      toast.error("Failed to load genre songs");
-    } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
+    // The server materializes the whole genre, not a capped first page.
+    const result = await addToQueue({
+      sources: [{ sourceType: "genre", sourceId: genre.value }],
+      sourceName: genre.value,
+      position: "end",
+    });
+    if (!result.success) {
+      toast.error("Failed to add genre songs");
+    } else if (result.addedCount > 0) {
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
       toast.error("No songs found in this genre");
@@ -360,11 +351,15 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
   };
 
   const handlePlayNext = async () => {
-    const { songs, error } = await fetchGenreSongs(genre.value);
-    if (error) {
-      toast.error("Failed to load genre songs");
-    } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
+    // The server materializes the whole genre, not a capped first page.
+    const result = await addToQueue({
+      sources: [{ sourceType: "genre", sourceId: genre.value }],
+      sourceName: genre.value,
+      position: "next",
+    });
+    if (!result.success) {
+      toast.error("Failed to add genre songs");
+    } else if (result.addedCount > 0) {
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
       toast.error("No songs found in this genre");
@@ -372,11 +367,15 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
   };
 
   const handleAddToQueue = async () => {
-    const { songs, error } = await fetchGenreSongs(genre.value);
-    if (error) {
-      toast.error("Failed to load genre songs");
-    } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
+    // The server materializes the whole genre, not a capped first page.
+    const result = await addToQueue({
+      sources: [{ sourceType: "genre", sourceId: genre.value }],
+      sourceName: genre.value,
+      position: "end",
+    });
+    if (!result.success) {
+      toast.error("Failed to add genre songs");
+    } else if (result.addedCount > 0) {
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
       toast.error("No songs found in this genre");
