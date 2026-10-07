@@ -655,3 +655,29 @@ jsonpath "$.error" exists
 DELETE {{base_url}}/api/queue?sessionId={{test_session_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
+
+# Test: The tab-close beacon (sendBeacon always POSTs) authenticates with the
+# URL token alone and removes the client
+POST {{base_url}}/api/auth/login
+Content-Type: application/json
+{
+  "username": "{{username}}",
+  "password": "{{password}}",
+  "clientName": "hurl-beacon"
+}
+HTTP 200
+[Captures]
+beacon_url_token: jsonpath "$.urlToken"
+
+POST {{base_url}}/api/sessions/{{test_session_id}}/clients/hurl-beacon-tab?urlToken={{beacon_url_token}}&clientId=hurl-beacon-tab
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+
+# Other POST endpoints still reject URL tokens
+POST {{base_url}}/api/sessions/{{test_session_id}}/command?urlToken={{beacon_url_token}}
+Content-Type: application/json
+{
+  "action": "pause"
+}
+HTTP 401

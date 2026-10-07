@@ -219,15 +219,15 @@ fn url_token_scope_for_request(parts: &Parts) -> Option<&'static str> {
     let path = parts.uri.path();
 
     // The tab-close disconnect beacon is fired by `navigator.sendBeacon`
-    // during page unload and cannot easily set a Bearer header, so it is
+    // (always a POST) during page unload, with a `fetch(..., DELETE)`
+    // fallback; neither can reliably set a Bearer header, so it is
     // authenticated via URL token instead. It is the only non-GET endpoint
     // that accepts a URL token.
-    if parts.method == Method::DELETE {
-        if path == "/api/sessions/{id}/clients/{client_id}"
-            || (path.starts_with("/api/sessions/")
-                && path.matches('/').count() >= 5
-                && path.contains("/clients/"))
-        {
+    if parts.method == Method::DELETE || parts.method == Method::POST {
+        // Nested routers see the path without the `/api` prefix.
+        let route = path.strip_prefix("/api").unwrap_or(path);
+        let segments: Vec<&str> = route.trim_start_matches('/').split('/').collect();
+        if matches!(segments.as_slice(), ["sessions", _, "clients", _]) {
             return Some("all");
         }
         return None;
