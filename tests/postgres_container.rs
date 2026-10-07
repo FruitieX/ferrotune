@@ -3548,7 +3548,7 @@ fn test_postgres_genres_indexes_and_starring_work() {
         let (user, artist_id, album_id, song_1, song_2) =
             seed_postgres_library_sample(&database).await;
 
-        let genres = browse::get_genres_logic(&database, user.id)
+        let genres = browse::get_genres_logic(&database, user.id, None)
             .await
             .expect("postgres genres browse should succeed");
         assert_eq!(genres.genre.len(), 1);
