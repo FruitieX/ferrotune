@@ -816,7 +816,6 @@ fn postgresize_smart_playlist_sql(sql: &str) -> String {
     let sql = sql
         .replace(" NOT LIKE ", " NOT ILIKE ")
         .replace(" LIKE ", " ILIKE ")
-        .replace("ESCAPE '\\\\'", "ESCAPE '\\'")
         .replace(" COLLATE NOCASE", "")
         .replace("mf.enabled = 1", "mf.enabled")
         .replace("explicit_start = 1", "explicit_start")
@@ -1284,7 +1283,7 @@ fn build_filter_clause(filter: Option<&str>) -> (String, Vec<SqlArg>) {
         if !trimmed.is_empty() {
             let pattern = format!("%{}%", escape_like_pattern(trimmed));
             return (
-                " AND (s.title LIKE ? ESCAPE '\\\\' COLLATE NOCASE OR ar.name LIKE ? ESCAPE '\\\\' COLLATE NOCASE OR al.name LIKE ? ESCAPE '\\\\' COLLATE NOCASE)".to_string(),
+                " AND (s.title LIKE ? ESCAPE '\\' COLLATE NOCASE OR ar.name LIKE ? ESCAPE '\\' COLLATE NOCASE OR al.name LIKE ? ESCAPE '\\' COLLATE NOCASE)".to_string(),
                 vec![
                     SqlArg::Text(pattern.clone()),
                     SqlArg::Text(pattern.clone()),
@@ -1721,25 +1720,25 @@ fn build_condition(
         }),
         "contains" => value.as_str().map(|s| {
             (
-                format!("{} LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                format!("{} LIKE ? ESCAPE '\\' COLLATE NOCASE", sql_field),
                 with_field_args(vec![SqlArg::Text(format!("%{}%", escape_like_pattern(s)))]),
             )
         }),
         "notContains" => value.as_str().map(|s| {
             (
-                format!("{} NOT LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                format!("{} NOT LIKE ? ESCAPE '\\' COLLATE NOCASE", sql_field),
                 with_field_args(vec![SqlArg::Text(format!("%{}%", escape_like_pattern(s)))]),
             )
         }),
         "startsWith" => value.as_str().map(|s| {
             (
-                format!("{} LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                format!("{} LIKE ? ESCAPE '\\' COLLATE NOCASE", sql_field),
                 with_field_args(vec![SqlArg::Text(format!("{}%", escape_like_pattern(s)))]),
             )
         }),
         "endsWith" => value.as_str().map(|s| {
             (
-                format!("{} LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                format!("{} LIKE ? ESCAPE '\\' COLLATE NOCASE", sql_field),
                 with_field_args(vec![SqlArg::Text(format!("%{}", escape_like_pattern(s)))]),
             )
         }),
@@ -1824,7 +1823,7 @@ mod tests {
         let (sql, args) = build_condition(&condition, 1).expect("condition should be built");
 
         assert!(sql.contains("LIKE ?"));
-        assert!(sql.contains("ESCAPE '\\\\'"));
+        assert!(sql.contains("ESCAPE '\\'"));
         assert!(!sql.contains("a'b%_c"));
         assert_eq!(args.len(), 1);
 

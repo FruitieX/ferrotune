@@ -139,6 +139,43 @@ jsonpath "$.id" == "{{materialized_id}}"
 # DELETE SMART PLAYLIST
 # ============================================================================
 
+# Text rules use LIKE with a single-character escape (SQLite rejects
+# multi-character ESCAPE expressions)
+POST {{base_url}}/api/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Title Contains Song",
+  "isPublic": false,
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      { "field": "title", "operator": "contains", "value": "song" }
+    ]
+  }
+}
+HTTP 201
+[Captures]
+contains_sp_id: jsonpath "$.id"
+
+GET {{base_url}}/api/smart-playlists/{{contains_sp_id}}/songs?offset=0&count=100
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" >= 3
+jsonpath "$.songs[*].title" includes "First Song"
+
+# The detail page's text filter narrows the rule's matches
+GET {{base_url}}/api/smart-playlists/{{contains_sp_id}}/songs?offset=0&count=100&filter=first
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 1
+
+DELETE {{base_url}}/api/smart-playlists/{{contains_sp_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
 # Delete the smart playlist
 DELETE {{base_url}}/api/smart-playlists/{{playlist_id}}
 Authorization: Basic {{auth_basic}}
