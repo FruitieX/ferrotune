@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -180,7 +180,7 @@ export function AccountMenuItems({
   components: { Item, Separator },
 }: AccountMenuItemsProps) {
   const hasFinePointer = useHasFinePointer();
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
@@ -218,7 +218,7 @@ export function AccountMenuItems({
       queryClient.clear();
       clearQueue();
       setConnection(null);
-      router.push("/login");
+      navigate("/login");
     }
   };
 
@@ -226,7 +226,7 @@ export function AccountMenuItems({
     queryClient.clear();
     clearQueue();
     setConnection(null);
-    router.push("/login");
+    navigate("/login");
     toast.success("Logged out successfully");
   };
 
@@ -272,11 +272,11 @@ export function AccountMenuItems({
           <Separator />
         </>
       )}
-      <Item onClick={() => router.push("/profile")}>
+      <Item onClick={() => navigate("/profile")}>
         <User className="w-4 h-4 mr-2" />
         Profile
       </Item>
-      <Item onClick={() => router.push("/login")}>
+      <Item onClick={() => navigate("/login")}>
         <UserPlus className="w-4 h-4 mr-2" />
         Add Account
       </Item>

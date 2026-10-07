@@ -1,7 +1,7 @@
 "use client";
 
+import { useSearchParams } from "react-router-dom";
 import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { Radio } from "lucide-react";
@@ -37,7 +37,7 @@ const RADIO_COLUMN_VISIBILITY: ColumnVisibility = {
 };
 
 function SongRadioPageContent() {
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const seedSongId = searchParams.get("id");
   const startQueue = useSetAtom(startQueueAtom);
   const { isReady, isLoading: authLoading } = useAuth({

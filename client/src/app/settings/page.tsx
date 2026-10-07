@@ -1,5 +1,6 @@
 "use client";
 
+import { Link } from "react-router-dom";
 import { useAtom } from "jotai";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +8,6 @@ import { LastfmCard } from "./lastfm-card";
 import { DownloadsSettingsCard } from "./downloads-card";
 import { isTauriMobile } from "@/lib/tauri";
 import { motion } from "framer-motion";
-import Link from "next/link";
 import {
   Settings as SettingsIcon,
   Server,
@@ -731,15 +731,16 @@ export default function SettingsPage() {
                     Manage users, libraries, and server settings
                   </CardDescription>
                 </div>
-                <Link href="/admin">
-                  <Button
-                    size="sm"
-                    className="gap-2 bg-primary hover:bg-primary/80"
-                  >
+                <Button
+                  size="sm"
+                  className="gap-2 bg-primary hover:bg-primary/80"
+                  asChild
+                >
+                  <Link to="/admin">
                     <Shield className="w-4 h-4" />
                     Administration
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </CardHeader>
             </Card>
           </motion.div>
@@ -764,12 +765,12 @@ export default function SettingsPage() {
                   Overview of your music library
                 </CardDescription>
               </div>
-              <Link href="/tagger">
-                <Button size="sm" variant="outline" className="gap-2">
+              <Button size="sm" variant="outline" className="gap-2" asChild>
+                <Link to="/tagger">
                   <Tag className="w-4 h-4" />
                   Tag Editor
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </CardHeader>
             <CardContent>
               {statsLoading ? (

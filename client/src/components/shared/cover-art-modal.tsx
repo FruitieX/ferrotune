@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
   Dialog,
@@ -30,12 +29,10 @@ export function CoverArtModal({
           <DialogDescription>Full size cover art</DialogDescription>
         </VisuallyHidden>
         <div className="relative w-full aspect-square">
-          <Image
+          <img
             src={src}
             alt={alt}
-            className="w-full h-full object-contain rounded"
-            fill
-            unoptimized
+            className="absolute inset-0 w-full h-full object-contain rounded"
           />
         </div>
       </DialogContent>

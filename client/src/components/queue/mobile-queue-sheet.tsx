@@ -1,8 +1,8 @@
 "use client";
 
+import { Link } from "react-router-dom";
 import { useRef, useEffect, useLayoutEffect, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import Link from "next/link";
 import {
   motion,
   AnimatePresence,
@@ -121,7 +121,7 @@ function QueueSourceDisplay({ onNavigate }: { onNavigate?: () => void }) {
   if (link) {
     return (
       <Link
-        href={link}
+        to={link}
         className="block px-4 py-2 border-b border-border hover:bg-muted/50 transition-colors"
         onClick={onNavigate}
       >

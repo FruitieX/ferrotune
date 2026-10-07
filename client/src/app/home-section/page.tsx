@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { Navigate, useParams, useSearchParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams, Link } from "react-router-dom";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
@@ -365,8 +364,7 @@ function ContinueListeningRow({
         titleIcon={<Disc className="w-4 h-4 shrink-0 text-muted-foreground" />}
         subtitleContent={
           <Link
-            href={`/library/artists/details?id=${album.artistId}`}
-            prefetch={false}
+            to={`/library/artists/details?id=${album.artistId}`}
             className="hover:underline hover:text-foreground"
             onClick={(event) => event.stopPropagation()}
           >

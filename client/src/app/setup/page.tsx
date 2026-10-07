@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -67,7 +67,7 @@ type SetupStep = "welcome" | "credentials" | "folders" | "scan" | "complete";
 const DEFAULT_SERVER_URL = "";
 
 export default function SetupPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setConnection = useSetAtom(serverConnectionAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
@@ -159,12 +159,12 @@ export default function SetupPage() {
     if (setupStatus?.setupComplete && !setupCompleted && step === "welcome") {
       // Setup was already done, redirect to appropriate page
       if (isConnected) {
-        router.push("/");
+        navigate("/");
       } else {
-        router.push("/login");
+        navigate("/login");
       }
     }
-  }, [setupStatus, setupCompleted, isConnected, step, router]);
+  }, [setupStatus, setupCompleted, isConnected, step, navigate]);
 
   // Fetch existing music folders when connected
   const { data: existingFolders } = useQuery({
@@ -531,9 +531,9 @@ export default function SetupPage() {
   // Finish setup - redirect to home if connected, otherwise to login
   const handleFinish = () => {
     if (isConnected) {
-      router.push("/");
+      navigate("/");
     } else {
-      router.push("/login");
+      navigate("/login");
     }
   };
 

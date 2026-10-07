@@ -1,7 +1,7 @@
 "use client";
 
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Trash2, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -10,10 +10,9 @@ import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecycleBin } from "@/components/settings/recycle-bin";
-import Link from "next/link";
 
 export default function RecycleBinPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -23,9 +22,9 @@ export default function RecycleBinPage() {
   // Redirect non-admin users to settings
   useEffect(() => {
     if (!userLoading && user && !isAdmin) {
-      router.push("/settings");
+      navigate("/settings");
     }
-  }, [userLoading, user, isAdmin, router]);
+  }, [userLoading, user, isAdmin, navigate]);
 
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading || userLoading) {
@@ -51,11 +50,11 @@ export default function RecycleBinPage() {
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-3"
         >
-          <Link href="/admin">
-            <Button variant="ghost" size="icon" className="mr-2">
+          <Button variant="ghost" size="icon" className="mr-2" asChild>
+            <Link to="/admin">
               <ArrowLeft className="w-5 h-5" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <div className="w-12 h-12 rounded-lg bg-destructive/10 flex items-center justify-center">
             <Trash2 className="w-6 h-6 text-destructive" />
           </div>

@@ -1,7 +1,7 @@
 "use client";
 
+import { useLocation } from "react-router-dom";
 import { Suspense } from "react";
-import { usePathname } from "next/navigation";
 import { Providers } from "@/components/providers";
 import { SetupGuard } from "@/components/setup-guard";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -20,7 +20,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const isStandaloneRoute = pathname === "/login" || pathname === "/setup";
 
   // Cancel inertial scrolling on the first pointerdown so taps on controls

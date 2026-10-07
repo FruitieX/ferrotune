@@ -1,7 +1,7 @@
 "use client";
 
+import { Link } from "react-router-dom";
 import { forwardRef } from "react";
-import Link from "next/link";
 import { Play, Pause, MoreHorizontal, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -254,8 +254,7 @@ export function MediaRow({
         {titleIcon}
         {href ? (
           <Link
-            href={href}
-            prefetch={false}
+            to={href}
             className="hover:underline truncate"
             onClick={(e) => e.stopPropagation()}
           >
@@ -296,11 +295,7 @@ export function MediaRow({
       {/* Cover art and content */}
       <div className="flex items-center gap-4 flex-1 min-w-0">
         {href ? (
-          <Link
-            href={href}
-            prefetch={false}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <Link to={href} onClick={(e) => e.stopPropagation()}>
             {coverArtElement}
           </Link>
         ) : (

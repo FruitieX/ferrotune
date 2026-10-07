@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -125,8 +125,8 @@ type DisplayItem =
     };
 
 function PlaylistDetailContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const playlistId = searchParams.get("id");
 
   const { isReady, isLoading: authLoading } = useAuth({
@@ -209,9 +209,9 @@ function PlaylistDetailContent() {
   // Redirect to playlists if no ID
   useEffect(() => {
     if (!playlistId && isMounted && !authLoading) {
-      router.replace("/playlists");
+      navigate("/playlists", { replace: true });
     }
-  }, [playlistId, isMounted, authLoading, router]);
+  }, [playlistId, isMounted, authLoading, navigate]);
 
   // Fetch playlist songs with sparse pagination
   const {
@@ -414,7 +414,7 @@ function PlaylistDetailContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       toast.success("Playlist deleted");
-      router.push("/playlists");
+      navigate("/playlists");
     },
     onError: () => {
       toast.error("Failed to delete playlist");

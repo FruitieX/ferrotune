@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useAtomValue } from "jotai";
 import {
   useAudioEngine,
@@ -33,7 +33,7 @@ import { resolveShortcut } from "@/lib/hooks/keyboard-shortcut-target";
  * - / or Ctrl+K: Focus search
  */
 export function useKeyboardShortcuts() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const playbackState = useAtomValue(playbackStateAtom);
   const audioElement = useAtomValue(audioElementAtom);
   const duration = useAtomValue(durationAtom);
@@ -63,7 +63,7 @@ export function useKeyboardShortcuts() {
           if (searchInput) {
             searchInput.focus();
           } else {
-            router.push("/search");
+            navigate("/search");
           }
           break;
         }
@@ -126,6 +126,6 @@ export function useKeyboardShortcuts() {
     toggleMute,
     toggleShuffle,
     cycleRepeatMode,
-    router,
+    navigate,
   ]);
 }

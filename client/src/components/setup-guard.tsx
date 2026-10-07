@@ -1,7 +1,7 @@
 "use client";
 
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { serverConnectionAtom } from "@/lib/store/auth";
@@ -15,8 +15,8 @@ const DEFAULT_BACKEND_URL = import.meta.env.DEV ? "http://localhost:4040" : "";
  * Excludes /setup and /login pages from the redirect to prevent loops.
  */
 export function SetupGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const connection = useAtomValue(serverConnectionAtom);
 
   // Skip check on setup and login pages
@@ -68,9 +68,9 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
       !setupStatusFetching &&
       !setupStatus.setupComplete
     ) {
-      router.replace("/setup");
+      navigate("/setup", { replace: true });
     }
-  }, [shouldCheck, setupStatus, setupStatusFetching, router]);
+  }, [shouldCheck, setupStatus, setupStatusFetching, navigate]);
 
   return <>{children}</>;
 }

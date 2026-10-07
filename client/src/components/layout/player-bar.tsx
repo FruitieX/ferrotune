@@ -1,5 +1,6 @@
 "use client";
 
+import { Link, useLocation } from "react-router-dom";
 import {
   useEffect,
   useLayoutEffect,
@@ -7,7 +8,6 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { usePathname } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   motion,
@@ -16,7 +16,6 @@ import {
   animate,
   type AnimationPlaybackControls,
 } from "framer-motion";
-import Link from "next/link";
 import {
   Play,
   Pause,
@@ -193,13 +192,13 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
         </motion.div>
         <div className="min-w-0">
           <Link
-            href={`/library/albums/details?id=${track.albumId}&songId=${track.id}`}
+            to={`/library/albums/details?id=${track.albumId}&songId=${track.id}`}
             className="block text-sm font-medium text-foreground truncate hover:underline"
           >
             {track.title}
           </Link>
           <Link
-            href={`/library/artists/details?id=${track.artistId}`}
+            to={`/library/artists/details?id=${track.artistId}`}
             className="block text-xs text-muted-foreground truncate hover:underline"
           >
             {track.artist}
@@ -1374,7 +1373,7 @@ function FullscreenButton() {
 // ============================================================================
 
 export function PlayerBar() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const currentTrack = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(effectivePlaybackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);

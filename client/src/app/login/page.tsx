@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSetAtom, useAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -56,7 +56,7 @@ import {
 const DEFAULT_SERVER_URL = "";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const setConnection = useSetAtom(serverConnectionAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const setConnectionError = useSetAtom(connectionErrorAtom);
@@ -140,9 +140,9 @@ export default function LoginPage() {
   // Redirect to setup if not complete
   useEffect(() => {
     if (setupStatus && !setupStatusFetching && !setupStatus.setupComplete) {
-      router.replace("/setup");
+      navigate("/setup", { replace: true });
     }
-  }, [setupStatus, setupStatusFetching, router]);
+  }, [setupStatus, setupStatusFetching, navigate]);
 
   // Auto-connect to embedded server
   useEffect(() => {
@@ -190,7 +190,7 @@ export default function LoginPage() {
       setConnection(connection);
       setConnectionStatus("connected");
       saveAccount(connection);
-      router.push("/");
+      navigate("/");
     } catch (err) {
       console.error("Embedded connection error:", err);
       setConnectionStatus("error");
@@ -242,7 +242,7 @@ export default function LoginPage() {
       setConnection(connection);
       setConnectionStatus("connected");
       saveAccount(connection);
-      router.push("/");
+      navigate("/");
     } catch (err) {
       console.error("Connection error:", err);
       setConnectionStatus("error");
@@ -330,7 +330,7 @@ export default function LoginPage() {
       setConnection(connection);
       setConnectionStatus("connected");
       saveAccount(connection);
-      router.push("/");
+      navigate("/");
     } catch (err) {
       console.error("Quick connect error:", err);
       setConnectionStatus("error");

@@ -1,7 +1,7 @@
 "use client";
 
+import { Link } from "react-router-dom";
 import { useState } from "react";
-import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -122,8 +122,7 @@ function TopArtistCard({
       </div>
       <div className="flex-1 min-w-0">
         <Link
-          href={`/library/artists/details?id=${artist.artistId}`}
-          prefetch={false}
+          to={`/library/artists/details?id=${artist.artistId}`}
           className="font-medium truncate block hover:underline"
         >
           {artist.artistName}
@@ -199,16 +198,14 @@ function TopAlbumCard({
       </div>
       <div className="flex-1 min-w-0">
         <Link
-          href={`/library/albums/details?id=${album.albumId}`}
-          prefetch={false}
+          to={`/library/albums/details?id=${album.albumId}`}
           className="font-medium truncate block hover:underline"
         >
           {album.albumName}
         </Link>
         {album.artistId ? (
           <Link
-            href={`/library/artists/details?id=${album.artistId}`}
-            prefetch={false}
+            to={`/library/artists/details?id=${album.artistId}`}
             className="text-sm text-muted-foreground truncate block hover:underline hover:text-foreground"
           >
             {album.artistName}
@@ -292,8 +289,7 @@ function TopTrackCard({
         <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
           {track.artistId ? (
             <Link
-              href={`/library/artists/details?id=${track.artistId}`}
-              prefetch={false}
+              to={`/library/artists/details?id=${track.artistId}`}
               className="hover:underline hover:text-foreground shrink-0"
             >
               {track.artistName}
@@ -304,8 +300,7 @@ function TopTrackCard({
           <span className="shrink-0">•</span>
           {track.albumId ? (
             <Link
-              href={`/library/albums/details?id=${track.albumId}`}
-              prefetch={false}
+              to={`/library/albums/details?id=${track.albumId}`}
               className="hover:underline hover:text-foreground truncate"
             >
               {track.albumName}

@@ -1,11 +1,10 @@
 "use client";
 
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom, useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import Link from "next/link";
 import {
   Search as SearchIcon,
   X,
@@ -95,8 +94,8 @@ function hasSongOnlyFilters(filters: AdvancedFilters): boolean {
 }
 
 export function SearchPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { isReady } = useAuth({ redirectToLogin: true });
   const startQueue = useSetAtom(startQueueAtom);
   const [advancedFilters, setAdvancedFilters] = useAtom(advancedFiltersAtom);
@@ -129,8 +128,10 @@ export function SearchPageContent() {
   // Update URL when query changes
   useEffect(() => {
     if (debouncedQuery) {
-      router.replace(`/search?q=${encodeURIComponent(debouncedQuery)}`, {
-        scroll: false,
+      navigate(`/search?q=${encodeURIComponent(debouncedQuery)}`, {
+        replace: true,
+        preventScrollReset: true,
+        state: { preventScrollReset: true },
       });
       // Delay saving to search history so intermediate typing doesn't
       // pollute recent searches. Each new debounced query resets the timer.
@@ -144,9 +145,13 @@ export function SearchPageContent() {
         searchSaveTimerRef.current = null;
       }, 5000);
     } else {
-      router.replace("/search", { scroll: false });
+      navigate("/search", {
+        replace: true,
+        preventScrollReset: true,
+        state: { preventScrollReset: true },
+      });
     }
-  }, [debouncedQuery, router, addSearchHistory]);
+  }, [debouncedQuery, navigate, addSearchHistory]);
 
   // Flush pending search history save on unmount
   useEffect(() => {
@@ -897,7 +902,7 @@ function PlaylistResultCard({ item }: { item: PlaylistBrowseItem }) {
 
   return (
     <Link
-      href={getPlaylistDetailsHref("playlist", playlist.id)}
+      to={getPlaylistDetailsHref("playlist", playlist.id)}
       className="group block p-4 rounded-lg bg-card hover:bg-accent/70 active:bg-accent/80 hover:shadow-lg hover:shadow-black/20 active:shadow-md active:shadow-black/20 transition-all touch-manipulation active:scale-[0.98]"
     >
       <div className="relative mb-4">

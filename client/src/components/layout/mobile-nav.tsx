@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Home, Search, Library, ListMusic, User } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,7 +15,7 @@ const navItems = [
 ];
 
 export function MobileNav() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
 
   // Don't show on login page
   if (pathname === "/login") {
@@ -42,7 +41,7 @@ export function MobileNav() {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              to={item.href}
               onClick={() => hapticTap()}
               className={cn(
                 "flex flex-col items-center justify-center gap-0.5 w-full h-full relative",

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { Disc } from "lucide-react";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -55,8 +55,7 @@ export function AlbumCard({
     <>
       {album.year && <span>{album.year} • </span>}
       <Link
-        href={`/library/artists/details?id=${album.artistId}`}
-        prefetch={false}
+        to={`/library/artists/details?id=${album.artistId}`}
         className="hover:underline hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
       >
@@ -233,8 +232,7 @@ export function AlbumCardCompact({
       subtitleContent={
         showArtist ? (
           <Link
-            href={`/library/artists/details?id=${album.artistId}`}
-            prefetch={false}
+            to={`/library/artists/details?id=${album.artistId}`}
             className="hover:underline hover:text-foreground"
             onClick={(e) => e.stopPropagation()}
           >

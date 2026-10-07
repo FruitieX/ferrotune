@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, ListMusic, Loader2, Check, AlertTriangle } from "lucide-react";
@@ -82,7 +82,7 @@ export function AddToPlaylistDialog({
   );
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const queryClient = useQueryClient();
-  const router = useRouter();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
 
   // Fetch playlists with folder structure
@@ -178,7 +178,7 @@ export function AddToPlaylistDialog({
         action: {
           label: "Go to playlist",
           onClick: () => {
-            router.push(`/playlists/details?id=${playlistId}`);
+            navigate(`/playlists/details?id=${playlistId}`);
           },
         },
       });

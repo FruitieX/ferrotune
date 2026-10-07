@@ -1,8 +1,7 @@
 "use client";
 
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { motion } from "framer-motion";
 import { Shield, RefreshCw, Trash2, ChevronRight } from "lucide-react";
 import { useSetAtom } from "jotai";
@@ -29,7 +28,7 @@ import { UserManagement } from "@/components/settings/user-management";
 import { ServerConfig } from "@/components/settings/server-config";
 
 export default function AdministrationPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -49,9 +48,9 @@ export default function AdministrationPage() {
   // Redirect non-admin users to settings
   useEffect(() => {
     if (!userLoading && user && !isAdmin) {
-      router.push("/settings");
+      navigate("/settings");
     }
-  }, [userLoading, user, isAdmin, router]);
+  }, [userLoading, user, isAdmin, navigate]);
 
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading || userLoading) {
@@ -163,7 +162,7 @@ export default function AdministrationPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
         >
-          <Link href="/admin/recycle-bin">
+          <Link to="/admin/recycle-bin">
             <Card className="cursor-pointer hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation active:scale-[0.995]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div className="flex items-center gap-4">

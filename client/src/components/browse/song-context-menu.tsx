@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   MoreHorizontal,
@@ -80,7 +80,7 @@ function dismissContextMenu() {
 // ===================================
 
 function useMarkForEditing(song: Song) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const setSession = useSetAtom(taggerSessionAtom);
   const [tracks, setTracks] = useAtom(taggerTracksAtom);
 
@@ -90,7 +90,7 @@ function useMarkForEditing(song: Song) {
       toast.info("Track already marked for editing", {
         action: {
           label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
+          onClick: () => navigate("/tagger"),
         },
       });
       return;
@@ -128,7 +128,7 @@ function useMarkForEditing(song: Song) {
       toast.success("Track marked for editing", {
         action: {
           label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
+          onClick: () => navigate("/tagger"),
         },
       });
     } catch (error) {
@@ -145,7 +145,7 @@ function useMarkForEditing(song: Song) {
 // ===================================
 
 function useBulkSongActions(songs: Song[]) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const selectionState = useAtomValue(selectionStateAtom);
   const selectedCount = useAtomValue(selectedCountAtom);
   const clearSelection = useSetAtom(clearSelectionAtom);
@@ -386,7 +386,7 @@ function useBulkSongActions(songs: Song[]) {
         {
           action: {
             label: "Open Tagger",
-            onClick: () => router.push("/tagger"),
+            onClick: () => navigate("/tagger"),
           },
         },
       );
@@ -424,7 +424,7 @@ function useBulkSongActions(songs: Song[]) {
       toast.success(message, {
         action: {
           label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
+          onClick: () => navigate("/tagger"),
         },
       });
       clearSelection();
@@ -451,7 +451,7 @@ function useBulkSongActions(songs: Song[]) {
           description: "Files will be permanently deleted in 30 days",
           action: {
             label: "View Recycle Bin",
-            onClick: () => router.push("/admin/recycle-bin"),
+            onClick: () => navigate("/admin/recycle-bin"),
           },
         },
       );

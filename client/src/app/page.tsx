@@ -1,8 +1,7 @@
 "use client";
 
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import {
@@ -237,7 +236,7 @@ function SectionHeader({
 }) {
   const titleContent = viewAllHref ? (
     <Link
-      href={viewAllHref}
+      to={viewAllHref}
       onClick={() => hapticTap()}
       className="hover:text-primary transition-colors"
     >
@@ -295,7 +294,7 @@ function SectionHeader({
           )}
           {viewAllHref && (
             <Link
-              href={viewAllHref}
+              to={viewAllHref}
               onClick={() => hapticTap()}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors ml-1"
             >
@@ -350,7 +349,7 @@ function HomeQuickTile({
 
   if (tile.action.type === "link" && !tile.isIncomplete) {
     return (
-      <Link href={tile.action.href} className={className} prefetch={false}>
+      <Link to={tile.action.href} className={className}>
         {content}
       </Link>
     );
@@ -813,7 +812,7 @@ function HomeSourceCard({
 }
 
 export default function HomePage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -915,7 +914,7 @@ export default function HomePage() {
   // Navigate to search when user starts typing
   const handleSearchFocus = () => {
     hapticTap();
-    router.push("/search");
+    navigate("/search");
   };
 
   const handleHomeTileQueueAction = (

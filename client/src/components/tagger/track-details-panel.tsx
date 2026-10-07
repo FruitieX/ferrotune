@@ -2,7 +2,6 @@
 
 import { useRef, useState, useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import Image from "next/image";
 import {
   Music,
   Image as ImageIcon,
@@ -829,13 +828,12 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                   }}
                 >
                   {originalCoverArtUrl ? (
-                    <Image
+                    <img
                       src={originalCoverArtUrl}
                       alt="Original cover art"
                       className="w-full h-full object-cover"
                       width={coverArtSize}
                       height={coverArtSize}
-                      unoptimized
                     />
                   ) : (
                     <ImageIcon
@@ -895,23 +893,21 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                       </span>
                     </div>
                   ) : coverArtDisplay.type === "preview" ? (
-                    <Image
+                    <img
                       src={coverArtDisplay.src}
                       alt="Modified cover art"
                       className="w-full h-full object-cover"
                       width={coverArtSize}
                       height={coverArtSize}
-                      unoptimized
                     />
                   ) : coverArtDisplay.type === "existing" &&
                     coverArtDisplay.src ? (
-                    <Image
+                    <img
                       src={coverArtDisplay.src}
                       alt="Cover art"
                       className="w-full h-full object-cover"
                       width={coverArtSize}
                       height={coverArtSize}
-                      unoptimized
                     />
                   ) : (
                     <ImageIcon
@@ -1404,19 +1400,17 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
           </VisuallyHidden>
           {coverArtModalType === "original" && originalCoverArtUrl ? (
             <div className="relative w-full aspect-square">
-              <Image
+              <img
                 src={originalCoverArtUrl}
                 alt="Original cover art"
-                className="w-full h-full object-contain rounded"
-                fill
-                unoptimized
+                className="absolute inset-0 w-full h-full object-contain rounded"
               />
             </div>
           ) : (
             (coverArtDisplay.type === "preview" ||
               coverArtDisplay.type === "existing") && (
               <div className="relative w-full aspect-square">
-                <Image
+                <img
                   src={
                     coverArtDisplay.type === "existing" &&
                     "songId" in coverArtDisplay
@@ -1429,9 +1423,7 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                       : coverArtDisplay.src
                   }
                   alt="Cover art"
-                  className="w-full h-full object-contain rounded"
-                  fill
-                  unoptimized
+                  className="absolute inset-0 w-full h-full object-contain rounded"
                 />
               </div>
             )

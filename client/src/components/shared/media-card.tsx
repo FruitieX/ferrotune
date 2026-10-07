@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { Play, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -147,8 +147,7 @@ export function MediaCard({
 
         {/* Cover art with play overlay - wrapped in Link */}
         <Link
-          href={href}
-          prefetch={false}
+          to={href}
           className="block group/cover touch-feedback active:brightness-90"
         >
           <div
@@ -203,8 +202,7 @@ export function MediaCard({
         className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
         <Link
-          href={href}
-          prefetch={false}
+          to={href}
           className="block min-w-0 touch-feedback active:text-primary"
         >
           <h3

@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Pencil, Trash2, MoreHorizontal } from "lucide-react";
@@ -76,8 +76,8 @@ import type { Song } from "@/lib/api/types";
 const PAGE_SIZE = 50;
 
 function SmartPlaylistPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const id = searchParams.get("id");
   const queryClient = useQueryClient();
   const { isReady } = useAuth({ redirectToLogin: true });
@@ -272,7 +272,7 @@ function SmartPlaylistPageContent() {
       toast.success("Smart playlist deleted");
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
-      router.push("/playlists");
+      navigate("/playlists");
     } catch {
       toast.error("Failed to delete smart playlist");
     }

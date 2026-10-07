@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   serverConnectionAtom,
@@ -55,7 +55,7 @@ function isInvalidSessionError(error: unknown): boolean {
  */
 export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   const { redirectToLogin = true } = options;
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const [isHydrated, setIsHydrated] = useAtom(isHydratedAtom);
   const isConnected = useAtomValue(isConnectedAtom);
@@ -185,7 +185,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
       !isConnected &&
       !isValidatingSession
     ) {
-      router.push("/login");
+      navigate("/login");
     }
   }, [
     isOffline,
@@ -193,7 +193,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
     isHydrated,
     isConnected,
     isValidatingSession,
-    router,
+    navigate,
   ]);
 
   return {

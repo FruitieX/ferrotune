@@ -1,5 +1,6 @@
 "use client";
 
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState, Suspense } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
@@ -8,7 +9,6 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useSearchParams, useRouter } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -130,8 +130,8 @@ function PlaylistsPageContent() {
     redirectToLogin: true,
   });
   const isMounted = useIsMounted();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
@@ -551,9 +551,9 @@ function PlaylistsPageContent() {
   // Navigation helpers
   const navigateToFolder = (folderPath: string) => {
     if (folderPath) {
-      router.push(`/playlists?folder=${encodeURIComponent(folderPath)}`);
+      navigate(`/playlists?folder=${encodeURIComponent(folderPath)}`);
     } else {
-      router.push("/playlists");
+      navigate("/playlists");
     }
   };
 

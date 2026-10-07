@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Check, Shuffle, Ban, Music, Heart } from "lucide-react";
@@ -337,8 +337,7 @@ export function SongRow({
           <span className="shrink-0">{song.artist}</span>
         ) : (
           <Link
-            href={`/library/artists/details?id=${song.artistId}`}
-            prefetch={false}
+            to={`/library/artists/details?id=${song.artistId}`}
             className="hover:underline hover:text-foreground shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
@@ -351,8 +350,7 @@ export function SongRow({
           <span className="truncate">{song.album}</span>
         ) : (
           <Link
-            href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
-            prefetch={false}
+            to={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
             className="hover:underline hover:text-foreground truncate"
             onClick={(e) => e.stopPropagation()}
           >
@@ -736,8 +734,7 @@ export function SongCard({
   const subtitleContent = (
     <>
       <Link
-        href={artistHref ?? `/library/artists/details?id=${song.artistId}`}
-        prefetch={false}
+        to={artistHref ?? `/library/artists/details?id=${song.artistId}`}
         className="hover:underline hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
       >

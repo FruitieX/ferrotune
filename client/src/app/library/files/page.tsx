@@ -1,5 +1,6 @@
 "use client";
 
+import { Link, useSearchParams } from "react-router-dom";
 import { useState, Suspense } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -19,8 +20,6 @@ import {
   Download,
   Library,
 } from "lucide-react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -107,7 +106,7 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
 }
 
 function FilesPageContent() {
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   // New URL structure: ?libraryId=X&path=relative/path
   const libraryIdParam = searchParams.get("libraryId");
   const pathParam = searchParams.get("path") ?? "";
@@ -642,7 +641,7 @@ function Breadcrumbs({
     >
       {/* Files root */}
       <Link
-        href="/library/files"
+        to="/library/files"
         className="flex items-center gap-1 hover:text-foreground transition-colors"
       >
         <Home className="w-4 h-4" />
@@ -654,7 +653,7 @@ function Breadcrumbs({
       {breadcrumbs.length > 0 ? (
         <>
           <Link
-            href={`/library/files?libraryId=${libraryId}`}
+            to={`/library/files?libraryId=${libraryId}`}
             className="hover:text-foreground transition-colors truncate max-w-32"
           >
             {libraryName}
@@ -663,7 +662,7 @@ function Breadcrumbs({
             <span key={crumb.id} className="flex items-center gap-1">
               <ChevronRight className="w-4 h-4 shrink-0" />
               <Link
-                href={`/library/files?libraryId=${libraryId}&path=${encodeURIComponent(crumb.id)}`}
+                to={`/library/files?libraryId=${libraryId}&path=${encodeURIComponent(crumb.id)}`}
                 className="hover:text-foreground transition-colors truncate max-w-32"
               >
                 {crumb.name}
@@ -688,7 +687,7 @@ interface LibraryCardProps {
 
 function LibraryCard({ library }: LibraryCardProps) {
   return (
-    <Link href={`/library/files?libraryId=${library.id}`} prefetch={false}>
+    <Link to={`/library/files?libraryId=${library.id}`}>
       <div
         className={cn(
           "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
@@ -880,7 +879,7 @@ function DirectoryRow({
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem asChild>
-        <Link href={dirUrl} prefetch={false}>
+        <Link to={dirUrl}>
           <FolderPlus className="w-4 h-4 mr-2" />
           Open Folder
         </Link>
@@ -891,7 +890,7 @@ function DirectoryRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Link href={dirUrl} onClick={handleClick} prefetch={false}>
+        <Link to={dirUrl} onClick={handleClick}>
           <div
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-lg h-14",
@@ -1004,7 +1003,7 @@ function DirectoryRow({
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href={dirUrl} prefetch={false}>
+                    <Link to={dirUrl}>
                       <FolderPlus className="w-4 h-4 mr-2" />
                       Open Folder
                     </Link>
@@ -1079,14 +1078,14 @@ function FileRow({
       <ContextMenuSeparator />
       {item.albumId && (
         <ContextMenuItem asChild>
-          <Link href={`/library/albums/details?id=${item.albumId}`}>
+          <Link to={`/library/albums/details?id=${item.albumId}`}>
             Go to Album
           </Link>
         </ContextMenuItem>
       )}
       {item.artistId && (
         <ContextMenuItem asChild>
-          <Link href={`/library/artists/details?id=${item.artistId}`}>
+          <Link to={`/library/artists/details?id=${item.artistId}`}>
             Go to Artist
           </Link>
         </ContextMenuItem>
@@ -1210,14 +1209,14 @@ function FileRow({
                 <DropdownMenuSeparator />
                 {item.albumId && (
                   <DropdownMenuItem asChild>
-                    <Link href={`/library/albums/details?id=${item.albumId}`}>
+                    <Link to={`/library/albums/details?id=${item.albumId}`}>
                       Go to Album
                     </Link>
                   </DropdownMenuItem>
                 )}
                 {item.artistId && (
                   <DropdownMenuItem asChild>
-                    <Link href={`/library/artists/details?id=${item.artistId}`}>
+                    <Link to={`/library/artists/details?id=${item.artistId}`}>
                       Go to Artist
                     </Link>
                   </DropdownMenuItem>

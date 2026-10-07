@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import {
   Play,
   ListPlus,
@@ -155,8 +155,7 @@ export function GenreCard({
         </div>
 
         <Link
-          href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
-          prefetch={false}
+          to={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
           className="absolute inset-0 flex flex-col justify-end p-4 touch-feedback active:brightness-90"
           onClick={(e) => {
             if (isSelectionMode) {

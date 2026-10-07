@@ -1,5 +1,6 @@
 "use client";
 
+import { Link } from "react-router-dom";
 import {
   useState,
   useRef,
@@ -8,7 +9,6 @@ import {
   useImperativeHandle,
 } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ListMusic,
@@ -265,13 +265,12 @@ function VirtualQueueItem({
           </p>
           <p className="text-xs text-muted-foreground truncate">
             <Link
-              href={`/library/artists/details?id=${song.artistId}`}
+              to={`/library/artists/details?id=${song.artistId}`}
               className="hover:underline hover:text-foreground transition-colors"
               onClick={(e) => {
                 e.stopPropagation();
                 onNavigate?.();
               }}
-              prefetch={false}
             >
               {song.artist}
             </Link>
@@ -279,13 +278,12 @@ function VirtualQueueItem({
               <>
                 {" · "}
                 <Link
-                  href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
+                  to={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
                   className="hover:underline hover:text-foreground transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     onNavigate?.();
                   }}
-                  prefetch={false}
                 >
                   {song.album}
                 </Link>

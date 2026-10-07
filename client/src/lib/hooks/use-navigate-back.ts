@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 
 /**
  * Provides a navigateBack function that falls back to the home page
@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
  * on Android/Tauri where the history stack may be empty).
  */
 export function useNavigateBack() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const navigateBack = () => {
     // Modern Navigation API (available in Chrome/Android WebView)
@@ -16,7 +16,7 @@ export function useNavigateBack() {
     const nav = (window as { navigation?: { canGoBack: boolean } }).navigation;
 
     if (nav && !nav.canGoBack) {
-      router.push("/");
+      navigate("/");
       return;
     }
 
@@ -24,11 +24,11 @@ export function useNavigateBack() {
     // A length of 1 means this is the only entry (no back history).
     // On Tauri/Android resume with cleared history, this will be 1.
     if (!nav && window.history.length <= 1) {
-      router.push("/");
+      navigate("/");
       return;
     }
 
-    router.back();
+    navigate(-1);
   };
 
   return navigateBack;

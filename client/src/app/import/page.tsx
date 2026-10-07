@@ -1,8 +1,7 @@
 "use client";
 
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import {
   Upload,
@@ -47,7 +46,7 @@ import {
  */
 export default function ImportPage() {
   useAuth({ redirectToLogin: true });
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isAdmin } = useCurrentUser();
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
   const setScanFolderId = useSetAtom(scanFolderIdAtom);
@@ -80,7 +79,7 @@ export default function ImportPage() {
         {/* Tag Editor / Tagger - First & Most Prominent */}
         <Card
           className="hover:border-primary/50 active:border-primary/70 active:bg-primary/10 transition-colors cursor-pointer group border-primary/30 bg-primary/5 touch-manipulation active:scale-[0.995]"
-          onClick={() => router.push("/tagger")}
+          onClick={() => navigate("/tagger")}
         >
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -115,12 +114,12 @@ export default function ImportPage() {
                 Organize with rename scripts
               </li>
             </ul>
-            <Link href="/tagger" className="mt-auto">
-              <Button className="w-full group-hover:bg-primary/90">
+            <Button className="w-full group-hover:bg-primary/90" asChild>
+              <Link to="/tagger" className="mt-auto">
                 Open Tag Editor
                 <ChevronRight className="w-4 h-4 ml-auto" />
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </CardContent>
         </Card>
 
@@ -281,7 +280,7 @@ export default function ImportPage() {
           </Card>
 
           {/* Recycle Bin Card */}
-          <Link href="/admin/recycle-bin">
+          <Link to="/admin/recycle-bin">
             <Card className="hover:border-primary/50 active:border-primary/70 active:bg-accent/40 transition-colors cursor-pointer group h-full touch-manipulation active:scale-[0.995]">
               <CardHeader>
                 <div className="flex items-center gap-3">

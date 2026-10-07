@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
@@ -43,10 +43,10 @@ import type { Album } from "@/lib/api/types";
 const PAGE_SIZE = 50;
 
 function GenreDetailContent() {
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const encodedName = searchParams.get("name");
   const genreName = encodedName ? decodeURIComponent(encodedName) : null;
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -68,9 +68,9 @@ function GenreDetailContent() {
   // Redirect to library if no name
   useEffect(() => {
     if (!genreName && isMounted && !authLoading) {
-      router.replace("/library");
+      navigate("/library", { replace: true });
     }
-  }, [genreName, isMounted, authLoading, router]);
+  }, [genreName, isMounted, authLoading, navigate]);
 
   // Generate color from genre name for the header gradient
   const hash = (genreName ?? "").split("").reduce((acc, char) => {

@@ -72,15 +72,6 @@ export default defineConfig(({ command }) => {
     resolve: {
       alias: {
         "@": srcDir,
-        "next/image": fileURLToPath(
-          new URL("./src/lib/next-compat/image.tsx", import.meta.url),
-        ),
-        "next/link": fileURLToPath(
-          new URL("./src/lib/next-compat/link.tsx", import.meta.url),
-        ),
-        "next/navigation": fileURLToPath(
-          new URL("./src/lib/next-compat/navigation.ts", import.meta.url),
-        ),
       },
     },
     server: {

@@ -1,8 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -63,7 +62,7 @@ export function CreatePlaylistDialog({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Fetch folders for the folder picker
   const { data: foldersData } = useQuery({
@@ -171,7 +170,7 @@ export function CreatePlaylistDialog({
 
         // Navigate to the new playlist
         if (result.playlist.playlistId) {
-          router.push(`/playlists/details?id=${result.playlist.playlistId}`);
+          navigate(`/playlists/details?id=${result.playlist.playlistId}`);
         }
       }
       setName("");
@@ -291,12 +290,10 @@ export function CreatePlaylistDialog({
                     )}
                   >
                     {coverPreview ? (
-                      <Image
+                      <img
                         src={coverPreview}
                         alt="Folder cover preview"
-                        fill
-                        unoptimized
-                        className="object-cover"
+                        className="absolute inset-0 h-full w-full object-cover"
                       />
                     ) : (
                       <Folder className="w-8 h-8 text-muted-foreground" />

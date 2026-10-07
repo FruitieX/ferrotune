@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   useInfiniteQuery,
@@ -53,9 +53,9 @@ import type { Album } from "@/lib/api/types";
 
 function ArtistDetailContent() {
   const pageSize = 100;
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const id = searchParams.get("id");
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -78,9 +78,9 @@ function ArtistDetailContent() {
   // Redirect to library if no ID
   useEffect(() => {
     if (!id && isMounted && !authLoading) {
-      router.replace("/library");
+      navigate("/library", { replace: true });
     }
-  }, [id, isMounted, authLoading, router]);
+  }, [id, isMounted, authLoading, navigate]);
 
   const { data: artistData, isLoading: isArtistLoading } = useQuery({
     queryKey: ["artist", id],

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import {
   LucideIcon,
   Play,
@@ -78,7 +78,7 @@ export function renderMenuItem(
   if (config.href) {
     return (
       <Item key={key} asChild>
-        <Link href={config.href} onClick={config.onClick}>
+        <Link to={config.href} onClick={config.onClick}>
           {content}
         </Link>
       </Item>

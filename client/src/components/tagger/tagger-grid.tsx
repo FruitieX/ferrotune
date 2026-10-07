@@ -1,5 +1,6 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useRef, useState, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
@@ -55,7 +56,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useRouter } from "next/navigation";
 import {
   ImportFromFileDialog,
   type ImportFromFileOptions,
@@ -80,7 +80,7 @@ export function TaggerGrid({
   const startQueue = useSetAtom(startQueueAtom);
   const { runOnTracks } = useRenameScript();
   const previewAudio = usePreviewAudio();
-  const router = useRouter();
+  const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -669,7 +669,7 @@ export function TaggerGrid({
           description: "Files will be permanently deleted in 30 days",
           action: {
             label: "View Recycle Bin",
-            onClick: () => router.push("/admin/recycle-bin"),
+            onClick: () => navigate("/admin/recycle-bin"),
           },
         },
       );

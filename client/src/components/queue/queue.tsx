@@ -1,8 +1,8 @@
 "use client";
 
+import { Link } from "react-router-dom";
 import { useRef, useEffect } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -114,7 +114,7 @@ function QueueSourceDisplay() {
   if (link) {
     return (
       <Link
-        href={link}
+        to={link}
         className="block px-4 py-2 border-b border-border hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation"
       >
         {content}

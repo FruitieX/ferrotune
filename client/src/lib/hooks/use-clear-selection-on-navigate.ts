@@ -1,7 +1,7 @@
 "use client";
 
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useEffect, useRef } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { clearSelectionAtom } from "@/lib/store/selection";
 
@@ -11,8 +11,8 @@ import { clearSelectionAtom } from "@/lib/store/selection";
  * which could cause confusion when the same item IDs appear in different contexts.
  */
 export function useClearSelectionOnNavigate() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
   const clearSelection = useSetAtom(clearSelectionAtom);
 
   // Track the previous path to detect navigation

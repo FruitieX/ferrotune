@@ -1,10 +1,10 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import {
   startQueueAtom,
   addToQueueAtom,
@@ -96,7 +96,7 @@ export function useSongActions({
   songIndex,
   queueSource,
 }: UseSongActionsOptions): UseSongActionsReturn {
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -288,7 +288,7 @@ export function useSongActions({
         description: "The file will be permanently deleted in 30 days",
         action: {
           label: "View Recycle Bin",
-          onClick: () => router.push("/admin/recycle-bin"),
+          onClick: () => navigate("/admin/recycle-bin"),
         },
       });
       // Invalidate all queries that might include this song

@@ -1,7 +1,7 @@
 "use client";
 
+import { useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
 
 // Store scroll positions by route key
 const scrollPositions = new Map<string, number>();
@@ -18,7 +18,7 @@ const scrollPositions = new Map<string, number>();
 export function useScrollRestoration(
   containerId: string = "main-scroll-container",
 ) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const hasRestoredRef = useRef(false);
   const attemptCountRef = useRef(0);
 

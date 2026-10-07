@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { ChevronRight, Home } from "lucide-react";
 
 interface PlaylistBreadcrumbProps {
@@ -15,7 +15,7 @@ interface PlaylistBreadcrumbProps {
  * Parses the playlist name and renders clickable breadcrumbs for folder navigation.
  */
 export function PlaylistBreadcrumb({ playlistName }: PlaylistBreadcrumbProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Build breadcrumb items from playlist name (which includes folder path)
   const breadcrumbItems = (() => {
@@ -50,9 +50,9 @@ export function PlaylistBreadcrumb({ playlistName }: PlaylistBreadcrumbProps) {
   // Navigate to a folder
   const navigateToFolder = (path: string) => {
     if (path === "") {
-      router.push("/playlists");
+      navigate("/playlists");
     } else {
-      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
+      navigate(`/playlists?folder=${encodeURIComponent(path)}`);
     }
   };
 

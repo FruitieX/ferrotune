@@ -1,7 +1,7 @@
 "use client";
 
+import { useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
 
 // Store scroll positions by route key + view mode
 // Key format: "pathname:viewMode" where viewMode can be a string identifier
@@ -71,7 +71,7 @@ export function useVirtualizedScrollRestoration(
   containerId: string = "main-scroll-container",
   viewMode?: string,
 ): UseVirtualizedScrollRestorationResult {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   // Include viewMode in key to store separate positions for different views
   const routeKey = viewMode ? `${pathname}:${viewMode}` : pathname;
   // Route key without view mode for cross-view first visible index

@@ -1,8 +1,7 @@
 "use client";
 
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
@@ -47,10 +46,10 @@ import { cn } from "@/lib/utils";
 
 function AlbumDetailContent() {
   const pageSize = 100;
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const id = searchParams.get("id");
   const songId = searchParams.get("songId");
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -72,9 +71,9 @@ function AlbumDetailContent() {
   // Redirect to library if no ID
   useEffect(() => {
     if (!id && isMounted && !authLoading) {
-      router.replace("/library");
+      navigate("/library", { replace: true });
     }
-  }, [id, isMounted, authLoading, router]);
+  }, [id, isMounted, authLoading, navigate]);
 
   const { data: albumData, isLoading: isAlbumLoading } = useQuery({
     queryKey: ["album", id],
@@ -258,7 +257,7 @@ function AlbumDetailContent() {
           albumData && (
             <>
               <Link
-                href={`/library/artists/details?id=${albumData.artistId}`}
+                to={`/library/artists/details?id=${albumData.artistId}`}
                 className="font-semibold text-foreground hover:underline"
               >
                 {albumData.artist}

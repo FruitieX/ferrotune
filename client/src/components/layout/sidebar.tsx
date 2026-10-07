@@ -1,8 +1,7 @@
 "use client";
 
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Suspense, useEffect } from "react";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -98,6 +97,11 @@ const SIDEBAR_COVER_SIZES: Record<SidebarItemSize, string> = {
 };
 
 // Shared sidebar nav item styles
+const footerLinks = [
+  { href: "/import", label: "Manage", icon: Import },
+  { href: "/settings", label: "Settings", icon: Settings },
+] as const;
+
 const sidebarNavItemBase = cn(
   "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
   "hover:bg-sidebar-accent transition-all",
@@ -121,7 +125,7 @@ const librarySubItems = [
 ];
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const hydrated = useHydrated();
   const [collapsed, setCollapsed] = useAtom(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
@@ -290,15 +294,17 @@ export function Sidebar() {
                   : pathname.startsWith(item.href);
 
               return (
-                <Link key={item.href} href={item.href}>
-                  <Button
-                    variant="ghost"
-                    className={cn(
-                      sidebarNavItemBase,
-                      isActive ? sidebarNavItemActive : sidebarNavItemInactive,
-                      isCollapsed && "justify-center px-0",
-                    )}
-                  >
+                <Button
+                  key={item.href}
+                  variant="ghost"
+                  className={cn(
+                    sidebarNavItemBase,
+                    isActive ? sidebarNavItemActive : sidebarNavItemInactive,
+                    isCollapsed && "justify-center px-0",
+                  )}
+                  asChild
+                >
+                  <Link to={item.href}>
                     <item.icon
                       className={cn(
                         "w-5 h-5 shrink-0",
@@ -310,8 +316,8 @@ export function Sidebar() {
                         {item.label}
                       </span>
                     )}
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               );
             })}
           </div>
@@ -339,17 +345,18 @@ export function Sidebar() {
                     onOpenChange={setLibraryExpanded}
                   >
                     <div className="relative">
-                      <Link href="/library" className="block">
-                        <Button
-                          variant="ghost"
-                          className={cn(
-                            "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
-                            "hover:bg-sidebar-accent transition-all",
-                            pathname.startsWith("/library")
-                              ? "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary"
-                              : "border-l-2 border-transparent",
-                          )}
-                        >
+                      <Button
+                        variant="ghost"
+                        className={cn(
+                          "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
+                          "hover:bg-sidebar-accent transition-all",
+                          pathname.startsWith("/library")
+                            ? "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary"
+                            : "border-l-2 border-transparent",
+                        )}
+                        asChild
+                      >
+                        <Link to="/library">
                           <Library
                             className={cn(
                               "w-5 h-5 shrink-0",
@@ -360,8 +367,8 @@ export function Sidebar() {
                           <span className="truncate whitespace-nowrap flex-1 text-left">
                             Library
                           </span>
-                        </Button>
-                      </Link>
+                        </Link>
+                      </Button>
                       <CollapsibleTrigger asChild>
                         <Button
                           variant="ghost"
@@ -386,22 +393,24 @@ export function Sidebar() {
                         {librarySubItems.map((subItem) => {
                           const isSubActive = pathname === subItem.href;
                           return (
-                            <Link key={subItem.href} href={subItem.href}>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className={cn(
-                                  "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
-                                  isSubActive &&
-                                    "bg-sidebar-accent text-sidebar-primary",
-                                )}
-                              >
+                            <Button
+                              key={subItem.href}
+                              variant="ghost"
+                              size="sm"
+                              className={cn(
+                                "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                                isSubActive &&
+                                  "bg-sidebar-accent text-sidebar-primary",
+                              )}
+                              asChild
+                            >
+                              <Link to={subItem.href}>
                                 <subItem.icon className="w-4 h-4 shrink-0 text-muted-foreground" />
                                 <span className="truncate text-sm">
                                   {subItem.label}
                                 </span>
-                              </Button>
-                            </Link>
+                              </Link>
+                            </Button>
                           );
                         })}
                       </div>
@@ -410,16 +419,17 @@ export function Sidebar() {
                 ) : (
                   /* During SSR, show expanded Library with subitems (default state) */
                   <>
-                    <Link href="/library">
-                      <Button
-                        variant="ghost"
-                        className={cn(
-                          "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
-                          "hover:bg-sidebar-accent",
-                          pathname.startsWith("/library") &&
-                            "bg-sidebar-accent text-sidebar-primary font-semibold",
-                        )}
-                      >
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
+                        "hover:bg-sidebar-accent",
+                        pathname.startsWith("/library") &&
+                          "bg-sidebar-accent text-sidebar-primary font-semibold",
+                      )}
+                      asChild
+                    >
+                      <Link to="/library">
                         <Library
                           className={cn(
                             "w-5 h-5 shrink-0",
@@ -430,28 +440,30 @@ export function Sidebar() {
                         <span className="truncate whitespace-nowrap">
                           Library
                         </span>
-                      </Button>
-                    </Link>
+                      </Link>
+                    </Button>
                     <div className="pl-4 mt-1 space-y-0.5">
                       {librarySubItems.map((subItem) => {
                         const isSubActive = pathname === subItem.href;
                         return (
-                          <Link key={subItem.href} href={subItem.href}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className={cn(
-                                "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
-                                isSubActive &&
-                                  "bg-sidebar-accent text-sidebar-primary",
-                              )}
-                            >
+                          <Button
+                            key={subItem.href}
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                              isSubActive &&
+                                "bg-sidebar-accent text-sidebar-primary",
+                            )}
+                            asChild
+                          >
+                            <Link to={subItem.href}>
                               <subItem.icon className="w-4 h-4 shrink-0 text-muted-foreground" />
                               <span className="truncate text-sm">
                                 {subItem.label}
                               </span>
-                            </Button>
-                          </Link>
+                            </Link>
+                          </Button>
                         );
                       })}
                     </div>
@@ -462,39 +474,41 @@ export function Sidebar() {
 
             {/* Collapsed Library button */}
             {isCollapsed && showConnectedState && (
-              <Link href="/library">
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-center h-10 px-0",
-                    "hover:bg-sidebar-accent",
-                    pathname.startsWith("/library") &&
-                      "bg-sidebar-accent text-sidebar-primary font-semibold",
-                  )}
-                >
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-center h-10 px-0",
+                  "hover:bg-sidebar-accent",
+                  pathname.startsWith("/library") &&
+                    "bg-sidebar-accent text-sidebar-primary font-semibold",
+                )}
+                asChild
+              >
+                <Link to="/library">
                   <Library
                     className={cn(
                       "w-5 h-5 shrink-0",
                       pathname.startsWith("/library") && "text-sidebar-primary",
                     )}
                   />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
 
             {/* Liked Songs */}
-            <Link href="/favorites">
-              <Button
-                variant="ghost"
-                className={cn(
-                  sidebarNavItemBase,
-                  pathname.startsWith("/favorites")
-                    ? sidebarNavItemActive
-                    : sidebarNavItemInactive,
-                  isCollapsed && "justify-center px-0",
-                )}
-                disabled={hydrated && !isConnected}
-              >
+            <Button
+              variant="ghost"
+              className={cn(
+                sidebarNavItemBase,
+                pathname.startsWith("/favorites")
+                  ? sidebarNavItemActive
+                  : sidebarNavItemInactive,
+                isCollapsed && "justify-center px-0",
+              )}
+              disabled={hydrated && !isConnected}
+              asChild
+            >
+              <Link to="/favorites">
                 <Heart
                   className={cn(
                     "w-5 h-5 shrink-0",
@@ -504,22 +518,23 @@ export function Sidebar() {
                 {!isCollapsed && (
                   <span className="truncate whitespace-nowrap">Favorites</span>
                 )}
-              </Button>
-            </Link>
+              </Link>
+            </Button>
 
             {/* Recently Played */}
-            <Link href="/history">
-              <Button
-                variant="ghost"
-                className={cn(
-                  sidebarNavItemBase,
-                  pathname.startsWith("/history")
-                    ? sidebarNavItemActive
-                    : sidebarNavItemInactive,
-                  isCollapsed && "justify-center px-0",
-                )}
-                disabled={hydrated && !isConnected}
-              >
+            <Button
+              variant="ghost"
+              className={cn(
+                sidebarNavItemBase,
+                pathname.startsWith("/history")
+                  ? sidebarNavItemActive
+                  : sidebarNavItemInactive,
+                isCollapsed && "justify-center px-0",
+              )}
+              disabled={hydrated && !isConnected}
+              asChild
+            >
+              <Link to="/history">
                 <History
                   className={cn(
                     "w-5 h-5 shrink-0",
@@ -531,8 +546,8 @@ export function Sidebar() {
                     Recently Played
                   </span>
                 )}
-              </Button>
-            </Link>
+              </Link>
+            </Button>
 
             {/* Playlists Section - Expandable */}
             {!isCollapsed && showConnectedState && (
@@ -543,17 +558,18 @@ export function Sidebar() {
                     onOpenChange={setPlaylistsExpanded}
                   >
                     <div className="relative">
-                      <Link href="/playlists" className="block">
-                        <Button
-                          variant="ghost"
-                          className={cn(
-                            "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
-                            "hover:bg-sidebar-accent transition-all",
-                            pathname === "/playlists"
-                              ? "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary"
-                              : "border-l-2 border-transparent",
-                          )}
-                        >
+                      <Button
+                        variant="ghost"
+                        className={cn(
+                          "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
+                          "hover:bg-sidebar-accent transition-all",
+                          pathname === "/playlists"
+                            ? "bg-sidebar-accent text-sidebar-primary font-semibold border-l-2 border-primary"
+                            : "border-l-2 border-transparent",
+                        )}
+                        asChild
+                      >
+                        <Link to="/playlists">
                           <ListMusic
                             className={cn(
                               "w-5 h-5 shrink-0",
@@ -564,8 +580,8 @@ export function Sidebar() {
                           <span className="truncate whitespace-nowrap flex-1 text-left">
                             Playlists
                           </span>
-                        </Button>
-                      </Link>
+                        </Link>
+                      </Button>
                       <CollapsibleTrigger asChild>
                         <Button
                           variant="ghost"
@@ -613,16 +629,17 @@ export function Sidebar() {
                 ) : (
                   /* During SSR, show expanded Playlists with skeletons (default state) */
                   <>
-                    <Link href="/playlists">
-                      <Button
-                        variant="ghost"
-                        className={cn(
-                          "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
-                          "hover:bg-sidebar-accent",
-                          pathname === "/playlists" &&
-                            "bg-sidebar-accent text-sidebar-primary",
-                        )}
-                      >
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
+                        "hover:bg-sidebar-accent",
+                        pathname === "/playlists" &&
+                          "bg-sidebar-accent text-sidebar-primary",
+                      )}
+                      asChild
+                    >
+                      <Link to="/playlists">
                         <ListMusic
                           className={cn(
                             "w-5 h-5 shrink-0",
@@ -632,8 +649,8 @@ export function Sidebar() {
                         <span className="truncate whitespace-nowrap">
                           Playlists
                         </span>
-                      </Button>
-                    </Link>
+                      </Link>
+                    </Button>
                     <div className="pl-4 mt-1 space-y-0.5">
                       <PlaylistSkeletons />
                     </div>
@@ -644,16 +661,17 @@ export function Sidebar() {
 
             {/* Collapsed playlists button */}
             {isCollapsed && showConnectedState && (
-              <Link href="/playlists">
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-center h-10 px-0",
-                    "hover:bg-sidebar-accent",
-                    pathname.startsWith("/playlists") &&
-                      "bg-sidebar-accent text-sidebar-primary",
-                  )}
-                >
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-center h-10 px-0",
+                  "hover:bg-sidebar-accent",
+                  pathname.startsWith("/playlists") &&
+                    "bg-sidebar-accent text-sidebar-primary",
+                )}
+                asChild
+              >
+                <Link to="/playlists">
                   <ListMusic
                     className={cn(
                       "w-5 h-5 shrink-0",
@@ -661,8 +679,8 @@ export function Sidebar() {
                         "text-sidebar-primary",
                     )}
                   />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
 
             {hydrated && !isConnected && !isCollapsed && (
@@ -670,11 +688,9 @@ export function Sidebar() {
                 <p className="text-sm text-muted-foreground">
                   Connect to a server to see your library
                 </p>
-                <Link href="/login">
-                  <Button variant="outline" size="sm" className="mt-2">
-                    Connect
-                  </Button>
-                </Link>
+                <Button variant="outline" size="sm" className="mt-2" asChild>
+                  <Link to="/login">Connect</Link>
+                </Button>
               </div>
             )}
           </div>
@@ -689,69 +705,62 @@ export function Sidebar() {
           isActive={pathname.startsWith("/profile")}
         />
 
-        {/* Import link */}
-        <Link href="/import">
+        {/* Manage, Settings and Collapse share a row when expanded, leaving
+            more height for the playlist list */}
+        <div className={cn(isCollapsed ? "space-y-1" : "flex gap-1")}>
+          {footerLinks.map((link) => {
+            const isActive = pathname.startsWith(link.href);
+            return (
+              <Button
+                key={link.href}
+                variant="ghost"
+                className={cn(
+                  "h-10 gap-3 px-3 hover:bg-sidebar-accent overflow-hidden",
+                  isCollapsed
+                    ? "w-full justify-center px-0"
+                    : "flex-1 min-w-0 justify-start",
+                  isActive &&
+                    "bg-sidebar-accent text-sidebar-primary font-semibold",
+                )}
+                aria-label={isCollapsed ? link.label : undefined}
+                title={isCollapsed ? link.label : undefined}
+                asChild
+              >
+                <Link to={link.href}>
+                  <link.icon
+                    className={cn(
+                      "w-5 h-5 shrink-0",
+                      isActive && "text-sidebar-primary",
+                    )}
+                  />
+                  {!isCollapsed && (
+                    <span className="truncate whitespace-nowrap">
+                      {link.label}
+                    </span>
+                  )}
+                </Link>
+              </Button>
+            );
+          })}
+
+          {/* Collapse Toggle */}
           <Button
             variant="ghost"
             className={cn(
-              "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-              pathname.startsWith("/import") &&
-                "bg-sidebar-accent text-sidebar-primary font-semibold",
-              isCollapsed && "justify-center px-0",
+              "h-10 shrink-0 hover:bg-sidebar-accent",
+              isCollapsed ? "w-full px-0" : "w-10 px-0",
             )}
+            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => hydrated && setCollapsed(!collapsed)}
           >
-            <Import
-              className={cn(
-                "w-5 h-5 shrink-0",
-                pathname.startsWith("/import") && "text-sidebar-primary",
-              )}
-            />
-            {!isCollapsed && (
-              <span className="truncate whitespace-nowrap">Manage</span>
-            )}
-          </Button>
-        </Link>
-
-        <Link href="/settings">
-          <Button
-            variant="ghost"
-            className={cn(
-              "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-              pathname.startsWith("/settings") &&
-                "bg-sidebar-accent text-sidebar-primary font-semibold",
-              isCollapsed && "justify-center px-0",
-            )}
-          >
-            <Settings
-              className={cn(
-                "w-5 h-5 shrink-0",
-                pathname.startsWith("/settings") && "text-sidebar-primary",
-              )}
-            />
-            {!isCollapsed && (
-              <span className="truncate whitespace-nowrap">Settings</span>
-            )}
-          </Button>
-        </Link>
-
-        {/* Collapse Toggle */}
-        <Button
-          variant="ghost"
-          className={cn(
-            "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-            isCollapsed && "justify-center px-0",
-          )}
-          onClick={() => hydrated && setCollapsed(!collapsed)}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-5 h-5 shrink-0" />
-          ) : (
-            <>
+            {isCollapsed ? (
+              <ChevronRight className="w-5 h-5 shrink-0" />
+            ) : (
               <ChevronLeft className="w-5 h-5 shrink-0" />
-              <span className="truncate whitespace-nowrap">Collapse</span>
-            </>
-          )}
-        </Button>
+            )}
+          </Button>
+        </div>
       </div>
     </AsideComponent>
   );
@@ -835,19 +844,20 @@ function PlaylistFolderTree({
             onOpenChange={() => toggleFolder(subfolder.path)}
           >
             <div className="relative flex items-center">
-              <Link
-                href={`/playlists?folder=${encodeURIComponent(subfolder.path)}`}
-                className="flex-1 min-w-0"
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "w-full justify-start gap-2 px-2 pr-8 hover:bg-sidebar-accent",
+                  itemHeight,
+                  isFolderActive && "bg-sidebar-accent text-sidebar-primary",
+                )}
+                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                asChild
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "w-full justify-start gap-2 px-2 pr-8 hover:bg-sidebar-accent",
-                    itemHeight,
-                    isFolderActive && "bg-sidebar-accent text-sidebar-primary",
-                  )}
-                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                <Link
+                  to={`/playlists?folder=${encodeURIComponent(subfolder.path)}`}
+                  className="flex-1 min-w-0"
                 >
                   {/* Always show folder icon */}
                   <div
@@ -878,8 +888,8 @@ function PlaylistFolderTree({
                     />
                   )}
                   <span className="truncate text-sm">{subfolder.name}</span>
-                </Button>
-              </Link>
+                </Link>
+              </Button>
               <CollapsibleTrigger asChild>
                 <Button
                   variant="ghost"
@@ -1003,7 +1013,7 @@ function PlaylistFolderTree({
                   </button>
                   {/* Playlist name links to details */}
                   <Link
-                    href={`/playlists/details?id=${playlist.id}`}
+                    to={`/playlists/details?id=${playlist.id}`}
                     className="flex-1 min-w-0"
                   >
                     <span className="truncate text-sm block hover:underline">
@@ -1082,7 +1092,7 @@ function PlaylistFolderTree({
                   </button>
                   {/* Playlist name links to details */}
                   <Link
-                    href={`/playlists/smart?id=${sp.id}`}
+                    to={`/playlists/smart?id=${sp.id}`}
                     className="flex-1 min-w-0"
                   >
                     <span className="truncate text-sm block hover:underline">
@@ -1127,7 +1137,7 @@ function PlaylistFolderTreeWithSearchParams({
   onPlayPlaylist,
   onPlaySmartPlaylist,
 }: PlaylistFolderTreeWithSearchParamsProps) {
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   return (
     <PlaylistFolderTree

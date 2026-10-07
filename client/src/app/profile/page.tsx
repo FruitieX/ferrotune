@@ -1,7 +1,7 @@
 "use client";
 
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -27,7 +27,6 @@ import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { clearQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -60,7 +59,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export default function ProfilePage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
@@ -97,7 +96,7 @@ export default function ProfilePage() {
     queryClient.clear();
     setConnection(null);
     clearQueue();
-    router.push("/login");
+    navigate("/login");
     toast.success("Logged out successfully");
   };
 
@@ -301,24 +300,30 @@ export default function ProfilePage() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Link
-                  href="/history/manage"
-                  className="min-w-fit flex-1 sm:flex-none"
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2"
+                  asChild
                 >
-                  <Button size="sm" variant="outline" className="w-full gap-2">
+                  <Link
+                    to="/history/manage"
+                    className="min-w-fit flex-1 sm:flex-none"
+                  >
                     <History className="w-4 h-4" />
                     Manage
-                  </Button>
-                </Link>
-                <Link href="/review" className="min-w-fit flex-1 sm:flex-none">
-                  <Button
-                    size="sm"
-                    className="w-full gap-2 bg-primary hover:bg-primary/80"
-                  >
+                  </Link>
+                </Button>
+                <Button
+                  size="sm"
+                  className="w-full gap-2 bg-primary hover:bg-primary/80"
+                  asChild
+                >
+                  <Link to="/review" className="min-w-fit flex-1 sm:flex-none">
                     <TrendingUp className="w-4 h-4" />
                     Your Review
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </CardHeader>
             <CardContent>

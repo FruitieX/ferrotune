@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { ListMusic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
@@ -89,14 +88,11 @@ export function PlaylistCover({
       )}
     >
       {!showPlaceholder ? (
-        <Image
+        <img
           src={coverUrl!}
           alt={alt}
-          fill
-          className="object-cover"
-          sizes={size === "full" ? "100vw" : size === "xl" ? "192px" : "56px"}
-          priority={priority}
-          unoptimized
+          className="absolute inset-0 h-full w-full object-cover"
+          loading={priority ? "eager" : undefined}
           onError={() => setImageError(true)}
         />
       ) : (

@@ -1,8 +1,7 @@
 "use client";
 
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import {
   Disc,
@@ -176,8 +175,8 @@ export default function LibraryLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
   const [viewMode, setViewMode] = useAtom(albumViewModeAtom);
   const [filter, setFilter] = useAtom(libraryFilterAtom);
   const [sortConfig, setSortConfig] = useAtom(librarySortAtom);
@@ -309,7 +308,7 @@ export default function LibraryLayout({
               downloaded music until the server is reachable.
             </p>
             <Button asChild className="mt-4">
-              <Link href="/settings/downloads">View downloads</Link>
+              <Link to="/settings/downloads">View downloads</Link>
             </Button>
           </div>
         </div>
@@ -831,7 +830,7 @@ export default function LibraryLayout({
               return (
                 <Link
                   key={tab.href}
-                  href={tab.href}
+                  to={tab.href}
                   className={cn(
                     "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 touch-manipulation active:scale-[0.98] active:bg-accent/80 active:text-foreground",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

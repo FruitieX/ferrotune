@@ -1,7 +1,11 @@
 "use client";
 
+import {
+  type NavigateFunction,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import {
   useInfiniteQuery,
   useMutation,
@@ -111,9 +115,7 @@ function positiveNumber(value: string): number | undefined {
   return Math.floor(parsed);
 }
 
-function formFromSearchParams(
-  searchParams: ReturnType<typeof useSearchParams>,
-): FilterForm {
+function formFromSearchParams(searchParams: URLSearchParams): FilterForm {
   return {
     from: isoToDatetimeLocal(searchParams.get("from")),
     to: isoToDatetimeLocal(searchParams.get("to")),
@@ -157,10 +159,7 @@ function kindsFromFilters(filters: AppliedFilters): ManagedHistoryEntryKind[] {
   return kinds;
 }
 
-function updateUrl(
-  router: ReturnType<typeof useRouter>,
-  filters: AppliedFilters,
-) {
+function updateUrl(navigate: NavigateFunction, filters: AppliedFilters) {
   const params = new URLSearchParams();
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
@@ -172,8 +171,10 @@ function updateUrl(
   if (!filters.includeSessions) params.set("includeSessions", "false");
 
   const query = params.toString();
-  router.replace(query ? `/history/manage?${query}` : "/history/manage", {
-    scroll: false,
+  navigate(query ? `/history/manage?${query}` : "/history/manage", {
+    replace: true,
+    preventScrollReset: true,
+    state: { preventScrollReset: true },
   });
 }
 
@@ -421,8 +422,8 @@ function LoadingState() {
 }
 
 export default function ManageHistoryPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
@@ -509,7 +510,7 @@ export default function ManageHistoryPage() {
     setAppliedFilters(nextFilters);
     setSelectedKeys(new Set());
     setAllMatchingSelected(false);
-    updateUrl(router, nextFilters);
+    updateUrl(navigate, nextFilters);
   };
 
   const clearFilters = () => {
@@ -526,7 +527,7 @@ export default function ManageHistoryPage() {
     setAppliedFilters(nextFilters);
     setSelectedKeys(new Set());
     setAllMatchingSelected(false);
-    updateUrl(router, nextFilters);
+    updateUrl(navigate, nextFilters);
   };
 
   const toggleEntry = (entry: ManagedHistoryEntry) => {

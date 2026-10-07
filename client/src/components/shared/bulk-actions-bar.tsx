@@ -1,5 +1,6 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
@@ -54,7 +55,6 @@ import {
 import { getClient } from "@/lib/api/client";
 import type { Song, Album, Artist, Genre, Playlist } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
 
 // Type for different media types
 export type MediaType = "song" | "album" | "artist" | "genre" | "playlist";
@@ -277,7 +277,7 @@ export function BulkActionsBar(
   };
 
   // Handler for bulk mark for editing (add songs to tagger)
-  const router = useRouter();
+  const navigate = useNavigate();
   const [tracks, setTracks] = useAtom(taggerTracksAtom);
   const setSession = useSetAtom(taggerSessionAtom);
 
@@ -298,7 +298,7 @@ export function BulkActionsBar(
         {
           action: {
             label: "Open Tagger",
-            onClick: () => router.push("/tagger"),
+            onClick: () => navigate("/tagger"),
           },
         },
       );
@@ -336,7 +336,7 @@ export function BulkActionsBar(
       toast.success(message, {
         action: {
           label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
+          onClick: () => navigate("/tagger"),
         },
       });
       props.onClear();
@@ -363,7 +363,7 @@ export function BulkActionsBar(
           description: "Files will be permanently deleted in 30 days",
           action: {
             label: "View Recycle Bin",
-            onClick: () => router.push("/admin/recycle-bin"),
+            onClick: () => navigate("/admin/recycle-bin"),
           },
         },
       );

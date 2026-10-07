@@ -1,8 +1,7 @@
 "use client";
 
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Folder, Upload, Trash2, Image as ImageIcon } from "lucide-react";
@@ -55,8 +54,8 @@ function EditFolderDialogContent({
   folder,
   onOpenChange,
 }: EditFolderDialogContentProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   // Initialize with folder.name - this will be fresh each time component mounts due to key
   const [folderName, setFolderName] = useState(folder.name);
@@ -251,7 +250,7 @@ function EditFolderDialogContent({
       const pathParts = folder.path.split("/");
       pathParts[pathParts.length - 1] = newName;
       const newPath = pathParts.join("/");
-      router.push(`/playlists?folder=${encodeURIComponent(newPath)}`);
+      navigate(`/playlists?folder=${encodeURIComponent(newPath)}`);
     }
   };
 
@@ -329,12 +328,10 @@ function EditFolderDialogContent({
                 )}
               >
                 {displayCoverUrl ? (
-                  <Image
+                  <img
                     src={displayCoverUrl}
                     alt="Folder cover"
-                    fill
-                    unoptimized
-                    className="object-cover"
+                    className="absolute inset-0 h-full w-full object-cover"
                   />
                 ) : isDragging ? (
                   <ImageIcon className="w-8 h-8 text-primary" />

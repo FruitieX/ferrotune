@@ -239,7 +239,7 @@ moon run client:test-e2e-ui
 **API Client**: `src/lib/api/client.ts` wraps native `/api` calls
 **Components**: Shadcn/ui components in `src/components/ui/`
 **Routing**: React Router routes are declared in `src/routes.tsx`; Vite entrypoint is `src/main.tsx`
-**Legacy compatibility**: `src/lib/next-compat/` backs old Link/navigation/image call sites during the Vite migration. Prefer React Router APIs and shared components for new code.
+**Navigation**: use React Router directly (`Link to=`, `useNavigate`, `useLocation`, `useSearchParams`). A navigation that shouldn't reset the main scroll position passes `state: { preventScrollReset: true }` (read by `main-content.tsx`).
 
 ---
 

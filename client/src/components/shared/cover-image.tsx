@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
 import { cn } from "@/lib/utils";
 import {
   Music,
@@ -231,30 +230,19 @@ export function CoverImage({
 
       {/* Image - render when we have a src, keep it mounted to handle load/error events */}
       {showImage && (
-        <Image
+        <img
           src={imageSrc}
           alt={alt || "Cover art"}
-          fill
           draggable={false}
+          loading={priority ? "eager" : undefined}
           className={cn(
-            "object-cover",
+            "absolute inset-0 h-full w-full object-cover",
             // Only use opacity transition when loading, not when already loaded
             // This prevents flash when switching to a cached image
             isImageLoaded
               ? "opacity-100"
               : "opacity-0 transition-opacity duration-200",
           )}
-          sizes={
-            size === "full"
-              ? "(max-width: 640px) 100vw, 50vw"
-              : size === "xl"
-                ? "192px"
-                : size === "lg"
-                  ? "96px"
-                  : "56px"
-          }
-          priority={priority}
-          unoptimized
           onLoad={() => setIsLoaded(true)}
           onError={() => setHasError(true)}
         />

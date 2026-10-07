@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -64,7 +64,7 @@ export function SmartPlaylistContextMenu({
   smartPlaylist,
   children,
 }: SmartPlaylistContextMenuProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -133,7 +133,7 @@ export function SmartPlaylistContextMenu({
       toast.success(
         `Created playlist "${result.name}" with ${result.songCount} songs`,
       );
-      router.push(`/playlists/details?id=${result.playlistId}`);
+      navigate(`/playlists/details?id=${result.playlistId}`);
     },
     onError: (error) => {
       toast.error("Failed to save as playlist", {
@@ -211,7 +211,7 @@ export function SmartPlaylistContextMenu({
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       setDeleteDialogOpen(false);
-      router.push("/playlists");
+      navigate("/playlists");
     } catch (error) {
       toast.error("Failed to delete smart playlist");
       console.error(error);
@@ -359,7 +359,7 @@ export function SmartPlaylistDropdownMenu({
   smartPlaylist: SmartPlaylistInfo;
   inline?: boolean;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -429,7 +429,7 @@ export function SmartPlaylistDropdownMenu({
       toast.success(
         `Created playlist "${result.name}" with ${result.songCount} songs`,
       );
-      router.push(`/playlists/details?id=${result.playlistId}`);
+      navigate(`/playlists/details?id=${result.playlistId}`);
     },
     onError: (error) => {
       toast.error("Failed to save as playlist", {
@@ -507,7 +507,7 @@ export function SmartPlaylistDropdownMenu({
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       setDeleteDialogOpen(false);
-      router.push("/playlists");
+      navigate("/playlists");
     } catch (error) {
       toast.error("Failed to delete smart playlist");
       console.error(error);
