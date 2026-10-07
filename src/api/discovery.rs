@@ -139,13 +139,9 @@ pub async fn discover_similar_songs(
 
     // Recent listening, newest first: it supplies both the fallback seed and
     // the "recently played" set to exclude (fetch enough to cover the window).
-    let recent = crate::db::repo::history::list_recent_song_aggregates(
-        database.conn(),
-        user_id,
-        500,
-        0,
-    )
-    .await?;
+    let recent =
+        crate::db::repo::history::list_recent_song_aggregates(database.conn(), user_id, 500, 0)
+            .await?;
 
     // 1. Pick a seed song. Prefer the explicitly-provided seed_song_id; fall
     // back to the most-recently-played song that has a bliss analysis (the
