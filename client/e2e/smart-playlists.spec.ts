@@ -38,6 +38,39 @@ test.describe("Smart Playlists", () => {
     ).toBeVisible();
   });
 
+  test("duration rules are entered as minutes and seconds", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/playlists");
+    await page.getByRole("button", { name: /new/i }).click();
+    await page.getByRole("menuitem", { name: /smart playlist/i }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /choose a preset/i }).click();
+    // The preset grid scrolls inside the popover; activate it directly.
+    await page
+      .getByRole("button", { name: /use long tracks preset/i })
+      .dispatchEvent("click");
+
+    // The preset's 420 seconds shows as 7:00.
+    const duration = dialog.getByPlaceholder("m:ss");
+    await expect(duration).toHaveValue("7:00");
+
+    await duration.fill("0:04");
+    const created = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).pathname === "/api/smart-playlists" &&
+        request.method() === "POST",
+    );
+    await dialog.getByLabel("Name").fill(`Duration Rule ${Date.now()}`);
+    await dialog.getByRole("button", { name: /create|save/i }).click();
+    const body = (await created).postDataJSON();
+    expect(body.rules.conditions).toContainEqual({
+      field: "duration",
+      operator: "gte",
+      value: 4,
+    });
+  });
+
   test("can create a smart playlist", async ({ authenticatedPage: page }) => {
     await page.goto("/playlists");
 

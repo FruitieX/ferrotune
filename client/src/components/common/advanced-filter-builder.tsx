@@ -56,6 +56,7 @@ export interface AdvancedFilters {
 export type FieldType =
   | "text"
   | "number"
+  | "duration"
   | "date"
   | "boolean"
   | "enum"
@@ -85,7 +86,7 @@ export const DEFAULT_SONG_FIELDS: FieldDefinition[] = [
   { value: "year", label: "Year", type: "number" },
   { value: "playCount", label: "Play Count", type: "number" },
   { value: "playStarts", label: "Play Starts", type: "number" },
-  { value: "duration", label: "Duration (seconds)", type: "number" },
+  { value: "duration", label: "Duration", type: "duration" },
   { value: "bitrate", label: "Bitrate (kbps)", type: "number" },
   { value: "rating", label: "Rating", type: "number" },
   { value: "dateAdded", label: "Date Added", type: "date" },
@@ -235,6 +236,16 @@ export const OPERATORS: Record<FieldType, OperatorDefinition[]> = {
     { value: "empty", label: "is empty" },
     { value: "notEmpty", label: "is not empty" },
   ],
+  duration: [
+    { value: "eq", label: "equals" },
+    { value: "neq", label: "does not equal" },
+    { value: "gt", label: "greater than" },
+    { value: "gte", label: "at least" },
+    { value: "lt", label: "less than" },
+    { value: "lte", label: "at most" },
+    { value: "empty", label: "is empty" },
+    { value: "notEmpty", label: "is not empty" },
+  ],
   date: [
     { value: "within", label: "within last" },
     { value: "gt", label: "after" },
@@ -255,6 +266,72 @@ export const OPERATORS: Record<FieldType, OperatorDefinition[]> = {
     { value: "neq", label: "excludes all of" },
   ],
 };
+
+// ============================================================================
+// Duration input
+// ============================================================================
+
+/** Formats seconds as m:ss (h:mm:ss from an hour). */
+export function formatDurationInput(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = String(total % 60).padStart(2, "0");
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}`
+    : `${minutes}:${secs}`;
+}
+
+/**
+ * Parses "m:ss" or "h:mm:ss"; a bare number means minutes. Returns seconds,
+ * or null when the text isn't a duration.
+ */
+export function parseDurationInput(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return Math.round(Number(trimmed) * 60);
+  const parts = trimmed.split(":");
+  if (parts.length < 2 || parts.length > 3) return null;
+  if (!parts.every((part) => /^\d+$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  const [hours, minutes, secs] =
+    numbers.length === 3 ? numbers : [0, numbers[0], numbers[1]];
+  if (secs >= 60 || (numbers.length === 3 && minutes >= 60)) return null;
+  return hours * 3600 + minutes * 60 + secs;
+}
+
+function DurationInput({
+  seconds,
+  onChange,
+}: {
+  seconds: number | undefined;
+  onChange: (seconds: number | undefined) => void;
+}) {
+  const [text, setText] = useState(
+    seconds === undefined ? "" : formatDurationInput(seconds),
+  );
+  const invalid = text.trim() !== "" && parseDurationInput(text) === null;
+  return (
+    <Input
+      className={cn("w-24 h-8", invalid && "border-destructive")}
+      placeholder="m:ss"
+      title="Minutes and seconds, e.g. 3:30"
+      aria-invalid={invalid}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const parsed = parseDurationInput(e.target.value);
+        if (parsed !== null || e.target.value.trim() === "") {
+          onChange(parsed ?? undefined);
+        }
+      }}
+      onBlur={() => {
+        const parsed = parseDurationInput(text);
+        if (parsed !== null) setText(formatDurationInput(parsed));
+      }}
+    />
+  );
+}
 
 // ============================================================================
 // Helper Functions
@@ -545,6 +622,13 @@ function ConditionRow({
               value={String(condition.value)}
               onChange={(e) => onUpdate({ value: e.target.value })}
             />
+          ) : fieldType === "duration" ? (
+            <DurationInput
+              seconds={
+                condition.value === "" ? undefined : Number(condition.value)
+              }
+              onChange={(seconds) => onUpdate({ value: seconds ?? "" })}
+            />
           ) : fieldType === "number" ? (
             <Input
               className="w-24 h-8"
@@ -575,6 +659,7 @@ function ConditionRow({
 
       {/* Remove Button */}
       <Button
+        aria-label="Remove condition"
         type="button"
         variant="ghost"
         size="icon"
