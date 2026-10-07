@@ -364,6 +364,7 @@ export function SearchPageContent() {
               )}
               {query && (
                 <Button
+                  aria-label="Clear search"
                   variant="ghost"
                   size="icon"
                   className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"

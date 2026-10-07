@@ -874,6 +874,7 @@ export default function SetupPage() {
                             </p>
                           </div>
                           <Button
+                            aria-label="Remove folder"
                             variant="ghost"
                             size="icon"
                             className="shrink-0"

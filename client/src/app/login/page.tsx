@@ -439,6 +439,7 @@ export default function LoginPage() {
                         </span>
                       </Button>
                       <Button
+                        aria-label="Remove saved account"
                         variant="ghost"
                         size="icon"
                         className="shrink-0 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"

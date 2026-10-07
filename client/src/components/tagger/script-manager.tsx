@@ -325,6 +325,7 @@ export function ScriptManager() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">Rename Scripts</span>
                 <Button
+                  aria-label="New rename script"
                   variant="ghost"
                   size="sm"
                   className="h-6"
@@ -352,6 +353,7 @@ export function ScriptManager() {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
+                            aria-label={`Toggle ${s.name}`}
                             variant="ghost"
                             size="sm"
                             className={`h-5 w-5 p-0 ${isActive ? "text-primary" : "text-muted-foreground"}`}
@@ -373,6 +375,7 @@ export function ScriptManager() {
                       </Tooltip>
                       <span className="text-sm flex-1 truncate">{s.name}</span>
                       <Button
+                        aria-label="Edit script"
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0"
@@ -384,6 +387,7 @@ export function ScriptManager() {
                         <Edit className="w-3 h-3" />
                       </Button>
                       <Button
+                        aria-label="Delete script"
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-red-500"
@@ -412,6 +416,7 @@ export function ScriptManager() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">Tag Scripts</span>
                 <Button
+                  aria-label="New tag script"
                   variant="ghost"
                   size="sm"
                   className="h-6"
@@ -445,6 +450,7 @@ export function ScriptManager() {
                       <TooltipContent>Apply to selected tracks</TooltipContent>
                     </Tooltip>
                     <Button
+                      aria-label="Edit script"
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0"
@@ -453,6 +459,7 @@ export function ScriptManager() {
                       <Edit className="w-3 h-3" />
                     </Button>
                     <Button
+                      aria-label="Delete script"
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0 text-red-500"

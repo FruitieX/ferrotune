@@ -180,6 +180,7 @@ export function MediaCard({
                 )}
               >
                 <Button
+                  aria-label={`Play ${title}`}
                   size="icon"
                   className="h-12 w-12 rounded-full shadow-lg"
                   onClick={(e) => {

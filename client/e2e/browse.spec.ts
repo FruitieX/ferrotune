@@ -90,4 +90,37 @@ test.describe("Library Browsing", () => {
     await favoritesLink.click();
     await expect(page).toHaveURL("/favorites");
   });
+
+  test("album header shows short totals in seconds", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/albums");
+    await page.getByRole("button", { name: /grid view/i }).click();
+    await page
+      .locator('[data-testid="media-card"]')
+      .filter({ hasText: "Test Album" })
+      .first()
+      .click();
+    // 3 + 4 + 5 second fixture tracks
+    await expect(page.getByText("12 sec")).toBeVisible();
+  });
+
+  test("sidebar footer keeps Manage, Settings and Collapse reachable", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/");
+    const sidebar = page.locator("aside").first();
+    await sidebar.getByRole("link", { name: "Settings" }).click();
+    await expect(page).toHaveURL(/\/settings/);
+    await sidebar.getByRole("link", { name: "Manage" }).click();
+    await expect(page).toHaveURL(/\/import/);
+
+    await sidebar.getByRole("button", { name: "Collapse sidebar" }).click();
+    await expect(
+      sidebar.getByRole("button", { name: "Expand sidebar" }),
+    ).toBeVisible();
+    // Collapsed items keep their names for assistive tech.
+    await expect(sidebar.getByRole("link", { name: "Settings" })).toBeVisible();
+    await sidebar.getByRole("button", { name: "Expand sidebar" }).click();
+  });
 });

@@ -304,7 +304,10 @@ export function Sidebar() {
                   )}
                   asChild
                 >
-                  <Link to={item.href}>
+                  <Link
+                    to={item.href}
+                    aria-label={isCollapsed ? item.label : undefined}
+                  >
                     <item.icon
                       className={cn(
                         "w-5 h-5 shrink-0",
@@ -371,6 +374,11 @@ export function Sidebar() {
                       </Button>
                       <CollapsibleTrigger asChild>
                         <Button
+                          aria-label={
+                            libraryExpanded
+                              ? "Collapse Library"
+                              : "Expand Library"
+                          }
                           variant="ghost"
                           size="icon"
                           className={cn(
@@ -484,7 +492,7 @@ export function Sidebar() {
                 )}
                 asChild
               >
-                <Link to="/library">
+                <Link to="/library" aria-label="Library">
                   <Library
                     className={cn(
                       "w-5 h-5 shrink-0",
@@ -504,11 +512,15 @@ export function Sidebar() {
                   ? sidebarNavItemActive
                   : sidebarNavItemInactive,
                 isCollapsed && "justify-center px-0",
+                hydrated && !isConnected && "pointer-events-none opacity-50",
               )}
-              disabled={hydrated && !isConnected}
+              aria-disabled={hydrated && !isConnected}
               asChild
             >
-              <Link to="/favorites">
+              <Link
+                to="/favorites"
+                aria-label={isCollapsed ? "Favorites" : undefined}
+              >
                 <Heart
                   className={cn(
                     "w-5 h-5 shrink-0",
@@ -530,11 +542,15 @@ export function Sidebar() {
                   ? sidebarNavItemActive
                   : sidebarNavItemInactive,
                 isCollapsed && "justify-center px-0",
+                hydrated && !isConnected && "pointer-events-none opacity-50",
               )}
-              disabled={hydrated && !isConnected}
+              aria-disabled={hydrated && !isConnected}
               asChild
             >
-              <Link to="/history">
+              <Link
+                to="/history"
+                aria-label={isCollapsed ? "Recently Played" : undefined}
+              >
                 <History
                   className={cn(
                     "w-5 h-5 shrink-0",
@@ -584,6 +600,11 @@ export function Sidebar() {
                       </Button>
                       <CollapsibleTrigger asChild>
                         <Button
+                          aria-label={
+                            playlistsExpanded
+                              ? "Collapse Playlists"
+                              : "Expand Playlists"
+                          }
                           variant="ghost"
                           size="icon"
                           className={cn(
@@ -671,7 +692,7 @@ export function Sidebar() {
                 )}
                 asChild
               >
-                <Link to="/playlists">
+                <Link to="/playlists" aria-label="Playlists">
                   <ListMusic
                     className={cn(
                       "w-5 h-5 shrink-0",
@@ -892,6 +913,7 @@ function PlaylistFolderTree({
               </Button>
               <CollapsibleTrigger asChild>
                 <Button
+                  aria-label="Toggle folder"
                   variant="ghost"
                   size="icon"
                   className={cn(

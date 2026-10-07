@@ -127,6 +127,10 @@ export function formatTotalDuration(totalSeconds: number): string {
   if (hours > 0) {
     return `${hours} hr ${minutes} min`;
   }
+  // Under a minute (but not empty), show seconds instead of "0 min".
+  if (minutes === 0 && totalSeconds > 0) {
+    return `${Math.round(totalSeconds)} sec`;
+  }
   return `${minutes} min`;
 }
 

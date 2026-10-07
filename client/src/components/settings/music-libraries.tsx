@@ -190,7 +190,12 @@ function MusicFolderCard({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="shrink-0">
+            <Button
+              aria-label="Library options"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+            >
               <MoreVertical className="w-4 h-4" />
             </Button>
           </DropdownMenuTrigger>

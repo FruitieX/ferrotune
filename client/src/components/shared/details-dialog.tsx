@@ -263,6 +263,7 @@ function SongDetails({
         <div className="flex gap-4">
           {fullSizeCoverUrl ? (
             <button
+              aria-label="View full-size cover"
               type="button"
               onClick={() => setCoverModalOpen(true)}
               className="cursor-zoom-in shrink-0"
@@ -564,6 +565,7 @@ function AlbumDetails({ album }: { album: Album }) {
         <div className="flex gap-4">
           {fullSizeCoverUrl ? (
             <button
+              aria-label="View full-size cover"
               type="button"
               onClick={() => setCoverModalOpen(true)}
               className="cursor-zoom-in shrink-0"
@@ -682,6 +684,7 @@ function ArtistDetails({ artist }: { artist: Artist }) {
         <div className="flex gap-4">
           {fullSizeCoverUrl ? (
             <button
+              aria-label="View full-size cover"
               type="button"
               onClick={() => setCoverModalOpen(true)}
               className="cursor-zoom-in shrink-0"
@@ -787,6 +790,7 @@ function PlaylistDetails({ playlist }: { playlist: Playlist }) {
         <div className="flex gap-4">
           {fullSizeCoverUrl ? (
             <button
+              aria-label="View full-size cover"
               type="button"
               onClick={() => setCoverModalOpen(true)}
               className="cursor-zoom-in shrink-0"

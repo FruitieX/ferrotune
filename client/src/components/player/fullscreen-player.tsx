@@ -157,6 +157,7 @@ function FullscreenVolumeControls({
 
   const volumeButton = (
     <Button
+      aria-label={isMuted ? "Unmute" : "Mute"}
       variant="ghost"
       size="icon"
       className="shrink-0 rounded-full h-8 w-8"
@@ -1549,6 +1550,9 @@ export function FullscreenPlayer() {
                 </p>
               </div>
               <Button
+                aria-label={
+                  isStarred ? "Remove from favorites" : "Add to favorites"
+                }
                 variant="ghost"
                 size="icon"
                 className="rounded-full shrink-0"
@@ -1614,6 +1618,7 @@ export function FullscreenPlayer() {
               className="flex items-center justify-center gap-6 mb-8"
             >
               <Button
+                aria-label="Shuffle"
                 variant="ghost"
                 size="icon"
                 className={cn(
@@ -1629,6 +1634,7 @@ export function FullscreenPlayer() {
               </Button>
 
               <Button
+                aria-label="Previous"
                 variant="ghost"
                 size="icon"
                 className="rounded-full w-12 h-12"
@@ -1641,6 +1647,7 @@ export function FullscreenPlayer() {
               </Button>
 
               <Button
+                aria-label={playbackState === "playing" ? "Pause" : "Play"}
                 size="icon"
                 className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
                 onClick={() => {
@@ -1656,6 +1663,7 @@ export function FullscreenPlayer() {
               </Button>
 
               <Button
+                aria-label="Next"
                 variant="ghost"
                 size="icon"
                 className="rounded-full w-12 h-12"
@@ -1668,6 +1676,7 @@ export function FullscreenPlayer() {
               </Button>
 
               <Button
+                aria-label="Repeat"
                 variant="ghost"
                 size="icon"
                 className={cn(

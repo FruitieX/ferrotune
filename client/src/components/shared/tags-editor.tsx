@@ -424,6 +424,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                           NEW
                         </Badge>
                         <Button
+                          aria-label="Remove tag"
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 shrink-0"
@@ -472,6 +473,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                           className="flex-1"
                         />
                         <Button
+                          aria-label="Add tag"
                           variant="outline"
                           size="icon"
                           onClick={handleAddTag}
@@ -752,6 +754,7 @@ function TagRow({
             </Button>
           ) : (
             <Button
+              aria-label="Delete tag"
               variant="ghost"
               size="icon"
               className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"

@@ -1267,7 +1267,12 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
               />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-7 px-2">
+                  <Button
+                    aria-label="Choose tag"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                  >
                     <ChevronDown className="w-3 h-3" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1291,6 +1296,7 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
+                aria-label="Add tag"
                 variant="outline"
                 size="sm"
                 className="h-7 px-2"
@@ -1325,6 +1331,7 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
         <div className="p-3 border-t border-border/40 shrink-0">
           <div className="flex items-center gap-2">
             <Button
+              aria-label={preview.isPlaying ? "Pause preview" : "Play preview"}
               variant="ghost"
               size="icon"
               className="h-8 w-8 shrink-0"

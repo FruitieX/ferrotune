@@ -191,6 +191,7 @@ export function DirectoryBrowser({
           {/* Breadcrumb navigation */}
           <div className="flex items-center gap-1 p-2 border-b bg-muted/50 overflow-x-auto">
             <Button
+              aria-label="Root folder"
               variant="ghost"
               size="sm"
               className="h-7 px-2 shrink-0"
@@ -213,6 +214,7 @@ export function DirectoryBrowser({
             ))}
             <div className="flex-1" />
             <Button
+              aria-label="Refresh"
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0"
@@ -280,6 +282,7 @@ export function DirectoryBrowser({
                         <span className="truncate text-sm">{entry.name}</span>
                       </button>
                       <Button
+                        aria-label="Open folder"
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 shrink-0"

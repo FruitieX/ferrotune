@@ -328,7 +328,12 @@ function AlbumDetailContent() {
                 />
               }
               trigger={
-                <Button variant="ghost" size="icon" className="h-10 w-10">
+                <Button
+                  aria-label="More options"
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10"
+                >
                   <MoreHorizontal className="w-5 h-5" />
                 </Button>
               }

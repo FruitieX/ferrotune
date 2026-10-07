@@ -9,7 +9,12 @@ export function MobileProfileMenu() {
   return (
     <ResponsiveDropdownMenu
       trigger={
-        <Button variant="ghost" size="icon" className="lg:hidden shrink-0">
+        <Button
+          aria-label="Profile"
+          variant="ghost"
+          size="icon"
+          className="lg:hidden shrink-0"
+        >
           <User className="w-5 h-5" />
         </Button>
       }

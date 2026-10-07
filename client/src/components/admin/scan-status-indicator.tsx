@@ -62,6 +62,7 @@ export function ScanStatusIndicator({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
+          aria-label="Library scan"
           variant="ghost"
           size="icon"
           className="h-10 w-10 shrink-0 hover:bg-sidebar-accent"

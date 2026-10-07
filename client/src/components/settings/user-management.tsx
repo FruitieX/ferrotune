@@ -112,7 +112,12 @@ function UserCard({
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="shrink-0">
+            <Button
+              aria-label="User options"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+            >
               <MoreVertical className="w-4 h-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -393,6 +398,9 @@ export function UserManagement() {
                         onChange={(e) => setNewPassword(e.target.value)}
                       />
                       <Button
+                        aria-label={
+                          showPassword ? "Hide password" : "Show password"
+                        }
                         type="button"
                         variant="ghost"
                         size="icon"
@@ -540,6 +548,7 @@ export function UserManagement() {
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
                 <Button
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   type="button"
                   variant="ghost"
                   size="icon"

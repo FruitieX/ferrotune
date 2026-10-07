@@ -526,6 +526,7 @@ export default function ReviewPage() {
           {/* Period selector with navigation */}
           <div className="flex items-center gap-1">
             <Button
+              aria-label="Previous period"
               variant="ghost"
               size="icon"
               onClick={handlePreviousPeriod}
@@ -602,6 +603,7 @@ export default function ReviewPage() {
               </DropdownMenuContent>
             </DropdownMenu>
             <Button
+              aria-label="Next period"
               variant="ghost"
               size="icon"
               onClick={handleNextPeriod}

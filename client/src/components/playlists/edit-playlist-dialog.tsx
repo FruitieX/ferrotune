@@ -309,6 +309,7 @@ export function EditPlaylistDialog({
                                 />
                               </div>
                               <Button
+                                aria-label="Remove share"
                                 type="button"
                                 variant="ghost"
                                 size="icon"

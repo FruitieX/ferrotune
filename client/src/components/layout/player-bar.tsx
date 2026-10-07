@@ -205,6 +205,7 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
           </Link>
         </div>
         <Button
+          aria-label={isStarred ? "Remove from favorites" : "Add to favorites"}
           variant="ghost"
           size="icon"
           className="hidden lg:flex shrink-0 h-8 w-8"
@@ -1168,6 +1169,7 @@ function MobileMoreMenu() {
           {shouldShowVolume && (
             <div className="flex items-center gap-2 px-3 py-1.5">
               <Button
+                aria-label={isMuted ? "Unmute" : "Mute"}
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 p-0"
@@ -1471,15 +1473,28 @@ export function PlayerBarSkeleton() {
         <div className="hidden md:flex flex-col items-center justify-center gap-1 flex-1 max-w-[40%]">
           <div className="flex items-center gap-2">
             {/* Shuffle */}
-            <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+            <Button
+              aria-label="Shuffle"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled
+            >
               <Shuffle className="w-4 h-4" />
             </Button>
             {/* Previous */}
-            <Button variant="ghost" size="icon" className="h-9 w-9" disabled>
+            <Button
+              aria-label="Previous"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              disabled
+            >
               <SkipBack className="w-5 h-5" />
             </Button>
             {/* Play */}
             <Button
+              aria-label="Play"
               variant="default"
               size="icon"
               className="h-10 w-10 rounded-full"
@@ -1488,11 +1503,23 @@ export function PlayerBarSkeleton() {
               <Play className="w-5 h-5 ml-0.5" />
             </Button>
             {/* Next */}
-            <Button variant="ghost" size="icon" className="h-9 w-9" disabled>
+            <Button
+              aria-label="Next"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              disabled
+            >
               <SkipForward className="w-5 h-5" />
             </Button>
             {/* Repeat */}
-            <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+            <Button
+              aria-label="Repeat"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled
+            >
               <Repeat className="w-4 h-4" />
             </Button>
           </div>
@@ -1502,6 +1529,7 @@ export function PlayerBarSkeleton() {
         <div className="flex items-center gap-1 md:gap-2 md:w-[30%] justify-end">
           {/* Mobile-only play button */}
           <Button
+            aria-label="Play"
             variant="ghost"
             size="icon"
             className="flex md:hidden h-9 w-9 rounded-full"
@@ -1510,18 +1538,31 @@ export function PlayerBarSkeleton() {
             <Play className="w-4 h-4 ml-0.5" />
           </Button>
           {/* Queue */}
-          <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+          <Button
+            aria-label="Queue"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled
+          >
             <ListMusic className="w-4 h-4" />
           </Button>
           {/* Volume - desktop */}
           <div className="hidden md:flex items-center gap-2 w-32">
-            <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+            <Button
+              aria-label="Mute"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled
+            >
               <Volume2 className="w-4 h-4" />
             </Button>
             <Slider value={[70]} max={100} className="flex-1" disabled />
           </div>
           {/* More - mobile */}
           <Button
+            aria-label="More options"
             variant="ghost"
             size="icon"
             className="h-8 w-8 md:hidden"
@@ -1531,6 +1572,7 @@ export function PlayerBarSkeleton() {
           </Button>
           {/* Fullscreen - desktop */}
           <Button
+            aria-label="Full screen"
             variant="ghost"
             size="icon"
             className="hidden md:flex h-8 w-8"

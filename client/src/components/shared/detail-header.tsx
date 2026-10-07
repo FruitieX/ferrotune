@@ -186,6 +186,7 @@ export function DetailHeader({
             />
           ) : coverUrl ? (
             <button
+              aria-label="View full-size cover"
               type="button"
               className={cn(
                 "w-full h-full block",

@@ -215,6 +215,7 @@ export function UploadDialog({ open, onOpenChange }: UploadDialogProps) {
                   )}
                   {f.status === "pending" && (
                     <Button
+                      aria-label="Remove file"
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0"

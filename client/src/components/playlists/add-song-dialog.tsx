@@ -316,6 +316,9 @@ export function AddSongToPlaylistDialog({
           {selectedSong && (
             <div className="flex items-center gap-2">
               <Button
+                aria-label={
+                  preview.isPlaying ? "Pause preview" : "Play preview"
+                }
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 shrink-0"

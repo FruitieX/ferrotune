@@ -448,6 +448,7 @@ export function MissingEntryCard({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
+                aria-label="More options"
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 bg-black/50 hover:bg-black/70 active:bg-black/80 text-white"
