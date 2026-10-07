@@ -521,12 +521,21 @@ pub struct FerrotuneGenresResponse {
     pub genres: GenresList,
 }
 
-/// GET /api/genres - Get all genres
+/// Query for `GET /api/genres`.
+#[derive(Debug, Deserialize, Default)]
+pub struct GenresQuery {
+    /// Case-insensitive substring match on the genre name.
+    pub filter: Option<String>,
+}
+
+/// GET /api/genres - Get all genres, optionally filtered by name
 pub async fn get_genres(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<GenresQuery>,
 ) -> FerrotuneApiResult<Json<FerrotuneGenresResponse>> {
-    let genres_list = get_genres_logic(&state.database, user.user_id).await?;
+    let genres_list =
+        get_genres_logic(&state.database, user.user_id, query.filter.as_deref()).await?;
 
     Ok(Json(FerrotuneGenresResponse {
         genres: genres_list,

@@ -108,6 +108,20 @@ HTTP 200
 [Asserts]
 jsonpath "$.genres" isCollection
 
+# Filter genres by name on the server (case-insensitive substring)
+GET {{base_url}}/api/genres?filter=ROC
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.genres.genre" count == 1
+jsonpath "$.genres.genre[0].value" == "Rock"
+
+GET {{base_url}}/api/genres?filter=no-such-genre
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.genres.genre" count == 0
+
 # Unauthenticated request should fail
 GET {{base_url}}/api/genres
 HTTP 401

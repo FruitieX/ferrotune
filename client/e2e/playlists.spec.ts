@@ -4,6 +4,7 @@
 
 import type { Page } from "@playwright/test";
 import { test, expect, type ServerInfo } from "./fixtures";
+import { setServerPreference } from "./app-helpers";
 
 function basicAuthHeader(server: ServerInfo): string {
   return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`;
@@ -289,5 +290,51 @@ test.describe("Playlists", () => {
         timeout: 1200,
       })
       .toBeLessThanOrEqual(2);
+  });
+
+  test("lists playlists in the server's filter and sort order", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const prefix = `Sorted ${Date.now()}`;
+    const songId = await fetchFirstSongId(page, server);
+    await createRepeatedSongPlaylist({
+      page,
+      server,
+      name: `${prefix} A one`,
+      songId,
+      entryCount: 1,
+    });
+    await createRepeatedSongPlaylist({
+      page,
+      server,
+      name: `${prefix} B three`,
+      songId,
+      entryCount: 3,
+    });
+    await setServerPreference(page, "playlists-sort", {
+      field: "songCount",
+      direction: "desc",
+    });
+
+    const filtered = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/playlists/browse" &&
+        url.searchParams.get("filter") === prefix &&
+        url.searchParams.get("sort") === "songCount"
+      );
+    });
+    await page.goto("/playlists");
+    await page
+      .getByPlaceholder(/filter/i)
+      .first()
+      .fill(prefix);
+    await filtered;
+
+    const cards = page.getByTestId("media-card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.first()).toContainText("B three");
+    await expect(cards.last()).toContainText("A one");
   });
 });

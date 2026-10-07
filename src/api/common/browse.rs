@@ -182,11 +182,21 @@ pub async fn get_song_logic(
 pub async fn get_genres_logic(
     database: &crate::db::Database,
     user_id: i64,
+    filter: Option<&str>,
 ) -> crate::error::Result<GenresList> {
     let genres = crate::db::repo::browse::list_genres_for_user(database, user_id).await?;
+    let needle = filter
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .map(str::to_lowercase);
 
     let json_genres: Vec<GenreResponse> = genres
         .into_iter()
+        .filter(|r| {
+            needle
+                .as_deref()
+                .is_none_or(|needle| r.genre.to_lowercase().contains(needle))
+        })
         .map(|r| GenreResponse {
             name: r.genre,
             song_count: r.song_count,

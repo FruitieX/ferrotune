@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import type { PlaylistFoldersResponse } from "./generated/PlaylistFoldersResponse";
+import type { PlaylistBrowseResponse } from "./generated/PlaylistBrowseResponse";
 import type { PlaylistFolderResponse } from "./generated/PlaylistFolderResponse";
 import type {
   ServerConnection,
@@ -559,8 +560,11 @@ export class FerrotuneClient {
     return this.request<FerrotuneSimilarSongsResponse>(endpoint);
   }
 
-  async getGenres(): Promise<GenresResponse> {
-    return this.request<GenresResponse>("/api/genres");
+  /** Genres, optionally filtered by name on the server. */
+  async getGenres(params?: { filter?: string }): Promise<GenresResponse> {
+    return this.request<GenresResponse>(
+      buildEndpoint("/api/genres", { filter: params?.filter || undefined }),
+    );
   }
 
   // Directory browsing endpoints
@@ -862,6 +866,28 @@ export class FerrotuneClient {
    */
   async getPlaylistFoldersWithStructure(): Promise<PlaylistFoldersResponse> {
     return this.request<PlaylistFoldersResponse>("/api/playlist-folders");
+  }
+
+  /**
+   * One folder level of the playlist browser (or every playlist with
+   * `recursive`), filtered and sorted by the server.
+   */
+  async browsePlaylists(params: {
+    folderId?: string | null;
+    recursive?: boolean;
+    filter?: string;
+    sort?: string;
+    sortDir?: "asc" | "desc";
+  }): Promise<PlaylistBrowseResponse> {
+    return this.request<PlaylistBrowseResponse>(
+      buildEndpoint("/api/playlists/browse", {
+        folderId: params.folderId || undefined,
+        recursive: params.recursive || undefined,
+        filter: params.filter || undefined,
+        sort: params.sort,
+        sortDir: params.sortDir,
+      }),
+    );
   }
 
   async createPlaylist(params: {

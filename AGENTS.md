@@ -296,6 +296,7 @@ let songs: Vec<Song> = crate::db::raw::query_all(
 | `src/lib.rs` | Canonical standalone/embedded server bootstrap and owned maintenance-task lifecycle | `ServerRuntime::bootstrap()`, `ServerRuntime::bootstrap_with_database()`, `ServerRuntimeOptions`, `CorsPolicy` |
 | `src/api/queue.rs` | Server-side materialization of one or more collection descriptors with stable first-occurrence deduplication | `QueueSourceRequest`, `materialize_queue_sources()` |
 | `src/api/media.rs` | IDs-only and native-download snapshots for collection commands | `POST /api/sources/song-ids`, `POST /api/downloads/manifest` |
+| `src/api/playlists.rs` | Server-side playlist browser listing: one folder level (subfolders + playlists and smart playlists mixed in the requested order), or every playlist with `recursive` (search). Name filters for genres live on `GET /api/genres?filter=` | `GET /api/playlists/browse` (`folderId`, `recursive`, `filter`, `sort`, `sortDir`), `PlaylistBrowseItem` (exactly one of `playlist`/`smartPlaylist`) |
 
 CLI, desktop, and test launchers must consume `ServerRuntime`; do not recreate
 watchers, session maintenance loops, router layers, or startup readiness in a
@@ -329,6 +330,7 @@ let content_type = get_content_type_for_format(&song.file_format);
 | `details-dialog.tsx` | Unified details dialog for songs/albums/artists |
 | `media-card.tsx` | Shared media card component |
 | `action-bar.tsx` | Shared action bar component |
+| `../playlists/smart-playlist-cards.tsx` | Smart playlist grid card and list row (Playlists page, search results) |
 
 **Menu Items Example:**
 
@@ -401,6 +403,7 @@ field fallbacks in components.
 | `use-song-actions.ts` | Song playback/queue/starring/rating actions |
 | `use-session-owner-state.ts` | Shared session ownership snapshot handling and foreground recovery |
 | `use-star.ts` | Generic starring state management |
+| `keyboard-shortcut-target.ts` | `resolveShortcut(event, target)`: maps a keydown to a global player shortcut, leaving modified keys to the browser and Space/arrows/letters to focused buttons, menus, sliders and dialogs (used by `use-keyboard-shortcuts.ts`) |
 
 ### Frontend Queue Helpers (`client/src/lib/queue/`)
 

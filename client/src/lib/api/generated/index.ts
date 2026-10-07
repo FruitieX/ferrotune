@@ -165,6 +165,8 @@ export type { PermanentDeleteRequest } from './PermanentDeleteRequest';
 export type { PermanentDeleteResponse } from './PermanentDeleteResponse';
 export type { PingResponse } from './PingResponse';
 export type { PlayEvent } from './PlayEvent';
+export type { PlaylistBrowseItem } from './PlaylistBrowseItem';
+export type { PlaylistBrowseResponse } from './PlaylistBrowseResponse';
 export type { PlaylistContainingSong } from './PlaylistContainingSong';
 export type { PlaylistFolderResponse } from './PlaylistFolderResponse';
 export type { PlaylistFoldersResponse } from './PlaylistFoldersResponse';

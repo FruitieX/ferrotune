@@ -29,7 +29,7 @@ import {
 } from "@/components/browse/genre-card";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EmptyState } from "@/components/shared/empty-state";
-import type { Song, Genre } from "@/lib/api/types";
+import type { Genre } from "@/lib/api/types";
 
 export default function GenresPage() {
   const { isReady, isLoading: authLoading } = useAuth({
@@ -50,30 +50,24 @@ export default function GenresPage() {
     saveFirstVisibleIndex,
   } = useVirtualizedScrollRestoration("main-scroll-container", viewMode);
 
-  // Fetch genres
+  // Fetch genres, filtered by name on the server
   const { data: genresData, isLoading } = useQuery({
-    queryKey: ["genres"],
+    queryKey: ["genres", debouncedFilter.trim()],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getGenres();
+      const response = await client.getGenres({
+        filter: debouncedFilter.trim(),
+      });
       return response.genres?.genre ?? [];
     },
     enabled: isReady,
+    placeholderData: (previous) => previous,
   });
-
-  // Filter genres based on search filter (client-side - API doesn't support genre search)
-  const filteredGenres = (() => {
-    const genres = genresData ?? [];
-    if (!debouncedFilter?.trim() || genres.length === 0) return genres;
-    const lowerFilter = debouncedFilter.toLowerCase();
-    return genres.filter((genre) =>
-      genre.value.toLowerCase().includes(lowerFilter),
-    );
-  })();
+  const filteredGenres = genresData ?? [];
 
   // Genre selection - use value as id since genres don't have an id field
-  const genresWithId = (filteredGenres ?? []).map((g) => ({
+  const genresWithId = filteredGenres.map((g) => ({
     ...g,
     id: g.value,
   }));
@@ -88,65 +82,45 @@ export default function GenresPage() {
     getSelectedItems,
   } = useItemSelection(genresWithId);
 
-  // Get songs from selected genres
-  const getSelectedGenresSongs = async (): Promise<Song[]> => {
-    const client = getClient();
-    if (!client) return [];
-
-    const genres = getSelectedItems();
-    const songsPromises = genres.map((genre) =>
-      client
-        .getSongsByGenre(genre.value, { count: 500 })
-        .then((res) => res.songsByGenre.song ?? []),
-    );
-    const songsArrays = await Promise.all(songsPromises);
-    return songsArrays.flat();
-  };
+  // Selected genres as collection sources, materialized by the server
+  const getSelectedSources = () =>
+    getSelectedItems().map((genre) => ({
+      sourceType: "genre" as const,
+      sourceId: genre.value,
+    }));
 
   // Bulk action handlers
-  const handlePlaySelected = async () => {
-    const songs = await getSelectedGenresSongs();
-    if (songs.length > 0) {
-      startQueue({
-        sourceType: "library",
-        sourceName: "Library",
-        songIds: songs.map((s) => s.id),
-      });
-      clearSelection();
-      toast.success(
-        `Playing ${songs.length} songs from ${selectedCount} genres`,
-      );
-    }
-  };
-
-  const handleShuffleSelected = async () => {
-    const songs = await getSelectedGenresSongs();
-    if (songs.length > 0) {
-      startQueue({
-        sourceType: "library",
-        sourceName: "Library",
-        songIds: songs.map((s) => s.id),
-        shuffle: true,
-      });
-      clearSelection();
-      toast.success(
-        `Shuffling ${songs.length} songs from ${selectedCount} genres`,
-      );
-    }
+  const startSelected = (shuffle: boolean) => {
+    const sources = getSelectedSources();
+    if (sources.length === 0) return;
+    startQueue({
+      sourceType: "genre",
+      sourceName: `${sources.length} genres`,
+      sources,
+      shuffle,
+    });
+    clearSelection();
+    toast.success(
+      `${shuffle ? "Shuffling" : "Playing"} ${sources.length} genres`,
+    );
   };
 
   const handleAddSelectedToQueue = async (position: "next" | "last") => {
-    const songs = await getSelectedGenresSongs();
-    if (songs.length > 0) {
-      addToQueue({
-        songIds: songs.map((s) => s.id),
-        position: position === "last" ? "end" : position,
-      });
-      clearSelection();
-      toast.success(
-        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
-      );
+    const sources = getSelectedSources();
+    if (sources.length === 0) return;
+    const result = await addToQueue({
+      sources,
+      sourceName: `${sources.length} genres`,
+      position: position === "last" ? "end" : position,
+    });
+    if (!result.success || result.addedCount === 0) {
+      toast.error("Selected genres are empty");
+      return;
     }
+    clearSelection();
+    toast.success(
+      `Added ${result.addedCount} songs to ${position === "next" ? "play next" : "queue"}`,
+    );
   };
 
   if (authLoading) {
@@ -241,8 +215,8 @@ export default function GenresPage() {
         mediaType="genre"
         selectedCount={selectedCount}
         onClear={clearSelection}
-        onPlayNow={handlePlaySelected}
-        onShuffle={handleShuffleSelected}
+        onPlayNow={() => startSelected(false)}
+        onShuffle={() => startSelected(true)}
         onPlayNext={() => handleAddSelectedToQueue("next")}
         onAddToQueue={() => handleAddSelectedToQueue("last")}
         onSelectAll={selectAll}

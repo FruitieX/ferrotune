@@ -39,7 +39,14 @@ import {
   ArtistCardSkeleton,
 } from "@/components/browse/artist-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
-import { VirtualizedList } from "@/components/shared/virtualized-grid";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
+import { SmartPlaylistGridCard } from "@/components/playlists/smart-playlist-cards";
+import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
+import { getPlaylistDetailsHref } from "@/lib/utils/source-links";
+import type { PlaylistBrowseItem } from "@/lib/api/generated/PlaylistBrowseItem";
 import { GenreCard } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
 import {
@@ -47,8 +54,17 @@ import {
   ActiveFilterBadges,
 } from "@/components/shared/advanced-filter-dialog";
 import { formatDuration, formatCount } from "@/lib/utils/format";
-import type { Album, Artist, Playlist, Song } from "@/lib/api/types";
+import type { Album, Artist, Song } from "@/lib/api/types";
 import type { AdvancedFilters } from "@/lib/store/ui";
+
+/** Results per page in the Artists/Albums/Songs tabs. */
+const PAGE_SIZE = 50;
+/** Cards and songs previewed per section on the "All" tab. */
+const OVERVIEW_CARD_COUNT = 6;
+const OVERVIEW_SONG_COUNT = 10;
+const OVERVIEW_GRID =
+  "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4";
+const RESULT_COLUMNS = { default: 2, sm: 3, md: 4, lg: 5, xl: 6 };
 
 /** Filters that are only applicable to songs (not albums/artists) */
 const SONG_ONLY_FILTER_KEYS: (keyof AdvancedFilters)[] = [
@@ -147,7 +163,11 @@ export function SearchPageContent() {
   // Search is active when we have a query long enough OR when advanced filters are set
   const isSearchActive = debouncedQuery.length >= 2 || hasActiveFilters;
 
-  // Search query for songs, albums, artists
+  const songOnlyFilters =
+    hasActiveFilters && hasSongOnlyFilters(advancedFilters);
+  const searchEnabled = isReady && isSearchActive && !isOfflineMode;
+
+  // Overview: the first few of each kind plus server totals for the tabs
   const {
     data: searchResults,
     isLoading,
@@ -159,44 +179,98 @@ export function SearchPageContent() {
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
         query: debouncedQuery,
-        artistCount:
-          hasActiveFilters && hasSongOnlyFilters(advancedFilters) ? 0 : 20,
-        albumCount:
-          hasActiveFilters && hasSongOnlyFilters(advancedFilters) ? 0 : 20,
-        songCount: 50,
+        artistCount: songOnlyFilters ? 0 : OVERVIEW_CARD_COUNT,
+        albumCount: songOnlyFilters ? 0 : OVERVIEW_CARD_COUNT,
+        songCount: OVERVIEW_SONG_COUNT,
         // Request medium thumbnails for cards (overview) and small for song rows
         inlineImages: "medium",
         ...advancedFilters,
       });
       return response.searchResult3;
     },
-    enabled: isReady && isSearchActive && !isOfflineMode,
+    enabled: searchEnabled,
     refetchOnMount: "always",
   });
 
-  // Fetch playlists for the cross-entity search view.
-  const { data: playlists } = useQuery({
-    queryKey: ["playlists"],
+  // Each tab pages through every match as it scrolls
+  const searchPage = async (
+    offset: number,
+    kind: "song" | "album" | "artist",
+  ) => {
+    const client = getClient();
+    if (!client) throw new Error("Not connected");
+    const response = await client.search3({
+      query: debouncedQuery,
+      artistCount: kind === "artist" ? PAGE_SIZE : 0,
+      artistOffset: kind === "artist" ? offset : 0,
+      albumCount: kind === "album" ? PAGE_SIZE : 0,
+      albumOffset: kind === "album" ? offset : 0,
+      songCount: kind === "song" ? PAGE_SIZE : 0,
+      songOffset: kind === "song" ? offset : 0,
+      inlineImages: "medium",
+      ...advancedFilters,
+    });
+    return response.searchResult3;
+  };
+  const songPages = useSparsePagination<Song>({
+    queryKey: ["search", "songs", debouncedQuery, advancedFilters],
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
+      const result = await searchPage(offset, "song");
+      const items = result.song ?? [];
+      return { items, total: result.songTotal ?? items.length };
+    },
+    enabled: searchEnabled && activeTab === "songs",
+  });
+  const albumPages = useSparsePagination<Album>({
+    queryKey: ["search", "albums", debouncedQuery, advancedFilters],
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
+      const result = await searchPage(offset, "album");
+      const items = result.album ?? [];
+      return { items, total: result.albumTotal ?? items.length };
+    },
+    enabled: searchEnabled && activeTab === "albums" && !songOnlyFilters,
+  });
+  const artistPages = useSparsePagination<Artist>({
+    queryKey: ["search", "artists", debouncedQuery, advancedFilters],
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
+      const result = await searchPage(offset, "artist");
+      const items = result.artist ?? [];
+      return { items, total: result.artistTotal ?? items.length };
+    },
+    enabled: searchEnabled && activeTab === "artists" && !songOnlyFilters,
+  });
+
+  const nameQuery = debouncedQuery.trim();
+  const nameSearchEnabled = isReady && !isOfflineMode && nameQuery.length >= 2;
+
+  // Genres and playlists are matched by name on the server
+  const { data: genres = [] } = useQuery({
+    queryKey: ["genres", nameQuery],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylistFoldersWithStructure();
-      return response.playlists;
+      const response = await client.getGenres({ filter: nameQuery });
+      return response.genres?.genre ?? [];
     },
-    enabled: isReady && !isOfflineMode,
+    enabled: nameSearchEnabled,
     staleTime: 60000,
   });
 
-  // Fetch and filter genres client-side (API doesn't have genre search)
-  const { data: genres } = useQuery({
-    queryKey: ["genres"],
+  const { data: playlistItems = [] } = useQuery({
+    queryKey: ["playlistBrowse", "search", nameQuery],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getGenres();
-      return response.genres?.genre ?? [];
+      const response = await client.browsePlaylists({
+        recursive: true,
+        filter: nameQuery,
+      });
+      return response.items;
     },
-    enabled: isReady && !isOfflineMode,
+    enabled: nameSearchEnabled,
     staleTime: 60000,
   });
 
@@ -208,21 +282,12 @@ export function SearchPageContent() {
       staleTime: 30_000,
     });
 
-  // Filter playlists based on search query
-  const filteredPlaylists =
-    playlists?.filter(
-      (playlist) =>
-        debouncedQuery.length >= 2 &&
-        playlist.name.toLowerCase().includes(debouncedQuery.toLowerCase()),
-    ) ?? [];
-
-  // Filter genres based on search query
-  const filteredGenres =
-    genres?.filter(
-      (genre) =>
-        debouncedQuery.length >= 2 &&
-        genre.value.toLowerCase().includes(debouncedQuery.toLowerCase()),
-    ) ?? [];
+  const artistTotal =
+    searchResults?.artistTotal ?? searchResults?.artist?.length ?? 0;
+  const albumTotal =
+    searchResults?.albumTotal ?? searchResults?.album?.length ?? 0;
+  const songTotal =
+    searchResults?.songTotal ?? searchResults?.song?.length ?? 0;
 
   const offlineResults = isOfflineMode
     ? filterDownloadedSongs(downloadedSongs, debouncedQuery)
@@ -253,22 +318,19 @@ export function SearchPageContent() {
   const searchQueueSource = {
     type: "search" as QueueSourceType,
     name: `Search: ${debouncedQuery}`,
+    // No sort: the queue keeps the results' relevance order.
     filters: {
       query: debouncedQuery,
       ...advancedFilters,
     },
-    sort: {
-      field: "title",
-      direction: "asc",
-    },
   };
 
   const hasResults =
-    (searchResults?.artist?.length ?? 0) > 0 ||
-    (searchResults?.album?.length ?? 0) > 0 ||
-    (searchResults?.song?.length ?? 0) > 0 ||
-    filteredPlaylists.length > 0 ||
-    filteredGenres.length > 0;
+    artistTotal > 0 ||
+    albumTotal > 0 ||
+    songTotal > 0 ||
+    playlistItems.length > 0 ||
+    genres.length > 0;
 
   return (
     <div className="min-h-dvh">
@@ -410,32 +472,23 @@ export function SearchPageContent() {
           >
             <TabsList className="mb-6">
               <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger
-                value="artists"
-                disabled={!searchResults?.artist?.length}
-              >
-                Artists ({searchResults?.artist?.length ?? 0})
+              <TabsTrigger value="artists" disabled={artistTotal === 0}>
+                Artists ({artistTotal})
               </TabsTrigger>
-              <TabsTrigger
-                value="albums"
-                disabled={!searchResults?.album?.length}
-              >
-                Albums ({searchResults?.album?.length ?? 0})
+              <TabsTrigger value="albums" disabled={albumTotal === 0}>
+                Albums ({albumTotal})
               </TabsTrigger>
-              <TabsTrigger
-                value="songs"
-                disabled={!searchResults?.song?.length}
-              >
-                Songs ({searchResults?.song?.length ?? 0})
+              <TabsTrigger value="songs" disabled={songTotal === 0}>
+                Songs ({songTotal})
               </TabsTrigger>
-              <TabsTrigger value="genres" disabled={!filteredGenres.length}>
-                Genres ({filteredGenres.length})
+              <TabsTrigger value="genres" disabled={genres.length === 0}>
+                Genres ({genres.length})
               </TabsTrigger>
               <TabsTrigger
                 value="playlists"
-                disabled={!filteredPlaylists.length}
+                disabled={playlistItems.length === 0}
               >
-                Playlists ({filteredPlaylists.length})
+                Playlists ({playlistItems.length})
               </TabsTrigger>
             </TabsList>
 
@@ -443,9 +496,14 @@ export function SearchPageContent() {
               {/* Artists */}
               {searchResults?.artist && searchResults.artist.length > 0 && (
                 <section>
-                  <h2 className="text-xl font-bold mb-4">Artists</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {searchResults.artist.slice(0, 6).map((artist) => (
+                  <OverviewHeading
+                    title="Artists"
+                    total={artistTotal}
+                    shown={searchResults.artist.length}
+                    onShowAll={() => setActiveTab("artists")}
+                  />
+                  <div className={OVERVIEW_GRID}>
+                    {searchResults.artist.map((artist) => (
                       <ArtistCard
                         key={artist.id}
                         artist={artist}
@@ -459,9 +517,14 @@ export function SearchPageContent() {
               {/* Albums */}
               {searchResults?.album && searchResults.album.length > 0 && (
                 <section>
-                  <h2 className="text-xl font-bold mb-4">Albums</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {searchResults.album.slice(0, 6).map((album) => (
+                  <OverviewHeading
+                    title="Albums"
+                    total={albumTotal}
+                    shown={searchResults.album.length}
+                    onShowAll={() => setActiveTab("albums")}
+                  />
+                  <div className={OVERVIEW_GRID}>
+                    {searchResults.album.map((album) => (
                       <AlbumCard
                         key={album.id}
                         album={album}
@@ -475,9 +538,14 @@ export function SearchPageContent() {
               {/* Songs */}
               {searchResults?.song && searchResults.song.length > 0 && (
                 <section>
-                  <h2 className="text-xl font-bold mb-4">Songs</h2>
+                  <OverviewHeading
+                    title="Songs"
+                    total={songTotal}
+                    shown={searchResults.song.length}
+                    onShowAll={() => setActiveTab("songs")}
+                  />
                   <div className="divide-y divide-border/50">
-                    {searchResults.song.slice(0, 10).map((song, index) => (
+                    {searchResults.song.map((song, index) => (
                       <SongRow
                         key={song.id}
                         song={song}
@@ -493,11 +561,16 @@ export function SearchPageContent() {
               )}
 
               {/* Genres */}
-              {filteredGenres.length > 0 && (
+              {genres.length > 0 && (
                 <section>
-                  <h2 className="text-xl font-bold mb-4">Genres</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {filteredGenres.slice(0, 6).map((genre) => (
+                  <OverviewHeading
+                    title="Genres"
+                    total={genres.length}
+                    shown={Math.min(genres.length, OVERVIEW_CARD_COUNT)}
+                    onShowAll={() => setActiveTab("genres")}
+                  />
+                  <div className={OVERVIEW_GRID}>
+                    {genres.slice(0, OVERVIEW_CARD_COUNT).map((genre) => (
                       <GenreCard key={genre.value} genre={genre} />
                     ))}
                   </div>
@@ -505,14 +578,19 @@ export function SearchPageContent() {
               )}
 
               {/* Playlists */}
-              {filteredPlaylists.length > 0 && (
+              {playlistItems.length > 0 && (
                 <section>
-                  <h2 className="text-xl font-bold mb-4">Playlists</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {filteredPlaylists.slice(0, 6).map((playlist) => (
-                      <PlaylistSearchCard
-                        key={playlist.id}
-                        playlist={playlist}
+                  <OverviewHeading
+                    title="Playlists"
+                    total={playlistItems.length}
+                    shown={Math.min(playlistItems.length, OVERVIEW_CARD_COUNT)}
+                    onShowAll={() => setActiveTab("playlists")}
+                  />
+                  <div className={OVERVIEW_GRID}>
+                    {playlistItems.slice(0, OVERVIEW_CARD_COUNT).map((item) => (
+                      <PlaylistResultCard
+                        key={playlistItemKey(item)}
+                        item={item}
                       />
                     ))}
                   </div>
@@ -521,72 +599,76 @@ export function SearchPageContent() {
             </TabsContent>
 
             <TabsContent value="artists">
-              {searchResults?.artist && searchResults.artist.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {searchResults.artist.map((artist) => (
-                    <ArtistCard
-                      key={artist.id}
-                      artist={artist}
-                      onPlay={() => handlePlayArtist(artist)}
-                    />
-                  ))}
-                </div>
-              )}
+              <VirtualizedGrid
+                items={artistPages.items}
+                totalCount={artistPages.totalCount}
+                ensureRange={artistPages.ensureRange}
+                renderItem={(artist) => (
+                  <ArtistCard
+                    artist={artist}
+                    onPlay={() => handlePlayArtist(artist)}
+                  />
+                )}
+                renderSkeleton={() => <ArtistCardSkeleton />}
+                getItemKey={(artist) => artist.id}
+                columns={RESULT_COLUMNS}
+              />
             </TabsContent>
 
             <TabsContent value="albums">
-              {searchResults?.album && searchResults.album.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {searchResults.album.map((album) => (
-                    <AlbumCard
-                      key={album.id}
-                      album={album}
-                      onPlay={() => handlePlayAlbum(album)}
-                    />
-                  ))}
-                </div>
-              )}
+              <VirtualizedGrid
+                items={albumPages.items}
+                totalCount={albumPages.totalCount}
+                ensureRange={albumPages.ensureRange}
+                renderItem={(album) => (
+                  <AlbumCard
+                    album={album}
+                    onPlay={() => handlePlayAlbum(album)}
+                  />
+                )}
+                renderSkeleton={() => <AlbumCardSkeleton />}
+                getItemKey={(album) => album.id}
+                columns={RESULT_COLUMNS}
+              />
             </TabsContent>
 
             <TabsContent value="songs">
-              {searchResults?.song && searchResults.song.length > 0 && (
-                <VirtualizedList
-                  items={searchResults.song}
-                  renderItem={(song, index) => (
-                    <SongRow
-                      song={song}
-                      index={index}
-                      showCover
-                      inlineImagesRequested
-                      queueSongs={searchResults.song!}
-                      queueSource={searchQueueSource}
-                    />
-                  )}
-                  renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-                  getItemKey={(song) => song.id}
-                  estimateItemHeight={56}
-                />
-              )}
+              <VirtualizedList
+                items={songPages.items}
+                totalCount={songPages.totalCount}
+                ensureRange={songPages.ensureRange}
+                renderItem={(song, index) => (
+                  <SongRow
+                    song={song}
+                    index={index}
+                    showCover
+                    inlineImagesRequested
+                    queueSource={searchQueueSource}
+                  />
+                )}
+                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                getItemKey={(song) => song.id}
+                estimateItemHeight={56}
+              />
             </TabsContent>
 
             <TabsContent value="genres">
-              {filteredGenres.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {filteredGenres.map((genre) => (
-                    <GenreCard key={genre.value} genre={genre} />
-                  ))}
-                </div>
-              )}
+              <VirtualizedGrid
+                items={genres}
+                renderItem={(genre) => <GenreCard genre={genre} />}
+                getItemKey={(genre) => genre.value}
+                estimateItemHeight={96}
+                columns={RESULT_COLUMNS}
+              />
             </TabsContent>
 
             <TabsContent value="playlists">
-              {filteredPlaylists.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {filteredPlaylists.map((playlist) => (
-                    <PlaylistSearchCard key={playlist.id} playlist={playlist} />
-                  ))}
-                </div>
-              )}
+              <VirtualizedGrid
+                items={playlistItems}
+                renderItem={(item) => <PlaylistResultCard item={item} />}
+                getItemKey={playlistItemKey}
+                columns={RESULT_COLUMNS}
+              />
             </TabsContent>
           </Tabs>
         )}
@@ -770,15 +852,52 @@ function SearchSkeleton() {
   );
 }
 
-// Playlist card for search results
-function PlaylistSearchCard({ playlist }: { playlist: Playlist }) {
+function playlistItemKey(item: PlaylistBrowseItem): string {
+  return item.playlist ? item.playlist.id : `smart-${item.smartPlaylist?.id}`;
+}
+
+function OverviewHeading({
+  title,
+  total,
+  shown,
+  onShowAll,
+}: {
+  title: string;
+  total: number;
+  shown: number;
+  onShowAll: () => void;
+}) {
+  return (
+    <div className="mb-4 flex items-baseline justify-between gap-4">
+      <h2 className="text-xl font-bold">{title}</h2>
+      {total > shown && (
+        <Button
+          variant="link"
+          className="h-auto p-0 text-sm text-muted-foreground"
+          onClick={onShowAll}
+        >
+          Show all {total}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// Playlist or smart playlist card for search results
+function PlaylistResultCard({ item }: { item: PlaylistBrowseItem }) {
+  const playlist = item.playlist;
+  if (!playlist) {
+    return item.smartPlaylist ? (
+      <SmartPlaylistGridCard smartPlaylist={item.smartPlaylist} />
+    ) : null;
+  }
   const coverArtUrl = playlist.coverArt
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 300)
     : undefined;
 
   return (
     <Link
-      href={`/playlists/details?id=${playlist.id}`}
+      href={getPlaylistDetailsHref("playlist", playlist.id)}
       className="group block p-4 rounded-lg bg-card hover:bg-accent/70 active:bg-accent/80 hover:shadow-lg hover:shadow-black/20 active:shadow-md active:shadow-black/20 transition-all touch-manipulation active:scale-[0.98]"
     >
       <div className="relative mb-4">

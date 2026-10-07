@@ -171,6 +171,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .delete(playlists::remove_playlist_songs),
         )
         .route("/playlists", post(playlists::import_playlist))
+        .route("/playlists/browse", get(playlists::browse_playlists))
         .route(
             "/playlists/membership",
             post(playlists::get_playlist_memberships_for_songs),

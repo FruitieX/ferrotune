@@ -280,18 +280,26 @@ pub async fn list_smart_playlists(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SmartPlaylistsResponse>> {
-    let playlists = list_visible_smart_playlists_for_user(&state.database, user.user_id).await?;
+    Ok(Json(SmartPlaylistsResponse {
+        smart_playlists: visible_smart_playlist_infos(&state.database, user.user_id).await?,
+    }))
+}
 
-    let mut result = Vec::with_capacity(playlists.len());
-    for playlist in playlists {
-        let rules = parse_smart_playlist_rules_lossy(&playlist.rules_json);
-
-        result.push(SmartPlaylistInfo {
+/// Every smart playlist the user can see (their own and public ones), ordered
+/// by name, without materialized song counts.
+pub(crate) async fn visible_smart_playlist_infos(
+    database: &Database,
+    user_id: i64,
+) -> FerrotuneApiResult<Vec<SmartPlaylistInfo>> {
+    let playlists = list_visible_smart_playlists_for_user(database, user_id).await?;
+    Ok(playlists
+        .into_iter()
+        .map(|playlist| SmartPlaylistInfo {
+            rules: parse_smart_playlist_rules_lossy(&playlist.rules_json),
             id: playlist.id,
             name: playlist.name,
             comment: playlist.comment,
             is_public: playlist.is_public,
-            rules,
             sort_field: playlist.sort_field,
             sort_direction: playlist.sort_direction,
             max_songs: playlist.max_songs,
@@ -299,12 +307,8 @@ pub async fn list_smart_playlists(
             song_count: None,
             created_at: playlist.created_at,
             updated_at: playlist.updated_at,
-        });
-    }
-
-    Ok(Json(SmartPlaylistsResponse {
-        smart_playlists: result,
-    }))
+        })
+        .collect())
 }
 
 /// GET /api/smart-playlists/{id} - Get a single smart playlist

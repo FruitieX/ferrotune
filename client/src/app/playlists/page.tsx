@@ -2,7 +2,12 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   DndContext,
@@ -79,25 +84,23 @@ import {
   PlaylistDropdownMenu,
 } from "@/components/playlists/playlist-context-menu";
 import {
-  SmartPlaylistContextMenu,
-  SmartPlaylistDropdownMenu,
-} from "@/components/playlists/smart-playlist-context-menu";
-import {
   FolderContextMenu,
   FolderDropdownMenu,
 } from "@/components/playlists/folder-context-menu";
 import { EditFolderDialog } from "@/components/playlists/edit-folder-dialog";
+import {
+  SmartPlaylistGridCard,
+  SmartPlaylistListRow,
+} from "@/components/playlists/smart-playlist-cards";
 import {
   formatDuration,
   formatCount,
   formatDate,
   formatTotalDuration,
 } from "@/lib/utils/format";
-import { filterPlaylists, sortPlaylists } from "@/lib/utils/sort-playlists";
 import {
   buildFolderTreeFromApi,
   getPlaylistDisplayName,
-  parsePlaylistPath,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
 import { cn } from "@/lib/utils";
@@ -107,6 +110,11 @@ import {
   getOfflinePlaylistMembershipCache,
   type OfflinePlaylistMembershipCache,
 } from "@/lib/offline/playlist-membership";
+
+type DisplayEntry =
+  | { type: "folder"; data: PlaylistFolder }
+  | { type: "playlist"; data: Playlist }
+  | { type: "smartPlaylist"; data: SmartPlaylistInfo };
 
 type OfflinePlaylist = OfflinePlaylistMembershipCache["playlists"][string];
 type StartQueue = (params: {
@@ -192,7 +200,11 @@ function PlaylistsPageContent() {
   }, [isOfflineMode]);
 
   // Fetch playlist folders with structure from API
-  const { data: playlistFoldersData, isLoading } = useQuery({
+  const {
+    data: playlistFoldersData,
+    isLoading,
+    dataUpdatedAt: foldersUpdatedAt,
+  } = useQuery({
     queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
@@ -205,16 +217,17 @@ function PlaylistsPageContent() {
   const playlists = playlistFoldersData?.playlists;
 
   // Fetch smart playlists
-  const { data: smartPlaylists } = useQuery({
-    queryKey: ["smartPlaylists"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      const response = await client.getSmartPlaylists();
-      return response.smartPlaylists ?? [];
-    },
-    enabled: isReady && !isOfflineMode,
-  });
+  const { data: smartPlaylists, dataUpdatedAt: smartPlaylistsUpdatedAt } =
+    useQuery({
+      queryKey: ["smartPlaylists"],
+      queryFn: async () => {
+        const client = getClient();
+        if (!client) throw new Error("Not connected");
+        const response = await client.getSmartPlaylists();
+        return response.smartPlaylists ?? [];
+      },
+      enabled: isReady && !isOfflineMode,
+    });
 
   // Mutation to move playlist to a folder using the new folder API
   const movePlaylistMutation = useMutation({
@@ -378,12 +391,59 @@ function PlaylistsPageContent() {
       }
     : { folders: [], playlists: [], smartPlaylists: [] };
 
-  // Filter and sort playlists in current folder
-  const displayPlaylists = (() => {
-    if (!folderItems.playlists) return [];
-    const filtered = filterPlaylists(folderItems.playlists, debouncedFilter);
-    return sortPlaylists(filtered, sortConfig.field, sortConfig.direction);
-  })();
+  // The current folder level, filtered and sorted by the server. Keyed on
+  // the structure queries so playlist and smart playlist edits refresh it.
+  const { data: browseData } = useQuery({
+    queryKey: [
+      "playlistBrowse",
+      currentFolder?.id ?? null,
+      debouncedFilter.trim(),
+      sortConfig.field,
+      sortConfig.direction,
+      foldersUpdatedAt,
+      smartPlaylistsUpdatedAt,
+    ],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.browsePlaylists({
+        folderId: currentFolder?.id,
+        filter: debouncedFilter.trim(),
+        sort: sortConfig.field,
+        sortDir: sortConfig.direction,
+      });
+    },
+    enabled: isReady && !isOfflineMode && currentFolder !== null,
+    placeholderData: keepPreviousData,
+  });
+  const browseItems = browseData?.items ?? [];
+  const displayPlaylists = browseItems.flatMap((item) =>
+    item.playlist ? [item.playlist] : [],
+  );
+  const displaySmartPlaylists = browseItems.flatMap((item) =>
+    item.smartPlaylist ? [item.smartPlaylist] : [],
+  );
+  // Tree nodes carry the nested counts and paths the folder cards need.
+  const subfoldersById = new Map(
+    folderItems.folders.map((folder) => [folder.id, folder]),
+  );
+  const displayFolders = (browseData?.folders ?? []).flatMap((folder) => {
+    const node = subfoldersById.get(folder.id);
+    return node ? [node] : [];
+  });
+  const displayEntries: DisplayEntry[] = [
+    ...displayFolders.map((folder) => ({
+      type: "folder" as const,
+      data: folder,
+    })),
+    ...browseItems.flatMap((item): DisplayEntry[] =>
+      item.playlist
+        ? [{ type: "playlist", data: item.playlist }]
+        : item.smartPlaylist
+          ? [{ type: "smartPlaylist", data: item.smartPlaylist }]
+          : [],
+    ),
+  ];
 
   // Play playlist handler - accepts id for stable callback reference
   const handlePlayPlaylist = (id: string) => {
@@ -396,25 +456,6 @@ function PlaylistsPageContent() {
       });
     }
   };
-
-  // Filter folders
-  const displayFolders = (() => {
-    if (!debouncedFilter.trim()) return folderItems.folders;
-    const query = debouncedFilter.toLowerCase();
-    return folderItems.folders.filter((f) =>
-      f.name.toLowerCase().includes(query),
-    );
-  })();
-
-  // Filter smart playlists
-  const displaySmartPlaylists: SmartPlaylistInfo[] = (() => {
-    if (!folderItems.smartPlaylists) return [];
-    if (!debouncedFilter.trim()) return folderItems.smartPlaylists;
-    const query = debouncedFilter.toLowerCase();
-    return folderItems.smartPlaylists.filter((sp) =>
-      sp.name.toLowerCase().includes(query),
-    );
-  })();
 
   // Play smart playlist handler
   const handlePlaySmartPlaylist = (id: string) => {
@@ -790,26 +831,7 @@ function PlaylistsPageContent() {
             displaySmartPlaylists.length > 0 ? (
             viewMode === "grid" ? (
               <VirtualizedGrid
-                items={[
-                  // Folders first
-                  ...displayFolders.map((f) => ({
-                    type: "folder" as const,
-                    data: f,
-                  })),
-                  // Then playlists and smart playlists sorted alphabetically together
-                  ...[
-                    ...displayPlaylists.map((p) => ({
-                      type: "playlist" as const,
-                      data: p,
-                      sortName: p.name.toLowerCase(),
-                    })),
-                    ...displaySmartPlaylists.map((sp) => ({
-                      type: "smartPlaylist" as const,
-                      data: sp,
-                      sortName: sp.name.toLowerCase(),
-                    })),
-                  ].sort((a, b) => a.sortName.localeCompare(b.sortName)),
-                ]}
+                items={displayEntries}
                 renderItem={(item) =>
                   item.type === "folder" ? (
                     <DroppableFolderGridCard
@@ -845,26 +867,7 @@ function PlaylistsPageContent() {
               />
             ) : (
               <VirtualizedList
-                items={[
-                  // Folders first
-                  ...displayFolders.map((f) => ({
-                    type: "folder" as const,
-                    data: f,
-                  })),
-                  // Then playlists and smart playlists sorted alphabetically together
-                  ...[
-                    ...displayPlaylists.map((p) => ({
-                      type: "playlist" as const,
-                      data: p,
-                      sortName: p.name.toLowerCase(),
-                    })),
-                    ...displaySmartPlaylists.map((sp) => ({
-                      type: "smartPlaylist" as const,
-                      data: sp,
-                      sortName: sp.name.toLowerCase(),
-                    })),
-                  ].sort((a, b) => a.sortName.localeCompare(b.sortName)),
-                ]}
+                items={displayEntries}
                 renderItem={(item, index) =>
                   item.type === "folder" ? (
                     <DroppableFolderListRow
@@ -1664,106 +1667,6 @@ function DraggablePlaylistListRow({
         )}
       />
     </div>
-  );
-}
-
-// Smart playlist grid card
-interface SmartPlaylistGridCardProps {
-  smartPlaylist: SmartPlaylistInfo;
-  onPlay?: () => void;
-}
-
-function SmartPlaylistGridCard({
-  smartPlaylist,
-  onPlay,
-}: SmartPlaylistGridCardProps) {
-  // Get cover art URL for smart playlist (uses sp- prefix for tiled cover generation)
-  const coverArtUrl = getClient()?.getCoverArtUrl(
-    `sp-${smartPlaylist.id}`,
-    "medium",
-  );
-
-  return (
-    <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
-      <div className="group relative">
-        <MediaCard
-          title={
-            parsePlaylistPath(smartPlaylist.name).displayName ||
-            smartPlaylist.name
-          }
-          titleIcon={<Sparkles className="w-4 h-4 shrink-0 text-purple-500" />}
-          subtitle={
-            smartPlaylist.songCount === null
-              ? "Dynamic playlist"
-              : formatCount(smartPlaylist.songCount, "song")
-          }
-          href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
-          coverArt={coverArtUrl}
-          coverType="smartPlaylist"
-          colorSeed={`smart-${smartPlaylist.id}`}
-          onPlay={onPlay}
-        />
-        <SmartPlaylistDropdownMenu smartPlaylist={smartPlaylist} />
-      </div>
-    </SmartPlaylistContextMenu>
-  );
-}
-
-// Smart playlist list row
-interface SmartPlaylistListRowProps {
-  smartPlaylist: SmartPlaylistInfo;
-  index: number;
-  showIndex?: boolean;
-  onPlay?: () => void;
-  isSelected?: boolean;
-  isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
-}
-
-function SmartPlaylistListRow({
-  smartPlaylist,
-  index,
-  showIndex = true,
-  onPlay,
-  isSelected,
-  isSelectionMode,
-  onSelect,
-}: SmartPlaylistListRowProps) {
-  // Get cover art URL for smart playlist (uses sp- prefix for tiled cover generation)
-  const coverArtUrl = getClient()?.getCoverArtUrl(
-    `sp-${smartPlaylist.id}`,
-    "small",
-  );
-
-  return (
-    <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
-      <div className="group relative">
-        <MediaRow
-          index={showIndex ? index : undefined}
-          title={
-            parsePlaylistPath(smartPlaylist.name).displayName ||
-            smartPlaylist.name
-          }
-          titleIcon={<Sparkles className="w-4 h-4 shrink-0 text-purple-500" />}
-          subtitle={
-            smartPlaylist.songCount === null
-              ? "Dynamic playlist"
-              : formatCount(smartPlaylist.songCount, "song")
-          }
-          href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
-          coverArt={coverArtUrl}
-          coverType="smartPlaylist"
-          colorSeed={`smart-${smartPlaylist.id}`}
-          onPlay={onPlay}
-          isSelected={isSelected}
-          isSelectionMode={isSelectionMode}
-          onSelect={onSelect}
-        />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-          <SmartPlaylistDropdownMenu smartPlaylist={smartPlaylist} inline />
-        </div>
-      </div>
-    </SmartPlaylistContextMenu>
   );
 }
 

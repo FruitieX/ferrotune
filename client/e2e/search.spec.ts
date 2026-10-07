@@ -2,7 +2,11 @@
  * Search tests - Search functionality
  */
 
-import { test, expect, resetState } from "./fixtures";
+import { test, expect, resetState, type ServerInfo } from "./fixtures";
+
+function basicAuth(server: ServerInfo): string {
+  return `Basic ${Buffer.from(`${server.username}:${server.password}`).toString("base64")}`;
+}
 
 test.describe("Search", () => {
   // Reset all server state before each test for isolation
@@ -40,5 +44,53 @@ test.describe("Search", () => {
 
     const searchInput = page.getByPlaceholder(/search/i);
     await expect(searchInput).toHaveValue("preloaded");
+  });
+
+  test("tab counts are server totals and the Songs tab lists every match", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const response = await page.request.get(
+      `${server.url}/api/search?query=Song&artistCount=0&albumCount=0&songCount=0`,
+      { headers: { Authorization: basicAuth(server) } },
+    );
+    const total: number = (await response.json()).searchResult.songTotal;
+    expect(total).toBeGreaterThan(0);
+
+    await page.goto("/search?q=Song");
+    const songsTab = page.getByRole("tab", { name: `Songs (${total})` });
+    await expect(songsTab).toBeVisible();
+    await songsTab.click();
+    await expect(
+      page.getByRole("tabpanel").getByTestId("song-row"),
+    ).toHaveCount(total);
+  });
+
+  test("finds genres and smart playlists by name", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const created = await page.request.post(
+      `${server.url}/api/smart-playlists`,
+      {
+        headers: { Authorization: basicAuth(server) },
+        data: {
+          name: "Rocking Smart Mix",
+          isPublic: false,
+          rules: { logic: "and", conditions: [] },
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+
+    await page.goto("/search?q=rock");
+    await expect(page.getByRole("tab", { name: "Genres (1)" })).toBeVisible();
+    await page.getByRole("tab", { name: "Playlists (1)" }).click();
+    await expect(
+      page
+        .getByRole("tabpanel")
+        .getByRole("link", { name: /Rocking Smart Mix/ })
+        .first(),
+    ).toHaveAttribute("href", /\/playlists\/smart\?id=/);
   });
 });

@@ -160,28 +160,233 @@ pub async fn get_playlist_folders(
         })
         .collect();
 
-    let playlists = playlists_repo::list_visible_playlists_for_user(&state.database, user.user_id)
-        .await?
-        .into_iter()
-        .map(|playlist| PlaylistInFolder {
-            cover_art: (playlist.song_count > 0).then(|| playlist.id.clone()),
-            id: playlist.id,
-            name: playlist.name,
-            comment: playlist.comment,
-            folder_id: playlist.folder_id,
-            owner: playlist.owner_name.unwrap_or_else(|| user.username.clone()),
-            public: playlist.is_public,
-            position: playlist.position,
-            song_count: playlist.song_count,
-            duration: playlist.duration,
-            shared_with_me: playlist.shared_with_me,
-            can_edit: playlist.can_edit,
-            created: format_datetime_iso(playlist.created_at.with_timezone(&Utc)),
-            changed: format_datetime_iso(playlist.updated_at.with_timezone(&Utc)),
-        })
-        .collect();
+    let playlists = visible_playlists(&state.database, &user).await?;
 
     Ok(Json(PlaylistFoldersResponse { folders, playlists }))
+}
+
+async fn visible_playlists(
+    database: &Database,
+    user: &FerrotuneAuthenticatedUser,
+) -> crate::error::Result<Vec<PlaylistInFolder>> {
+    Ok(
+        playlists_repo::list_visible_playlists_for_user(database, user.user_id)
+            .await?
+            .into_iter()
+            .map(|playlist| PlaylistInFolder {
+                cover_art: (playlist.song_count > 0).then(|| playlist.id.clone()),
+                id: playlist.id,
+                name: playlist.name,
+                comment: playlist.comment,
+                folder_id: playlist.folder_id,
+                owner: playlist.owner_name.unwrap_or_else(|| user.username.clone()),
+                public: playlist.is_public,
+                position: playlist.position,
+                song_count: playlist.song_count,
+                duration: playlist.duration,
+                shared_with_me: playlist.shared_with_me,
+                can_edit: playlist.can_edit,
+                created: format_datetime_iso(playlist.created_at.with_timezone(&Utc)),
+                changed: format_datetime_iso(playlist.updated_at.with_timezone(&Utc)),
+            })
+            .collect(),
+    )
+}
+
+/// Query for `GET /api/playlists/browse`.
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistBrowseQuery {
+    /// Folder level to list; omitted lists the root level.
+    pub folder_id: Option<String>,
+    /// List playlists from every folder (and no folders) instead of one level.
+    #[serde(default)]
+    pub recursive: bool,
+    /// Case-insensitive substring match on names (playlists also match their
+    /// comment and owner).
+    pub filter: Option<String>,
+    /// name (default), songCount, duration, created/dateAdded, changed
+    pub sort: Option<String>,
+    /// asc (default) or desc
+    pub sort_dir: Option<String>,
+}
+
+/// A playlist or smart playlist in a browse listing; exactly one is set.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistBrowseItem {
+    pub playlist: Option<PlaylistInFolder>,
+    pub smart_playlist: Option<crate::api::smart_playlists::SmartPlaylistInfo>,
+}
+
+/// One folder level of the playlist browser, filtered and sorted server-side:
+/// subfolders (by position, then name) and the playlists and smart playlists
+/// mixed in the requested order.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistBrowseResponse {
+    pub folders: Vec<PlaylistFolderResponse>,
+    pub items: Vec<PlaylistBrowseItem>,
+}
+
+/// Sort key for a browse item: (name, song count, duration, created, changed).
+struct BrowseSortKey {
+    name: String,
+    song_count: i64,
+    duration: i64,
+    created: String,
+    changed: String,
+}
+
+impl PlaylistBrowseItem {
+    fn playlist(playlist: PlaylistInFolder) -> Self {
+        Self {
+            playlist: Some(playlist),
+            smart_playlist: None,
+        }
+    }
+
+    fn smart(smart_playlist: crate::api::smart_playlists::SmartPlaylistInfo) -> Self {
+        Self {
+            playlist: None,
+            smart_playlist: Some(smart_playlist),
+        }
+    }
+
+    fn sort_key(&self) -> BrowseSortKey {
+        if let Some(playlist) = &self.playlist {
+            return BrowseSortKey {
+                name: playlist.name.to_lowercase(),
+                song_count: playlist.song_count,
+                duration: playlist.duration,
+                created: playlist.created.clone(),
+                changed: playlist.changed.clone(),
+            };
+        }
+        let smart = self
+            .smart_playlist
+            .as_ref()
+            .expect("browse items hold a playlist or a smart playlist");
+        BrowseSortKey {
+            name: smart.name.to_lowercase(),
+            song_count: smart.song_count.unwrap_or(0),
+            duration: 0,
+            created: format_datetime_iso(smart.created_at),
+            changed: format_datetime_iso(smart.updated_at),
+        }
+    }
+}
+
+fn sort_browse_items(
+    items: Vec<PlaylistBrowseItem>,
+    sort: Option<&str>,
+    descending: bool,
+) -> Vec<PlaylistBrowseItem> {
+    let mut keyed: Vec<(BrowseSortKey, PlaylistBrowseItem)> = items
+        .into_iter()
+        .map(|item| (item.sort_key(), item))
+        .collect();
+    keyed.sort_by(|(a, _), (b, _)| {
+        let primary = match sort.unwrap_or("name") {
+            "songCount" => a.song_count.cmp(&b.song_count),
+            "duration" => a.duration.cmp(&b.duration),
+            "created" | "dateAdded" => a.created.cmp(&b.created),
+            "changed" => a.changed.cmp(&b.changed),
+            _ => a.name.cmp(&b.name),
+        };
+        let primary = if descending {
+            primary.reverse()
+        } else {
+            primary
+        };
+        primary.then_with(|| a.name.cmp(&b.name))
+    });
+    keyed.into_iter().map(|(_, item)| item).collect()
+}
+
+fn contains_folded(value: Option<&str>, needle: &str) -> bool {
+    value.is_some_and(|value| value.to_lowercase().contains(needle))
+}
+
+/// GET /api/playlists/browse — one level of the playlist browser (or every
+/// playlist with `recursive`), filtered and sorted on the server.
+pub async fn browse_playlists(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    axum::extract::Query(query): axum::extract::Query<PlaylistBrowseQuery>,
+) -> FerrotuneApiResult<Json<PlaylistBrowseResponse>> {
+    let needle = query
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .map(str::to_lowercase);
+    let folder_id = query.folder_id.as_deref().filter(|id| !id.is_empty());
+    let in_level = |item_folder: Option<&str>| query.recursive || item_folder == folder_id;
+
+    let mut folders: Vec<PlaylistFolderResponse> = if query.recursive {
+        Vec::new()
+    } else {
+        playlists_repo::list_playlist_folders_for_user(&state.database, user.user_id)
+            .await?
+            .into_iter()
+            .filter(|folder| folder.parent_id.as_deref() == folder_id)
+            .filter(|folder| {
+                needle
+                    .as_deref()
+                    .is_none_or(|needle| contains_folded(Some(&folder.name), needle))
+            })
+            .map(|folder| PlaylistFolderResponse {
+                id: folder.id,
+                name: folder.name,
+                parent_id: folder.parent_id,
+                position: folder.position,
+                created_at: format_datetime_iso(folder.created_at.with_timezone(&Utc)),
+                has_cover_art: folder.has_cover_art,
+            })
+            .collect()
+    };
+    folders.sort_by(|a, b| {
+        a.position
+            .cmp(&b.position)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    let playlists = visible_playlists(&state.database, &user)
+        .await?
+        .into_iter()
+        .filter(|playlist| in_level(playlist.folder_id.as_deref()))
+        .filter(|playlist| {
+            needle.as_deref().is_none_or(|needle| {
+                contains_folded(Some(&playlist.name), needle)
+                    || contains_folded(playlist.comment.as_deref(), needle)
+                    || contains_folded(Some(&playlist.owner), needle)
+            })
+        })
+        .map(PlaylistBrowseItem::playlist);
+    let smart_playlists =
+        crate::api::smart_playlists::visible_smart_playlist_infos(&state.database, user.user_id)
+            .await?
+            .into_iter()
+            .filter(|smart| in_level(smart.folder_id.as_deref()))
+            .filter(|smart| {
+                needle.as_deref().is_none_or(|needle| {
+                    contains_folded(Some(&smart.name), needle)
+                        || contains_folded(smart.comment.as_deref(), needle)
+                })
+            })
+            .map(PlaylistBrowseItem::smart);
+
+    let descending = query.sort_dir.as_deref() == Some("desc");
+    let items = sort_browse_items(
+        playlists.chain(smart_playlists).collect(),
+        query.sort.as_deref(),
+        descending,
+    );
+
+    Ok(Json(PlaylistBrowseResponse { folders, items }))
 }
 
 /// Request to create a playlist folder.
