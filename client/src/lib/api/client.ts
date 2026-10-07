@@ -1467,20 +1467,6 @@ export class FerrotuneClient {
     return this.request("/api/stats");
   }
 
-  // Playlist management (Admin API)
-  async reorderPlaylistSongs(
-    playlistId: string,
-    songIds: string[],
-  ): Promise<void> {
-    await this.request(
-      `/api/playlists/${encodeURIComponent(playlistId)}/reorder`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ songIds }),
-      },
-    );
-  }
-
   async importPlaylist(
     request: ImportPlaylistRequest,
   ): Promise<ImportPlaylistResponse> {

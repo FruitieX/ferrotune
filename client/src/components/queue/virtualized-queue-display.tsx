@@ -10,7 +10,14 @@ import {
 import { useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ListMusic, Play, Pause, MoreHorizontal, Loader2 } from "lucide-react";
+import {
+  ListMusic,
+  Play,
+  Pause,
+  MoreHorizontal,
+  Loader2,
+  GripVertical,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hapticTap } from "@/lib/utils/haptic";
 import {
@@ -37,6 +44,7 @@ import {
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { isTauriMobile } from "@/lib/tauri";
 import { formatDuration } from "@/lib/utils/format";
+import { useListReorder, type ListReorder } from "@/lib/hooks/use-list-reorder";
 import type { QueueSongEntry } from "@/lib/api/types";
 
 // Gated debug logging for queue virtualization diagnostics.
@@ -104,6 +112,34 @@ interface VirtualQueueItemProps {
   onTogglePlayPause: () => void;
   onMoveToPosition: (song: QueueSongEntry["song"], index: number) => void;
   onNavigate?: () => void;
+  /** Drag handle props; omitted for rows that can't be moved. */
+  dragHandleProps?: ReturnType<ListReorder["handleProps"]>;
+  isDragging?: boolean;
+}
+
+/** Floating copy of a queue row that follows the pointer while dragging. */
+function QueueGhostRow({ entry }: { entry: QueueSongEntry }) {
+  const song = entry.song;
+  return (
+    <div
+      className="flex items-center gap-2 p-2"
+      style={{ height: ITEM_HEIGHT }}
+    >
+      <GripVertical className="w-4 h-4 shrink-0 text-muted-foreground" />
+      <CoverImage
+        inlineData={song.coverArtData}
+        alt={song.title}
+        colorSeed={song.album ?? undefined}
+        type="song"
+        size="sm"
+        lazy={false}
+      />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{song.title}</p>
+        <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -120,6 +156,8 @@ function VirtualQueueItem({
   onTogglePlayPause,
   onMoveToPosition,
   onNavigate,
+  dragHandleProps,
+  isDragging = false,
 }: VirtualQueueItemProps) {
   const song = entry.song;
   const coverButtonLabel =
@@ -145,9 +183,25 @@ function VirtualQueueItem({
           isCurrent
             ? "bg-primary/10 border border-primary/20 active:bg-primary/15"
             : "bg-card hover:bg-muted/50 active:bg-muted/70",
+          isDragging && "opacity-40",
         )}
         style={{ height: ITEM_HEIGHT }}
       >
+        {/* Drag handle (rows that can move); keeps the column for alignment */}
+        {!isCurrent && (
+          <button
+            type="button"
+            aria-label={`Reorder ${song.title}`}
+            title="Drag to reorder"
+            className={cn(
+              "shrink-0 -ml-1 flex h-8 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-60",
+              !dragHandleProps && "invisible",
+            )}
+            {...dragHandleProps}
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
+        )}
         {/* Now playing indicator for current track */}
         {isCurrent && (
           <div className="shrink-0 w-5">
@@ -761,6 +815,21 @@ export const VirtualizedQueueDisplay = forwardRef<
     });
   };
 
+  // Drag to reorder: positions are queue indexes, and moves are applied
+  // optimistically by moveInQueueAtom so drops never snap back.
+  const reorder = useListReorder({
+    count: totalCount,
+    getScrollElement: () => parentRef.current,
+    onReorder: (fromPosition, toPosition) => {
+      hapticTap();
+      void moveInQueue({ fromPosition, toPosition });
+    },
+    renderGhost: (index) => {
+      const entry = songsByPosition.get(index);
+      return entry ? <QueueGhostRow entry={entry} /> : null;
+    },
+  });
+
   // Show loading state
   if (isLoading) {
     return (
@@ -802,6 +871,8 @@ export const VirtualizedQueueDisplay = forwardRef<
             return (
               <div
                 key={itemKey}
+                data-reorder-row
+                data-reorder-index={virtualItem.index}
                 className="absolute left-0 right-0 px-2"
                 style={{
                   height: virtualItem.size,
@@ -822,6 +893,12 @@ export const VirtualizedQueueDisplay = forwardRef<
                     onTogglePlayPause={togglePlayPause}
                     onMoveToPosition={handleMoveToPosition}
                     onNavigate={onNavigate}
+                    dragHandleProps={
+                      isPending
+                        ? undefined
+                        : reorder.handleProps(virtualItem.index)
+                    }
+                    isDragging={reorder.draggingIndex === virtualItem.index}
                   />
                 ) : (
                   <QueueItemPlaceholder />
@@ -831,6 +908,8 @@ export const VirtualizedQueueDisplay = forwardRef<
           })}
         </div>
       </div>
+
+      {reorder.overlay}
 
       {/* Move to position dialog */}
       {moveDialogEntry && (

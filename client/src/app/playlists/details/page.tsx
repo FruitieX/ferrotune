@@ -13,6 +13,7 @@ import {
   AlertCircle,
   RefreshCw,
   Plus,
+  GripVertical,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -76,6 +77,7 @@ import {
   SongCardSkeleton,
 } from "@/components/browse/song-row";
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
+import { useListReorder, type ListReorder } from "@/lib/hooks/use-list-reorder";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import {
@@ -218,6 +220,7 @@ function PlaylistDetailContent() {
     isLoading: isOnlineLoading,
     ensureRange: onlineEnsureRange,
     refresh: refreshOnlinePlaylistData,
+    moveEntry: moveOnlineEntry,
   } = usePlaylistSparsePagination({
     queryKey: [
       "playlistSongs",
@@ -415,30 +418,6 @@ function PlaylistDetailContent() {
     },
     onError: () => {
       toast.error("Failed to delete playlist");
-    },
-  });
-
-  // Reorder mutation (kept for potential future use)
-  const _reorderMutation = useMutation({
-    mutationFn: async (songIds: string[]) => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      await client.reorderPlaylistSongs(playlistId!, songIds);
-    },
-    onSuccess: () => {
-      // Invalidate to ensure we have the correct order from server
-      refreshPlaylistData();
-      queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
-      toast.success("Playlist order updated");
-    },
-    onError: () => {
-      refreshPlaylistData();
-      queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
-      toast.error("Failed to update playlist order");
     },
   });
 
@@ -652,6 +631,133 @@ function PlaylistDetailContent() {
       console.error(error);
     }
   };
+
+  const renderListItem = (item: DisplayItem) => {
+    if (item.type === "missing") {
+      const missingId = `missing-${item.entryId}`;
+      // If the entry has song data (from disabled library), extract it
+      const songData = item.entry.song
+        ? {
+            title: item.entry.song.title,
+            artist: item.entry.song.artist,
+            album: item.entry.song.album,
+          }
+        : null;
+      return (
+        <MissingEntryRow
+          playlistId={playlistId!}
+          entryId={item.entryId}
+          position={item.position}
+          missing={item.entry.missing}
+          song={songData}
+          entryType={
+            item.entry.entryType === "notFound" ? "notFound" : "missing"
+          }
+          isSelected={isMissingSelected(missingId)}
+          isSelectionMode={totalSelectedCount > 0}
+          onSelect={handleMissingSelect}
+          onRemove={canModify ? handleRemoveMissingEntry : undefined}
+          showMoveToPosition={
+            canModify && effectiveSortConfig.field === "custom"
+          }
+          onMoveToPosition={canModify ? handleMissingMoveToPosition : undefined}
+          onMatched={canModify ? refreshPlaylistData : undefined}
+        />
+      );
+    }
+    // Song item
+    const songItem = item as Extract<typeof item, { type: "song" }>;
+    return (
+      <SongRow
+        song={songItem.song}
+        index={columnVisibility.trackNumber ? songItem.position : undefined}
+        showCover
+        inlineImagesRequested
+        showArtist={columnVisibility.artist}
+        showAlbum={columnVisibility.album}
+        showDuration={columnVisibility.duration}
+        showPlayCount={columnVisibility.playCount}
+        showPlayStarts={columnVisibility.playStarts}
+        showYear={columnVisibility.year}
+        showDateAdded={columnVisibility.dateAdded}
+        dateAddedOverride={songItem.addedToPlaylist}
+        showLastPlayed={columnVisibility.lastPlayed}
+        showStarred={columnVisibility.starred}
+        showGenre={columnVisibility.genre}
+        showBitRate={columnVisibility.bitRate}
+        showFormat={columnVisibility.format}
+        showRating={columnVisibility.rating}
+        queueSource={playlistQueueSource}
+        disableLibraryLinks={isOfflineMode}
+        isSelected={isSelected(songItem.song.id)}
+        isSelectionMode={totalSelectedCount > 0}
+        onSelect={handleSongSelect}
+        showRemoveFromPlaylist={canModify}
+        onRemoveFromPlaylist={canModify ? handleRemoveSingleSong : undefined}
+        isCurrentQueuePosition={
+          isPlaylistInQueue
+            ? isCurrentQueuePosition(
+                songItem.songIndex,
+                songItem.song.id,
+                songItem.entryId,
+              )
+            : undefined
+        }
+        showMoveToPosition={canModify && effectiveSortConfig.field === "custom"}
+        onMoveToPosition={canModify ? handleSongMoveToPosition : undefined}
+        showRefineMatch={canModify && !!songItem.missing}
+        onRefineMatch={canModify ? handleRefineMatch : undefined}
+        showUnmatch={canModify && !!songItem.missing}
+        onUnmatch={canModify ? handleUnmatch : undefined}
+      />
+    );
+  };
+
+  // Drag to reorder: only in custom order without a filter, where list
+  // indexes are playlist positions.
+  const canReorder =
+    canModify &&
+    effectiveSortConfig.field === "custom" &&
+    !debouncedFilter.trim() &&
+    viewMode === "list";
+  const reorder = useListReorder({
+    count: displayItems.length,
+    getScrollElement: () => document.getElementById("main-scroll-container"),
+    onReorder: async (from, to) => {
+      const item = displayItems[from];
+      const client = getClient();
+      if (!item || !client || !playlistId) return;
+      moveOnlineEntry(from, to);
+      try {
+        await client.movePlaylistEntry(playlistId, item.entryId, to);
+      } catch (error) {
+        toast.error("Failed to move entry");
+        console.error(error);
+      }
+      await syncPlaylistAfterMutation(false);
+    },
+    renderGhost: (index) => {
+      const item = displayItems[index];
+      if (!item) return null;
+      const title =
+        item.type === "song"
+          ? item.song.title
+          : (item.entry.missing?.title ?? "Missing track");
+      const artist =
+        item.type === "song" ? item.song.artist : item.entry.missing?.artist;
+      return (
+        <div className="flex h-full items-center gap-3 px-3">
+          <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{title}</p>
+            {artist && (
+              <p className="truncate text-xs text-muted-foreground">{artist}</p>
+            )}
+          </div>
+        </div>
+      );
+    },
+  });
 
   // Queue source for playlist - server materializes with same sort/filter
   const queueFilter = queueTextFilter(debouncedFilter, applySearchTermsToQueue);
@@ -1310,105 +1416,19 @@ function PlaylistDetailContent() {
               <VirtualizedList
                 items={displayItems}
                 totalCount={filteredCount}
-                renderItem={(item, _index) => {
-                  if (item.type === "missing") {
-                    const missingId = `missing-${item.entryId}`;
-                    // If the entry has song data (from disabled library), extract it
-                    const songData = item.entry.song
-                      ? {
-                          title: item.entry.song.title,
-                          artist: item.entry.song.artist,
-                          album: item.entry.song.album,
-                        }
-                      : null;
-                    return (
-                      <MissingEntryRow
-                        playlistId={playlistId!}
-                        entryId={item.entryId}
-                        position={item.position}
-                        missing={item.entry.missing}
-                        song={songData}
-                        entryType={
-                          item.entry.entryType === "notFound"
-                            ? "notFound"
-                            : "missing"
-                        }
-                        isSelected={isMissingSelected(missingId)}
-                        isSelectionMode={totalSelectedCount > 0}
-                        onSelect={handleMissingSelect}
-                        onRemove={
-                          canModify ? handleRemoveMissingEntry : undefined
-                        }
-                        showMoveToPosition={
-                          canModify && effectiveSortConfig.field === "custom"
-                        }
-                        onMoveToPosition={
-                          canModify ? handleMissingMoveToPosition : undefined
-                        }
-                        onMatched={canModify ? refreshPlaylistData : undefined}
-                      />
-                    );
-                  }
-                  // Song item
-                  const songItem = item as Extract<
-                    typeof item,
-                    { type: "song" }
-                  >;
-                  return (
-                    <SongRow
-                      song={songItem.song}
-                      index={
-                        columnVisibility.trackNumber
-                          ? songItem.position
-                          : undefined
-                      }
-                      showCover
-                      inlineImagesRequested
-                      showArtist={columnVisibility.artist}
-                      showAlbum={columnVisibility.album}
-                      showDuration={columnVisibility.duration}
-                      showPlayCount={columnVisibility.playCount}
-                      showPlayStarts={columnVisibility.playStarts}
-                      showYear={columnVisibility.year}
-                      showDateAdded={columnVisibility.dateAdded}
-                      dateAddedOverride={songItem.addedToPlaylist}
-                      showLastPlayed={columnVisibility.lastPlayed}
-                      showStarred={columnVisibility.starred}
-                      showGenre={columnVisibility.genre}
-                      showBitRate={columnVisibility.bitRate}
-                      showFormat={columnVisibility.format}
-                      showRating={columnVisibility.rating}
-                      queueSource={playlistQueueSource}
-                      disableLibraryLinks={isOfflineMode}
-                      isSelected={isSelected(songItem.song.id)}
-                      isSelectionMode={totalSelectedCount > 0}
-                      onSelect={handleSongSelect}
-                      showRemoveFromPlaylist={canModify}
-                      onRemoveFromPlaylist={
-                        canModify ? handleRemoveSingleSong : undefined
-                      }
-                      isCurrentQueuePosition={
-                        isPlaylistInQueue
-                          ? isCurrentQueuePosition(
-                              songItem.songIndex,
-                              songItem.song.id,
-                              songItem.entryId,
-                            )
-                          : undefined
-                      }
-                      showMoveToPosition={
-                        canModify && effectiveSortConfig.field === "custom"
-                      }
-                      onMoveToPosition={
-                        canModify ? handleSongMoveToPosition : undefined
-                      }
-                      showRefineMatch={canModify && !!songItem.missing}
-                      onRefineMatch={canModify ? handleRefineMatch : undefined}
-                      showUnmatch={canModify && !!songItem.missing}
-                      onUnmatch={canModify ? handleUnmatch : undefined}
-                    />
-                  );
-                }}
+                renderItem={(item, index) => (
+                  <ReorderableRow
+                    index={index}
+                    reorder={canReorder ? reorder : null}
+                    label={
+                      item.type === "song"
+                        ? item.song.title
+                        : (item.entry.missing?.title ?? "missing track")
+                    }
+                  >
+                    {renderListItem(item)}
+                  </ReorderableRow>
+                )}
                 renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
                 getItemKey={(item, _index) =>
                   item.type === "song"
@@ -1418,6 +1438,7 @@ function PlaylistDetailContent() {
                 estimateItemHeight={56}
                 ensureRange={ensureRange}
               />
+              {reorder.overlay}
             </>
           )
         ) : totalEntries > 0 ? (
@@ -1639,5 +1660,41 @@ export default function PlaylistDetailPage() {
     >
       <PlaylistDetailContent />
     </Suspense>
+  );
+}
+
+/** Playlist row wrapper with a drag handle in the left gutter. */
+function ReorderableRow({
+  index,
+  reorder,
+  label,
+  children,
+}: {
+  index: number;
+  reorder: ListReorder | null;
+  label: string;
+  children: React.ReactNode;
+}) {
+  if (!reorder) return <>{children}</>;
+  return (
+    <div
+      data-reorder-row
+      data-reorder-index={index}
+      className={cn(
+        "group/reorder relative",
+        reorder.draggingIndex === index && "opacity-40",
+      )}
+    >
+      <button
+        type="button"
+        aria-label={`Reorder ${label}`}
+        title="Drag to reorder"
+        className="absolute top-1/2 -left-4 flex h-8 w-4 -translate-y-1/2 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity group-hover/reorder:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-60 lg:-left-5"
+        {...reorder.handleProps(index)}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      {children}
+    </div>
   );
 }

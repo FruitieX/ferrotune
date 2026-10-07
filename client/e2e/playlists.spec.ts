@@ -337,4 +337,68 @@ test.describe("Playlists", () => {
     await expect(cards.first()).toContainText("B three");
     await expect(cards.last()).toContainText("A one");
   });
+
+  test("dragging a row by its handle reorders the playlist", async ({
+    authenticatedPage: page,
+    server,
+  }) => {
+    const headers = { Authorization: basicAuthHeader(server) };
+    const search = await page.request.get(
+      `${server.url}/api/search?query=Song&artistCount=0&albumCount=0&songCount=3&songSort=title`,
+      { headers },
+    );
+    const songs: { id: string; title: string }[] = (await search.json())
+      .searchResult.song;
+    expect(songs).toHaveLength(3);
+    const name = `Drag Order ${Date.now()}`;
+    const created = await page.request.post(
+      `${server.url}/api/playlists/import`,
+      {
+        headers,
+        data: {
+          name,
+          comment: null,
+          folderId: null,
+          entries: songs.map((song) => ({ songId: song.id, missing: null })),
+        },
+      },
+    );
+    const playlistId = getImportedPlaylistId(await created.json());
+
+    await page.goto(`/playlists/details?id=${playlistId}`);
+    const rows = page.locator("[data-reorder-row]");
+    await expect(rows).toHaveCount(3);
+    const last = rows.nth(2);
+    await last.hover();
+    const handle = last.getByRole("button", {
+      name: `Reorder ${songs[2].title}`,
+    });
+    const handleBox = await handle.boundingBox();
+    const firstBox = await rows.nth(0).boundingBox();
+    if (!handleBox || !firstBox) throw new Error("rows not laid out");
+
+    const x = handleBox.x + handleBox.width / 2;
+    await page.mouse.move(x, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, firstBox.y + firstBox.height / 2, { steps: 10 });
+    await expect(page.getByTestId("reorder-drop-line")).toBeVisible();
+    const moved = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/playlists/${playlistId}/move-entry` && response.ok(),
+    );
+    await page.mouse.up();
+    await moved;
+
+    // The page shows the new order right away and the server agrees.
+    await expect(rows.nth(0)).toContainText(songs[2].title);
+    const after = await page.request.get(
+      `${server.url}/api/playlists/${playlistId}/songs?offset=0&count=10`,
+      { headers },
+    );
+    const titles = (await after.json()).entries.map(
+      (entry: { song: { title: string } }) => entry.song.title,
+    );
+    expect(titles).toEqual([songs[2].title, songs[0].title, songs[1].title]);
+  });
 });

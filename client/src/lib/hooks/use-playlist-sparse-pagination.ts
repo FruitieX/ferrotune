@@ -59,6 +59,8 @@ export interface PlaylistSparsePaginationResult {
   refresh: () => void;
   /** Reset all cached data and refetch from the beginning */
   reset: () => void;
+  /** Optimistically move an entry among the loaded pages (custom order). */
+  moveEntry: (from: number, to: number) => void;
 }
 
 /**
@@ -83,6 +85,7 @@ export function usePlaylistSparsePagination({
     refresh,
     metadata,
     reset,
+    moveItem,
   } = useSparsePagination<PlaylistSongEntry, PlaylistMetadata>({
     queryKey,
     pageSize,
@@ -122,5 +125,7 @@ export function usePlaylistSparsePagination({
     ensureRange,
     refresh,
     reset,
+    moveEntry: (from, to) =>
+      moveItem(from, to, (entry, index) => ({ ...entry, position: index })),
   };
 }

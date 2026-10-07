@@ -61,6 +61,58 @@ export interface SparsePaginationResult<T, TMeta = Record<string, never>> {
   metadata: TMeta | null;
   /** Reset all cached data and refetch from the beginning */
   reset: () => void;
+  /**
+   * Optimistically move the item at `from` to `to` among the loaded pages
+   * (no-op when a page in between isn't loaded). `reindex` updates items that
+   * carry their own position.
+   */
+  moveItem: (
+    from: number,
+    to: number,
+    reindex?: (item: T, index: number) => T,
+  ) => void;
+}
+
+/**
+ * Pages with the item at `from` moved to `to`, or the same pages when any
+ * slot in between isn't loaded.
+ */
+export function moveItemInPages<T>(
+  pages: Map<number, T[]>,
+  pageSize: number,
+  from: number,
+  to: number,
+  reindex?: (item: T, index: number) => T,
+): Map<number, T[]> {
+  if (from === to) return pages;
+  const low = Math.min(from, to);
+  const high = Math.max(from, to);
+  const slice: T[] = [];
+  for (let index = low; index <= high; index++) {
+    const item = pages.get(Math.floor(index / pageSize))?.[index % pageSize];
+    if (item === undefined) return pages;
+    slice.push(item);
+  }
+  if (from < to) {
+    slice.push(slice.shift()!);
+  } else {
+    slice.unshift(slice.pop()!);
+  }
+
+  const next = new Map(pages);
+  const copied = new Set<number>();
+  slice.forEach((item, offset) => {
+    const index = low + offset;
+    const pageIndex = Math.floor(index / pageSize);
+    if (!copied.has(pageIndex)) {
+      next.set(pageIndex, [...next.get(pageIndex)!]);
+      copied.add(pageIndex);
+    }
+    next.get(pageIndex)![index % pageSize] = reindex
+      ? reindex(item, index)
+      : item;
+  });
+  return next;
 }
 
 /**
@@ -458,6 +510,14 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     });
   };
 
+  const moveItem = (
+    from: number,
+    to: number,
+    reindex?: (item: T, index: number) => T,
+  ) => {
+    setPages((prev) => moveItemInPages(prev, pageSize, from, to, reindex));
+  };
+
   // Build flat items array from loaded pages
   const items: T[] = [];
   if (totalCount > 0) {
@@ -529,5 +589,6 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     refresh,
     metadata,
     reset,
+    moveItem,
   };
 }

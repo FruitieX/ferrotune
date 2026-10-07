@@ -403,6 +403,7 @@ field fallbacks in components.
 | `use-song-actions.ts` | Song playback/queue/starring/rating actions |
 | `use-session-owner-state.ts` | Shared session ownership snapshot handling and foreground recovery |
 | `use-star.ts` | Generic starring state management |
+| `use-list-reorder.tsx` | Drag-to-reorder for virtualized lists (queue panel, playlist detail): rows carry `data-reorder-row` + `data-reorder-index`, handles spread `handleProps(index)` (pointer drag, Up/Down keys). The floating row and drop line move via direct style writes and the target is hit-tested against rendered rows, so rows re-render only at drag start/end; edge auto-scroll included. Pair with an optimistic move (`moveInQueueAtom`, `useSparsePagination().moveItem`) so drops never snap back |
 | `keyboard-shortcut-target.ts` | `resolveShortcut(event, target)`: maps a keydown to a global player shortcut, leaving modified keys to the browser and Space/arrows/letters to focused buttons, menus, sliders and dialogs (used by `use-keyboard-shortcuts.ts`) |
 
 ### Frontend Queue Helpers (`client/src/lib/queue/`)

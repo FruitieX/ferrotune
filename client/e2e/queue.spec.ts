@@ -9,7 +9,11 @@ import {
   waitForPlayerReady,
   resetState,
 } from "./fixtures";
-import { setServerPreference, waitForServerPreference } from "./app-helpers";
+import {
+  pausePlayback,
+  setServerPreference,
+  waitForServerPreference,
+} from "./app-helpers";
 import { openQueuePanel } from "./queue-helpers";
 import type { Page } from "@playwright/test";
 
@@ -321,5 +325,70 @@ test.describe.serial("Queue Management", () => {
     await expect(queuePanel.getByText("First Song")).toBeVisible();
     await expect(queuePanel.getByText("Second Song")).toBeVisible();
     await expect(queuePanel.getByText("Third Song")).toBeVisible();
+  });
+
+  test("dragging a queue row by its handle reorders the queue", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    const queuePanel = await openQueuePanel(page);
+    const rows = queuePanel.locator('[data-testid="queue-item"]');
+    await expect(rows).toHaveCount(3);
+    const third = rows.filter({ hasText: "Third Song" });
+    const second = rows.filter({ hasText: "Second Song" });
+    await third.hover();
+    const handle = third.getByRole("button", { name: "Reorder Third Song" });
+    const handleBox = await handle.boundingBox();
+    const secondBox = await second.boundingBox();
+    if (!handleBox || !secondBox) throw new Error("queue rows not laid out");
+
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(handleBox.x + handleBox.width / 2, startY);
+    await page.mouse.down();
+    // Move in steps so pointermove fires like a real drag.
+    const targetY = secondBox.y + secondBox.height / 2;
+    await page.mouse.move(handleBox.x + handleBox.width / 2, targetY, {
+      steps: 8,
+    });
+    await expect(page.getByTestId("reorder-drop-line")).toBeVisible();
+    const moved = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/queue/move" && response.ok(),
+    );
+    await page.mouse.up();
+    await moved;
+
+    await expect(queuePanel.locator('[data-queue-position="1"]')).toContainText(
+      "Third Song",
+    );
+    await expect(queuePanel.locator('[data-queue-position="2"]')).toContainText(
+      "Second Song",
+    );
+
+    // The player follows the new order.
+    const playerBar = page.getByTestId("player-bar");
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await expect(playerBar).toContainText("Third Song");
+  });
+
+  test("queue handles reorder with the keyboard", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    const queuePanel = await openQueuePanel(page);
+    const handle = queuePanel.getByRole("button", {
+      name: "Reorder Second Song",
+    });
+    await handle.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(queuePanel.locator('[data-queue-position="2"]')).toContainText(
+      "Second Song",
+    );
   });
 });
