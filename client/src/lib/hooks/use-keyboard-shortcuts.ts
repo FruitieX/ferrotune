@@ -15,17 +15,16 @@ import {
   durationAtom,
 } from "@/lib/store/player";
 import { serverQueueStateAtom } from "@/lib/store/server-queue";
+import { resolveShortcut } from "@/lib/hooks/keyboard-shortcut-target";
 
 /**
  * Global keyboard shortcuts hook.
  * Should be called once in a top-level component.
  *
- * Shortcuts:
- * - Space: Play/Pause (when not in input)
- * - Arrow Left: Seek backwards 5 seconds
- * - Arrow Right: Seek forwards 5 seconds
- * - Arrow Up: Volume up 5%
- * - Arrow Down: Volume down 5%
+ * Shortcuts (see `resolveShortcut` for when focus keeps the key):
+ * - Space: Play/Pause
+ * - Arrow Left / Right: Seek 5 seconds (Shift: 30 seconds)
+ * - Ctrl/Cmd + Arrow Up / Down: Volume up/down 5% (plain arrows scroll)
  * - M: Mute/Unmute
  * - N / MediaTrackNext: Next track
  * - P / MediaTrackPrevious: Previous track
@@ -47,39 +46,28 @@ export function useKeyboardShortcuts() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Don't handle shortcuts when user is typing
-      const target = event.target as HTMLElement;
-      const isInputFocused =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable ||
-        target.role === "textbox";
+      const action = resolveShortcut(
+        event,
+        event.target instanceof HTMLElement ? event.target : null,
+      );
+      if (!action) return;
+      event.preventDefault();
 
-      // Handle search shortcut even when typing
-      if (
-        (event.key === "/" && !isInputFocused) ||
-        (event.key === "k" && (event.metaKey || event.ctrlKey))
-      ) {
-        event.preventDefault();
-        // Focus search input on search page, or navigate to search
-        const searchInput = document.querySelector(
-          'input[type="text"][placeholder*="Search"]',
-        ) as HTMLInputElement;
-        if (searchInput) {
-          searchInput.focus();
-        } else {
-          router.push("/search");
+      const seekAmount = event.shiftKey ? 30 : 5;
+      switch (action) {
+        case "search": {
+          // Focus the page's search input, or open the search page.
+          const searchInput = document.querySelector<HTMLInputElement>(
+            'input[type="text"][placeholder*="Search"]',
+          );
+          if (searchInput) {
+            searchInput.focus();
+          } else {
+            router.push("/search");
+          }
+          break;
         }
-        return;
-      }
-
-      // Skip other shortcuts when in input
-      if (isInputFocused) return;
-
-      // Media control shortcuts
-      switch (event.key) {
-        case " ": // Space - Play/Pause
-          event.preventDefault();
+        case "togglePlay":
           if (
             (queueState && queueState.totalCount > 0) ||
             playbackState === "playing" ||
@@ -88,85 +76,36 @@ export function useKeyboardShortcuts() {
             togglePlayPause();
           }
           break;
-
-        case "ArrowLeft": // Seek backwards
-          event.preventDefault();
+        case "seekBack":
           if (audioElement && duration > 0) {
-            const seekAmount = event.shiftKey ? 30 : 5;
-            const newTime = Math.max(0, audioElement.currentTime - seekAmount);
-            seek(newTime);
+            seek(Math.max(0, audioElement.currentTime - seekAmount));
           }
           break;
-
-        case "ArrowRight": // Seek forwards
-          event.preventDefault();
+        case "seekForward":
           if (audioElement && duration > 0) {
-            const seekAmount = event.shiftKey ? 30 : 5;
-            const newTime = Math.min(
-              duration,
-              audioElement.currentTime + seekAmount,
-            );
-            seek(newTime);
+            seek(Math.min(duration, audioElement.currentTime + seekAmount));
           }
           break;
-
-        case "ArrowUp": // Volume up
-          event.preventDefault();
+        case "volumeUp":
           changeVolume(Math.min(1, volume + 0.05));
           break;
-
-        case "ArrowDown": // Volume down
-          event.preventDefault();
+        case "volumeDown":
           changeVolume(Math.max(0, volume - 0.05));
           break;
-
-        case "m":
-        case "M": // Mute
-          event.preventDefault();
+        case "mute":
           toggleMute();
           break;
-
-        case "n":
-        case "N": // Next track
-          event.preventDefault();
+        case "next":
           next();
           break;
-
-        case "p":
-        case "P": // Previous track
-          event.preventDefault();
+        case "previous":
           previous();
           break;
-
-        case "s":
-        case "S": // Toggle shuffle
-          if (!event.metaKey && !event.ctrlKey) {
-            event.preventDefault();
-            toggleShuffle();
-          }
+        case "shuffle":
+          toggleShuffle();
           break;
-
-        case "r":
-        case "R": // Cycle repeat mode
-          if (!event.metaKey && !event.ctrlKey) {
-            event.preventDefault();
-            cycleRepeatMode();
-          }
-          break;
-
-        case "MediaPlayPause":
-          event.preventDefault();
-          togglePlayPause();
-          break;
-
-        case "MediaTrackNext":
-          event.preventDefault();
-          next();
-          break;
-
-        case "MediaTrackPrevious":
-          event.preventDefault();
-          previous();
+        case "repeat":
+          cycleRepeatMode();
           break;
       }
     };
