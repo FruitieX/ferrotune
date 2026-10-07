@@ -68,6 +68,30 @@ GET {{base_url}}/api/discovery/similar-songs?size=5&seedSongId=nonexistent-song-
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
+# A recently played song without a bliss analysis must not fail the
+# section: discovery seeds from the newest analysed play instead (or returns
+# an empty list when nothing is analysed).
+GET {{base_url}}/api/songs/random?size=1
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+played_song_id: jsonpath "$.song[0].id"
+
+POST {{base_url}}/api/scrobbles
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "id": "{{played_song_id}}",
+  "submission": true
+}
+HTTP 204
+
+GET {{base_url}}/api/discovery/similar-songs?size=5
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.song" isCollection
+
 # Unauthenticated access should fail
 GET {{base_url}}/api/discovery/similar-songs?size=10
 HTTP 401

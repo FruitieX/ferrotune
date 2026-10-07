@@ -55,6 +55,42 @@ pub async fn fetch_seed<C: ConnectionTrait>(
     Ok(row)
 }
 
+/// The first of `song_ids` (in the given order) that has bliss features and is
+/// visible to the user, so discovery can seed from recent listening even when
+/// the very latest song hasn't been analysed yet.
+pub async fn first_analysed_song<C: ConnectionTrait>(
+    conn: &C,
+    song_ids: &[String],
+    user_id: i64,
+) -> Result<Option<String>> {
+    use entity::songs::Column as S;
+    if song_ids.is_empty() {
+        return Ok(None);
+    }
+    let analysed: std::collections::HashSet<String> = entity::songs::Entity::find()
+        .select_only()
+        .column(S::Id)
+        .join(
+            JoinType::InnerJoin,
+            entity::songs::Relation::MusicFolders.def(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            entity::music_folders::Relation::UserLibraryAccess.def(),
+        )
+        .filter(S::Id.is_in(song_ids.iter().cloned()))
+        .filter(S::BlissFeatures.is_not_null())
+        .filter(S::MarkedForDeletionAt.is_null())
+        .filter(entity::music_folders::Column::Enabled.eq(true))
+        .filter(entity::user_library_access::Column::UserId.eq(user_id))
+        .into_tuple::<String>()
+        .all(conn)
+        .await?
+        .into_iter()
+        .collect();
+    Ok(song_ids.iter().find(|id| analysed.contains(*id)).cloned())
+}
+
 /// Fetch every analysed candidate song (with bliss features) visible to the
 /// user, excluding the seed and any song the user has disabled.
 pub async fn fetch_candidates<C: ConnectionTrait>(

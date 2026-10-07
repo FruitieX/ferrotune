@@ -116,6 +116,11 @@ pub async fn get_similar_songs(
     }
 }
 
+/// How many recently played songs to try, newest first, when looking for an
+/// analysed seed song.
+#[cfg(feature = "bliss")]
+const SEED_LOOKBACK: usize = 50;
+
 /// Core discovery logic: find songs similar to the user's recent listening.
 #[cfg(feature = "bliss")]
 #[allow(clippy::too_many_arguments)]
@@ -132,36 +137,44 @@ pub async fn discover_similar_songs(
 ) -> crate::error::Result<DiscoveryResponse> {
     use chrono::Duration;
 
+    // Recent listening, newest first: it supplies both the fallback seed and
+    // the "recently played" set to exclude (fetch enough to cover the window).
+    let recent = crate::db::repo::history::list_recent_song_aggregates(
+        database.conn(),
+        user_id,
+        500,
+        0,
+    )
+    .await?;
+
     // 1. Pick a seed song. Prefer the explicitly-provided seed_song_id; fall
-    // back to the most-recently-played song. Tracking the resolved seed song
+    // back to the most-recently-played song that has a bliss analysis (the
+    // newest play may not be analysed yet). Tracking the resolved seed song
     // ID lets callers re-materialize the same list later (e.g. for playback
     // queues) even if the user's scrobble history has since changed — which
     // matters for remote-controlling sessions where another tab is advancing
     // playback and recording scrobbles.
     let seed_id = match seed_song_id {
-        Some(id) => id,
+        Some(id) => Some(id),
         None => {
-            let seed_aggregates = crate::db::repo::history::list_recent_song_aggregates(
-                database.conn(),
-                user_id,
-                1,
-                0,
-            )
-            .await?;
-            match seed_aggregates.first() {
-                Some(row) => row.song_id.clone(),
-                None => {
-                    return Ok(DiscoveryResponse {
-                        song: Vec::new(),
-                        total: 0,
-                        seed: seed.unwrap_or_else(rand::random::<i64>),
-                        count,
-                        exclude_recent_days,
-                        seed_song_id: None,
-                    });
-                }
-            }
+            let recent_ids: Vec<String> = recent
+                .iter()
+                .take(SEED_LOOKBACK)
+                .map(|agg| agg.song_id.clone())
+                .collect();
+            crate::db::repo::bliss::first_analysed_song(database.conn(), &recent_ids, user_id)
+                .await?
         }
+    };
+    let Some(seed_id) = seed_id else {
+        return Ok(DiscoveryResponse {
+            song: Vec::new(),
+            total: 0,
+            seed: seed.unwrap_or_else(rand::random::<i64>),
+            count,
+            exclude_recent_days,
+            seed_song_id: None,
+        });
     };
 
     let response_seed = seed.unwrap_or_else(rand::random::<i64>);
@@ -169,14 +182,7 @@ pub async fn discover_similar_songs(
 
     // 2. Get "recently played" set to exclude (avoid recommending what they just heard)
     let cutoff = chrono::Utc::now() - Duration::days(exclude_recent_days);
-    let recent_excluded: std::collections::HashSet<String> =
-        crate::db::repo::history::list_recent_song_aggregates(
-            database.conn(),
-            user_id,
-            500, // fetch enough to cover the exclusion window
-            0,
-        )
-        .await?
+    let recent_excluded: std::collections::HashSet<String> = recent
         .into_iter()
         .filter(|agg| agg.last_played.is_some_and(|t| t >= cutoff))
         .map(|agg| agg.song_id)
