@@ -239,6 +239,7 @@ moon run client:test-e2e-ui
 **API Client**: `src/lib/api/client.ts` wraps native `/api` calls
 **Components**: Shadcn/ui components in `src/components/ui/`
 **Routing**: React Router routes are declared in `src/routes.tsx`; Vite entrypoint is `src/main.tsx`
+**Logging**: diagnostics use `console.debug` (hidden unless the console shows verbose messages); ESLint rejects `console.log`/`console.info` in `src/`.
 **Navigation**: use React Router directly (`Link to=`, `useNavigate`, `useLocation`, `useSearchParams`). A navigation that shouldn't reset the main scroll position passes `state: { preventScrollReset: true }` (read by `main-content.tsx`).
 
 ---

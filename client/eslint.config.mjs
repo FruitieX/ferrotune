@@ -8,9 +8,7 @@ export default tseslint.config(
     ignores: [
       "node_modules/**",
       "out/**",
-      ".next/**",
-      ".next-dev/**",
-      ".next-test/**",
+      "dist/**",
       "build/**",
       "src-tauri/**",
       "playwright-report/**",
@@ -57,6 +55,14 @@ export default tseslint.config(
         },
       ],
       "react-hooks/incompatible-library": "off",
+    },
+  },
+  {
+    // App diagnostics go through console.debug (hidden unless the browser
+    // console shows verbose messages); warnings and errors stay visible.
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-console": ["error", { allow: ["debug", "warn", "error"] }],
     },
   },
 );

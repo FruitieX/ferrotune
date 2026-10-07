@@ -146,7 +146,7 @@ export function createNativeCallbacks({
     track: NativeTrackInfo | undefined,
     queueIndex: number,
   ) => {
-    console.log(
+    console.debug(
       "[NativeAudio] Track changed to index:",
       queueIndex,
       "track:",
@@ -156,7 +156,7 @@ export function createNativeCallbacks({
     const sessionId = stateRef.current.currentSessionId;
     const queueState = stateRef.current.queueState;
     if (!queueState || (!sessionId && !isOfflineQueue())) {
-      console.log(
+      console.debug(
         "[NativeAudio] Ignoring track-change without an active session queue",
       );
       return;
@@ -165,7 +165,7 @@ export function createNativeCallbacks({
     const window = stateRef.current.queueWindow;
     const entry = window?.songs.find((s) => s.position === queueIndex);
     if (track?.id && entry?.song && entry.song.id !== track.id) {
-      console.log(
+      console.debug(
         "[NativeAudio] Ignoring stale track-change that does not match the active queue",
         { queueIndex, trackId: track.id, expectedTrackId: entry.song.id },
       );
@@ -263,7 +263,10 @@ export function createNativeCallbacks({
 
   const onQueueStateChanged = (queueState: NativeQueueState) => {
     // Autonomous mode: Kotlin syncs queue state back to JS for UI
-    console.log("[NativeAudio] Queue state changed (autonomous):", queueState);
+    console.debug(
+      "[NativeAudio] Queue state changed (autonomous):",
+      queueState,
+    );
     settersRef.current.setServerQueueState((prev) =>
       prev
         ? {
@@ -286,7 +289,7 @@ export function createNativeCallbacks({
       const countMismatch = queueState.totalCount !== currentState.totalCount;
       const shuffleMismatch = queueState.isShuffled !== currentState.isShuffled;
       if (indexMismatch || countMismatch || shuffleMismatch) {
-        console.log(
+        console.debug(
           "[NativeAudio] Queue state divergence detected, refetching. Native:",
           {
             ci: queueState.currentIndex,
@@ -324,7 +327,7 @@ export function createNativeCallbacks({
 
   const onScrobble = (trackId: string) => {
     // Autonomous mode: Kotlin scrobbled a track, invalidate play count caches
-    console.log("[NativeAudio] Scrobble from native:", trackId);
+    console.debug("[NativeAudio] Scrobble from native:", trackId);
     settersRef.current.invalidatePlayCountQueries();
   };
 

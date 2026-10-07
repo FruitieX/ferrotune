@@ -59,12 +59,12 @@ export function useSettingsSync() {
   // Push playback settings to native service when they change
   useEffect(() => {
     if (!usingNativeAudio) {
-      console.log(
+      console.debug(
         "[NativeAudio] settings sync: skipped (usingNativeAudio=false)",
       );
       return;
     }
-    console.log(
+    console.debug(
       `[NativeAudio] settings sync: mode=${replayGainMode}, offset=${replayGainOffset}, transcoding=${transcodingEnabled}, bitrate=${transcodingBitrate}`,
     );
     nativeUpdateSettings({
@@ -75,7 +75,7 @@ export function useSettingsSync() {
       transcodingBitrate,
     })
       .then(() => {
-        console.log(
+        console.debug(
           "[NativeAudio] settings sync: nativeUpdateSettings succeeded",
         );
       })

@@ -562,7 +562,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
     const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
     if (get(effectiveSessionIdAtom) !== sessionId) {
-      console.log(
+      console.debug(
         "fetchQueueAtom: discarding stale response (session changed during fetch)",
       );
       return;
@@ -572,7 +572,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
     // discard this stale response to avoid overwriting the user's intent.
     const stateAfter = get(serverQueueStateAtom);
     if (stateAfter !== stateBefore) {
-      console.log(
+      console.debug(
         "fetchQueueAtom: discarding stale response (state changed during fetch)",
       );
       return;
@@ -679,7 +679,7 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
     const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
     if (get(effectiveSessionIdAtom) !== sessionId) {
-      console.log(
+      console.debug(
         "fetchQueueSilentAtom: discarding stale response (session changed during fetch)",
       );
       return;
@@ -688,7 +688,7 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
     // Discard stale response if a user operation changed state during fetch
     const stateAfter = get(serverQueueStateAtom);
     if (stateAfter !== stateBefore) {
-      console.log(
+      console.debug(
         "fetchQueueSilentAtom: discarding stale response (state changed during fetch)",
       );
       return;
@@ -732,14 +732,14 @@ export const syncQueueFromNativeResumeAtom = atom(
       const response = await getQueueCurrentWindowCoalesced(client, sessionId);
 
       if (get(effectiveSessionIdAtom) !== sessionId) {
-        console.log(
+        console.debug(
           "syncQueueFromNativeResumeAtom: discarding stale response (session changed during fetch)",
         );
         return;
       }
 
       if (get(serverQueueStateAtom) !== stateBefore) {
-        console.log(
+        console.debug(
           "syncQueueFromNativeResumeAtom: discarding stale response (state changed during fetch)",
         );
         return;

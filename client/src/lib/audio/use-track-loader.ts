@@ -265,14 +265,14 @@ export function useTrackLoader({
     if (replayGainMode !== "disabled") {
       const trackGain = getTrackReplayGain(currentSong, replayGainMode);
       const totalGain = trackGain + replayGainOffset;
-      console.log(
+      console.debug(
         `[Audio] ReplayGain settings changed: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
       );
       setReplayGain(totalGain, activeIndex);
     } else {
       const node = getGainNode(activeIndex);
       if (node) {
-        console.log("[Audio] ReplayGain disabled, setting gain to unity");
+        console.debug("[Audio] ReplayGain disabled, setting gain to unity");
         node.gain.value = 1;
       }
     }

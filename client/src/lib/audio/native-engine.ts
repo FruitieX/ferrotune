@@ -202,16 +202,16 @@ export async function initNativeAudioEngine(
   callbacks: NativeAudioCallbacks,
 ): Promise<void> {
   if (!isTauriMobile()) {
-    console.log("[NativeAudio] Not on Tauri mobile, skipping init");
+    console.debug("[NativeAudio] Not on Tauri mobile, skipping init");
     return;
   }
 
   if (engineState.initialized) {
-    console.log("[NativeAudio] Already initialized");
+    console.debug("[NativeAudio] Already initialized");
     return;
   }
 
-  console.log("[NativeAudio] Initializing native audio engine");
+  console.debug("[NativeAudio] Initializing native audio engine");
 
   try {
     // Ensure the native API module is loaded (validates Tauri environment)
@@ -228,7 +228,7 @@ export async function initNativeAudioEngine(
             | NativePlaybackState["status"]
             | undefined;
           if (status) {
-            console.log("[NativeAudio] State change:", status);
+            console.debug("[NativeAudio] State change:", status);
             const appState = mapNativeStatusToAppState(status);
             engineState.callbacks?.onStateChange(appState, {
               trackId: data?.state?.track?.id,
@@ -261,13 +261,13 @@ export async function initNativeAudioEngine(
           );
           break;
         case "track-change":
-          console.log("[NativeAudio] Track change:", data?.track?.title);
+          console.debug("[NativeAudio] Track change:", data?.track?.title);
           engineState.callbacks?.onTrackChange(data?.track, data?.queueIndex, {
             isInitialSnapshot: data?.isSnapshot === true,
           });
           break;
         case "toggle-star":
-          console.log("[NativeAudio] Toggle star from external controller");
+          console.debug("[NativeAudio] Toggle star from external controller");
           if (data?.trackId) {
             engineState.callbacks?.onToggleStar(
               data.trackId,
@@ -276,7 +276,7 @@ export async function initNativeAudioEngine(
           }
           break;
         case "queue-state-changed":
-          console.log("[NativeAudio] Queue state changed:", data);
+          console.debug("[NativeAudio] Queue state changed:", data);
           if (data) {
             engineState.callbacks?.onQueueStateChanged?.({
               currentIndex: data.currentIndex ?? 0,
@@ -287,7 +287,7 @@ export async function initNativeAudioEngine(
           }
           break;
         case "scrobble":
-          console.log("[NativeAudio] Scrobble:", data?.trackId);
+          console.debug("[NativeAudio] Scrobble:", data?.trackId);
           if (data?.trackId) {
             engineState.callbacks?.onScrobble?.(data.trackId);
           }
@@ -303,7 +303,7 @@ export async function initNativeAudioEngine(
     };
 
     engineState.initialized = true;
-    console.log("[NativeAudio] Native audio engine initialized");
+    console.debug("[NativeAudio] Native audio engine initialized");
 
     // Apply safe area insets that may have been missed during initial page load
     // (the native listener fires before the WebView loads the page)
@@ -330,7 +330,7 @@ export async function initNativeAudioEngine(
       const api = await getNativeApi();
       const currentState = await api.getState();
       const appState = mapNativeStatusToAppState(currentState.status);
-      console.log("[NativeAudio] Post-init state sync:", currentState.status);
+      console.debug("[NativeAudio] Post-init state sync:", currentState.status);
       callbacks.onTrackChange(currentState.track, currentState.queueIndex, {
         isInitialSnapshot: true,
       });
@@ -360,7 +360,7 @@ export async function initNativeAudioEngine(
  * Removes the global callback and resets state.
  */
 export async function cleanupNativeAudioEngine(): Promise<void> {
-  console.log("[NativeAudio] Cleaning up native audio engine");
+  console.debug("[NativeAudio] Cleaning up native audio engine");
 
   // Remove global callback
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -384,7 +384,7 @@ export interface NativeStreamOptions {
  * Play the current track
  */
 export async function nativePlay(): Promise<void> {
-  console.log("[NativeAudio] nativePlay() called");
+  console.debug("[NativeAudio] nativePlay() called");
   await waitForNativeStop();
   await waitForNativeSession();
   const api = await getNativeApi();
@@ -395,7 +395,7 @@ export async function nativePlay(): Promise<void> {
  * Pause playback
  */
 export async function nativePause(): Promise<void> {
-  console.log("[NativeAudio] nativePause() called");
+  console.debug("[NativeAudio] nativePause() called");
   const api = await getNativeApi();
   await api.pause();
 }
@@ -404,7 +404,7 @@ export async function nativePause(): Promise<void> {
  * Stop playback completely
  */
 export async function nativeStop(): Promise<void> {
-  console.log("[NativeAudio] nativeStop() called");
+  console.debug("[NativeAudio] nativeStop() called");
   const stopPromise = (async () => {
     const api = await getNativeApi();
     await api.stop();
@@ -424,7 +424,7 @@ export async function nativeStop(): Promise<void> {
  * Reset native session/account state without relying on playback stop semantics.
  */
 export async function nativeResetSession(): Promise<void> {
-  console.log("[NativeAudio] nativeResetSession() called");
+  console.debug("[NativeAudio] nativeResetSession() called");
   const stopPromise = (async () => {
     const api = await getNativeApi();
     await api.resetSession();
@@ -444,7 +444,7 @@ export async function nativeResetSession(): Promise<void> {
  * Seek to a position in seconds
  */
 export async function nativeSeek(positionSeconds: number): Promise<void> {
-  console.log("[NativeAudio] nativeSeek() called:", positionSeconds);
+  console.debug("[NativeAudio] nativeSeek() called:", positionSeconds);
   const api = await getNativeApi();
   await api.seek(Math.round(positionSeconds * 1000));
 }
@@ -461,13 +461,13 @@ export async function nativeNextTrack(): Promise<void> {
  * Jump to a specific queue index and start playback (autonomous mode)
  */
 export async function nativePlayAtIndex(index: number): Promise<void> {
-  console.log("[NativeAudio] nativePlayAtIndex() called:", index);
+  console.debug("[NativeAudio] nativePlayAtIndex() called:", index);
   try {
     await waitForNativeStop();
     await waitForNativeSession();
     const api = await getNativeApi();
     await api.playAtIndex(index);
-    console.log("[NativeAudio] nativePlayAtIndex() SUCCEEDED");
+    console.debug("[NativeAudio] nativePlayAtIndex() SUCCEEDED");
   } catch (err) {
     console.error("[NativeAudio] nativePlayAtIndex() FAILED:", String(err));
     throw err;
@@ -570,14 +570,14 @@ export async function nativeUpdateSettings(settings: {
   transcodingEnabled: boolean;
   transcodingBitrate: number;
 }): Promise<void> {
-  console.log(
+  console.debug(
     "[NativeAudio] nativeUpdateSettings() called:",
     JSON.stringify(settings),
   );
   try {
     const api = await getNativeApi();
     await api.updateSettings(settings);
-    console.log("[NativeAudio] nativeUpdateSettings() SUCCEEDED");
+    console.debug("[NativeAudio] nativeUpdateSettings() SUCCEEDED");
   } catch (err) {
     console.error("[NativeAudio] nativeUpdateSettings() FAILED:", String(err));
     throw err;
@@ -599,13 +599,13 @@ export async function nativeStartPlayback(params: {
   sourceType?: string;
   sourceId?: string;
 }): Promise<void> {
-  console.log("[NativeAudio] nativeStartPlayback() called", params);
+  console.debug("[NativeAudio] nativeStartPlayback() called", params);
   try {
     await waitForNativeStop();
     await waitForNativeSession();
     const api = await getNativeApi();
     await api.startPlayback(params);
-    console.log("[NativeAudio] nativeStartPlayback() SUCCEEDED");
+    console.debug("[NativeAudio] nativeStartPlayback() SUCCEEDED");
   } catch (err) {
     console.error("[NativeAudio] nativeStartPlayback() FAILED:", String(err));
     throw err;
@@ -635,7 +635,7 @@ export async function nativeStartOfflinePlayback(params: {
   sourceType?: string;
   sourceId?: string;
 }): Promise<void> {
-  console.log("[NativeAudio] nativeStartOfflinePlayback() called", {
+  console.debug("[NativeAudio] nativeStartOfflinePlayback() called", {
     totalCount: params.response.totalCount,
     currentIndex: params.response.currentIndex,
     playWhenReady: params.playWhenReady,
@@ -645,7 +645,7 @@ export async function nativeStartOfflinePlayback(params: {
     await waitForNativeSession();
     const api = await getNativeApi();
     await api.startOfflinePlayback(params);
-    console.log("[NativeAudio] nativeStartOfflinePlayback() SUCCEEDED");
+    console.debug("[NativeAudio] nativeStartOfflinePlayback() SUCCEEDED");
   } catch (err) {
     console.error(
       "[NativeAudio] nativeStartOfflinePlayback() FAILED:",
@@ -665,7 +665,7 @@ export async function nativeStartOfflinePlayback(params: {
 export async function nativeInvalidateQueue(
   playWhenReady?: boolean,
 ): Promise<void> {
-  console.log(
+  console.debug(
     "[NativeAudio] nativeInvalidateQueue() called, playWhenReady:",
     playWhenReady,
   );
@@ -684,7 +684,7 @@ export async function nativeInvalidateQueue(
 export async function nativeSoftInvalidateQueue(
   totalCount: number,
 ): Promise<void> {
-  console.log(
+  console.debug(
     "[NativeAudio] nativeSoftInvalidateQueue() called, totalCount:",
     totalCount,
   );
@@ -696,7 +696,7 @@ export async function nativeSoftInvalidateQueue(
  * Toggle shuffle in autonomous mode.
  */
 export async function nativeToggleShuffle(enabled: boolean): Promise<void> {
-  console.log("[NativeAudio] nativeToggleShuffle() called:", enabled);
+  console.debug("[NativeAudio] nativeToggleShuffle() called:", enabled);
   const api = await getNativeApi();
   await api.toggleShuffle(enabled);
 }

@@ -81,7 +81,7 @@ export function createWebAudioHandlers({
 
   const handlePlay = (e: Event) => {
     if (!isFromActive(e)) return;
-    console.log("[Audio] play event fired on active element", activeIndex);
+    console.debug("[Audio] play event fired on active element", activeIndex);
     settersRef.current.setPlaybackState("playing");
 
     // Start real-time clipping detection
@@ -111,7 +111,7 @@ export function createWebAudioHandlers({
 
   const handlePause = (e: Event) => {
     if (!isFromActive(e)) return;
-    console.log("[Audio] pause event fired on active element", activeIndex);
+    console.debug("[Audio] pause event fired on active element", activeIndex);
     // Don't overwrite "ended" state - that's intentional when queue finishes
     if (isEndingQueue) {
       setIsEndingQueue(false);
@@ -138,7 +138,7 @@ export function createWebAudioHandlers({
 
   const handleEnded = (e: Event) => {
     if (!isFromActive(e)) return;
-    console.log("[Audio] ended event fired on active element", activeIndex);
+    console.debug("[Audio] ended event fired on active element", activeIndex);
     // Stop clipping detection
     stopClippingDetection();
     // Log listening time before moving to next track
@@ -263,7 +263,7 @@ export function createWebAudioHandlers({
 
   const handleLoadStart = (e: Event) => {
     if (!isFromActive(e)) return;
-    console.log("[Audio] loadstart event on active element");
+    console.debug("[Audio] loadstart event on active element");
     if (!stateRef.current.isRestoringQueue && !isIntentionalStop) {
       settersRef.current.setPlaybackState("loading");
     }
@@ -278,7 +278,7 @@ export function createWebAudioHandlers({
         audioElement === audioElements[activeIndex === 0 ? 1 : 0] &&
         preBufferedTrackId
       ) {
-        console.log(
+        console.debug(
           "[Audio] Pre-buffer element is ready to play:",
           preBufferedTrackId,
         );
@@ -288,7 +288,7 @@ export function createWebAudioHandlers({
       return;
     }
 
-    console.log("[Audio] canplay event on active element");
+    console.debug("[Audio] canplay event on active element");
     clearStallTimer();
     const state = stateRef.current;
 
@@ -297,7 +297,7 @@ export function createWebAudioHandlers({
       audioElement.src === "" ||
       audioElement.src === window.location.href
     ) {
-      console.log("[Audio] Skipping auto-play because src is empty");
+      console.debug("[Audio] Skipping auto-play because src is empty");
       return;
     }
 
@@ -306,19 +306,21 @@ export function createWebAudioHandlers({
     // completes after the user pressed play (the boot restore can still be in
     // flight) would otherwise force the app back to "paused".
     if (state.isRestoringQueue && state.playbackState !== "playing") {
-      console.log("[Audio] Skipping auto-play because queue is being restored");
+      console.debug(
+        "[Audio] Skipping auto-play because queue is being restored",
+      );
       setIsLoadingNewTrack(false);
       settersRef.current.setPlaybackState("paused");
       return;
     }
 
     if (state.playbackState === "paused" && !isLoadingNewTrack) {
-      console.log("[Audio] Skipping auto-play because playback is paused");
+      console.debug("[Audio] Skipping auto-play because playback is paused");
       return;
     }
 
     if (state.playbackState === "ended" && !isLoadingNewTrack) {
-      console.log("[Audio] Skipping auto-play because queue has ended");
+      console.debug("[Audio] Skipping auto-play because queue has ended");
       settersRef.current.setPlaybackState("ended");
       return;
     }

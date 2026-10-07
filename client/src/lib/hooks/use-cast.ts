@@ -393,7 +393,7 @@ async function loadMediaOnCast(
         repeatMode: queueState?.repeatMode,
         queueItems: buildNativeCastQueueItems(queueWindow),
       });
-      console.log("[Cast] Native media loaded successfully");
+      console.debug("[Cast] Native media loaded successfully");
       return true;
     } catch (error) {
       console.error("[Cast] Error loading native media:", error);
@@ -442,7 +442,7 @@ async function loadMediaOnCast(
 
   try {
     await castSession.loadMedia(request);
-    console.log("[Cast] Media loaded successfully");
+    console.debug("[Cast] Media loaded successfully");
     return true;
   } catch (error) {
     console.error("[Cast] Error loading media:", error);

@@ -81,7 +81,7 @@ export function handlePreBufferError(): void {
   const delay = PRE_BUFFER_RETRY_DELAYS[preBufferRetryCount]!;
   preBufferRetryCount += 1;
   setPreBufferBackoffUntil(Date.now() + delay);
-  console.log(
+  console.debug(
     `[Audio] Pre-buffer error; retrying in ${delay}ms (attempt ${preBufferRetryCount}/${PRE_BUFFER_RETRY_DELAYS.length})`,
   );
 
@@ -112,7 +112,7 @@ export function performGaplessHandoff(
 ): boolean {
   if (!preBufferReady || !preBufferedTrackId) return false;
 
-  console.log("[Audio] Gapless handoff: swapping to pre-buffered element");
+  console.debug("[Audio] Gapless handoff: swapping to pre-buffered element");
   const handoffTrackId = preBufferedTrackId;
   engineCallbacks.setIsGaplessHandoff(true);
   engineCallbacks.setGaplessHandoffExpectedTrackId(handoffTrackId);
@@ -197,7 +197,7 @@ export function startPreBuffering(
   const inactiveAudio = audioElements[inactiveIdx];
   if (!inactiveAudio) return;
 
-  console.log("[Audio] Pre-buffering next track:", nextSongData.id);
+  console.debug("[Audio] Pre-buffering next track:", nextSongData.id);
   setPreBufferedTrackId(nextSongData.id);
   setPreBufferReady(false);
 

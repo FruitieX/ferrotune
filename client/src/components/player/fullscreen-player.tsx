@@ -775,7 +775,7 @@ export function FullscreenPlayer() {
   }, [isOpen, isClosingViaGesture, isDraggingSheet, isClosedAnimationSettled]);
 
   useEffect(() => {
-    console.log(
+    console.debug(
       "[fs isOpen] changed to",
       isOpen,
       "isClosingViaGesture=",
@@ -908,7 +908,7 @@ export function FullscreenPlayer() {
     fsPushedHistoryRef.current = true;
 
     const handlePopState = (event: PopStateEvent) => {
-      console.log(
+      console.debug(
         "[fs popstate] isHistoryCleanup=",
         isHistoryCleanup(event),
         "state=",

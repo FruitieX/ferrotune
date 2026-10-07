@@ -52,7 +52,7 @@ export function useAudioInit({
 
     // Check if we should use native audio (Tauri mobile)
     if (hasNativeAudio()) {
-      console.log("[Audio] Using native audio engine (Tauri mobile)");
+      console.debug("[Audio] Using native audio engine (Tauri mobile)");
       setUsingNativeAudio(true);
 
       const callbacks = createNativeCallbacks({ stateRef, settersRef });
@@ -62,7 +62,7 @@ export function useAudioInit({
       const nativeReady = initNativeAudioEngine(callbacks);
       void nativeReady
         .then(() => {
-          console.log(
+          console.debug(
             "[NativeAudio] initNativeAudioEngine completed successfully",
           );
         })

@@ -86,7 +86,7 @@ export function createNetworkErrorHandlers(
 
   const handleWaiting = (e: Event) => {
     if (!deps.isFromActive(e)) return;
-    console.log("[Audio] waiting event (buffering)");
+    console.debug("[Audio] waiting event (buffering)");
     const state = deps.stateRef.current;
     if (state.playbackState !== "ended" && state.playbackState !== "idle") {
       deps.settersRef.current.setPlaybackState("loading");
@@ -96,7 +96,7 @@ export function createNetworkErrorHandlers(
 
   const handleStalled = (e: Event) => {
     if (!deps.isFromActive(e)) return;
-    console.log("[Audio] stalled event (no data arriving)");
+    console.debug("[Audio] stalled event (no data arriving)");
     const state = deps.stateRef.current;
     // Only start the stall timer if we're actually in a loading/waiting state.
     // The browser fires "stalled" when the network fetch stops receiving data,
@@ -113,7 +113,7 @@ export function createNetworkErrorHandlers(
 
   const handlePlaying = (e: Event) => {
     if (!deps.isFromActive(e)) return;
-    console.log("[Audio] playing event on active element");
+    console.debug("[Audio] playing event on active element");
     clearStallTimer();
     networkRetryCount = 0; // reset retry count on successful playback
     deps.settersRef.current.setPlaybackError(null);
@@ -134,7 +134,7 @@ export function createNetworkErrorHandlers(
     clearStallTimer();
 
     if (deps.getIsIntentionalStop()) {
-      console.log("[Audio] Ignoring error during intentional stop");
+      console.debug("[Audio] Ignoring error during intentional stop");
       return;
     }
 
@@ -147,7 +147,7 @@ export function createNetworkErrorHandlers(
       audioElement.src === "" ||
       audioElement.src === window.location.href
     ) {
-      console.log("[Audio] Ignoring error from empty/cleared src");
+      console.debug("[Audio] Ignoring error from empty/cleared src");
       return;
     }
 
@@ -184,7 +184,7 @@ export function createNetworkErrorHandlers(
     if (isRecoverableError && networkRetryCount < NETWORK_RETRY_DELAYS.length) {
       const delay = NETWORK_RETRY_DELAYS[networkRetryCount]!;
       networkRetryCount++;
-      console.log(
+      console.debug(
         `[Audio] Recoverable playback error, auto-retrying in ${delay}ms (attempt ${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})`,
       );
       deps.settersRef.current.setPlaybackState("loading");

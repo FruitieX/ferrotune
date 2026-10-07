@@ -76,7 +76,7 @@ export function initializeWebAudio(
   if (audioContext) return; // Already initialized
 
   try {
-    console.log(
+    console.debug(
       "[Audio] Initializing Web Audio API with dual elements for gapless playback",
     );
     audioContext = new AudioContext();
@@ -97,7 +97,7 @@ export function initializeWebAudio(
     const inactiveIdx = activeIndex === 0 ? 1 : 0;
     gainNodes[inactiveIdx]!.gain.value = 0;
 
-    console.log(
+    console.debug(
       "[Audio] Web Audio API initialized with dual elements, AudioContext state:",
       audioContext.state,
     );
@@ -117,13 +117,16 @@ export async function resumeAudioContext(): Promise<boolean> {
     return false;
   }
 
-  console.log("[Audio] AudioContext state before resume:", audioContext.state);
+  console.debug(
+    "[Audio] AudioContext state before resume:",
+    audioContext.state,
+  );
 
   if (audioContext.state === "suspended") {
-    console.log("[Audio] Resuming suspended AudioContext...");
+    console.debug("[Audio] Resuming suspended AudioContext...");
     try {
       await audioContext.resume();
-      console.log("[Audio] AudioContext resumed, state:", audioContext.state);
+      console.debug("[Audio] AudioContext resumed, state:", audioContext.state);
     } catch (err) {
       console.error("[Audio] Failed to resume AudioContext:", err);
       return false;
@@ -156,7 +159,7 @@ export function setReplayGain(gainDb: number, elementIndex?: 0 | 1): void {
   // Clamp to prevent extreme values (max +12dB boost)
   const clampedGain = Math.min(linearGain, dbToLinear(12));
   node.gain.value = clampedGain;
-  console.log(
+  console.debug(
     `[Audio] ReplayGain set on element ${idx}: ${gainDb.toFixed(2)} dB -> linear gain ${clampedGain.toFixed(4)}`,
   );
 }
@@ -205,7 +208,7 @@ export function getInactiveAudio(): HTMLAudioElement | null {
 export function invalidatePreBuffer(): void {
   const inactiveAudio = getInactiveAudio();
   if (inactiveAudio && preBufferedTrackId) {
-    console.log(
+    console.debug(
       "[Audio] Invalidating pre-buffer for track:",
       preBufferedTrackId,
     );

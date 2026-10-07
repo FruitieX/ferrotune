@@ -126,12 +126,12 @@ export function loadTrackNative(
   const { currentSong, trackChangeSignal, isRestoringQueue } = params;
   const offlineQueue = isOfflineQueue(params.queueState);
 
-  console.log(
+  console.debug(
     "[Audio] Native audio effect triggered, currentSong:",
     currentSong?.id,
     (currentSong as Song | null)?.title,
   );
-  console.log(
+  console.debug(
     "[Audio] currentLoadedTrackId:",
     currentLoadedTrackId,
     "isRestoringQueue:",
@@ -141,7 +141,7 @@ export function loadTrackNative(
   if (!currentSong) {
     if (currentSong === null && currentLoadedTrackId !== null) {
       // Queue cleared
-      console.log("[Audio] Queue cleared, stopping native audio");
+      console.debug("[Audio] Queue cleared, stopping native audio");
       nativeStop().catch(console.error);
       setters.setPlaybackState("idle");
       setCurrentLoadedTrackId(null);
@@ -171,7 +171,7 @@ export function loadTrackNative(
     (lastNativeTranscodingEnabled !== nativeOpts.transcodingEnabled ||
       lastNativeTranscodingBitrate !== nativeOpts.transcodingBitrate);
 
-  console.log(
+  console.debug(
     "[Audio] signalChanged:",
     signalChanged,
     "trackChangeSignal:",
@@ -207,7 +207,7 @@ export function loadTrackNative(
     !signalChanged &&
     (!transcodingChanged || isRestoringQueue)
   ) {
-    console.log("[Audio] Skipping - same track already loaded");
+    console.debug("[Audio] Skipping - same track already loaded");
     refs.lastProcessedSignalRef.current = trackChangeSignal;
     return true;
   }
@@ -237,7 +237,7 @@ export function loadTrackNative(
     (transcodingChanged && refs.stateRef.current.playbackState === "playing");
   pendingPlaybackPositionMs.value = 0;
 
-  console.log(
+  console.debug(
     "[Audio] shouldPlay:",
     shouldPlay,
     "signalChanged:",
@@ -337,7 +337,7 @@ export function loadTrackNative(
             nativeState.state === "paused" ||
             nativeState.state === "loading")
         ) {
-          console.log(
+          console.debug(
             "[NativeAudio] Native player already has track loaded, syncing state without reloading",
           );
           setCurrentLoadedTrackId(currentSong.id);
@@ -426,7 +426,7 @@ export function loadTrackWeb(
 
   if (!audio || !currentSong) {
     if (audio && audio.src && !currentSong) {
-      console.log(
+      console.debug(
         "[Audio] Track-load effect: currentSong is null, clearing audio. currentLoadedTrackId=%s",
         currentLoadedTrackId,
       );
@@ -489,7 +489,7 @@ export function loadTrackWeb(
     trackChangeSignal !== refs.lastProcessedSignalRef.current;
   const urlChanged = streamUrl !== refs.lastStreamUrlRef.current;
 
-  console.log(
+  console.debug(
     "[Audio] Track-load effect: song=%s loaded=%s signal=%d lastSignal=%d signalChanged=%s urlChanged=%s isRestoringQueue=%s",
     currentSong.id,
     currentLoadedTrackId,
@@ -508,7 +508,7 @@ export function loadTrackWeb(
     currentSong.id === currentLoadedTrackId &&
     signalChanged
   ) {
-    console.log(
+    console.debug(
       "[Audio] Gapless handoff synchronized with queue; skipping redundant reload",
     );
     pendingPlaybackPositionMs.value = 0;
@@ -574,7 +574,7 @@ export function loadTrackWeb(
     !signalChanged &&
     (!urlChanged || isRestoringQueue)
   ) {
-    console.log(
+    console.debug(
       "[Audio] Track-load effect: SKIPPING (same track, no forced reload)",
     );
     refs.lastProcessedSignalRef.current = trackChangeSignal;
@@ -608,14 +608,14 @@ export function loadTrackWeb(
   if (replayGainMode !== "disabled") {
     const trackGain = getTrackReplayGain(currentSong, replayGainMode);
     const totalGain = trackGain + replayGainOffset;
-    console.log(
+    console.debug(
       `[Audio] Applying ReplayGain: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
     );
     setReplayGain(totalGain, activeIndex);
   } else {
     const activeNode = getGainNode(activeIndex);
     if (activeNode) {
-      console.log("[Audio] ReplayGain disabled, setting gain to unity");
+      console.debug("[Audio] ReplayGain disabled, setting gain to unity");
       activeNode.gain.value = 1;
     }
   }
@@ -674,7 +674,7 @@ export function loadTrackWeb(
       audio.load();
     }
   } else if (isTranscodingSettingsChange && savedPosition > 0) {
-    console.log(
+    console.debug(
       `[Audio] Transcoding settings changed, resuming from ${savedPosition.toFixed(1)}s`,
     );
     setIsLoadingNewTrack(true);
