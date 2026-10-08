@@ -295,7 +295,7 @@ let songs: Vec<Song> = crate::db::raw::query_all(
 | Module | Purpose | Key APIs |
 |--------|---------|----------|
 | `src/lib.rs` | Canonical standalone/embedded server bootstrap and owned maintenance-task lifecycle | `ServerRuntime::bootstrap()`, `ServerRuntime::bootstrap_with_database()`, `ServerRuntimeOptions`, `CorsPolicy` |
-| `src/api/queue.rs` | Server-side materialization of one or more collection descriptors with stable first-occurrence deduplication | `QueueSourceRequest`, `materialize_queue_sources()` |
+| `src/api/queue.rs` | Server-side materialization of one or more collection descriptors with stable first-occurrence deduplication; each source may carry the view's `filters`/`sort` like a queue start, so "add to queue" matches "play" | `QueueSourceRequest`, `materialize_queue_sources()` |
 | `src/api/media.rs` | IDs-only and native-download snapshots for collection commands | `POST /api/sources/song-ids`, `POST /api/downloads/manifest` |
 | `src/api/playlists.rs` | Server-side playlist browser listing: one folder level (subfolders + playlists and smart playlists mixed in the requested order), or every playlist with `recursive` (search). Name filters for genres live on `GET /api/genres?filter=` | `GET /api/playlists/browse` (`folderId`, `recursive`, `filter`, `sort`, `sortDir`), `PlaylistBrowseItem` (exactly one of `playlist`/`smartPlaylist`) |
 

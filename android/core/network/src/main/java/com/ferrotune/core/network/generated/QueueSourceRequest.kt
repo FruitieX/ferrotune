@@ -5,9 +5,12 @@
 package com.ferrotune.core.network.generated
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class QueueSourceRequest(
     val sourceType: String,
     val sourceId: String? = null,
+    val filters: Map<String, JsonElement>? = null,
+    val sort: Map<String, JsonElement>? = null,
 )

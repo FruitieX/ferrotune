@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import type { PlaylistFoldersResponse } from "./generated/PlaylistFoldersResponse";
 import type { PlaylistBrowseResponse } from "./generated/PlaylistBrowseResponse";
+import type { QueueSourceRequest } from "./generated/QueueSourceRequest";
 import type { PlaylistFolderResponse } from "./generated/PlaylistFolderResponse";
 import type {
   ServerConnection,
@@ -149,6 +150,11 @@ import type { HomePageResponse } from "./generated/HomePageResponse";
 import type { DiscoveryResponse } from "./generated/DiscoveryResponse";
 import type { HomeContinueListeningSection } from "./generated/HomeContinueListeningSection";
 import type { FerrotuneSimilarSongsResponse } from "./generated/FerrotuneSimilarSongsResponse";
+
+/** A collection source for queue/playlist commands; `sourceId` may be omitted. */
+type QueueSourceInput = Omit<QueueSourceRequest, "sourceId"> & {
+  sourceId?: string;
+};
 
 // Ping response is empty
 type PingResponse = Record<string, never>;
@@ -874,7 +880,7 @@ export class FerrotuneClient {
     name: string;
     songId?: string[];
     folderId?: string | null;
-    sources?: Array<{ sourceType: string; sourceId?: string }>;
+    sources?: QueueSourceInput[];
   }): Promise<ImportPlaylistResponse> {
     // Map songId[] to entries
     const entries = params.songId?.map((id) => ({ songId: id })) || [];
@@ -1755,7 +1761,7 @@ export class FerrotuneClient {
     /** Explicit song IDs to use instead of materializing from source */
     songIds?: string[];
     /** Multiple collection sources to concatenate server-side. */
-    sources?: Array<{ sourceType: string; sourceId?: string }>;
+    sources?: QueueSourceInput[];
     /** Request inline cover art thumbnails */
     inlineImages?: "small" | "medium";
     /** Playback session ID for multi-session support */
@@ -1820,7 +1826,7 @@ export class FerrotuneClient {
     currentIndex?: number;
     sourceType?: string;
     sourceId?: string;
-    sources?: Array<{ sourceType: string; sourceId?: string }>;
+    sources?: QueueSourceInput[];
     sessionId?: string;
   }): Promise<QueueSuccessResponse> {
     return this.request("/api/queue/add", {

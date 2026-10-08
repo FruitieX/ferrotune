@@ -501,59 +501,68 @@ function FilesPageContent() {
                 : "Browse your music library by folder structure"}
             </p>
           </div>
-          {directoryInfo && songs.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={handlePlayFolder}>
-                <Play className="w-4 h-4 mr-2" />
-                Play All
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    aria-label="Folder options"
-                    variant="ghost"
-                    size="icon"
-                  >
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleShuffleFolder}>
-                    Shuffle All
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={async () => {
-                      if (!libraryId) return;
-                      // Same recursive folder source as Play All, so every
-                      // file is added, not just the loaded rows.
-                      const result = await addToQueue({
-                        sources: [
-                          {
-                            sourceType: "directory",
-                            sourceId: `${libraryId}:${pathParam}`,
-                          },
-                        ],
-                        sourceName: directoryInfo?.name ?? "Folder",
-                        position: "end",
-                      });
-                      if (result.success) {
-                        toast.success(
-                          `Added ${result.addedCount} songs to queue`,
-                        );
-                      }
-                    }}
-                  >
-                    <ListEnd className="w-4 h-4 mr-2" />
-                    Add All to Queue
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-                    <FolderPlus className="w-4 h-4 mr-2" />
-                    Add All to Playlist
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
+          {/* Play All is recursive, so folders with only subfolders get it too */}
+          {directoryInfo &&
+            (songs.length > 0 || directoryInfo.folderCount > 0) && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handlePlayFolder}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Play All
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      aria-label="Folder options"
+                      variant="ghost"
+                      size="icon"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={handleShuffleFolder}>
+                      Shuffle All
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        if (!libraryId) return;
+                        // Same recursive folder source and filter as Play All,
+                        // so every matching file is added, not just loaded rows.
+                        const result = await addToQueue({
+                          sources: [
+                            {
+                              sourceType: "directory",
+                              sourceId: `${libraryId}:${pathParam}`,
+                              filters: queueFilter,
+                            },
+                          ],
+                          sourceName: directoryInfo?.name ?? "Folder",
+                          position: "end",
+                        });
+                        if (result.success) {
+                          toast.success(
+                            `Added ${result.addedCount} songs to queue`,
+                          );
+                        }
+                      }}
+                    >
+                      <ListEnd className="w-4 h-4 mr-2" />
+                      Add All to Queue
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setAddToPlaylistOpen(true)}
+                    >
+                      <FolderPlus className="w-4 h-4 mr-2" />
+                      Add All to Playlist
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
         </motion.div>
 
         {/* Breadcrumbs */}

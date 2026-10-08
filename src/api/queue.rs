@@ -98,6 +98,15 @@ pub struct StartQueueRequest {
 pub struct QueueSourceRequest {
     pub source_type: String,
     pub source_id: Option<String>,
+    /// Filters to apply when materializing this source, like a queue start's
+    /// `filters` (e.g. a view's text filter).
+    #[serde(default)]
+    #[ts(optional, type = "Record<string, unknown>")]
+    pub filters: Option<serde_json::Value>,
+    /// Sort to apply when materializing this source.
+    #[serde(default)]
+    #[ts(optional, type = "Record<string, unknown>")]
+    pub sort: Option<serde_json::Value>,
 }
 
 /// Response after starting a queue
@@ -2552,8 +2561,8 @@ pub(crate) async fn materialize_queue_sources(
             user_id,
             source_type,
             source.source_id.as_deref(),
-            None,
-            None,
+            source.filters.as_ref(),
+            source.sort.as_ref(),
         )
         .await?;
 

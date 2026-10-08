@@ -157,4 +157,21 @@ class FilesViewModelTest {
         assertEquals(listOf(QueueSourceRequest("directory", "1:Jazz")), add.sources)
         assertEquals(QueueAddPosition.NEXT, position)
     }
+
+    @Test
+    fun `adding a folder carries the active filter`() {
+        val starter = FakePlaybackStarter()
+        val viewModel = viewModel(starter = starter)
+        viewModel.openLibrary(1)
+        viewModel.setFilter("live")
+        val folder = DirectoryChildPaged(id = "Jazz", isDir = true, title = "Jazz", path = "Jazz")
+
+        viewModel.addFolderToQueue(folder, QueueAddPosition.END)
+
+        val (add, _) = starter.queueAdds.single()
+        assertEquals(
+            listOf(QueueSourceRequest("directory", "1:Jazz", filters = mapOf("filter" to JsonPrimitive("live")))),
+            add.sources,
+        )
+    }
 }

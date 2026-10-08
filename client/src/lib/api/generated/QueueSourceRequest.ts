@@ -3,4 +3,13 @@
 /**
  * A queue source used by batch collection actions.
  */
-export type QueueSourceRequest = { sourceType: string, sourceId: string | null, };
+export type QueueSourceRequest = { sourceType: string, sourceId: string | null, 
+/**
+ * Filters to apply when materializing this source, like a queue start's
+ * `filters` (e.g. a view's text filter).
+ */
+filters?: Record<string, unknown>, 
+/**
+ * Sort to apply when materializing this source.
+ */
+sort?: Record<string, unknown>, };

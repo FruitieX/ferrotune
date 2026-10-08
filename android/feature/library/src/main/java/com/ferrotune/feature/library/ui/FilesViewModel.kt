@@ -264,10 +264,16 @@ class FilesViewModel @Inject constructor(
     }
 
     private fun addDirectory(sourceId: String, position: QueueAddPosition) {
+        // Same filter as playing the folder, so both queue the same songs.
+        val filters = queueTextFilter(state.value.filter).ifEmpty { null }
         viewModelScope.launch {
             runCatching {
                 sessionStarter.addToQueue(
-                    QueueAddSpec(sources = listOf(QueueSourceRequest(sourceType = "directory", sourceId = sourceId))),
+                    QueueAddSpec(
+                        sources = listOf(
+                            QueueSourceRequest(sourceType = "directory", sourceId = sourceId, filters = filters),
+                        ),
+                    ),
                     position,
                 )
             }

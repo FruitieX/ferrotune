@@ -96,6 +96,10 @@ export type QueueSourceType =
 export interface QueueSourceReference {
   sourceType: QueueSourceType;
   sourceId?: string;
+  /** Filters applied when the server materializes this source. */
+  filters?: Record<string, unknown>;
+  /** Sort applied when the server materializes this source. */
+  sort?: Record<string, unknown>;
 }
 
 export type RepeatMode = "off" | "all" | "one";

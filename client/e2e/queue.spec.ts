@@ -495,4 +495,33 @@ test.describe.serial("Queue Management", () => {
     await expect(current).toHaveAttribute("data-queue-position", "1");
     await expect(current).toContainText("First Song");
   });
+
+  test("Files Add All to Queue honors the active filter", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    await page.goto("/library/files?libraryId=1");
+    await expect(page.getByRole("button", { name: "Play All" })).toBeVisible();
+    const filtered = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/directory" &&
+        new URL(response.url()).searchParams.get("filter") === "Test",
+    );
+    await page.getByLabel("Filter library items").fill("Test");
+    await filtered;
+
+    const added = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).pathname === "/api/queue/add" &&
+        request.method() === "POST",
+    );
+    await page.getByRole("button", { name: "Folder options" }).click();
+    await page.getByRole("menuitem", { name: /add all to queue/i }).click();
+    expect((await added).postDataJSON().sources).toEqual([
+      { sourceType: "directory", sourceId: "1:", filters: { filter: "Test" } },
+    ]);
+  });
 });

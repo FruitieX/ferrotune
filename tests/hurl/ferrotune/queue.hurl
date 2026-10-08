@@ -240,6 +240,23 @@ HTTP 200
 [Asserts]
 jsonpath "$.success" == true
 
+# Test: Sources carry filters, like a queue start (only the Rock genre's
+# "First Song" matches)
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sources": [
+    { "sourceType": "genre", "sourceId": "Rock", "filters": { "filter": "First" } }
+  ],
+  "position": "end"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.addedCount" == 1
+
 # Test: Add song as "next"
 POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
