@@ -329,6 +329,41 @@ HTTP 200
 [Asserts]
 jsonpath "$.success" == true
 
+# Test: Moving the current track keeps it current at its new position
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 0,
+  "toPosition": 2
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.newIndex" == 2
+
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 2
+jsonpath "$.window.songs[2].song.id" == "{{song_1}}"
+
+# Test: Removing after moves (rows now stored out of position order)
+# shifts the remaining rows without a position conflict
+DELETE {{base_url}}/api/queue/0?sessionId={{test_session_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+
+GET {{base_url}}/api/queue?sessionId={{test_session_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 2
+jsonpath "$.currentIndex" == 1
+jsonpath "$.window.songs[1].song.id" == "{{song_1}}"
+
 # ============================================================================
 # SHUFFLE - Toggle shuffle mode
 # ============================================================================

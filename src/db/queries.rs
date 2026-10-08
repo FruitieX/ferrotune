@@ -1630,10 +1630,25 @@ pub async fn remove_from_queue_by_session(
         return Ok(false);
     }
 
+    // Two-phase shift: a single `position - 1` update collides with the
+    // UNIQUE position constraint when rows are stored out of position order.
+    const TEMP_OFFSET: i64 = 1_000_000_000;
     entity::play_queue_entries::Entity::update_many()
-        .col_expr(PE::QueuePosition, Expr::col(PE::QueuePosition).sub(1i64))
+        .col_expr(
+            PE::QueuePosition,
+            Expr::col(PE::QueuePosition).add(TEMP_OFFSET - 1),
+        )
         .filter(PE::SessionId.eq(session_id))
         .filter(PE::QueuePosition.gt(position))
+        .exec(&tx)
+        .await?;
+    entity::play_queue_entries::Entity::update_many()
+        .col_expr(
+            PE::QueuePosition,
+            Expr::col(PE::QueuePosition).sub(TEMP_OFFSET),
+        )
+        .filter(PE::SessionId.eq(session_id))
+        .filter(PE::QueuePosition.gte(position + TEMP_OFFSET))
         .exec(&tx)
         .await?;
 
@@ -1682,17 +1697,32 @@ pub async fn move_in_queue_by_session(
         .exec(&tx)
         .await?;
 
+    // Shifts go through a temporary offset in two phases: a single
+    // `position ± 1` update collides with the UNIQUE position constraint
+    // whenever rows are stored out of position order (after earlier moves).
+    const TEMP_OFFSET: i64 = 1_000_000_000;
     if from_position < to_position {
         entity::play_queue_entries::Entity::update_many()
-            .col_expr(PE::QueuePosition, Expr::col(PE::QueuePosition).sub(1i64))
+            .col_expr(
+                PE::QueuePosition,
+                Expr::col(PE::QueuePosition).add(TEMP_OFFSET - 1),
+            )
             .filter(PE::SessionId.eq(session_id))
             .filter(PE::QueuePosition.gt(from_position))
             .filter(PE::QueuePosition.lte(to_position))
             .exec(&tx)
             .await?;
+        entity::play_queue_entries::Entity::update_many()
+            .col_expr(
+                PE::QueuePosition,
+                Expr::col(PE::QueuePosition).sub(TEMP_OFFSET),
+            )
+            .filter(PE::SessionId.eq(session_id))
+            .filter(PE::QueuePosition.gte(from_position + TEMP_OFFSET))
+            .filter(PE::QueuePosition.lt(to_position + TEMP_OFFSET))
+            .exec(&tx)
+            .await?;
     } else {
-        // Two-phase shift to avoid UNIQUE constraint violation on SQLite.
-        const TEMP_OFFSET: i64 = 1_000_000_000;
         entity::play_queue_entries::Entity::update_many()
             .col_expr(
                 PE::QueuePosition,
