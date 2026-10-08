@@ -331,6 +331,7 @@ let content_type = get_content_type_for_format(&song.file_format);
 | `details-dialog.tsx` | Unified details dialog for songs/albums/artists |
 | `media-card.tsx` | Shared media card component |
 | `action-bar.tsx` | Shared action bar component |
+| `../queue/queue.tsx` | `QueueSidebar` (app queue sidebar, xl+) and `FullscreenQueuePanel` (beside the desktop fullscreen player at ≥1280px; toggled by its Queue button, remembered in `fullscreenQueuePanelOpenAtom`), sharing one panel body |
 | `../playlists/smart-playlist-cards.tsx` | Smart playlist grid card and list row (Playlists page, search results) |
 
 **Menu Items Example:**

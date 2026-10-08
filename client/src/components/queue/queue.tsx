@@ -123,13 +123,20 @@ function QueueSourceDisplay() {
   return <div className="px-4 py-2 border-b border-border">{content}</div>;
 }
 
-/**
- * Desktop-only queue sidebar.
- * Used on screens xl and larger.
- */
-export function QueueSidebar() {
-  const hydrated = useHydrated();
-  const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
+interface QueuePanelBodyProps {
+  /** Whether the panel is showing (scrolls to now playing when it opens). */
+  isOpen: boolean;
+  onClose: () => void;
+  /** Visual style: the app sidebar or the translucent fullscreen panel. */
+  variant?: "sidebar" | "fullscreen";
+}
+
+/** Header, "Playing from" and the virtualized queue list. */
+function QueuePanelBody({
+  isOpen,
+  onClose,
+  variant = "sidebar",
+}: QueuePanelBodyProps) {
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
@@ -138,17 +145,16 @@ export function QueueSidebar() {
   // Track if we've already scrolled for this open state
   const hasScrolledRef = useRef(false);
 
-  // Reset scroll tracking when sidebar closes
+  // Reset scroll tracking when the panel closes
   useEffect(() => {
     if (!isOpen) {
       hasScrolledRef.current = false;
     }
   }, [isOpen]);
 
-  // Auto-scroll to current song when queue sidebar opens (only once per open)
+  // Auto-scroll to current song when the panel opens (only once per open)
   useEffect(() => {
     if (
-      hydrated &&
       isOpen &&
       !isQueueLoading &&
       queueState &&
@@ -163,7 +169,7 @@ export function QueueSidebar() {
       });
       return () => cancelAnimationFrame(rafId);
     }
-  }, [hydrated, isOpen, isQueueLoading, queueState]);
+  }, [isOpen, isQueueLoading, queueState]);
 
   const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
@@ -176,6 +182,82 @@ export function QueueSidebar() {
     hapticTap();
     queueDisplayRef.current?.scrollToNowPlaying("smooth");
   };
+
+  const borderClass =
+    variant === "fullscreen" ? "border-white/10" : "border-border";
+
+  return (
+    <>
+      {/* Header */}
+      <div
+        className={cn(
+          "flex items-center justify-between px-4 py-3 border-b shrink-0",
+          borderClass,
+        )}
+      >
+        <h2 className="font-semibold flex items-center gap-2 text-sm">
+          <ListMusic className="w-4 h-4" />
+          Queue
+        </h2>
+        <div className="flex items-center gap-1">
+          {queueState && queueState.totalCount > 0 && !isQueueLoading && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleJumpToNowPlaying}
+                    className="text-muted-foreground hover:text-foreground h-8 w-8"
+                    aria-label="Jump to now playing"
+                  >
+                    <ListStart className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Jump to now playing</TooltipContent>
+              </Tooltip>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearQueue}
+                className="text-muted-foreground hover:text-destructive h-8 px-2 text-xs"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Clear
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              hapticTap();
+              onClose();
+            }}
+            className="h-8 w-8"
+            aria-label="Close queue"
+          >
+            <PanelRightClose className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <QueueSourceDisplay />
+      <VirtualizedQueueDisplay
+        ref={queueDisplayRef}
+        key={queueState?.source?.instanceId ?? "no-queue"}
+      />
+    </>
+  );
+}
+
+/**
+ * Desktop-only queue sidebar.
+ * Used on screens xl and larger.
+ */
+export function QueueSidebar() {
+  const hydrated = useHydrated();
+  const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
 
   // Wait for hydration to avoid flash
   if (!hydrated) {
@@ -199,63 +281,30 @@ export function QueueSidebar() {
             className="flex flex-col flex-1 min-h-0"
             style={{ width: QUEUE_SIDEBAR_WIDTH }}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-              <h2 className="font-semibold flex items-center gap-2 text-sm">
-                <ListMusic className="w-4 h-4" />
-                Queue
-              </h2>
-              <div className="flex items-center gap-1">
-                {queueState && queueState.totalCount > 0 && !isQueueLoading && (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={handleJumpToNowPlaying}
-                          className="text-muted-foreground hover:text-foreground h-8 w-8"
-                          aria-label="Jump to now playing"
-                        >
-                          <ListStart className="w-4 h-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Jump to now playing</TooltipContent>
-                    </Tooltip>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearQueue}
-                      className="text-muted-foreground hover:text-destructive h-8 px-2 text-xs"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Clear
-                    </Button>
-                  </>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    hapticTap();
-                    setIsOpen(false);
-                  }}
-                  className="h-8 w-8"
-                  aria-label="Close queue"
-                >
-                  <PanelRightClose className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            <QueueSourceDisplay />
-            <VirtualizedQueueDisplay
-              ref={queueDisplayRef}
-              key={queueState?.source?.instanceId ?? "no-queue"}
-            />
+            <QueuePanelBody isOpen={isOpen} onClose={() => setIsOpen(false)} />
           </motion.div>
         )}
       </AnimatePresence>
+    </motion.aside>
+  );
+}
+
+/**
+ * Queue panel beside the desktop fullscreen player, filling the space the
+ * centered artwork leaves on wide screens.
+ */
+export function FullscreenQueuePanel({ onClose }: { onClose: () => void }) {
+  return (
+    <motion.aside
+      initial={{ opacity: 0, x: 24 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      aria-label="Queue"
+      data-testid="fullscreen-queue-panel"
+      className="flex flex-col min-h-0 shrink-0 my-4 mr-4 rounded-xl border border-white/10 bg-black/30 backdrop-blur-xl overflow-hidden"
+      style={{ width: QUEUE_SIDEBAR_WIDTH + 40 }}
+    >
+      <QueuePanelBody isOpen onClose={onClose} variant="fullscreen" />
     </motion.aside>
   );
 }

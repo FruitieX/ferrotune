@@ -524,4 +524,54 @@ test.describe.serial("Queue Management", () => {
       { sourceType: "directory", sourceId: "1:", filters: { filter: "Test" } },
     ]);
   });
+
+  test("desktop fullscreen player shows the queue beside it", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+    await page
+      .getByTestId("player-bar")
+      .getByRole("button", { name: "Fullscreen", exact: true })
+      .click();
+
+    const panel = page.getByTestId("fullscreen-queue-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-testid="queue-item"]')).toHaveCount(3);
+
+    // The Queue button toggles the panel, and the choice is remembered.
+    const queueButton = page
+      .locator('[data-fullscreen-player="true"]')
+      .getByRole("button", { name: "Queue", exact: true });
+    await queueButton.click();
+    await expect(panel).toBeHidden();
+    await queueButton.click();
+    await expect(panel).toBeVisible();
+    await panel.getByRole("button", { name: "Close queue" }).click();
+    await expect(panel).toBeHidden();
+    await expect(queueButton).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("narrow fullscreen player keeps the queue drawer", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 800 });
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+    await page
+      .getByTestId("player-bar")
+      .getByRole("button", { name: "Fullscreen", exact: true })
+      .click();
+
+    await expect(page.getByTestId("fullscreen-queue-panel")).toHaveCount(0);
+    await page
+      .locator('[data-fullscreen-player="true"]')
+      .getByRole("button", { name: "Queue", exact: true })
+      .click();
+    await expect(
+      page.getByRole("dialog").locator('[data-testid="queue-item"]'),
+    ).toHaveCount(3);
+  });
 });

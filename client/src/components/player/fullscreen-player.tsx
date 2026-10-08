@@ -58,6 +58,7 @@ import {
   fullscreenPlayerOpenAtom,
   fullscreenOpenDragY,
   queuePanelOpenAtom,
+  fullscreenQueuePanelOpenAtom,
   progressBarStyleAtom,
 } from "@/lib/store/ui";
 import {
@@ -86,7 +87,8 @@ import {
 } from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
-import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
+import { useIsSmallScreen, useMediaQuery } from "@/lib/hooks/use-media-query";
+import { FullscreenQueuePanel } from "@/components/queue/queue";
 import { cancelFullscreenOpen } from "@/components/layout/swipeable-footer";
 import {
   useClippingIndicator,
@@ -218,6 +220,12 @@ export function FullscreenPlayer() {
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const queuePanelOpen = useAtomValue(queuePanelOpenAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
+  const [sideQueueOpen, setSideQueueOpen] = useAtom(
+    fullscreenQueuePanelOpenAtom,
+  );
+  // Wide screens show the queue beside the player instead of a drawer.
+  const hasRoomForSideQueue = useMediaQuery("(min-width: 1280px)");
+  const showSideQueue = hasRoomForSideQueue && sideQueueOpen;
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
   const audioDuration = useAtomValue(durationAtom);
   const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
@@ -1010,6 +1018,10 @@ export function FullscreenPlayer() {
   }, [volume, setVolume, setIsMuted]);
 
   const openQueue = () => {
+    if (hasRoomForSideQueue) {
+      setSideQueueOpen(!sideQueueOpen);
+      return;
+    }
     // Open queue drawer directly without closing fullscreen
     // On desktop in fullscreen mode, we show the mobile drawer as an exception
     setQueuePanelOpen(true);
@@ -1326,406 +1338,417 @@ export function FullscreenPlayer() {
         <FullscreenBackground coverArt={currentTrack?.coverArt} />
 
         {/* Content wrapper - pt-safe pushes UI below status bar while blur extends into it */}
-        <div className="relative z-10 flex flex-col h-full w-full pt-safe">
-          {/* Inner container with max-width and padding */}
-          <div className="flex flex-col h-full max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto w-full px-6 py-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Close fullscreen player"
-                onClick={() => {
-                  hapticTap();
-                  setIsOpen(false);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-                className="rounded-full"
-              >
-                <ChevronDown className="w-6 h-6" />
-              </Button>
-              <div className="text-center min-w-0 flex-1 mx-2">
-                {followerSessionName ? (
-                  <ResponsiveDropdownMenu
-                    trigger={
-                      <button
-                        type="button"
-                        className="mx-auto max-w-full touch-manipulation rounded-md px-2 py-1 text-center hover:bg-primary/10 active:bg-primary/20 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                        aria-label={`Open playback clients, currently playing on ${followerSessionName}`}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                      >
-                        <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
-                          {isCastClientName(followerClientName) ? (
-                            <Cast className="w-3 h-3" />
-                          ) : followerClientName === "ferrotune-mobile" ? (
-                            <Smartphone className="w-3 h-3" />
-                          ) : (
-                            <Monitor className="w-3 h-3" />
-                          )}
-                          Playing on
-                        </p>
-                        <p className="text-sm font-medium truncate">
-                          {followerSessionName}
-                        </p>
-                      </button>
-                    }
-                    renderMenuContent={(components) => (
-                      <ConnectedClientsMenuItems components={components} />
-                    )}
-                    contentClassName="w-64"
-                    align="center"
-                    side="bottom"
-                    drawerTitle="Playback Clients"
-                  />
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                      {followerSessionName
-                        ? "Playing on"
-                        : isEnded
-                          ? "Queue Ended"
-                          : "Playing from"}
-                    </p>
-                    <p className="text-sm font-medium truncate">
-                      {followerSessionName ||
-                        queueState?.source?.name ||
-                        (queueState?.source?.type === "library"
-                          ? "Library"
-                          : "Queue")}
-                    </p>
-                  </>
-                )}
-              </div>
-              <SongDropdownMenu
-                song={currentTrack}
-                onNavigate={handleMenuNavigate}
-                trigger={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                  >
-                    <MoreHorizontal className="w-5 h-5" />
-                    <span className="sr-only">More options</span>
-                  </Button>
-                }
-              />
-            </div>
-
-            {/* Album Art */}
-            <div
-              ref={albumArtContainerRef}
-              className="flex-1 flex items-center justify-center py-6 xl:py-10 min-h-0 overflow-hidden relative"
-            >
-              {/* Previous track preview (swipe right) */}
-              {isSmallScreen &&
-                !useGestureAnimation &&
-                prevTrack &&
-                albumArtDismissPreviewDirection !== "next" &&
-                isSwipingAlbumArt && (
-                  <motion.div
-                    className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
-                    style={{
-                      x: prevAlbumArtX,
-                      opacity: prevAlbumArtOpacity,
-                    }}
-                  >
-                    <CoverImage
-                      src={prevCoverArtUrl}
-                      inlineData={prevCoverInlineData}
-                      alt={prevTrack.album ?? prevTrack.title}
-                      colorSeed={prevTrack.album ?? undefined}
-                      type="song"
-                      size="full"
-                      className="rounded-lg shadow-2xl w-full h-full object-cover"
-                    />
-                  </motion.div>
-                )}
-
-              {/* Current track album art */}
-              <motion.div
-                initial={
-                  useGestureAnimation ? false : { scale: 0.9, opacity: 0 }
-                }
-                animate={{ scale: 1, opacity: 1 }}
-                transition={
-                  useGestureAnimation ? { duration: 0 } : { delay: 0.1 }
-                }
-                className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] max-h-full aspect-square"
-                data-album-art-gesture="true"
-                style={
-                  isSmallScreen
-                    ? {
-                        x: albumArtDragCaptureX,
-                        touchAction: useGestureAnimation ? "none" : "pan-y",
+        <div className="relative z-10 flex h-full w-full pt-safe">
+          <div className="flex flex-col h-full flex-1 min-w-0">
+            {/* Inner container with max-width and padding */}
+            <div className="flex flex-col h-full max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto w-full px-6 py-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close fullscreen player"
+                  onClick={() => {
+                    hapticTap();
+                    setIsOpen(false);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  className="rounded-full"
+                >
+                  <ChevronDown className="w-6 h-6" />
+                </Button>
+                <div className="text-center min-w-0 flex-1 mx-2">
+                  {followerSessionName ? (
+                    <ResponsiveDropdownMenu
+                      trigger={
+                        <button
+                          type="button"
+                          className="mx-auto max-w-full touch-manipulation rounded-md px-2 py-1 text-center hover:bg-primary/10 active:bg-primary/20 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                          aria-label={`Open playback clients, currently playing on ${followerSessionName}`}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                        >
+                          <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
+                            {isCastClientName(followerClientName) ? (
+                              <Cast className="w-3 h-3" />
+                            ) : followerClientName === "ferrotune-mobile" ? (
+                              <Smartphone className="w-3 h-3" />
+                            ) : (
+                              <Monitor className="w-3 h-3" />
+                            )}
+                            Playing on
+                          </p>
+                          <p className="text-sm font-medium truncate">
+                            {followerSessionName}
+                          </p>
+                        </button>
                       }
-                    : undefined
-                }
-                drag={
-                  isSmallScreen && !useGestureAnimation && !isClosingViaGesture
-                    ? "x"
-                    : false
-                }
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0}
-                dragDirectionLock
-                dragMomentum={false}
-                onDragStart={handleAlbumArtDragStart}
-                onDrag={isSmallScreen ? handleAlbumArtDrag : undefined}
-                onDragEnd={isSmallScreen ? handleAlbumArtDragEnd : undefined}
+                      renderMenuContent={(components) => (
+                        <ConnectedClientsMenuItems components={components} />
+                      )}
+                      contentClassName="w-64"
+                      align="center"
+                      side="bottom"
+                      drawerTitle="Playback Clients"
+                    />
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                        {followerSessionName
+                          ? "Playing on"
+                          : isEnded
+                            ? "Queue Ended"
+                            : "Playing from"}
+                      </p>
+                      <p className="text-sm font-medium truncate">
+                        {followerSessionName ||
+                          queueState?.source?.name ||
+                          (queueState?.source?.type === "library"
+                            ? "Library"
+                            : "Queue")}
+                      </p>
+                    </>
+                  )}
+                </div>
+                <SongDropdownMenu
+                  song={currentTrack}
+                  onNavigate={handleMenuNavigate}
+                  trigger={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                      <span className="sr-only">More options</span>
+                    </Button>
+                  }
+                />
+              </div>
+
+              {/* Album Art */}
+              <div
+                ref={albumArtContainerRef}
+                className="flex-1 flex items-center justify-center py-6 xl:py-10 min-h-0 overflow-hidden relative"
               >
+                {/* Previous track preview (swipe right) */}
+                {isSmallScreen &&
+                  !useGestureAnimation &&
+                  prevTrack &&
+                  albumArtDismissPreviewDirection !== "next" &&
+                  isSwipingAlbumArt && (
+                    <motion.div
+                      className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
+                      style={{
+                        x: prevAlbumArtX,
+                        opacity: prevAlbumArtOpacity,
+                      }}
+                    >
+                      <CoverImage
+                        src={prevCoverArtUrl}
+                        inlineData={prevCoverInlineData}
+                        alt={prevTrack.album ?? prevTrack.title}
+                        colorSeed={prevTrack.album ?? undefined}
+                        type="song"
+                        size="full"
+                        className="rounded-lg shadow-2xl w-full h-full object-cover"
+                      />
+                    </motion.div>
+                  )}
+
+                {/* Current track album art */}
                 <motion.div
-                  className="w-full h-full"
+                  initial={
+                    useGestureAnimation ? false : { scale: 0.9, opacity: 0 }
+                  }
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={
+                    useGestureAnimation ? { duration: 0 } : { delay: 0.1 }
+                  }
+                  className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] max-h-full aspect-square"
+                  data-album-art-gesture="true"
                   style={
                     isSmallScreen
-                      ? { x: albumArtDragX, opacity: albumArtOpacity }
+                      ? {
+                          x: albumArtDragCaptureX,
+                          touchAction: useGestureAnimation ? "none" : "pan-y",
+                        }
                       : undefined
                   }
-                  data-testid="fullscreen-album-art"
+                  drag={
+                    isSmallScreen &&
+                    !useGestureAnimation &&
+                    !isClosingViaGesture
+                      ? "x"
+                      : false
+                  }
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0}
+                  dragDirectionLock
+                  dragMomentum={false}
+                  onDragStart={handleAlbumArtDragStart}
+                  onDrag={isSmallScreen ? handleAlbumArtDrag : undefined}
+                  onDragEnd={isSmallScreen ? handleAlbumArtDragEnd : undefined}
                 >
-                  <CoverImage
-                    src={coverArtUrl}
-                    inlineData={coverArtInlineData}
-                    alt={currentTrack.album ?? currentTrack.title}
-                    colorSeed={currentTrack.album ?? undefined}
-                    type="song"
-                    size="full"
-                    className="rounded-lg shadow-2xl w-full h-full object-cover"
-                    priority
-                  />
-                </motion.div>
-              </motion.div>
-
-              {/* Next track preview (swipe left) */}
-              {isSmallScreen &&
-                !useGestureAnimation &&
-                nextTrack &&
-                albumArtDismissPreviewDirection !== "previous" &&
-                isSwipingAlbumArt && (
                   <motion.div
-                    className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
-                    style={{
-                      x: nextAlbumArtX,
-                      opacity: nextAlbumArtOpacity,
-                    }}
+                    className="w-full h-full"
+                    style={
+                      isSmallScreen
+                        ? { x: albumArtDragX, opacity: albumArtOpacity }
+                        : undefined
+                    }
+                    data-testid="fullscreen-album-art"
                   >
                     <CoverImage
-                      src={nextCoverArtUrl}
-                      inlineData={nextCoverInlineData}
-                      alt={nextTrack.album ?? nextTrack.title}
-                      colorSeed={nextTrack.album ?? undefined}
+                      src={coverArtUrl}
+                      inlineData={coverArtInlineData}
+                      alt={currentTrack.album ?? currentTrack.title}
+                      colorSeed={currentTrack.album ?? undefined}
                       type="song"
                       size="full"
                       className="rounded-lg shadow-2xl w-full h-full object-cover"
+                      priority
                     />
                   </motion.div>
-                )}
-            </div>
+                </motion.div>
 
-            {/* Track Info */}
-            <motion.div
-              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={
-                useGestureAnimation ? { duration: 0 } : { delay: 0.2 }
-              }
-              className="flex items-center justify-between mb-6"
-            >
-              <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-bold truncate">
-                  {currentTrack.title}
-                </h2>
-                <p className="text-muted-foreground truncate">
-                  {currentTrack.artist}
-                </p>
-              </div>
-              <Button
-                aria-label={
-                  isStarred ? "Remove from favorites" : "Add to favorites"
-                }
-                variant="ghost"
-                size="icon"
-                className="rounded-full shrink-0"
-                onClick={() => {
-                  // toggleStar fires its own star/unstar haptic pattern
-                  toggleStar();
-                }}
-              >
-                <Heart
-                  className={cn(
-                    "w-6 h-6",
-                    isStarred && "fill-red-500 text-red-500",
+                {/* Next track preview (swipe left) */}
+                {isSmallScreen &&
+                  !useGestureAnimation &&
+                  nextTrack &&
+                  albumArtDismissPreviewDirection !== "previous" &&
+                  isSwipingAlbumArt && (
+                    <motion.div
+                      className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
+                      style={{
+                        x: nextAlbumArtX,
+                        opacity: nextAlbumArtOpacity,
+                      }}
+                    >
+                      <CoverImage
+                        src={nextCoverArtUrl}
+                        inlineData={nextCoverInlineData}
+                        alt={nextTrack.album ?? nextTrack.title}
+                        colorSeed={nextTrack.album ?? undefined}
+                        type="song"
+                        size="full"
+                        className="rounded-lg shadow-2xl w-full h-full object-cover"
+                      />
+                    </motion.div>
                   )}
-                />
-              </Button>
-            </motion.div>
-
-            {/* Progress */}
-            <motion.div
-              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={
-                useGestureAnimation ? { duration: 0 } : { delay: 0.3 }
-              }
-              className="space-y-2 mb-6"
-            >
-              {/* Progress bar - waveform or simple based on preference */}
-              <div className="relative h-6 md:h-4">
-                {progressBarStyle === "waveform" ? (
-                  <WaveformProgressBar
-                    active={isOverlayVisible && !queuePanelOpen}
-                    className="absolute inset-x-0 top-1/2"
-                  />
-                ) : (
-                  <Slider
-                    value={[isEnded ? 0 : progress]}
-                    max={duration}
-                    step={1}
-                    onValueChange={handleProgressChange}
-                    onValueCommit={handleProgressCommit}
-                    className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
-                    disabled={isEnded}
-                  />
-                )}
               </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="tabular-nums">
-                  {formatDuration(isEnded ? 0 : Math.floor(progress))}
-                </span>
-                <span className="tabular-nums">
-                  {formatDuration(isEnded ? 0 : duration)}
-                </span>
-              </div>
-            </motion.div>
 
-            {/* Controls */}
-            <motion.div
-              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={
-                useGestureAnimation ? { duration: 0 } : { delay: 0.4 }
-              }
-              className="flex items-center justify-center gap-6 mb-8"
-            >
-              <Button
-                aria-label="Shuffle"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-full",
-                  queueState?.isShuffled && "text-primary hover:text-primary",
+              {/* Track Info */}
+              <motion.div
+                initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={
+                  useGestureAnimation ? { duration: 0 } : { delay: 0.2 }
+                }
+                className="flex items-center justify-between mb-6"
+              >
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-xl font-bold truncate">
+                    {currentTrack.title}
+                  </h2>
+                  <p className="text-muted-foreground truncate">
+                    {currentTrack.artist}
+                  </p>
+                </div>
+                <Button
+                  aria-label={
+                    isStarred ? "Remove from favorites" : "Add to favorites"
+                  }
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full shrink-0"
+                  onClick={() => {
+                    // toggleStar fires its own star/unstar haptic pattern
+                    toggleStar();
+                  }}
+                >
+                  <Heart
+                    className={cn(
+                      "w-6 h-6",
+                      isStarred && "fill-red-500 text-red-500",
+                    )}
+                  />
+                </Button>
+              </motion.div>
+
+              {/* Progress */}
+              <motion.div
+                initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={
+                  useGestureAnimation ? { duration: 0 } : { delay: 0.3 }
+                }
+                className="space-y-2 mb-6"
+              >
+                {/* Progress bar - waveform or simple based on preference */}
+                <div className="relative h-6 md:h-4">
+                  {progressBarStyle === "waveform" ? (
+                    <WaveformProgressBar
+                      active={isOverlayVisible && !queuePanelOpen}
+                      className="absolute inset-x-0 top-1/2"
+                    />
+                  ) : (
+                    <Slider
+                      value={[isEnded ? 0 : progress]}
+                      max={duration}
+                      step={1}
+                      onValueChange={handleProgressChange}
+                      onValueCommit={handleProgressCommit}
+                      className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
+                      disabled={isEnded}
+                    />
+                  )}
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="tabular-nums">
+                    {formatDuration(isEnded ? 0 : Math.floor(progress))}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatDuration(isEnded ? 0 : duration)}
+                  </span>
+                </div>
+              </motion.div>
+
+              {/* Controls */}
+              <motion.div
+                initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={
+                  useGestureAnimation ? { duration: 0 } : { delay: 0.4 }
+                }
+                className="flex items-center justify-center gap-6 mb-8"
+              >
+                <Button
+                  aria-label="Shuffle"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "rounded-full",
+                    queueState?.isShuffled && "text-primary hover:text-primary",
+                  )}
+                  onClick={() => {
+                    hapticToggle();
+                    toggleShuffle();
+                  }}
+                >
+                  <Shuffle className="w-5 h-5" />
+                </Button>
+
+                <Button
+                  aria-label="Previous"
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={() => {
+                    hapticTap();
+                    previous();
+                  }}
+                >
+                  <SkipBack className="w-7 h-7" />
+                </Button>
+
+                <Button
+                  aria-label={playbackState === "playing" ? "Pause" : "Play"}
+                  size="icon"
+                  className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
+                  onClick={() => {
+                    hapticTap();
+                    togglePlayPause();
+                  }}
+                >
+                  {playbackState === "playing" ? (
+                    <Pause className="w-8 h-8" />
+                  ) : (
+                    <Play className="w-8 h-8 ml-1" />
+                  )}
+                </Button>
+
+                <Button
+                  aria-label="Next"
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={() => {
+                    hapticTap();
+                    next();
+                  }}
+                >
+                  <SkipForward className="w-7 h-7" />
+                </Button>
+
+                <Button
+                  aria-label="Repeat"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "rounded-full",
+                    repeatMode !== "off" && "text-primary hover:text-primary",
+                  )}
+                  onClick={() => {
+                    hapticToggle();
+                    cycleRepeat();
+                  }}
+                >
+                  {repeatMode === "one" ? (
+                    <Repeat1 className="w-5 h-5" />
+                  ) : (
+                    <Repeat className="w-5 h-5" />
+                  )}
+                </Button>
+              </motion.div>
+
+              {/* Bottom bar */}
+              <motion.div
+                initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={
+                  useGestureAnimation ? { duration: 0 } : { delay: 0.5 }
+                }
+                className="flex items-center justify-between pb-4"
+              >
+                {/* Volume - hidden when session owner uses native/system volume */}
+                {shouldShowVolume && (
+                  <FullscreenVolumeControls
+                    volumeContainerRef={volumeContainerRef}
+                    volume={volume}
+                    isMuted={isMuted}
+                    setVolume={setVolume}
+                    setIsMuted={setIsMuted}
+                  />
                 )}
-                onClick={() => {
-                  hapticToggle();
-                  toggleShuffle();
-                }}
-              >
-                <Shuffle className="w-5 h-5" />
-              </Button>
 
-              <Button
-                aria-label="Previous"
-                variant="ghost"
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={() => {
-                  hapticTap();
-                  previous();
-                }}
-              >
-                <SkipBack className="w-7 h-7" />
-              </Button>
-
-              <Button
-                aria-label={playbackState === "playing" ? "Pause" : "Play"}
-                size="icon"
-                className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
-                onClick={() => {
-                  hapticTap();
-                  togglePlayPause();
-                }}
-              >
-                {playbackState === "playing" ? (
-                  <Pause className="w-8 h-8" />
-                ) : (
-                  <Play className="w-8 h-8 ml-1" />
-                )}
-              </Button>
-
-              <Button
-                aria-label="Next"
-                variant="ghost"
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={() => {
-                  hapticTap();
-                  next();
-                }}
-              >
-                <SkipForward className="w-7 h-7" />
-              </Button>
-
-              <Button
-                aria-label="Repeat"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-full",
-                  repeatMode !== "off" && "text-primary hover:text-primary",
-                )}
-                onClick={() => {
-                  hapticToggle();
-                  cycleRepeat();
-                }}
-              >
-                {repeatMode === "one" ? (
-                  <Repeat1 className="w-5 h-5" />
-                ) : (
-                  <Repeat className="w-5 h-5" />
-                )}
-              </Button>
-            </motion.div>
-
-            {/* Bottom bar */}
-            <motion.div
-              initial={useGestureAnimation ? false : { y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={
-                useGestureAnimation ? { duration: 0 } : { delay: 0.5 }
-              }
-              className="flex items-center justify-between pb-4"
-            >
-              {/* Volume - hidden when session owner uses native/system volume */}
-              {shouldShowVolume && (
-                <FullscreenVolumeControls
-                  volumeContainerRef={volumeContainerRef}
-                  volume={volume}
-                  isMuted={isMuted}
-                  setVolume={setVolume}
-                  setIsMuted={setIsMuted}
-                />
-              )}
-
-              {/* Queue button */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="ml-auto rounded-full gap-2"
-                onClick={openQueue}
-              >
-                <ListMusic className="w-4 h-4" />
-                Queue
-              </Button>
-            </motion.div>
+                {/* Queue button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "ml-auto rounded-full gap-2",
+                    showSideQueue && "bg-white/15",
+                  )}
+                  aria-pressed={hasRoomForSideQueue ? showSideQueue : undefined}
+                  onClick={openQueue}
+                >
+                  <ListMusic className="w-4 h-4" />
+                  Queue
+                </Button>
+              </motion.div>
+            </div>
           </div>
+          {showSideQueue && isOpen && (
+            <FullscreenQueuePanel onClose={() => setSideQueueOpen(false)} />
+          )}
         </div>
       </motion.div>
     </>

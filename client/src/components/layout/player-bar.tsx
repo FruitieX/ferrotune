@@ -1570,7 +1570,7 @@ export function PlayerBarSkeleton() {
           </Button>
           {/* Fullscreen - desktop */}
           <Button
-            aria-label="Full screen"
+            aria-label="Fullscreen"
             variant="ghost"
             size="icon"
             className="hidden md:flex h-8 w-8"

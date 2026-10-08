@@ -46,6 +46,10 @@ export const queuePanelOpenAtom = atomWithClientAccountStorage<boolean>(
   false,
 );
 
+/** Queue panel beside the desktop fullscreen player (wide screens only). */
+export const fullscreenQueuePanelOpenAtom =
+  atomWithClientAccountStorage<boolean>("fullscreen-queue-panel-open", true);
+
 // Queue behavior preferences
 export const applySearchTermsToQueueAtom = atomWithServerStorage<boolean>(
   "apply-search-terms-to-queue",
