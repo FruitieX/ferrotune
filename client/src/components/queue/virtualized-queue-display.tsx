@@ -170,7 +170,7 @@ function VirtualQueueItem({
       hideQueueActions={isCurrent}
       showRemoveFromQueue={!isCurrent}
       onRemoveFromQueue={onRemove}
-      showMoveToPosition={!isCurrent}
+      showMoveToPosition
       onMoveToPosition={onMoveToPosition}
       moveToPositionLabel="Move to Position"
       onNavigate={onNavigate}
@@ -178,6 +178,7 @@ function VirtualQueueItem({
       <div
         data-testid="queue-item"
         data-queue-position={entry.position}
+        data-current={isCurrent ? "true" : undefined}
         className={cn(
           "flex items-center gap-2 p-2 rounded-lg group touch-manipulation transition-[background-color,scale] active:scale-[0.995]",
           isCurrent
@@ -187,21 +188,19 @@ function VirtualQueueItem({
         )}
         style={{ height: ITEM_HEIGHT }}
       >
-        {/* Drag handle (rows that can move); keeps the column for alignment */}
-        {!isCurrent && (
-          <button
-            type="button"
-            aria-label={`Reorder ${song.title}`}
-            title="Drag to reorder"
-            className={cn(
-              "shrink-0 -ml-1 flex h-8 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-60",
-              !dragHandleProps && "invisible",
-            )}
-            {...dragHandleProps}
-          >
-            <GripVertical className="w-4 h-4" />
-          </button>
-        )}
+        {/* Drag handle; hidden while a move is in flight but keeps its column */}
+        <button
+          type="button"
+          aria-label={`Reorder ${song.title}`}
+          title="Drag to reorder"
+          className={cn(
+            "shrink-0 -ml-1 flex h-8 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-60",
+            !dragHandleProps && "invisible",
+          )}
+          {...dragHandleProps}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
         {/* Now playing indicator for current track */}
         {isCurrent && (
           <div className="shrink-0 w-5">
@@ -300,7 +299,7 @@ function VirtualQueueItem({
             hideQueueActions={isCurrent}
             showRemoveFromQueue={!isCurrent}
             onRemoveFromQueue={onRemove}
-            showMoveToPosition={!isCurrent}
+            showMoveToPosition
             onMoveToPosition={onMoveToPosition}
             moveToPositionLabel="Move to Position"
             onNavigate={onNavigate}

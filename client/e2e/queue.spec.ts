@@ -440,4 +440,59 @@ test.describe.serial("Queue Management", () => {
     const body = (await added).postDataJSON();
     expect(body.sources).toEqual([{ sourceType: "directory", sourceId: "1:" }]);
   });
+
+  test("the playing row can be dragged and stays current", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    const queuePanel = await openQueuePanel(page);
+    const rows = queuePanel.locator('[data-testid="queue-item"]');
+    await expect(rows).toHaveCount(3);
+    const first = rows.filter({ hasText: "First Song" });
+    await first.hover();
+    const handle = first.getByRole("button", { name: "Reorder First Song" });
+    const handleBox = await handle.boundingBox();
+    const lastBox = await rows.filter({ hasText: "Third Song" }).boundingBox();
+    if (!handleBox || !lastBox) throw new Error("queue rows not laid out");
+
+    const x = handleBox.x + handleBox.width / 2;
+    await page.mouse.move(x, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, lastBox.y + lastBox.height / 2, { steps: 10 });
+    const moved = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/queue/move" && response.ok(),
+    );
+    await page.mouse.up();
+    await moved;
+
+    const current = queuePanel.locator('[data-current="true"]');
+    await expect(current).toHaveAttribute("data-queue-position", "2");
+    await expect(current).toContainText("First Song");
+    await expect(page.getByTestId("player-bar")).toContainText("First Song");
+  });
+
+  test("the playing row offers Move to Position", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await pausePlayback(page);
+
+    const queuePanel = await openQueuePanel(page);
+    await queuePanel
+      .locator('[data-current="true"]')
+      .click({ button: "right" });
+    await page.getByRole("menuitem", { name: /move to position/i }).click();
+    const dialog = page.getByRole("dialog").filter({ hasText: /position/i });
+    await dialog.getByRole("spinbutton").fill("2");
+    await dialog.getByRole("button", { name: /^move$/i }).click();
+
+    const current = queuePanel.locator('[data-current="true"]');
+    await expect(current).toHaveAttribute("data-queue-position", "1");
+    await expect(current).toContainText("First Song");
+  });
 });
