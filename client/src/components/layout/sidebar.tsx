@@ -1,5 +1,3 @@
-"use client";
-
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Suspense, useEffect } from "react";
 import { motion } from "framer-motion";

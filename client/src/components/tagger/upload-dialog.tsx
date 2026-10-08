@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef } from "react";
 import { useAtom } from "jotai";
 import { Upload, File, X, Loader2 } from "lucide-react";

@@ -1,5 +1,3 @@
-"use client";
-
 import { Link, useSearchParams } from "react-router-dom";
 import { useState, Suspense } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";

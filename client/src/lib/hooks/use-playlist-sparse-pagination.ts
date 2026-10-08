@@ -1,5 +1,3 @@
-"use client";
-
 import type { PlaylistSongsResponse } from "@/lib/api/generated/PlaylistSongsResponse";
 import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
 import { useSparsePagination } from "./use-sparse-pagination";

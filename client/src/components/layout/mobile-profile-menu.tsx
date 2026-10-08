@@ -1,5 +1,3 @@
-"use client";
-
 import { User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResponsiveDropdownMenu } from "@/components/shared/responsive-context-menu";

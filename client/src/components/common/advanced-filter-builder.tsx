@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Advanced Filter Builder Component
  *

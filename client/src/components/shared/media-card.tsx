@@ -1,5 +1,3 @@
-"use client";
-
 import { Link } from "react-router-dom";
 import { Play, Check } from "lucide-react";
 import { cn } from "@/lib/utils";

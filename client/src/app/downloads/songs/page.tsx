@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { ListMusic } from "lucide-react";

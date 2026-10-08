@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Track loading hook: wraps loadTrackNative/loadTrackWeb with React effects,
  * plus ReplayGain live-update and queue window resync for native audio.

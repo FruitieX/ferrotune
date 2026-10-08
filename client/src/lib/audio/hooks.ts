@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Audio engine hooks — thin orchestrator.
  *

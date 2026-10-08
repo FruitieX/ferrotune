@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Native session initialization.
  * Configures server credentials so Kotlin can make direct API calls.

@@ -1,5 +1,3 @@
-"use client";
-
 import { Link } from "react-router-dom";
 import { useAtom } from "jotai";
 import { useTheme } from "next-themes";

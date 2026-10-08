@@ -1,5 +1,3 @@
-"use client";
-
 import { ReactNode } from "react";
 import { Play, Shuffle, MoreHorizontal, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";

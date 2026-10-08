@@ -1,5 +1,3 @@
-"use client";
-
 import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";

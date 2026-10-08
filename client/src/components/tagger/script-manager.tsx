@@ -1,5 +1,3 @@
-"use client";
-
 import { useAtom, useAtomValue } from "jotai";
 import {
   FileCode,

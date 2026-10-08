@@ -1,5 +1,3 @@
-"use client";
-
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";

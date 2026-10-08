@@ -1,5 +1,3 @@
-"use client";
-
 import type { ReactNode } from "react";
 import { useState, createContext, useContext } from "react";
 import { Check, ChevronDown } from "lucide-react";

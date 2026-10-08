@@ -1,5 +1,3 @@
-"use client";
-
 import { useAtomValue } from "jotai";
 import { User, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";

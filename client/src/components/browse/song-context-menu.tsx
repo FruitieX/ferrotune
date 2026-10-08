@@ -1,5 +1,3 @@
-"use client";
-
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";

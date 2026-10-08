@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef, ChangeEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";

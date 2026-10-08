@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Bridges Jotai queue atoms ↔ React Query cache so that queue/now-playing
  * data is persisted to IndexedDB via the existing per-account persister.

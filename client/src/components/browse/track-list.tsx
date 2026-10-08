@@ -1,5 +1,3 @@
-"use client";
-
 import { Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";

@@ -1,5 +1,3 @@
-"use client";
-
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState, Suspense } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";

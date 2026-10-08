@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 
 // Counter for programmatic history.back() calls used to clean up stale

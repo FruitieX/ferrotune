@@ -1,5 +1,3 @@
-"use client";
-
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { ClientResponse } from "@/lib/api/generated/ClientResponse";

@@ -1,5 +1,3 @@
-"use client";
-
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Home, Search, Library, ListMusic, User } from "lucide-react";

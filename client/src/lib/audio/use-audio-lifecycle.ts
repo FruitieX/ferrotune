@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Audio lifecycle effects: initial queue fetch, Android resume sync,
  * and user account change reset.

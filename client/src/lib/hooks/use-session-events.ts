@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { getClient, getClientName } from "@/lib/api/client";

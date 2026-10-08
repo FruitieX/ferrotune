@@ -1,5 +1,3 @@
-"use client";
-
 import { Sparkles } from "lucide-react";
 import { getClient } from "@/lib/api/client";
 import { MediaCard } from "@/components/shared/media-card";

@@ -1,5 +1,3 @@
-"use client";
-
 import { Link } from "react-router-dom";
 import { forwardRef } from "react";
 import { Play, Pause, MoreHorizontal, Check } from "lucide-react";

@@ -1,5 +1,3 @@
-"use client";
-
 import { CheckCircle2, Download, Loader2, XCircle, Pause } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDownloadState } from "@/lib/store/downloads";

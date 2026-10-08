@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Settings sync effects: volume, playback settings push, clipping detection.
  *

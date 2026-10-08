@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Playback state effects: pause on "ended", pause on remote control, repeat mode sync.
  *

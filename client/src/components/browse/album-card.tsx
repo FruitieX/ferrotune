@@ -1,5 +1,3 @@
-"use client";
-
 import { Link } from "react-router-dom";
 import { Disc } from "lucide-react";
 import type { Album } from "@/lib/api/types";

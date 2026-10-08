@@ -1,5 +1,3 @@
-"use client";
-
 import { useLocation } from "react-router-dom";
 import { Suspense } from "react";
 import { Providers } from "@/components/providers";

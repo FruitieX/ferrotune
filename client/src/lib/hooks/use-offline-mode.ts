@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { isOfflineModeAtom } from "@/lib/store/downloads";

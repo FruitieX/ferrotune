@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { Play, AlertCircle } from "lucide-react";

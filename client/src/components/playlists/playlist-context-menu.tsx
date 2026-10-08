@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";

@@ -1,5 +1,3 @@
-"use client";
-
 import { ReactNode, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";

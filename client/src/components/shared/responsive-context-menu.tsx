@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef, type ReactNode } from "react";
 import {
   ContextMenu,

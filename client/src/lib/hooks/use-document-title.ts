@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { currentSongAtom } from "@/lib/store/server-queue";

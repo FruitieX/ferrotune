@@ -1,5 +1,3 @@
-"use client";
-
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { User } from "lucide-react";
 import { toast } from "sonner";

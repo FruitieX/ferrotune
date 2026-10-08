@@ -1,5 +1,3 @@
-"use client";
-
 import type { ComponentProps, PointerEvent as ReactPointerEvent } from "react";
 import { useRef } from "react";
 import { Drawer as DrawerPrimitive } from "vaul";

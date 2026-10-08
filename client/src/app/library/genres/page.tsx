@@ -1,5 +1,3 @@
-"use client";
-
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";

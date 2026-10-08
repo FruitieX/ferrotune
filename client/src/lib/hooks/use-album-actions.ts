@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";

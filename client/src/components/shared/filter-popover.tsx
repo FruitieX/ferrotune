@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";

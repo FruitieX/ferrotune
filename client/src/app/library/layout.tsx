@@ -1,5 +1,3 @@
-"use client";
-
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";

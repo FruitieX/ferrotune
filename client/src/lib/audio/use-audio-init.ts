@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * One-time audio engine initialization: sets up native or web audio
  * and attaches all event listeners.

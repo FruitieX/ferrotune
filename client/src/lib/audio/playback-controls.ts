@@ -1,5 +1,3 @@
-"use client";
-
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { volumeAtom, isMutedAtom } from "@/lib/store/player";
 import {

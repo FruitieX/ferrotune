@@ -1,5 +1,3 @@
-"use client";
-
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   taggerScriptsAtom,

@@ -1,5 +1,3 @@
-"use client";
-
 import { Users } from "lucide-react";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";

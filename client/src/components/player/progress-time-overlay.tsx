@@ -1,5 +1,3 @@
-"use client";
-
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/utils/format";

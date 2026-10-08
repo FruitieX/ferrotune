@@ -1,5 +1,3 @@
-"use client";
-
 import { Check, ImagePlus, ImageMinus, FileAudio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getTrackTagValue } from "@/lib/store/tagger";

@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { ListMusic } from "lucide-react";
 import { cn } from "@/lib/utils";

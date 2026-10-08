@@ -1,5 +1,3 @@
-"use client";
-
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
