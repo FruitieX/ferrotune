@@ -224,7 +224,7 @@ class FerrotuneApiClient {
     /**
      * Build a streaming URL for a song.
      */
-    fun buildStreamUrl(songId: String, settings: PlaybackSettings, timeOffsetSeconds: Long = 0): String {
+    fun buildStreamUrl(songId: String, settings: PlaybackSettings, timeOffsetMs: Long = 0): String {
         val config = getConfig()
         val uriBuilder = Uri.parse("${config.serverUrl}/api/stream").buildUpon()
         appendCommonParams(uriBuilder)
@@ -233,8 +233,11 @@ class FerrotuneApiClient {
             uriBuilder.appendQueryParameter("maxBitRate", settings.transcodingBitrate.toString())
             uriBuilder.appendQueryParameter("format", "opus")
         }
-        if (timeOffsetSeconds > 0) {
-            uriBuilder.appendQueryParameter("timeOffset", timeOffsetSeconds.toString())
+        if (timeOffsetMs > 0) {
+            // Millisecond precision with an accurate server-side seek, so a
+            // reload resumes exactly where playback was.
+            uriBuilder.appendQueryParameter("timeOffset", formatTimeOffsetSeconds(timeOffsetMs))
+            uriBuilder.appendQueryParameter("seekMode", "accurate")
         }
         NativeAudioLogger.debug(
             TAG,
@@ -245,7 +248,7 @@ class FerrotuneApiClient {
                 "transcoding" to settings.transcodingEnabled,
                 "bitrate" to settings.transcodingBitrate,
                 "format" to if (settings.transcodingEnabled) "opus" else null,
-                "timeOffsetSeconds" to timeOffsetSeconds,
+                "timeOffsetMs" to timeOffsetMs,
                 "hasAuthHeader" to (config.sessionToken != null),
             ),
         )
@@ -1102,6 +1105,10 @@ internal fun normalizeNullableJsonString(value: Any?): String? =
         value == null || value === JSONObject.NULL -> null
         else -> value.toString().ifEmpty { null }
     }
+
+/** Stream `timeOffset` value: seconds with millisecond precision, e.g. 83456 → "83.456". */
+internal fun formatTimeOffsetSeconds(timeOffsetMs: Long): String =
+    "${timeOffsetMs / 1000}.${(timeOffsetMs % 1000).toString().padStart(3, '0')}"
 
 /**
  * Parsed session events from the SSE stream.

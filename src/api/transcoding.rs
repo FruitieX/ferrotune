@@ -88,6 +88,8 @@ pub async fn transcode_with_offset(
     // blocking encoder observe a disconnected browser and stop quickly.
     let (tx, rx) = mpsc::channel::<Vec<u8>>(8);
 
+    let ogg_serial = offset_stream_serial(&path, &config, time_offset_seconds, accurate_seek);
+
     // Spawn blocking task to transcode
     tokio::task::spawn_blocking(move || {
         if let Err(e) = transcode_to_opus_with_offset(
@@ -97,6 +99,7 @@ pub async fn transcode_with_offset(
             time_offset_seconds,
             replaygain_info,
             accurate_seek,
+            ogg_serial,
         ) {
             tracing::error!("Transcoding error: {}", e);
         }
@@ -140,6 +143,7 @@ fn transcode_to_opus_with_offset(
     time_offset_seconds: f64,
     replaygain_info: ReplayGainInfo,
     accurate_seek: bool,
+    ogg_serial: u32,
 ) -> Result<()> {
     let writer = OggStreamBuffer::new(tx);
     transcode_to_opus_writer(
@@ -149,8 +153,31 @@ fn transcode_to_opus_with_offset(
         time_offset_seconds,
         replaygain_info,
         accurate_seek,
-        rand::random::<u32>(),
+        ogg_serial,
     )
+}
+
+/// Ogg serial for an uncached offset stream, derived from the request so that
+/// repeating the request yields the same bytes. A player that loses the
+/// connection re-requests the stream and skips what it already has, which only
+/// lines up when the regenerated stream is byte-identical.
+fn offset_stream_serial(
+    path: &std::path::Path,
+    config: &TranscodeConfig,
+    time_offset_seconds: f64,
+    accurate_seek: bool,
+) -> u32 {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    hasher.update(config.song_id.as_bytes());
+    hasher.update(&config.bitrate.to_le_bytes());
+    hasher.update(&config.sample_rate.to_le_bytes());
+    hasher.update(&[config.channels]);
+    hasher.update(&time_offset_seconds.to_bits().to_le_bytes());
+    hasher.update(&[u8::from(accurate_seek)]);
+    let bytes = hasher.finalize();
+    let bytes = bytes.as_bytes();
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
@@ -191,10 +218,14 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     let track_id = track.id;
     let source_sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
     let source_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
+    let time_base = track.codec_params.time_base;
 
     let mut decoder = CODEC_REGISTRY
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|e| Error::InvalidRequest(format!("Could not create decoder: {}", e)))?;
+
+    // Decoded frames to discard before the first encoded sample.
+    let mut frames_to_skip: u64 = 0;
 
     // Seek to the requested time offset if specified
     if time_offset_seconds > 0.0 {
@@ -226,6 +257,20 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
                     time_offset_seconds,
                     seek_mode
                 );
+                // An accurate seek lands on the packet holding the requested
+                // time; drop the decoded frames before it so the stream starts
+                // exactly there (resumes then pick up where playback stopped).
+                if accurate_seek {
+                    let delta = seeked_to.required_ts.saturating_sub(seeked_to.actual_ts);
+                    frames_to_skip = match time_base {
+                        Some(time_base) => {
+                            let time = time_base.calc_time(delta);
+                            ((time.seconds as f64 + time.frac) * f64::from(source_sample_rate))
+                                .round() as u64
+                        }
+                        None => delta,
+                    };
+                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -352,8 +397,14 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
         let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
         sample_buf.copy_interleaved_ref(decoded);
 
-        let samples = sample_buf.samples();
         let num_channels = spec.channels.count();
+        let mut samples = sample_buf.samples();
+        if frames_to_skip > 0 {
+            let frames = (samples.len() / num_channels.max(1)) as u64;
+            let skipped = frames_to_skip.min(frames);
+            samples = &samples[(skipped as usize) * num_channels..];
+            frames_to_skip -= skipped;
+        }
 
         // De-interleave samples for resampler
         if need_resample {
@@ -698,4 +749,77 @@ fn convert_samples_direct(
     }
 
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(path: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/music")
+            .join(path)
+    }
+
+    fn test_config() -> TranscodeConfig {
+        TranscodeConfig {
+            song_id: "song".to_string(),
+            bitrate: 128_000,
+            sample_rate: 48_000,
+            channels: 2,
+        }
+    }
+
+    fn transcode(path: &std::path::Path, offset: f64) -> Vec<u8> {
+        let config = test_config();
+        let mut bytes = Vec::new();
+        transcode_to_opus_writer(
+            path,
+            &config,
+            &mut bytes,
+            offset,
+            ReplayGainInfo::default(),
+            true,
+            offset_stream_serial(path, &config, offset, true),
+        )
+        .unwrap();
+        bytes
+    }
+
+    fn final_granule_position(ogg: &[u8]) -> u64 {
+        let page = ogg
+            .windows(4)
+            .rposition(|window| window == b"OggS")
+            .expect("ogg page");
+        u64::from_le_bytes(ogg[page + 6..page + 14].try_into().unwrap())
+    }
+
+    #[test]
+    fn accurate_offset_stream_starts_at_the_requested_time() {
+        let path = fixture("Test Artist/Test Album/01 - First Song.mp3");
+
+        let full = final_granule_position(&transcode(&path, 0.0));
+        let offset = final_granule_position(&transcode(&path, 1.37));
+
+        // 1.37s at 48kHz, within a couple of Opus frames of encoder padding.
+        // Without trimming, the stream starts at the MP3 frame holding 1.37s.
+        let skipped = full as i64 - offset as i64;
+        assert!(
+            (skipped - 65_760).abs() <= 2 * OPUS_FRAME_SIZE as i64,
+            "skipped {skipped} samples"
+        );
+    }
+
+    #[test]
+    fn repeated_offset_stream_is_byte_identical() {
+        let path = fixture("Another Artist/Another Album/01 - FLAC Track One.flac");
+
+        let first = transcode(&path, 1.5);
+        let second = transcode(&path, 1.5);
+
+        // A resumed request skips the bytes the player already has, so the
+        // regenerated stream must match the first one exactly.
+        assert!(!first.is_empty());
+        assert_eq!(first, second);
+    }
 }

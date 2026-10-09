@@ -44,4 +44,24 @@ class PlaybackNotificationLifecycleTest {
             )
         )
     }
+
+    @Test
+    fun pendingPlaybackHoldsLoadedMediaForegroundBeforeItPlays() {
+        assertTrue(
+            PlaybackNotificationLifecycle.shouldKeepServiceForeground(
+                startInForegroundRequired = false,
+                playWhenReady = false,
+                mediaItemCount = 1,
+                holdForPendingPlayback = true,
+            )
+        )
+        assertFalse(
+            PlaybackNotificationLifecycle.shouldKeepServiceForeground(
+                startInForegroundRequired = false,
+                playWhenReady = false,
+                mediaItemCount = 0,
+                holdForPendingPlayback = true,
+            )
+        )
+    }
 }

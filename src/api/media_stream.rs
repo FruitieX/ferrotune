@@ -26,8 +26,10 @@ pub struct StreamParams {
     #[serde(rename = "maxBitRate")]
     max_bit_rate: Option<u32>,
     format: Option<String>,
+    /// Seconds into the track to start a transcoded stream; fractional values
+    /// allow millisecond-precise resumes.
     #[serde(rename = "timeOffset")]
-    time_offset: Option<u32>,
+    time_offset: Option<f64>,
     /// Seek mode: "accurate" for sample-accurate seeking (slower), "coarse" for fast seeking
     #[serde(rename = "seekMode")]
     seek_mode: Option<String>,
@@ -114,7 +116,7 @@ pub async fn stream(
         file_format = %song.file_format,
         requested_format = params.format.as_deref().unwrap_or("original"),
         max_bit_rate = params.max_bit_rate,
-        time_offset_seconds = params.time_offset.unwrap_or(0),
+        time_offset_seconds = params.time_offset.unwrap_or(0.0),
         range = range_header.as_deref().unwrap_or(""),
         transcoding = needs_transcoding,
         "Media stream request"
@@ -124,7 +126,11 @@ pub async fn stream(
         // Determine target format and bitrate
         let target_format = params.format.as_deref().unwrap_or("opus");
         let target_bitrate = params.max_bit_rate.unwrap_or(128) * 1000; // Convert kbps to bps
-        let time_offset_seconds = params.time_offset.unwrap_or(0) as f64;
+        let time_offset_seconds = params
+            .time_offset
+            .filter(|offset| offset.is_finite())
+            .unwrap_or(0.0)
+            .max(0.0);
 
         // For now we only support Opus transcoding
         if target_format != "opus" && target_format != "ogg" {

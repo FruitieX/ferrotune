@@ -25,6 +25,13 @@ const READ_CHUNK_BYTES: usize = 64 * 1024;
 /// panicked task, a CPU spin, or any indefinite block) into an HTTP error so
 /// the client fails fast and retries instead of hanging silently.
 const GENERATION_STALL_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long an open-ended range request past the start of a growing transcode
+/// waits for the transcode to finish. Players resume a broken stream with
+/// `Range: bytes=N-`; once the transcode is complete they get the exact rest
+/// of the file and its total size. A finite partial response of the current
+/// prefix looks like the end of the media to ExoPlayer, which would cut the
+/// track short. Generation usually outpaces the client, so this is brief.
+const OPEN_RANGE_COMPLETE_WAIT: Duration = Duration::from_secs(15);
 
 static CACHE_REGISTRY: LazyLock<StdMutex<HashMap<CacheRegistryKey, Arc<TranscodeCache>>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
@@ -751,6 +758,16 @@ async fn resolve_range(entry: Arc<CacheEntry>, range: RangeSpec) -> Result<Optio
             if progress.size == 0 || start >= progress.size {
                 return Ok(None);
             }
+            let progress = if progress.complete {
+                progress
+            } else {
+                match tokio::time::timeout(OPEN_RANGE_COMPLETE_WAIT, entry.wait_until_complete())
+                    .await
+                {
+                    Ok(progress) => progress?,
+                    Err(_) => progress,
+                }
+            };
             if progress.complete {
                 return Ok(Some(ResolvedRange {
                     start,
@@ -1035,6 +1052,47 @@ mod tests {
         assert_eq!(
             response.headers().get(header::CONTENT_RANGE),
             Some(&header::HeaderValue::from_static("bytes 0-262143/262144"))
+        );
+    }
+
+    #[tokio::test]
+    async fn resumed_open_range_waits_for_transcode_to_finish() {
+        let cache = TranscodeCache::new(PathBuf::from("/unused"), 0);
+        let entry = test_entry(CacheProgress {
+            size: RANGE_CHUNK_BYTES * 2,
+            complete: false,
+            failed: false,
+        });
+
+        let finishing = entry.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let _ = finishing.progress_tx.send(CacheProgress {
+                size: RANGE_CHUNK_BYTES * 4,
+                complete: true,
+                failed: false,
+            });
+        });
+
+        let response = cache
+            .serve_range(entry, RangeSpec::From { start: 1000 })
+            .await
+            .unwrap();
+
+        // A player resuming mid-file must get the rest of the whole file, not
+        // the prefix generated so far, or it would treat that as the end.
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        let total = RANGE_CHUNK_BYTES * 4;
+        assert_eq!(
+            response.headers().get(header::CONTENT_RANGE),
+            Some(
+                &header::HeaderValue::from_str(&format!("bytes 1000-{}/{}", total - 1, total))
+                    .unwrap()
+            )
+        );
+        assert_eq!(
+            response.headers().get(header::CONTENT_LENGTH),
+            Some(&header::HeaderValue::from_str(&(total - 1000).to_string()).unwrap())
         );
     }
 

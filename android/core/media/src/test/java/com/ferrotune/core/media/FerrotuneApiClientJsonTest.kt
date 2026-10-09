@@ -18,4 +18,11 @@ class FerrotuneApiClientJsonTest {
         assertEquals("ferrotune-mobile", normalizeNullableJsonString("ferrotune-mobile"))
         assertNull(normalizeNullableJsonString(""))
     }
+
+    @Test
+    fun formatsStreamTimeOffsetsWithMillisecondPrecision() {
+        assertEquals("83.456", formatTimeOffsetSeconds(83_456))
+        assertEquals("0.007", formatTimeOffsetSeconds(7))
+        assertEquals("120.000", formatTimeOffsetSeconds(120_000))
+    }
 }

@@ -1,5 +1,6 @@
 package com.ferrotune.core.media
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -55,10 +56,12 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.WrappingMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaStyleNotificationHelper
@@ -81,9 +84,12 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -143,11 +149,17 @@ class PlaybackService : MediaSessionService() {
         private const val TRANSCODED_STREAM_LOAD_RETRY_COUNT = 10
         private const val TRANSCODED_STREAM_LOAD_RETRY_BASE_DELAY_MS = 1_000L
         private const val TRANSCODED_STREAM_LOAD_RETRY_MAX_DELAY_MS = 5_000L
+        // Longer than the server's wait for a transcode to finish before it
+        // answers a resumed range request.
+        private const val STREAM_READ_TIMEOUT_MS = 20_000
         // Stop the foreground service after this many ms of inactivity (paused).
         // Kept short to release ExoPlayer's wake/wifi lock and tear down the
         // MediaSessionService + SSE connection quickly when the user stops
         // listening, so the app doesn't drain battery in the background.
         private const val INACTIVITY_TIMEOUT_MS = 60L * 1000
+        // How long a just-requested playback may take to load before the
+        // foreground hold for it lapses.
+        private const val PENDING_PLAYBACK_FOREGROUND_HOLD_MS = 30_000L
         // Give Android's media routing a short moment to settle after device
         // removal before deciding that the active media output is still safe.
         private const val AUDIO_ROUTE_SETTLE_DELAY_MS = 500L
@@ -183,8 +195,17 @@ class PlaybackService : MediaSessionService() {
     private var invalidateSessionPlayerState: (() -> Unit)? = null
     private var lastSessionExportLog: String? = null
     private val handler = Handler(Looper.getMainLooper())
-    // Background executor for API calls (no main thread blocking)
+    // Background executor for API calls (no main thread blocking). Queue
+    // reads/edits, position syncs, and heartbeats stay ordered on it.
     private val apiExecutor = Executors.newSingleThreadExecutor()
+    // Work that must not hold up queue loads behind a slow mobile network:
+    // notification artwork, listening sessions, scrobbles, diagnostics.
+    private val backgroundExecutor = Executors.newSingleThreadExecutor()
+    private val positionSyncQueued = AtomicBoolean(false)
+    @Volatile private var pendingPositionSyncMs = 0L
+    private data class PendingHeartbeat(val isPlaying: Boolean, val track: TrackInfo?, val positionMs: Long)
+    private val heartbeatQueued = AtomicBoolean(false)
+    private val pendingHeartbeat = AtomicReference<PendingHeartbeat?>(null)
 
     private val _events = MutableSharedFlow<PlaybackEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<PlaybackEvent> = _events.asSharedFlow()
@@ -274,7 +295,7 @@ class PlaybackService : MediaSessionService() {
     // Listening sessions belong to native playback. Android may suspend the
     // WebView while this service continues through the queue.
     private val listeningLifecycle = NativeListeningSessionLifecycle()
-    // Accessed only from the single-threaded apiExecutor.
+    // Accessed only from the single-threaded backgroundExecutor.
     private val listeningSessionIds = mutableMapOf<Long, Long>()
     // Offset (ms) applied when seeking in transcoded streams via seek-by-reload.
     // The server starts the stream at this offset, so ExoPlayer position is relative.
@@ -330,6 +351,12 @@ class PlaybackService : MediaSessionService() {
     // (has session config for API calls and has loaded media)
     private val isActive: Boolean
         get() = apiClient.hasSessionConfig() && player.mediaItemCount > 0
+
+    // Set by holdForegroundForPendingPlayback() until the requested playback
+    // starts (playWhenReady keeps it foreground from then on) or times out.
+    private var holdForegroundForPendingPlayback = false
+    private val releaseForegroundHoldRunnable = Runnable { releaseForegroundHold() }
+    private var lastForegroundDecision: Boolean? = null
 
     // Timeout to stop service after extended inactivity (paused)
     private val inactivityTimeoutRunnable = Runnable {
@@ -489,6 +516,9 @@ class PlaybackService : MediaSessionService() {
             val intendsToPlay = nativeOwnsSession &&
                 !isOfflinePlaybackQueue &&
                 !pausedForAudioOutputLoss &&
+                // A call or another app's transient audio focus holds playback
+                // without pausing it; that is not a stall to reload.
+                player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
                 player.mediaItemCount > 0 &&
                 // Let the dedicated error-retry path own recovery when it is active.
                 pendingNetworkRetryRunnable == null &&
@@ -583,7 +613,11 @@ class PlaybackService : MediaSessionService() {
         // to the local cache as they arrive and served from there on re-reads.
         // This means ExoPlayer can resume from the cache after a network blip
         // without re-requesting already-received data from the server.
+        // A resumed transcode request (`Range: bytes=N-`) can wait on the
+        // server until the transcode finishes, so allow more than Media3's
+        // default 8s before treating a quiet connection as dead.
         httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setReadTimeoutMs(STREAM_READ_TIMEOUT_MS)
         artworkDataSourceFactory = DefaultHttpDataSource.Factory()
 
         // Chained CacheDataSource: downloaded bytes (pinned, never evicted)
@@ -693,7 +727,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         val mediaSourceFactory = KnownDurationMediaSourceFactory(
-            DefaultMediaSourceFactory(playbackDataSourceFactory)
+            DefaultMediaSourceFactory(playbackDataSourceFactory),
+            playbackDataSourceFactory,
         )
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
@@ -970,6 +1005,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         handler.removeCallbacks(stallWatchdogRunnable)
+        handler.removeCallbacks(releaseForegroundHoldRunnable)
         stallMonitor.reset()
         clearPendingNetworkRetry("service destroy")
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
@@ -995,6 +1031,7 @@ class PlaybackService : MediaSessionService() {
         }
         replayGainProcessor.setClippingCallback(null)
         apiExecutor.shutdownNow()
+        backgroundExecutor.shutdownNow()
         mediaSession.release()
         player.release()
         // Release the stream cache so its file locks are freed.
@@ -1031,8 +1068,72 @@ class PlaybackService : MediaSessionService() {
             startInForegroundRequired = startInForegroundRequired,
             playWhenReady = player.playWhenReady,
             mediaItemCount = player.mediaItemCount,
+            holdForPendingPlayback = holdForegroundForPendingPlayback,
         )
-        super.onUpdateNotification(session, keepForeground)
+        if (keepForeground != lastForegroundDecision) {
+            lastForegroundDecision = keepForeground
+            logPlaybackDiagnostic(
+                DiagnosticLevel.INFO,
+                "foreground_decision",
+                "Media notification foreground state changed",
+                mapOf(
+                    "keepForeground" to keepForeground,
+                    "mediaRequested" to startInForegroundRequired,
+                    "playWhenReady" to player.playWhenReady,
+                    "playbackState" to playbackStateName(player.playbackState),
+                    "mediaItemCount" to player.mediaItemCount,
+                    "holdForPendingPlayback" to holdForegroundForPendingPlayback,
+                ),
+            )
+        }
+        try {
+            super.onUpdateNotification(session, keepForeground)
+        } catch (e: IllegalStateException) {
+            if (!keepForeground || !isForegroundStartNotAllowed(e)) throw e
+            // Android refuses to enter the foreground while the app is in the
+            // background. Without it the process may be frozen or killed, so
+            // record it, and still post the notification: the user sees what
+            // is playing and its controls can bring playback back.
+            Log.e(TAG, "Foreground service start not allowed", e)
+            logPlaybackDiagnostic(
+                DiagnosticLevel.ERROR,
+                "foreground_start_denied",
+                "Android refused to start the playback foreground service",
+                mapOf(
+                    "playWhenReady" to player.playWhenReady,
+                    "playbackState" to playbackStateName(player.playbackState),
+                    "holdForPendingPlayback" to holdForegroundForPendingPlayback,
+                ),
+            )
+            lastForegroundDecision = false
+            super.onUpdateNotification(session, false)
+        }
+    }
+
+    private fun isForegroundStartNotAllowed(error: IllegalStateException): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            error is ForegroundServiceStartNotAllowedException
+
+    /**
+     * Enters the foreground right away for a playback the user just asked for,
+     * before the queue loads over the network. Android only allows that while
+     * the app is visible; if the phone is locked before the queue arrives, a
+     * later attempt would be refused and playback would run without a
+     * foreground service until the system froze the app.
+     */
+    fun holdForegroundForPendingPlayback() {
+        if (player.mediaItemCount == 0 || isCastSessionOwner()) return
+        holdForegroundForPendingPlayback = true
+        handler.removeCallbacks(releaseForegroundHoldRunnable)
+        handler.postDelayed(releaseForegroundHoldRunnable, PENDING_PLAYBACK_FOREGROUND_HOLD_MS)
+        onUpdateNotification(mediaSession, false)
+    }
+
+    private fun releaseForegroundHold() {
+        handler.removeCallbacks(releaseForegroundHoldRunnable)
+        if (!holdForegroundForPendingPlayback) return
+        holdForegroundForPendingPlayback = false
+        onUpdateNotification(mediaSession, false)
     }
 
     fun play() {
@@ -1140,6 +1241,7 @@ class PlaybackService : MediaSessionService() {
         markPlaybackPauseIntent("explicit pause()")
         clearPendingNetworkRetry("explicit pause()")
         player.pause()
+        releaseForegroundHold()
     }
 
     fun stop() {
@@ -1249,8 +1351,7 @@ class PlaybackService : MediaSessionService() {
             // time-based. Reload with timeOffset so the server starts the
             // encoded stream at the requested playback position.
             val track = currentTrack!!
-            val timeOffsetSeconds = positionMs / 1000
-            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, positionMs)
             seekTimeOffsetMs = positionMs
             lastKnownGoodPositionMs = positionMs.coerceAtLeast(0)
 
@@ -1262,7 +1363,7 @@ class PlaybackService : MediaSessionService() {
             player.seekTo(currentIndex, 0)
             player.playWhenReady = wasPlaying
 
-            Log.d(TAG, "seek-by-reload: offset=${timeOffsetSeconds}s, seekTimeOffsetMs=$seekTimeOffsetMs")
+            Log.d(TAG, "seek-by-reload: seekTimeOffsetMs=$seekTimeOffsetMs")
         } else {
             seekTimeOffsetMs = 0
             lastKnownGoodPositionMs = positionMs.coerceAtLeast(0)
@@ -1410,7 +1511,7 @@ class PlaybackService : MediaSessionService() {
             ),
         )
         try {
-            apiExecutor.execute {
+            backgroundExecutor.execute {
                 apiClient.disconnectClient(config)
             }
         } catch (error: RuntimeException) {
@@ -1589,7 +1690,7 @@ class PlaybackService : MediaSessionService() {
                     "Diagnostics request received from server",
                     mapOf("requestId" to event.requestId),
                 )
-                apiExecutor.execute {
+                backgroundExecutor.execute {
                     apiClient.uploadDiagnostics(event.requestId)
                 }
             }
@@ -2104,8 +2205,7 @@ class PlaybackService : MediaSessionService() {
         // server sends audio starting from the right position.
         if (startPositionMs > 0 && playbackSettings.transcodingEnabled && currentTrack != null && !isOfflinePlaybackQueue) {
             val track = currentTrack!!
-            val timeOffsetSeconds = startPositionMs / 1000
-            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, startPositionMs)
             seekTimeOffsetMs = startPositionMs
 
             val newMediaItem = createMediaItem(track, newUrl)
@@ -2118,7 +2218,7 @@ class PlaybackService : MediaSessionService() {
             player.prepare()
             invalidateSessionExport()
 
-            Log.d(TAG, "Loaded ${tracks.size} tracks with seek-by-reload: offset=${timeOffsetSeconds}s, " +
+            Log.d(TAG, "Loaded ${tracks.size} tracks with seek-by-reload: offset=${startPositionMs}ms, " +
                 "positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
                 "exoStartIndex=$exoStartIndex, serverIndex=$targetIndex")
         } else {
@@ -2485,6 +2585,8 @@ class PlaybackService : MediaSessionService() {
                 val queueResponse = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     if (!isQueueLoadGenerationCurrent(generation, "toggle shuffle")) {
+                        // A newer load (usually the server's QueueUpdated echo of
+                        // this toggle) applies the queue and publishes the state.
                         deferred.complete(Unit)
                         return@post
                     }
@@ -2497,6 +2599,7 @@ class PlaybackService : MediaSessionService() {
                     if (emitQueueState) {
                         emitQueueStateChanged()
                     }
+                    emitStateChange()
                     deferred.complete(Unit)
                 }
             } catch (e: Exception) {
@@ -2730,6 +2833,8 @@ class PlaybackService : MediaSessionService() {
                             )
                             syncQueueWithoutRestart(response, currentPlaybackPosition, emitQueueState = false)
                             syncPositionToServer()
+                            updateMediaButtonPreferences()
+                            emitStateChange()
                             return@post
                         }
 
@@ -2753,9 +2858,11 @@ class PlaybackService : MediaSessionService() {
                         // changes (shuffle, repeat, add/remove/move) gracefully.
                         syncQueueWithoutRestart(response, response.currentIndex, emitQueueState = false)
                     }
-                    // No queue-state-changed here: the queue panel reloads its
-                    // pages from the server after the edit, and emitting the
-                    // window now would briefly pair the new index with old rows.
+                    // Publish shuffle/repeat/length changes made elsewhere (the
+                    // web client, or this app's own shuffle toggle, whose result
+                    // this refresh supersedes); the queue panel reloads on them.
+                    updateMediaButtonPreferences()
+                    emitStateChange()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "$reason: failed to refetch queue", e)
@@ -2948,7 +3055,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun enqueueNativeListeningUpdate(update: NativeListeningUpdate) {
         val sessionConfig = apiClient.getSessionConfigSnapshot() ?: return
-        apiExecutor.execute {
+        backgroundExecutor.execute {
             try {
                 val response = apiClient.logListening(
                     songId = update.songId,
@@ -2997,7 +3104,7 @@ class PlaybackService : MediaSessionService() {
             hasScrobbled = true
             Log.d(TAG, "Scrobbling track: ${track.title} (${accumulatedListenMs}ms / ${durationMs}ms)")
             val songId = track.id
-            apiExecutor.execute {
+            backgroundExecutor.execute {
                 try {
                     apiClient.scrobble(songId, System.currentTimeMillis(), queueSourceType = queueSourceType, queueSourceId = queueSourceId)
                 } catch (e: Exception) {
@@ -3014,10 +3121,14 @@ class PlaybackService : MediaSessionService() {
         if (!nativeOwnsSession) return
         if (!isActive) return
         if (!isNetworkAvailable()) return
-        val posMs = getAbsolutePlaybackPositionMs()
+        pendingPositionSyncMs = getAbsolutePlaybackPositionMs()
+        // While the network is slow, keep one sync queued carrying the latest
+        // position instead of piling them up ahead of queue loads.
+        if (!positionSyncQueued.compareAndSet(false, true)) return
         apiExecutor.execute {
+            positionSyncQueued.set(false)
             try {
-                apiClient.updatePosition(serverQueueIndex, posMs)
+                apiClient.updatePosition(serverQueueIndex, pendingPositionSyncMs)
             } catch (e: Exception) {
                 Log.w(TAG, "Position sync failed", e)
             }
@@ -3032,17 +3143,22 @@ class PlaybackService : MediaSessionService() {
         if (isOfflinePlaybackQueue) return
         if (!nativeOwnsSession) return
         if (!isNetworkAvailable()) return
-        val track = currentTrack
-        val posMs = getAbsolutePlaybackPositionMs()
+        pendingHeartbeat.set(
+            PendingHeartbeat(isPlaying, currentTrack, getAbsolutePlaybackPositionMs()),
+        )
+        // Like position syncs: one queued heartbeat sends the latest state.
+        if (!heartbeatQueued.compareAndSet(false, true)) return
         apiExecutor.execute {
+            heartbeatQueued.set(false)
+            val heartbeat = pendingHeartbeat.getAndSet(null) ?: return@execute
             try {
                 apiClient.sendHeartbeat(
-                    isPlaying = isPlaying,
+                    isPlaying = heartbeat.isPlaying,
                     currentIndex = serverQueueIndex,
-                    positionMs = posMs,
-                    currentSongId = track?.id,
-                    currentSongTitle = track?.title,
-                    currentSongArtist = track?.artist,
+                    positionMs = heartbeat.positionMs,
+                    currentSongId = heartbeat.track?.id,
+                    currentSongTitle = heartbeat.track?.title,
+                    currentSongArtist = heartbeat.track?.artist,
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "Playback state heartbeat failed", e)
@@ -3089,18 +3205,30 @@ class PlaybackService : MediaSessionService() {
 
     private class KnownDurationMediaSourceFactory(
         private val delegate: MediaSource.Factory,
+        private val dataSourceFactory: DataSource.Factory,
     ) : MediaSource.Factory {
+        private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
+        private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy? = null
+
         override fun createMediaSource(mediaItem: MediaItem): MediaSource {
-            val mediaSource = delegate.createMediaSource(mediaItem)
             val durationMs = mediaItem.mediaMetadata.durationMs?.takeIf { it > 0 }
 
             if (durationMs == null || !isTranscodedMediaItem(mediaItem)) {
-                return mediaSource
+                return delegate.createMediaSource(mediaItem)
             }
 
+            val streamDurationMs = transcodedStreamDurationMs(mediaItem, durationMs)
+            // Tell the extractor the duration so a dropped connection resumes
+            // from the byte it reached instead of restarting the item from 0.
+            val progressiveFactory = ProgressiveMediaSource.Factory(
+                dataSourceFactory,
+                KnownDurationExtractorsFactory(DefaultExtractorsFactory(), streamDurationMs * 1000L),
+            )
+            drmSessionManagerProvider?.let(progressiveFactory::setDrmSessionManagerProvider)
+            loadErrorHandlingPolicy?.let(progressiveFactory::setLoadErrorHandlingPolicy)
             return KnownDurationMediaSource(
-                mediaSource,
-                transcodedStreamDurationMs(mediaItem, durationMs),
+                progressiveFactory.createMediaSource(mediaItem),
+                streamDurationMs,
             )
         }
 
@@ -3109,6 +3237,7 @@ class PlaybackService : MediaSessionService() {
         override fun setDrmSessionManagerProvider(
             drmSessionManagerProvider: DrmSessionManagerProvider,
         ): MediaSource.Factory {
+            this.drmSessionManagerProvider = drmSessionManagerProvider
             delegate.setDrmSessionManagerProvider(drmSessionManagerProvider)
             return this
         }
@@ -3116,6 +3245,7 @@ class PlaybackService : MediaSessionService() {
         override fun setLoadErrorHandlingPolicy(
             loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
         ): MediaSource.Factory {
+            this.loadErrorHandlingPolicy = loadErrorHandlingPolicy
             delegate.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             return this
         }
@@ -3130,12 +3260,13 @@ class PlaybackService : MediaSessionService() {
 
         private fun transcodedStreamDurationMs(mediaItem: MediaItem, trackDurationMs: Long): Long {
             val uri = mediaItem.localConfiguration?.uri ?: return trackDurationMs
-            val timeOffsetSeconds = uri.getQueryParameter("timeOffset")
-                ?.toLongOrNull()
-                ?.coerceAtLeast(0L)
+            val timeOffsetMs = uri.getQueryParameter("timeOffset")
+                ?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() }
+                ?.let { (it * 1000).roundToLong().coerceAtLeast(0L) }
                 ?: return trackDurationMs
 
-            return (trackDurationMs - timeOffsetSeconds * 1000L).coerceAtLeast(1L)
+            return (trackDurationMs - timeOffsetMs).coerceAtLeast(1L)
         }
     }
 
@@ -3269,10 +3400,9 @@ class PlaybackService : MediaSessionService() {
         }
         val currentIndex = player.currentMediaItemIndex
         if (playbackSettings.transcodingEnabled && !isOfflinePlaybackQueue) {
-            val timeOffsetSeconds = positionMs / 1000
             seekTimeOffsetMs = positionMs
             lastKnownGoodPositionMs = positionMs
-            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, positionMs)
             val newMediaItem = createMediaItem(track, newUrl)
             player.replaceMediaItem(currentIndex, newMediaItem)
             player.seekTo(currentIndex, 0)
@@ -3417,11 +3547,10 @@ class PlaybackService : MediaSessionService() {
                     // For transcoded streams, rebuild URL with the furthest
                     // known playback position so a transient player reset at
                     // the track boundary does not reopen the current item from 0.
-                    val timeOffsetSeconds = retryPositionMs / 1000
                     reloadCurrentItemAtPosition(track, retryPositionMs, retryPlayWhenReady)
                     Log.d(
                         TAG,
-                        "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
+                        "Network retry: reloaded transcoded stream at offset ${retryPositionMs}ms " +
                             "for ${track.id} (retryPositionMs=$retryPositionMs, errorPositionMs=$positionMsAtError)"
                     )
                     NativeAudioLogger.info(
@@ -3433,7 +3562,6 @@ class PlaybackService : MediaSessionService() {
                             "queueIndex" to serverQueueIndex,
                             "retryPositionMs" to retryPositionMs,
                             "errorPositionMs" to positionMsAtError,
-                            "timeOffsetSeconds" to timeOffsetSeconds,
                             "networkRetryCount" to networkRetryCount,
                             "transcoding" to true,
                         ),
@@ -4259,7 +4387,9 @@ class PlaybackService : MediaSessionService() {
             previousTrack = queue.getOrNull(exoIndex - 1),
             nextTrack = queue.getOrNull(exoIndex + 1),
             queueIndex = queueIndex,
-            queueLength = queue.size,
+            // The whole server queue, not the loaded window: the queue panel
+            // pages by it, and QueueStateChanged reports the same total.
+            queueLength = serverTotalCount.takeIf { it > 0 } ?: queue.size,
             sessionId = apiClient.currentSessionId(),
             isShuffled = isShuffled,
             repeatMode = repeatMode,
@@ -4478,7 +4608,7 @@ class PlaybackService : MediaSessionService() {
         notificationArtworkLoadingKey = loadingKey
         notificationArtworkData = null
 
-        apiExecutor.execute {
+        backgroundExecutor.execute {
             val bitmap = if (isOfflinePlaybackQueue) {
                 decodeInlineNotificationArtworkBitmap(track.coverArtData, track.id)
             } else {

@@ -58,6 +58,9 @@ class PlaybackSessionStarter @Inject constructor(
 
     override suspend fun startQueue(spec: QueueStartSpec) {
         explicitStarts++
+        // Before the network round trips: the user may lock the phone while
+        // the queue loads, and Android only grants the foreground now.
+        runCatching { repository.holdForegroundForPendingPlayback() }
         val queued = if (appliesSearchTermsToQueue()) spec else spec.withoutSearchTerm()
         sessionMutex.withLock { startQueueLocked(queued) }
     }

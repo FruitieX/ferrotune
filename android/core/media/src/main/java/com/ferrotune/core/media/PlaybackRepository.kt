@@ -140,6 +140,12 @@ class PlaybackRepository @Inject constructor(
 
     suspend fun playAtIndex(index: Int) = awaitService().playAtIndex(index)
 
+    /** See [PlaybackService.holdForegroundForPendingPlayback]; call before loading a requested queue. */
+    suspend fun holdForegroundForPendingPlayback() {
+        val service = awaitService()
+        withContext(Dispatchers.Main.immediate) { service.holdForegroundForPendingPlayback() }
+    }
+
     /** Reloads the upcoming tracks after a queue edit; see [PlaybackService.refreshQueueAfterEdit]. */
     suspend fun refreshQueue(reason: String) {
         val service = awaitService()
@@ -183,6 +189,8 @@ class PlaybackRepository @Inject constructor(
                 it.copy(
                     queueLength = event.totalCount,
                     queueIndex = event.currentIndex,
+                    isShuffled = event.isShuffled,
+                    repeatMode = event.repeatMode,
                 )
             }
             is PlaybackEvent.PlaybackError,
