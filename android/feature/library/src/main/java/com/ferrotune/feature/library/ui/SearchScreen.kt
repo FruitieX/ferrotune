@@ -56,7 +56,8 @@ import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.SearchField
-import com.ferrotune.core.designsystem.components.SegmentedTabs
+import com.ferrotune.core.designsystem.components.PillTab
+import com.ferrotune.core.designsystem.components.PillTabRow
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
@@ -248,15 +249,15 @@ fun SearchScreen(
                             viewModel.onQueryChange(it)
                         },
                         placeholder = "Search for artists, albums, or songs...",
+                        autoFocus = state.query.isEmpty(),
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
                     if (state.query.isNotBlank()) {
-                        SegmentedTabs(
-                            labels = SearchTab.entries.map { tab -> tab.label + loaded.countFor(tab) },
+                        PillTabRow(
+                            tabs = SearchTab.entries.map { tab -> PillTab(tab.label, loaded.countFor(tab)) },
                             selectedIndex = state.tab.ordinal,
                             onSelect = { viewModel.selectTab(SearchTab.entries[it]) },
-                            scrollable = true,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                            modifier = Modifier.padding(bottom = 12.dp),
                         )
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -340,16 +341,15 @@ fun SearchScreen(
     CollectionMenuSheet(state = collectionMenu)
 }
 
-private fun SearchOverview.Loaded?.countFor(tab: SearchTab): String {
-    val content = this?.content ?: return ""
-    val count = when (tab) {
-        SearchTab.ALL -> return ""
+private fun SearchOverview.Loaded?.countFor(tab: SearchTab): Long? {
+    val content = this?.content ?: return null
+    return when (tab) {
+        SearchTab.ALL -> null
         SearchTab.ARTISTS -> content.artistTotal ?: content.artist.size.toLong()
         SearchTab.ALBUMS -> content.albumTotal ?: content.album.size.toLong()
         SearchTab.SONGS -> content.songTotal ?: content.song.size.toLong()
         SearchTab.GENRES -> genres.size.toLong()
     }
-    return " ($count)"
 }
 
 

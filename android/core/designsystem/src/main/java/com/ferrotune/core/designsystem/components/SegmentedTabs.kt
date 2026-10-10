@@ -2,8 +2,6 @@ package com.ferrotune.core.designsystem.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,11 +29,10 @@ fun SegmentedTabs(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    scrollable: Boolean = false,
 ) {
     Row(
         modifier = modifier
-            .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier.fillMaxWidth())
+            .fillMaxWidth()
             .height(36.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -47,7 +44,7 @@ fun SegmentedTabs(
             val selected = index == selectedIndex
             Row(
                 modifier = Modifier
-                    .then(if (scrollable) Modifier.padding(horizontal = 10.dp) else Modifier.weight(1f))
+                    .weight(1f)
                     .height(30.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(
@@ -57,8 +54,7 @@ fun SegmentedTabs(
                             androidx.compose.ui.graphics.Color.Transparent
                         },
                     )
-                    .clickable { onSelect(index) }
-                    .then(if (scrollable) Modifier.padding(horizontal = 2.dp) else Modifier),
+                    .clickable { onSelect(index) },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
