@@ -1,5 +1,10 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
 import com.ferrotune.core.network.waitFor
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
@@ -50,7 +55,6 @@ import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.SortSheetSection
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.media.PlaybackStarter
@@ -234,6 +238,7 @@ fun HistoryScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.HISTORY)
     val nowPlaying = rememberNowPlaying()
     var sortMenuOpen by remember { mutableStateOf(false) }
 
@@ -311,7 +316,7 @@ fun HistoryScreen(
                     }
                 }
                 item(key = ACTION_BAR_ITEM_KEY) { actionBar() }
-                item(key = "columns") { TrackListHeader() }
+                item(key = "columns") { SongColumnsHeader(songColumns) }
                 songPagingItems(
                     songs = entries,
                     nowPlaying = nowPlaying,
@@ -322,12 +327,14 @@ fun HistoryScreen(
                     emptyIcon = Icons.Filled.History,
                     // The same song can appear more than once; keys fall back to positions.
                     key = null,
+                    columns = songColumns.visible,
                 )
             }
             PinnedActionBar(visible = actionBarPinned) { actionBar() }
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },
@@ -339,6 +346,7 @@ fun HistoryScreen(
             onDismiss = { sortMenuOpen = false },
             actions = emptyList(),
             extraContent = {
+                SongColumnsMenuRow(songColumns)
                 SortSheetSection(
                     options = SONG_SORT_OPTIONS,
                     selectedKey = state.songSort.apiValue,

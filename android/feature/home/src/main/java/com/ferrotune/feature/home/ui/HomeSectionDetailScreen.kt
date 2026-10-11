@@ -1,5 +1,13 @@
 package com.ferrotune.feature.home.ui
 
+import androidx.compose.material.icons.filled.ViewColumn
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
@@ -40,7 +48,6 @@ import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaCard
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.feature.home.data.HomeSectionConfig
 import com.ferrotune.feature.home.data.HomeSectionKind
@@ -76,6 +83,7 @@ fun HomeSectionDetailScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val section = state.section
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.HOME_SECTION)
     val collectionMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     val actions = LocalMediaActions.current
@@ -88,6 +96,16 @@ fun HomeSectionDetailScreen(
             onPlayAll = { viewModel.playAll(shuffle = false) },
             onShuffle = { viewModel.playAll(shuffle = true) },
             playEnabled = itemCount > 0,
+            actions = if (state.songs.isNotEmpty()) {
+                {
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = songColumns::openPicker) {
+                        Icon(Icons.Filled.ViewColumn, contentDescription = "Columns")
+                    }
+                }
+            } else {
+                null
+            },
         )
     }
     val listState = rememberLazyListState()
@@ -117,7 +135,7 @@ fun HomeSectionDetailScreen(
                 itemCount == 0 -> item(key = "empty") { EmptyState(message = "Nothing to show yet") }
 
                 state.songs.isNotEmpty() -> {
-                    item(key = "columns") { TrackListHeader() }
+                    item(key = "columns") { SongColumnsHeader(songColumns) }
                     itemsIndexed(state.songs, key = { _, song -> song.id }) { index, song ->
                         SongListRow(
                             song = song,
@@ -125,6 +143,7 @@ fun HomeSectionDetailScreen(
                             menu = songMenu,
                             index = index + 1,
                             onPlay = { viewModel.playSong(song, index) },
+                            columns = songColumns.visible,
                         )
                     }
                 }
@@ -170,6 +189,7 @@ fun HomeSectionDetailScreen(
         PinnedActionBar(visible = actionBarPinned) { actionBar() }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { target ->

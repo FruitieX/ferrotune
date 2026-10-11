@@ -1,5 +1,10 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,7 +62,6 @@ import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.SegmentedTabs
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.SortSheetSection
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.ViewModeSheetSection
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
@@ -344,6 +348,7 @@ fun FavoritesScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.FAVORITES)
     val collectionMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     var sortMenuOpen by remember { mutableStateOf(false) }
@@ -438,7 +443,7 @@ fun FavoritesScreen(
                 }
                 when (state.tab) {
                     FavoritesTab.SONGS -> {
-                        item(key = "columns") { TrackListHeader() }
+                        item(key = "columns") { SongColumnsHeader(songColumns) }
                         songPagingItems(
                             songs = songs,
                             nowPlaying = nowPlaying,
@@ -447,6 +452,7 @@ fun FavoritesScreen(
                             onPlay = { song, position -> viewModel.play(song.id, position) },
                             emptyMessage = if (state.filter.isBlank()) "No favorite songs yet" else "No songs match your search",
                             emptyIcon = Icons.Filled.Favorite,
+                            columns = songColumns.visible,
                         )
                     }
 
@@ -521,6 +527,7 @@ fun FavoritesScreen(
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },
@@ -540,6 +547,7 @@ fun FavoritesScreen(
                         onSelect = { viewModel.setViewMode(key, it) },
                     )
                 }
+                if (state.tab == FavoritesTab.SONGS) SongColumnsMenuRow(songColumns)
                 SortSheetSection(
                     options = sort.options,
                     selectedKey = sort.selectedKey,

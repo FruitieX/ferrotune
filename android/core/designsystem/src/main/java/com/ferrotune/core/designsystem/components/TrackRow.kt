@@ -33,8 +33,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Fixed height of a [TrackRow], for skeletons and scroll math. */
+/** Height of a [TrackRow], for skeletons and scroll math. */
 val TrackRowHeight = 56.dp
+
+/** Height of a [TrackRow] with a details line. */
+val TrackRowWithDetailsHeight = 70.dp
 
 /**
  * Touch variant of the web `SongRow`/`MediaRow`: an optional index column
@@ -64,6 +67,7 @@ fun TrackRow(
     selectionActive: Boolean = false,
     selected: Boolean = false,
     dimmed: Boolean = false,
+    details: String? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -75,7 +79,7 @@ fun TrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(TrackRowHeight)
+            .height(if (details.isNullOrBlank()) TrackRowHeight else TrackRowWithDetailsHeight)
             .background(background)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .alpha(if (dimmed) 0.45f else 1f),
@@ -144,6 +148,15 @@ fun TrackRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (!details.isNullOrBlank()) {
+                    Text(
+                        text = details,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             trailing?.invoke(this)
             if (duration != null) {
@@ -163,7 +176,7 @@ fun TrackRow(
 
 /** Web track-list column header: "#", "Title", "Time" over a divider. */
 @Composable
-fun TrackListHeader(modifier: Modifier = Modifier, showIndex: Boolean = true) {
+fun TrackListHeader(modifier: Modifier = Modifier, showIndex: Boolean = true, showTime: Boolean = true) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -177,7 +190,9 @@ fun TrackListHeader(modifier: Modifier = Modifier, showIndex: Boolean = true) {
                 Text("#", style = MaterialTheme.typography.labelMedium, color = muted, textAlign = TextAlign.Center, modifier = Modifier.width(28.dp))
             }
             Text("Title", style = MaterialTheme.typography.labelMedium, color = muted, modifier = Modifier.weight(1f))
-            Text("Time", style = MaterialTheme.typography.labelMedium, color = muted)
+            if (showTime) {
+                Text("Time", style = MaterialTheme.typography.labelMedium, color = muted)
+            }
         }
         androidx.compose.material3.HorizontalDivider(
             modifier = Modifier.padding(horizontal = 16.dp),

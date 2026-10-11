@@ -1,5 +1,10 @@
 package com.ferrotune.feature.playlists.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -80,7 +85,6 @@ import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.SortOption
 import com.ferrotune.core.designsystem.components.SortSheetSection
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.TrackRowHeight
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
@@ -122,6 +126,7 @@ fun PlaylistDetailScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.PLAYLIST)
     val playlistMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     var menuEntry by remember { mutableStateOf<PlaylistSongEntry?>(null) }
@@ -272,7 +277,7 @@ fun PlaylistDetailScreen(
                     }
 
                     else -> {
-                        item(key = "columns") { TrackListHeader() }
+                        item(key = "columns") { SongColumnsHeader(songColumns) }
                         items(
                             count = entries.itemCount,
                             key = entries.itemKey { it.entryId },
@@ -294,6 +299,7 @@ fun PlaylistDetailScreen(
                                         )
                                     },
                                     onLongPress = { menuEntry = entry },
+                                    columns = songColumns.visible,
                                 )
                             } else {
                                 MissingEntryRow(
@@ -313,6 +319,7 @@ fun PlaylistDetailScreen(
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { target ->
@@ -373,6 +380,7 @@ fun PlaylistDetailScreen(
                 name = target.name.orEmpty(),
                 coverArtId = playlist?.coverArt,
             )
+            SongColumnsMenuRow(songColumns)
             SortSheetSection(
                 options = playlistSortOptions,
                 selectedKey = state.sort,

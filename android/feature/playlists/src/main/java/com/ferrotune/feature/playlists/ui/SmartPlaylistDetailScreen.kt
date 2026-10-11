@@ -1,5 +1,10 @@
 package com.ferrotune.feature.playlists.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,7 +55,6 @@ import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.MediaAction
 import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.SortSheetSection
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.network.generated.QueueSourceRequest
@@ -78,6 +82,7 @@ fun SmartPlaylistDetailScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.SMART_PLAYLIST)
     val smartMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -180,7 +185,7 @@ fun SmartPlaylistDetailScreen(
                     item(key = "error") { ErrorState(message = state.error!!, onRetry = viewModel::load) }
                 } else {
                     if (songs.itemCount > 0 || songs.loadState.refresh is LoadState.Loading) {
-                        item(key = "columns") { TrackListHeader() }
+                        item(key = "columns") { SongColumnsHeader(songColumns) }
                     }
                     songPagingItems(
                         songs = songs,
@@ -190,6 +195,7 @@ fun SmartPlaylistDetailScreen(
                         onPlay = { song, position -> viewModel.play(song.id, position) },
                         emptyMessage = if (state.filter.isBlank()) "No songs match these rules" else "No songs match your filter",
                         emptyIcon = Icons.Filled.AutoAwesome,
+                        columns = songColumns.visible,
                     )
                 }
             }
@@ -197,6 +203,7 @@ fun SmartPlaylistDetailScreen(
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },
@@ -220,6 +227,7 @@ fun SmartPlaylistDetailScreen(
                 name = target.name.orEmpty(),
                 coverArtId = null,
             )
+            SongColumnsMenuRow(songColumns)
             SortSheetSection(
                 options = playlistSortOptions,
                 selectedKey = state.sort,

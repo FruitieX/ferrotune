@@ -1,5 +1,11 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongColumn
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
@@ -40,7 +46,6 @@ import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.SortSheetSection
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.components.inlineCoverModel
@@ -69,6 +74,7 @@ fun AlbumDetailScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.ALBUM, ALBUM_SONG_COLUMNS)
     val albumMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     val album = state.album
@@ -180,7 +186,7 @@ fun AlbumDetailScreen(
                 if (state.error != null && album == null) {
                     item(key = "error") { ErrorState(message = state.error!!) }
                 } else {
-                    item(key = "columns") { TrackListHeader() }
+                    item(key = "columns") { SongColumnsHeader(songColumns) }
                     songPagingItems(
                         songs = songs,
                         nowPlaying = nowPlaying,
@@ -189,8 +195,9 @@ fun AlbumDetailScreen(
                         onPlay = { song, position -> viewModel.play(song.id, position) },
                         emptyMessage = if (state.filter.isBlank()) "No songs on this album" else "No songs match your filter",
                         index = { song, position -> song.track ?: (position + 1) },
-                        subtitle = { song -> song.artist.takeIf { it != album?.artist } },
                         groupHeader = ::discHeader,
+                        columns = songColumns.visible,
+                        redundantArtist = album?.artist,
                     )
                 }
             }
@@ -198,6 +205,7 @@ fun AlbumDetailScreen(
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },
@@ -212,6 +220,7 @@ fun AlbumDetailScreen(
                 name = target.name.orEmpty(),
                 coverArtId = album?.coverArt,
             )
+            SongColumnsMenuRow(songColumns)
             SortSheetSection(
                 options = DETAIL_SONG_SORT_OPTIONS,
                 selectedKey = state.sort,
@@ -222,3 +231,6 @@ fun AlbumDetailScreen(
         },
     )
 }
+
+/** Album tracks: the track number instead of album, artist only when it differs. */
+private val ALBUM_SONG_COLUMNS = setOf(SongColumn.INDEX, SongColumn.COVER, SongColumn.ARTIST, SongColumn.DURATION)

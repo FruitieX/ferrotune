@@ -12,6 +12,7 @@ import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
 import com.ferrotune.core.designsystem.components.PagingListFooter
 import com.ferrotune.core.designsystem.components.TrackGroupHeader
+import com.ferrotune.core.network.SongColumn
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.network.readableMessage
 
@@ -39,6 +40,8 @@ fun LazyListScope.songPagingItems(
     subtitle: (SongResponse) -> String? = { songSubtitle(it) },
     key: ((SongResponse) -> Any)? = { it.id },
     groupHeader: ((song: SongResponse, previous: SongResponse?) -> String?)? = null,
+    columns: Set<SongColumn>? = null,
+    redundantArtist: String? = null,
 ) {
     val refresh = songs.loadState.refresh
     when {
@@ -77,6 +80,8 @@ fun LazyListScope.songPagingItems(
                     showCover = showCover,
                     subtitle = subtitle(song),
                     selection = selection,
+                    columns = columns,
+                    redundantArtist = redundantArtist,
                 )
             }
             item(key = "songs-footer") {

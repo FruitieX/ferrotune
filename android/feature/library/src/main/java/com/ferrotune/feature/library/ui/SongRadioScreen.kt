@@ -1,5 +1,14 @@
 package com.ferrotune.feature.library.ui
 
+import androidx.compose.material.icons.filled.ViewColumn
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.Spacer
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
@@ -32,7 +41,6 @@ import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.EmptyState
 import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.MediaRowSkeletonList
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.components.formatTotalDuration
 import com.ferrotune.core.designsystem.components.inlineCoverModel
@@ -49,6 +57,7 @@ fun SongRadioScreen(
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.SONG_RADIO)
     val nowPlaying = rememberNowPlaying()
     val seed = state.seed
 
@@ -79,6 +88,12 @@ fun SongRadioScreen(
                 onPlayAll = { viewModel.play() },
                 onShuffle = { viewModel.play(shuffle = true) },
                 playEnabled = state.similar.isNotEmpty(),
+                actions = {
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = songColumns::openPicker) {
+                        Icon(Icons.Filled.ViewColumn, contentDescription = "Columns")
+                    }
+                },
             )
         }
         val listState = rememberLazyListState()
@@ -116,7 +131,7 @@ fun SongRadioScreen(
                     }
 
                     else -> {
-                        item(key = "columns") { TrackListHeader() }
+                        item(key = "columns") { SongColumnsHeader(songColumns) }
                         itemsIndexed(state.similar, key = { _, song -> song.id }) { index, song ->
                             SongListRow(
                                 song = song,
@@ -125,6 +140,7 @@ fun SongRadioScreen(
                                 selection = selection,
                                 index = index + 1,
                                 onPlay = { viewModel.play(song.id, index) },
+                                columns = songColumns.visible,
                             )
                         }
                     }
@@ -134,6 +150,7 @@ fun SongRadioScreen(
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },

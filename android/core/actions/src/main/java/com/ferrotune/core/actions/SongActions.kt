@@ -37,6 +37,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.components.SingletonComponent
+import com.ferrotune.core.network.SongColumnsPreferencesRepository
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,8 @@ interface SongActionsEntryPoint {
     fun playbackStarter(): PlaybackStarter
 
     fun disabledSongsStore(): DisabledSongsStore
+
+    fun songColumnsRepository(): SongColumnsPreferencesRepository
 }
 
 /**

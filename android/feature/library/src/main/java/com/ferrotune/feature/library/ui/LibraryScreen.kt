@@ -1,5 +1,11 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.actions.DefaultSongColumns
+import com.ferrotune.core.network.SongColumn
+import com.ferrotune.core.network.SongListView
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -175,6 +181,7 @@ fun LibraryScreen(
     val filterScope = state.tab.filterScope()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.LIBRARY_SONGS, LibrarySongColumns)
     val collectionMenu = rememberCollectionMenuState()
     val actionsViewModel: SongActionsViewModel = hiltViewModel()
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
@@ -303,7 +310,7 @@ fun LibraryScreen(
                             } else {
                                 "No songs match your filters"
                             },
-                            index = null,
+                            columns = songColumns.visible,
                         )
                     }
                 }
@@ -328,6 +335,7 @@ fun LibraryScreen(
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         // The Files tab lists folders and files together, so it has no song selection.
@@ -365,6 +373,7 @@ fun LibraryScreen(
                         onSelect = { viewModel.setViewMode(key, it) },
                     )
                 }
+                if (state.tab == LibraryTab.SONGS) SongColumnsMenuRow(songColumns)
                 SortSheetSection(
                     options = sort.options,
                     selectedKey = sort.selectedKey,
@@ -442,6 +451,9 @@ internal fun com.ferrotune.feature.library.data.SortDir.isAscending(): Boolean =
     this == com.ferrotune.feature.library.data.SortDir.ASC
 
 /** Web album card subtitle: "year • artist". */
+/** Library and search song rows: no running number by default. */
+internal val LibrarySongColumns: Set<SongColumn> = DefaultSongColumns - SongColumn.INDEX
+
 internal fun albumSubtitle(album: AlbumResponse): String =
     listOfNotNull(album.year?.toString(), album.artist).joinToString(" • ")
 

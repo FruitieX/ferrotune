@@ -49,6 +49,7 @@ import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.actions.coverModel
 import com.ferrotune.core.actions.rememberCollectionMenuState
 import com.ferrotune.core.actions.rememberNowPlaying
+import com.ferrotune.core.actions.rememberSongColumnsState
 import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.actions.rememberSongSelectionState
 import com.ferrotune.core.actions.songPagingItems
@@ -61,6 +62,8 @@ import com.ferrotune.core.designsystem.components.PillTabRow
 import com.ferrotune.core.media.PlaybackStarter
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.core.media.queueSort
+import com.ferrotune.core.network.SongColumn
+import com.ferrotune.core.network.SongListView
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ArtistResponse
 import com.ferrotune.core.network.generated.FerrotuneSearchContent
@@ -207,6 +210,8 @@ fun SearchScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    // Search has no ⋯ menu; its song rows follow the library songs columns.
+    val songColumns = rememberSongColumnsState(SongListView.LIBRARY_SONGS, LibrarySongColumns)
     val collectionMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     val loaded = overview as? SearchOverview.Loaded
@@ -298,6 +303,7 @@ fun SearchScreen(
                     selection = selection,
                     onPlaySong = viewModel::playSong,
                     onSeeAll = viewModel::selectTab,
+                    songColumns = songColumns.visible,
                 )
 
                 songs != null -> songPagingItems(
@@ -309,6 +315,7 @@ fun SearchScreen(
                     emptyMessage = "No songs found",
                     emptyIcon = Icons.Filled.SearchOff,
                     index = null,
+                    columns = songColumns.visible,
                 )
 
                 albums != null -> {
@@ -363,6 +370,7 @@ private fun LazyListScope.overviewItems(
     selection: SongSelectionState,
     onPlaySong: (String, Int) -> Unit,
     onSeeAll: (SearchTab) -> Unit,
+    songColumns: Set<SongColumn>,
 ) {
     when (overview) {
         SearchOverview.Idle, SearchOverview.Loading -> item(key = "overview-loading") {
@@ -406,6 +414,7 @@ private fun LazyListScope.overviewItems(
                         menu = songMenu,
                         selection = selection,
                         onPlay = { onPlaySong(song.id, index) },
+                        columns = songColumns,
                     )
                 }
             }

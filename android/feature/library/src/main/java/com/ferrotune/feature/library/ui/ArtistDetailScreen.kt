@@ -1,5 +1,10 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongColumn
+import com.ferrotune.core.network.SongListView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -92,6 +97,7 @@ fun ArtistDetailScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.ARTIST, ArtistSongColumns)
     val collectionMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     var sortMenuOpen by remember { mutableStateOf(false) }
@@ -245,14 +251,14 @@ fun ArtistDetailScreen(
                     selection = selection,
                     onPlay = { song, position -> viewModel.play(song.id, position) },
                     emptyMessage = if (state.filter.isBlank()) "No songs found" else "No songs match your filter",
-                    index = null,
-                    subtitle = { it.album },
+                    columns = songColumns.visible,
                 )
             }
             PinnedActionBar(visible = actionBarPinned) { actionBar() }
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },
@@ -265,6 +271,7 @@ fun ArtistDetailScreen(
             onDismiss = { sortMenuOpen = false },
             actions = emptyList(),
             extraContent = {
+                SongColumnsMenuRow(songColumns)
                 SortSheetSection(
                     options = DETAIL_SONG_SORT_OPTIONS,
                     selectedKey = state.sort,
@@ -286,3 +293,6 @@ internal fun SectionTitle(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
     )
 }
+
+/** Artist songs: the album instead of the artist the page is about. */
+private val ArtistSongColumns = setOf(SongColumn.COVER, SongColumn.ALBUM, SongColumn.DURATION)

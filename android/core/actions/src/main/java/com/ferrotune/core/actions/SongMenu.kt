@@ -46,6 +46,8 @@ import com.ferrotune.core.designsystem.components.TrackRow
 import com.ferrotune.core.designsystem.components.formatClockDuration
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.media.PlaybackStatus
+import com.ferrotune.core.designsystem.theme.FavoriteRed
+import com.ferrotune.core.network.SongColumn
 import com.ferrotune.core.network.generated.SongResponse
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -158,12 +160,28 @@ fun SongListRow(
     isCurrent: Boolean = nowPlaying.songId == song.id,
     onLongPress: (() -> Unit)? = null,
     disabled: Boolean = song.id in rememberDisabledSongIds(),
+    columns: Set<SongColumn>? = null,
+    /** With [columns]: an artist the screen already names (an album's artist). */
+    redundantArtist: String? = null,
 ) {
     val selecting = selection?.isActive == true
     val selected = selection != null && song.id in selection.selectedIds
+    // Chosen columns override the screen's fixed layout (see SongColumnsState).
+    val showIndex = if (columns != null) showIndexColumn && SongColumn.INDEX in columns else showIndexColumn
+    val starred = rememberSongFlags(song.id, song.starred != null, song.userRating ?: 0).starred
+    val showHeart = columns != null && SongColumn.FAVORITE in columns && starred
     TrackRow(
         title = song.title,
-        subtitle = subtitle,
+        subtitle = if (columns != null) {
+            songSubtitle(
+                song,
+                showArtist = SongColumn.ARTIST in columns && song.artist != redundantArtist,
+                showAlbum = SongColumn.ALBUM in columns,
+            )
+        } else {
+            subtitle
+        },
+        details = columns?.let { songColumnDetails(song, it) },
         coverModel = coverModel(song.coverArtData, song.coverArt, CoverSize.SMALL),
         coverSeed = song.album ?: song.title,
         onClick = { if (selecting) selection?.toggle(song.id) else onPlay() },
@@ -177,25 +195,37 @@ fun SongListRow(
         },
         modifier = modifier,
         index = index,
-        showIndexColumn = showIndexColumn,
+        showIndexColumn = showIndex,
         isCurrent = isCurrent,
         isPlaying = isCurrent && nowPlaying.isPlaying,
-        showCover = showCover,
-        duration = formatClockDuration(song.duration * 1000),
+        showCover = if (columns != null) SongColumn.COVER in columns else showCover,
+        duration = formatClockDuration(song.duration * 1000)
+            .takeIf { columns == null || SongColumn.DURATION in columns },
         selectionActive = selecting,
         selected = selected,
         dimmed = disabled,
-        trailing = if (disabled) {
-            {
-                Icon(
-                    Icons.Filled.Block,
-                    contentDescription = "Disabled: skipped in automatic playback",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp),
-                )
+        trailing = when {
+            disabled -> {
+                {
+                    Icon(
+                        Icons.Filled.Block,
+                        contentDescription = "Disabled: skipped in automatic playback",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
-        } else {
-            null
+            showHeart -> {
+                {
+                    Icon(
+                        Icons.Filled.Favorite,
+                        contentDescription = "Favorite",
+                        tint = FavoriteRed,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+            else -> null
         },
     )
 }

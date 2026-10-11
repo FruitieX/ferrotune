@@ -1,5 +1,10 @@
 package com.ferrotune.feature.library.ui
 
+import com.ferrotune.core.actions.SongColumnsSheet
+import com.ferrotune.core.actions.SongColumnsMenuRow
+import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.network.SongListView
+import com.ferrotune.core.actions.SongColumnsHeader
 import com.ferrotune.core.designsystem.components.rememberActionBarPinned
 import com.ferrotune.core.designsystem.components.PinnedActionBar
 import com.ferrotune.core.designsystem.components.ACTION_BAR_ITEM_KEY
@@ -41,7 +46,6 @@ import com.ferrotune.core.designsystem.components.DetailHeader
 import com.ferrotune.core.designsystem.components.DetailHero
 import com.ferrotune.core.designsystem.components.FilterPill
 import com.ferrotune.core.designsystem.components.SortSheetSection
-import com.ferrotune.core.designsystem.components.TrackListHeader
 import com.ferrotune.core.designsystem.components.formatCount
 import com.ferrotune.core.designsystem.theme.genreGradientColors
 import com.ferrotune.core.designsystem.theme.seedBackdropColor
@@ -61,6 +65,7 @@ fun GenreDetailScreen(
     val selectingAll by actionsViewModel.selectingAll.collectAsStateWithLifecycle()
     val selection = rememberSongSelectionState()
     val songMenu = rememberSongMenuState()
+    val songColumns = rememberSongColumnsState(SongListView.GENRE)
     val genreMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     val genre = viewModel.genre
@@ -147,7 +152,7 @@ fun GenreDetailScreen(
                     }
                 }
                 item(key = ACTION_BAR_ITEM_KEY) { actionBar() }
-                item(key = "columns") { TrackListHeader() }
+                item(key = "columns") { SongColumnsHeader(songColumns) }
                 songPagingItems(
                     songs = songs,
                     nowPlaying = nowPlaying,
@@ -155,12 +160,14 @@ fun GenreDetailScreen(
                     selection = selection,
                     onPlay = { song, position -> viewModel.play(song.id, position) },
                     emptyMessage = if (state.filter.isBlank()) "No songs in this genre" else "No songs match your filter",
+                    columns = songColumns.visible,
                 )
             }
             PinnedActionBar(visible = actionBarPinned) { actionBar() }
         }
     }
 
+    SongColumnsSheet(songColumns)
     SongMenuSheet(
         state = songMenu,
         onPlay = { viewModel.play(it.id) },
@@ -169,6 +176,7 @@ fun GenreDetailScreen(
     CollectionMenuSheet(
         state = genreMenu,
         extraContent = {
+            SongColumnsMenuRow(songColumns)
             SortSheetSection(
                 options = DETAIL_SONG_SORT_OPTIONS,
                 selectedKey = state.sort,
