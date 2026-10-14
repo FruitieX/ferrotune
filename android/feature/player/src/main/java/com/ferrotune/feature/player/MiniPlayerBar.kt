@@ -182,15 +182,17 @@ private fun NotPlayingRow(onOpenQueue: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = {}, enabled = false, modifier = Modifier.size(44.dp)) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = "Play", modifier = Modifier.size(20.dp))
-        }
-        IconButton(onClick = onOpenQueue, modifier = Modifier.size(44.dp)) {
-            Icon(
-                Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = "Queue",
-                modifier = Modifier.size(20.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = {}, enabled = false, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = "Play", modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = onOpenQueue, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "Queue",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }
@@ -353,25 +355,29 @@ private fun NowPlayingRow(
             )
         }
 
-        PlayPauseButton(state = state, onToggle = viewModel::togglePlayPause)
-        IconButton(
-            onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onOpenQueue()
-            },
-            modifier = Modifier.size(44.dp),
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = "Queue",
-                modifier = Modifier.size(20.dp),
+        // The buttons' own 44dp touch targets space them; the outer row's gap would
+        // also apply around MoreMenu's hidden zero-size cast button.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PlayPauseButton(state = state, onToggle = viewModel::togglePlayPause)
+            IconButton(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenQueue()
+                },
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "Queue",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            MoreMenu(
+                state = state,
+                onOpenNowPlaying = onOpenNowPlaying,
+                viewModel = viewModel,
             )
         }
-        MoreMenu(
-            state = state,
-            onOpenNowPlaying = onOpenNowPlaying,
-            viewModel = viewModel,
-        )
     }
 }
 
