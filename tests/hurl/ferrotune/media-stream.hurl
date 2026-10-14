@@ -79,6 +79,13 @@ HTTP *
 GET {{base_url}}/api/cover-art?id={{song_id}}
 HTTP 401
 
+# The display tier serves covers no larger than 720 px as they are
+GET {{base_url}}/api/cover-art?id={{song_id}}&size=display
+Authorization: Basic {{auth_basic}}
+HTTP *
+[Asserts]
+status != 500
+
 # ============================================================================
 # GET /api/download
 # ============================================================================

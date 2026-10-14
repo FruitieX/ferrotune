@@ -56,11 +56,14 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ferrotune.core.actions.LocalServerUrl
 import com.ferrotune.core.designsystem.components.ConfirmDialog
+import com.ferrotune.core.designsystem.components.LocalSheetOverlay
 import com.ferrotune.core.designsystem.theme.FerrotuneTheme
 import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
 import com.ferrotune.feature.feedback.FeedbackOverlay
+import com.ferrotune.feature.feedback.FeedbackViewModel
+import com.ferrotune.feature.feedback.SheetFeedbackButton
 import com.ferrotune.feature.home.ui.HomeLayoutSettingsScreen
 import com.ferrotune.feature.home.ui.HomeLinkTarget
 import com.ferrotune.feature.home.ui.HomeScreen
@@ -73,6 +76,7 @@ import com.ferrotune.feature.library.ui.FavoritesScreen
 import com.ferrotune.feature.library.ui.GenreDetailScreen
 import com.ferrotune.feature.library.ui.HistoryScreen
 import com.ferrotune.feature.library.ui.LibraryScreen
+import com.ferrotune.feature.library.ui.ListeningActivityScreen
 import com.ferrotune.feature.library.ui.SearchScreen
 import com.ferrotune.feature.library.ui.SongRadioScreen
 import com.ferrotune.feature.player.LocalQueuePanel
@@ -97,6 +101,7 @@ object Routes {
     const val SEARCH = "search"
     const val FAVORITES = "favorites"
     const val HISTORY = "history"
+    const val LISTENING_ACTIVITY = "history/activity"
     const val ALBUM = "album/{albumId}"
     const val ARTIST = "artist/{artistId}"
     const val GENRE = "genre/{genre}"
@@ -214,9 +219,12 @@ private fun FerrotuneAppContent(
     }
 
     val queuePanel = remember { QueuePanelState() }
+    // One feedback state for the app's button and the copy inside modal sheets.
+    val feedback: FeedbackViewModel = hiltViewModel()
     CompositionLocalProvider(
         LocalServerUrl provides state.activeAccount?.serverUrl,
         LocalQueuePanel provides queuePanel,
+        LocalSheetOverlay provides { SheetFeedbackButton(feedback) },
     ) {
     ProvideMediaActions(navController) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -317,7 +325,13 @@ private fun FerrotuneAppContent(
                     FavoritesScreen(onBack = { navController.popBackStack() })
                 }
                 composable(Routes.HISTORY) {
-                    HistoryScreen(onBack = { navController.popBackStack() })
+                    HistoryScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenActivity = { navController.navigate(Routes.LISTENING_ACTIVITY) },
+                    )
+                }
+                composable(Routes.LISTENING_ACTIVITY) {
+                    ListeningActivityScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Routes.ALBUM,
@@ -408,6 +422,7 @@ private fun FerrotuneAppContent(
                     ProfileScreen(
                         onBack = { navController.popBackStack() },
                         onOpenReview = { navController.navigate(Routes.REVIEW) },
+                        onOpenActivity = { navController.navigate(Routes.LISTENING_ACTIVITY) },
                         onSignOut = {
                             viewModel.signOutLocally()
                             navController.navigate(Routes.LOGIN) {
@@ -453,6 +468,7 @@ private fun FerrotuneAppContent(
         // Above the bottom navigation and mini player, clear of the mini
         // player's waveform scrubber, where it stays out of the way.
         FeedbackOverlay(
+            viewModel = feedback,
             currentRoute = currentRoute,
             accountKey = state.activeAccount?.id,
             bottomPadding = if (showChrome) 170.dp else 16.dp,

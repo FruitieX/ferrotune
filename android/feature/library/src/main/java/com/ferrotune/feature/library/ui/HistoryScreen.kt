@@ -1,8 +1,10 @@
 package com.ferrotune.feature.library.ui
 
+import androidx.compose.material.icons.filled.Timeline
 import com.ferrotune.core.actions.SongColumnsSheet
 import com.ferrotune.core.actions.SongColumnsMenuRow
 import com.ferrotune.core.actions.rememberSongColumnsState
+import com.ferrotune.core.designsystem.components.MediaAction
 import com.ferrotune.core.network.SongListView
 import com.ferrotune.core.actions.SongColumnsHeader
 import com.ferrotune.core.network.SORT_PREFERENCES_TIMEOUT_MS
@@ -229,6 +231,7 @@ private fun FerrotunePlayHistoryEntry.toSong() = SongResponse(
 @Composable
 fun HistoryScreen(
     onBack: () -> Unit,
+    onOpenActivity: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
@@ -344,7 +347,9 @@ fun HistoryScreen(
         MediaActionSheet(
             expanded = true,
             onDismiss = { sortMenuOpen = false },
-            actions = emptyList(),
+            actions = listOf(
+                MediaAction(label = "Listening activity", icon = Icons.Filled.Timeline) { onOpenActivity() },
+            ),
             extraContent = {
                 SongColumnsMenuRow(songColumns)
                 SortSheetSection(

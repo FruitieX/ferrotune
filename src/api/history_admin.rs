@@ -62,6 +62,10 @@ pub struct ManagedHistoryEntriesQuery {
     pub include_scrobbles: bool,
     #[serde(default = "default_true")]
     pub include_sessions: bool,
+    /// List each play once: a listening session together with the scrobble
+    /// of the same play (`scrobbleId`), plus scrobbles without a session.
+    #[serde(default)]
+    pub combine: bool,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -81,6 +85,10 @@ pub struct ManagedHistoryEntry {
     pub submission: Option<bool>,
     pub queue_source_type: Option<String>,
     pub queue_source_id: Option<String>,
+    /// Combined listings: the scrobble of this session's play. Deleting the
+    /// play deletes both.
+    #[ts(type = "number | null")]
+    pub scrobble_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -266,6 +274,7 @@ pub async fn list_history_entries(
         user.user_id,
         &filter,
         query_kinds(&params),
+        params.combine,
         i64::from(offset),
         i64::from(limit),
     )
@@ -296,6 +305,7 @@ pub async fn list_history_entries(
             submission: row.submission,
             queue_source_type: row.queue_source_type,
             queue_source_id: row.queue_source_id,
+            scrobble_id: row.scrobble_id,
         });
     }
 

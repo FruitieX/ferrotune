@@ -78,6 +78,72 @@ GET {{base_url}}/api/history/entries
 HTTP 401
 
 # ============================================================================
+# Combined listing: one entry per play
+# ============================================================================
+
+GET {{base_url}}/api/songs/match-list
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+pair_song_id: jsonpath "$.songs[1].id"
+
+# A play: its listening session and its scrobble, a moment apart
+POST {{base_url}}/api/listening
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "songId": "{{pair_song_id}}",
+  "durationSeconds": 120
+}
+HTTP 200
+[Captures]
+pair_session_id: jsonpath "$.sessionId"
+
+POST {{base_url}}/api/scrobbles
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "id": "{{pair_song_id}}",
+  "submission": true,
+  "queueSourceType": "history-manage-pair"
+}
+HTTP 204
+
+# Raw listing: two entries for the play
+GET {{base_url}}/api/history/entries?limit=50
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')]" count == 2
+
+# Combined: one session entry carrying the scrobble
+GET {{base_url}}/api/history/entries?combine=true&limit=50
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+pair_scrobble_id: jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].scrobbleId" nth 0
+[Asserts]
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')]" count == 1
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].kind" nth 0 == "session"
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].id" nth 0 == {{pair_session_id}}
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].durationSeconds" nth 0 == 120
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].queueSourceType" nth 0 == "history-manage-pair"
+# The 2023 scrobble has no session of its own and stays listed
+jsonpath "$.items[?(@.queueSourceType == 'history-manage-test')].kind" nth 0 == "scrobble"
+
+POST {{base_url}}/api/history/delete
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "scrobbleIds": [{{pair_scrobble_id}}],
+  "sessionIds": [{{pair_session_id}}]
+}
+HTTP 200
+[Asserts]
+jsonpath "$.deletedScrobbles" == 1
+jsonpath "$.deletedSessions" == 1
+
+# ============================================================================
 # POST /api/history/delete
 # ============================================================================
 

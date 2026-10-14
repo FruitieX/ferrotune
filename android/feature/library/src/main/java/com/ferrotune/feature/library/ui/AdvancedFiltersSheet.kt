@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.ferrotune.core.designsystem.components.SheetDragHandle
 import com.ferrotune.feature.library.data.LibraryFilters
 
 /** Which fields a view supports (web `DEFAULT_*_FIELDS`). */
@@ -192,6 +193,7 @@ fun AdvancedFiltersSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         // A full-height sheet would otherwise slide under the status bar.
         modifier = Modifier.statusBarsPadding(),
+        dragHandle = { SheetDragHandle() },
     ) {
         Column(
             modifier = Modifier

@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
@@ -14,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.PixelCopy
+import android.view.Window
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -25,7 +27,21 @@ import kotlin.math.roundToInt
 private const val MAX_IMAGE_SIDE = 2560
 
 /** Captures the activity window, including SurfaceView/GL content where supported. */
-suspend fun Activity.captureWindow(): Bitmap {
+suspend fun Activity.captureWindow(): Bitmap = window.capture()
+
+/**
+ * The activity window with [sheet] (a modal sheet's own window, above it)
+ * drawn on top, as on screen.
+ */
+suspend fun Activity.captureWindowWith(sheet: Window): Bitmap {
+    val base = captureWindow().copy(Bitmap.Config.ARGB_8888, true)
+    val top = sheet.capture()
+    Canvas(base).drawBitmap(top, null, Rect(0, 0, base.width, base.height), null)
+    return base
+}
+
+private suspend fun Window.capture(): Bitmap {
+    val window = this
     val view = window.decorView
     val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

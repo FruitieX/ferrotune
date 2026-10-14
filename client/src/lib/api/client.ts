@@ -1072,6 +1072,8 @@ export class FerrotuneClient {
       limit?: number;
       includeScrobbles?: boolean;
       includeSessions?: boolean;
+      /** One entry per play: a session with its scrobble (`scrobbleId`). */
+      combine?: boolean;
     } = {},
   ): Promise<ManagedHistoryEntriesResponse> {
     const endpoint = buildEndpoint("/api/history/entries", params);

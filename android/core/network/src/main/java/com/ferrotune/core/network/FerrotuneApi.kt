@@ -23,6 +23,7 @@ import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
+import com.ferrotune.core.network.generated.ManagedHistoryEntriesResponse
 import com.ferrotune.core.network.generated.PingResponse
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
 import com.ferrotune.core.network.generated.AddToQueueRequest
@@ -303,6 +304,13 @@ interface FerrotuneApi {
     suspend fun mostPlayedRecently(
         @QueryMap params: Map<String, String>,
     ): MostPlayedRecentlyResponse
+
+    /**
+     * Plays newest first (`combine=true`: a listening session with the
+     * scrobble of the same play as one entry).
+     */
+    @GET("api/history/entries")
+    suspend fun historyEntries(@QueryMap params: Map<String, String>): ManagedHistoryEntriesResponse
 
     /** The user's liked songs, most likes first. */
     @GET("api/songs/most-liked")

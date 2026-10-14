@@ -26,6 +26,7 @@ import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
+import com.ferrotune.core.network.generated.ManagedHistoryEntriesResponse
 import com.ferrotune.core.network.generated.MostLikedResponse
 import com.ferrotune.core.network.generated.PingResponse
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
@@ -276,6 +277,14 @@ open class FakeFerrotuneApi(
     ): MostPlayedRecentlyResponse = error("unused")
 
     override suspend fun mostLiked(params: Map<String, String>): MostLikedResponse = error("unused")
+
+    var historyEntriesParams: Map<String, String>? = null
+    var historyEntriesResponse: ManagedHistoryEntriesResponse? = null
+
+    override suspend fun historyEntries(params: Map<String, String>): ManagedHistoryEntriesResponse {
+        historyEntriesParams = params
+        return historyEntriesResponse ?: error("unused")
+    }
 
     override suspend fun toggleSongLike(songId: String): SongLikeResponse = error("unused")
 

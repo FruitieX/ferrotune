@@ -19,4 +19,5 @@ data class ManagedHistoryEntry(
     val submission: Boolean? = null,
     val queueSourceType: String? = null,
     val queueSourceId: String? = null,
+    val scrobbleId: Long? = null,
 )

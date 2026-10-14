@@ -30,7 +30,6 @@ data class ContinueListeningParams(
 data class PeriodReviewQuery(
     val year: Int? = null,
     val month: Int? = null,
-    val inlineImages: String? = null,
 )
 
 @Serializable

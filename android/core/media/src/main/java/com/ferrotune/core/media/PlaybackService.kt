@@ -494,9 +494,12 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private lateinit var readAhead: ReadAheadLoadControl
+
     private val progressRunnable = object : Runnable {
         override fun run() {
             if (player.isPlaying) {
+                readAhead.onPlaybackProgress(player.currentMediaItemIndex, player.currentPosition)
                 updateLastKnownGoodPosition()
                 emitProgressEvent()
                 // Track accumulated listen time for scrobbling and history.
@@ -739,7 +742,7 @@ class PlaybackService : MediaSessionService() {
         // instead of the default ~50 s ceiling. This avoids hammering the
         // network with repeated small fetches and makes brief outages
         // invisible to the user because the audio is already on disk.
-        val loadControl = DefaultLoadControl.Builder()
+        val loadControl = ReadAheadLoadControl(DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs  */ STREAM_MIN_BUFFER_MS,
                 /* maxBufferMs  */ STREAM_MAX_BUFFER_MS,
@@ -748,7 +751,8 @@ class PlaybackService : MediaSessionService() {
             )
             .setTargetBufferBytes(STREAM_TARGET_BUFFER_BYTES)
             .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
+            .build())
+        readAhead = loadControl
 
         player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
@@ -5338,6 +5342,13 @@ class PlaybackService : MediaSessionService() {
                 ),
             )
             clearPendingNetworkRetry("media item transition")
+            // A skip or a new queue: hold back read-ahead until playback settles.
+            // Queue refreshes keep the same item and natural advances keep it settled.
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
+                (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && mediaItem?.mediaId != previousTrackId)
+            ) {
+                readAhead.unsettle(player.currentMediaItemIndex)
+            }
 
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED &&
                 mediaItem?.mediaId != null &&

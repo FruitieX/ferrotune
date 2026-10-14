@@ -78,10 +78,19 @@ test.describe("Managed History", () => {
       page.getByRole("button", { name: "Select all matching filter" }),
     ).toBeVisible();
 
-    await expect(page.getByText("Scrobble").first()).toBeVisible({
+    // The play's session and scrobble are listed once, combined.
+    await expect(page.getByText("Play", { exact: true })).toHaveCount(1, {
       timeout: 10000,
     });
-    await expect(page.getByText("Session").first()).toBeVisible();
+    await expect(page.getByText("Scrobbled", { exact: true })).toBeVisible();
+
+    // Unticked, both raw entries come back.
+    await page.getByLabel(/combine each play/i).click();
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page.getByText("Scrobble", { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Session", { exact: true })).toBeVisible();
 
     await page
       .getByRole("button", { name: "Select all matching filter" })

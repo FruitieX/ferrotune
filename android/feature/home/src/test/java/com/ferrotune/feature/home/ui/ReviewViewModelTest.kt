@@ -78,7 +78,8 @@ class ReviewViewModelTest {
         val state = harness.viewModel.uiState.value
         assertEquals(2026, state.review?.year)
         assertEquals(listOf(ReviewPeriod(2026), ReviewPeriod(2026, 1)), state.periods)
-        assertEquals("medium", harness.api.reviewParams?.get("inlineImages"))
+        // Covers load lazily per row; embedding 400 thumbnails cost megabytes.
+        assertEquals(null, harness.api.reviewParams?.get("inlineImages"))
     }
 
     @Test

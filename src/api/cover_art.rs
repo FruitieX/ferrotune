@@ -30,6 +30,10 @@ use std::sync::Arc;
 /// Cover art is content-addressable (hash-based), so aggressive caching is safe.
 const COVER_ART_CACHE_HEADER: &str = "public, max-age=2592000";
 
+/// Numeric sizes up to this are served at the display tier; larger ones
+/// (and `size=large`) get the original.
+const MAX_DISPLAY_REQUEST: u32 = 1024;
+
 #[derive(Deserialize)]
 pub struct CoverArtParams {
     id: String,
@@ -39,6 +43,18 @@ pub struct CoverArtParams {
 }
 
 impl CoverArtParams {
+    /// `size=display` (or `d`), or a numeric size between the medium tier
+    /// and 1024: the original scaled to `COVER_DISPLAY` (720 px).
+    fn wants_display(&self) -> bool {
+        match self.size.as_deref() {
+            Some("display" | "d") => true,
+            Some(value) => value.parse::<u32>().is_ok_and(|size| {
+                size > crate::thumbnails::THUMBNAIL_MEDIUM && size <= MAX_DISPLAY_REQUEST
+            }),
+            None => false,
+        }
+    }
+
     /// Parse the size parameter into a ThumbnailSize enum
     fn get_thumbnail_size(&self) -> ThumbnailSize {
         match &self.size {
@@ -68,7 +84,12 @@ pub async fn get_cover_art(
         return Err(Error::NotFound("No cover art ID provided".to_string()));
     }
 
-    let requested_size = params.get_thumbnail_size();
+    let display = params.wants_display();
+    let requested_size = if display {
+        ThumbnailSize::Large
+    } else {
+        params.get_thumbnail_size()
+    };
 
     // For albums, try to use pre-generated thumbnails
     // IDs can have prefixes (al-, so-, ar-, pl-, sp-, pf-) or be plain UUIDs
@@ -107,8 +128,18 @@ pub async fn get_cover_art(
         }
     };
 
+    let display_data = if display {
+        crate::thumbnails::display_cover(&state.config.cache.path, &image_data).await?
+    } else {
+        None
+    };
+    let resized_to_display = display_data.is_some();
+    let image_data = display_data.unwrap_or(image_data);
+
     // Determine content type
-    let content_type = if matches!(requested_size, ThumbnailSize::Small | ThumbnailSize::Medium) {
+    let content_type = if resized_to_display
+        || matches!(requested_size, ThumbnailSize::Small | ThumbnailSize::Medium)
+    {
         // Thumbnails are always JPEG
         "image/jpeg"
     } else {

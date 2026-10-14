@@ -22,12 +22,14 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,6 +62,7 @@ import java.util.Locale
 fun ProfileScreen(
     onBack: () -> Unit,
     onOpenReview: () -> Unit,
+    onOpenActivity: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProfileViewModel = hiltViewModel(),
@@ -84,7 +87,7 @@ fun ProfileScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item(key = "account") { AccountCard(state) }
-        item(key = "listening") { ListeningCard(state, onOpenReview) }
+        item(key = "listening") { ListeningCard(state, onOpenReview, onOpenActivity) }
         item(key = "sign-out") {
             SectionCard(
                 icon = Icons.AutoMirrored.Filled.Logout,
@@ -148,7 +151,7 @@ private fun AccountCard(state: ProfileUiState) {
 }
 
 @Composable
-private fun ListeningCard(state: ProfileUiState, onOpenReview: () -> Unit) {
+private fun ListeningCard(state: ProfileUiState, onOpenReview: () -> Unit, onOpenActivity: () -> Unit) {
     SectionCard(
         icon = Icons.Filled.Headphones,
         title = "Listening Activity",
@@ -158,6 +161,11 @@ private fun ListeningCard(state: ProfileUiState, onOpenReview: () -> Unit) {
             Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Your Review")
+        }
+        OutlinedButton(onClick = onOpenActivity, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Timeline, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Recent plays")
         }
         val listening = state.listening
         when {

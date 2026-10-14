@@ -121,9 +121,14 @@ class HomeRepository @Inject constructor(
     suspend fun listeningStats(): ListeningStatsResponse =
         apiProvider.requireApi().listeningStats()
 
+    /**
+     * No inline thumbnails: the review lists up to 100 entries per tab, so
+     * embedding them cost megabytes per open. Rows load their cover URL
+     * (cached) only for the tab on screen.
+     */
     suspend fun periodReview(year: Int? = null, month: Int? = null): PeriodReviewResponse =
         apiProvider.requireApi().periodReview(
-            PeriodReviewQuery(year = year, month = month, inlineImages = "medium").toQueryMap(),
+            PeriodReviewQuery(year = year, month = month).toQueryMap(),
         )
 
     suspend fun activeServerUrl(): String = apiProvider.requireAccount().serverUrl

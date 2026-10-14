@@ -3,6 +3,8 @@
 //! Generates pre-sized thumbnails for album cover art at standard sizes:
 //! - Small: For list items, rows (high-DPI optimized)
 //! - Medium: For cards, dialogs
+//! - Display (720 px): now-playing screens and media notifications; made on
+//!   demand from the original and cached on disk (`display_cover`)
 //!
 //! Thumbnails are stored as JPEG for broad compatibility.
 //! Original/large images are served directly from the media files.
@@ -27,6 +29,10 @@ use tokio::fs;
 /// Size constants for thumbnails
 pub const THUMBNAIL_SMALL: u32 = 80;
 pub const THUMBNAIL_MEDIUM: u32 = 256;
+/// The "display" tier: large enough for a phone's now-playing screen and
+/// media notification, a fraction of an original cover's size. Made on
+/// demand and cached on disk (see `display_cover`).
+pub const COVER_DISPLAY: u32 = 720;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbnailSize {
@@ -164,6 +170,45 @@ fn resize_and_encode(img: &DynamicImage, size: u32) -> Result<Vec<u8>> {
     Ok(buffer.into_inner())
 }
 
+/// `original` scaled to fit [`COVER_DISPLAY`] as JPEG, cached under
+/// `<cache_dir>/cover-display/` by content hash. Returns `None` when the
+/// cover is no larger than the tier, so the caller serves the original.
+pub async fn display_cover(cache_dir: &Path, original: &[u8]) -> Result<Option<Vec<u8>>> {
+    let key = blake3::hash(original).to_hex().to_string();
+    let dir = cache_dir.join("cover-display");
+    let path = dir.join(format!("{key}.jpg"));
+    if let Ok(cached) = fs::read(&path).await {
+        return Ok(Some(cached));
+    }
+
+    let data = original.to_vec();
+    let resized = tokio::task::spawn_blocking(move || -> Result<Option<Vec<u8>>> {
+        let img = image::load_from_memory(&data).map_err(Error::Image)?;
+        if img.width().max(img.height()) <= COVER_DISPLAY {
+            return Ok(None);
+        }
+        let scaled = img.resize(COVER_DISPLAY, COVER_DISPLAY, FilterType::Triangle);
+        let mut buffer = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(scaled.to_rgb8())
+            .write_to(&mut buffer, ImageFormat::Jpeg)
+            .map_err(Error::Image)?;
+        Ok(Some(buffer.into_inner()))
+    })
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))??;
+
+    if let Some(resized) = &resized {
+        // Best effort: a failed cache write only costs a resize next time.
+        if fs::create_dir_all(&dir).await.is_ok() {
+            let tmp = dir.join(format!("{key}.tmp"));
+            if fs::write(&tmp, resized).await.is_ok() {
+                let _ = fs::rename(&tmp, &path).await;
+            }
+        }
+    }
+    Ok(resized)
+}
+
 // Re-export utility functions needed by scanner
 pub async fn find_external_cover_art(path: &Path) -> Result<Vec<u8>> {
     let dir = path
@@ -223,4 +268,44 @@ pub async fn extract_embedded_cover_art(path: &Path) -> Result<Vec<u8>> {
     })
     .await
     .map_err(|e| Error::Internal(e.to_string()))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png(size: u32) -> Vec<u8> {
+        let img = DynamicImage::new_rgb8(size, size);
+        let mut buffer = Cursor::new(Vec::new());
+        img.write_to(&mut buffer, ImageFormat::Png).unwrap();
+        buffer.into_inner()
+    }
+
+    #[tokio::test]
+    async fn display_cover_scales_large_covers_and_caches_them() {
+        let dir = std::env::temp_dir().join(format!("ferrotune-display-{}", std::process::id()));
+        let large = png(1500);
+
+        let resized = display_cover(&dir, &large)
+            .await
+            .unwrap()
+            .expect("large cover is scaled");
+        let decoded = image::load_from_memory(&resized).unwrap();
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (COVER_DISPLAY, COVER_DISPLAY)
+        );
+        assert_eq!(image::guess_format(&resized).unwrap(), ImageFormat::Jpeg);
+
+        let key = blake3::hash(&large).to_hex().to_string();
+        assert!(dir
+            .join("cover-display")
+            .join(format!("{key}.jpg"))
+            .exists());
+        assert_eq!(display_cover(&dir, &large).await.unwrap(), Some(resized));
+
+        // Covers already within the tier are served as they are.
+        assert_eq!(display_cover(&dir, &png(500)).await.unwrap(), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

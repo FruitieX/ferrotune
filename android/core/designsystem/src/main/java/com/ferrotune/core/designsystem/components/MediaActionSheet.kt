@@ -84,6 +84,7 @@ fun MediaActionSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         modifier = modifier,
+        dragHandle = { SheetDragHandle() },
     ) {
         CompositionLocalProvider(LocalMediaSheetDismiss provides dismiss) {
             Column(

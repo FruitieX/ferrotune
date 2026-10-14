@@ -2,4 +2,9 @@
 import type { ManagedHistoryEntryKind } from "./ManagedHistoryEntryKind";
 import type { SongResponse } from "./SongResponse";
 
-export type ManagedHistoryEntry = { kind: ManagedHistoryEntryKind, id: number, eventAt: string | null, song: SongResponse, durationSeconds: number | null, skipped: boolean | null, playCount: number | null, description: string | null, submission: boolean | null, queueSourceType: string | null, queueSourceId: string | null, };
+export type ManagedHistoryEntry = { kind: ManagedHistoryEntryKind, id: number, eventAt: string | null, song: SongResponse, durationSeconds: number | null, skipped: boolean | null, playCount: number | null, description: string | null, submission: boolean | null, queueSourceType: string | null, queueSourceId: string | null, 
+/**
+ * Combined listings: the scrobble of this session's play. Deleting the
+ * play deletes both.
+ */
+scrobbleId: number | null, };

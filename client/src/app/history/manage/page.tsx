@@ -64,6 +64,7 @@ interface FilterForm {
   maxDuration: string;
   includeScrobbles: boolean;
   includeSessions: boolean;
+  combinePlays: boolean;
 }
 
 interface AppliedFilters {
@@ -73,6 +74,7 @@ interface AppliedFilters {
   maxDuration?: number;
   includeScrobbles: boolean;
   includeSessions: boolean;
+  combinePlays: boolean;
 }
 
 interface HistoryGroup {
@@ -127,6 +129,7 @@ function formFromSearchParams(searchParams: URLSearchParams): FilterForm {
       searchParams.get("includeSessions"),
       true,
     ),
+    combinePlays: readBooleanParam(searchParams.get("combine"), true),
   };
 }
 
@@ -138,6 +141,7 @@ function appliedFiltersFromForm(form: FilterForm): AppliedFilters {
     maxDuration: positiveNumber(form.maxDuration),
     includeScrobbles: form.includeScrobbles,
     includeSessions: form.includeSessions,
+    combinePlays: form.combinePlays,
   };
 }
 
@@ -167,6 +171,7 @@ function updateUrl(navigate: NavigateFunction, filters: AppliedFilters) {
     params.set("maxDuration", String(filters.maxDuration));
   if (!filters.includeScrobbles) params.set("includeScrobbles", "false");
   if (!filters.includeSessions) params.set("includeSessions", "false");
+  if (!filters.combinePlays) params.set("combine", "false");
 
   const query = params.toString();
   navigate(query ? `/history/manage?${query}` : "/history/manage", {
@@ -290,9 +295,17 @@ function selectedIds(
       scrobbleIds.push(entry.id);
     } else {
       sessionIds.push(entry.id);
+      // A combined play: its scrobble goes with it.
+      if (entry.scrobbleId != null) scrobbleIds.push(entry.scrobbleId);
     }
   }
   return { scrobbleIds, sessionIds };
+}
+
+/** "Play" for a session combined with its scrobble. */
+function entryLabel(entry: ManagedHistoryEntry): string {
+  if (entry.kind === "scrobble") return "Scrobble";
+  return entry.scrobbleId != null ? "Play" : "Session";
 }
 
 function coverUrl(entry: ManagedHistoryEntry): string | undefined {
@@ -337,7 +350,7 @@ function HistoryEntryRow({
         <div className="flex flex-wrap items-center gap-2">
           <p className="truncate font-medium">{entry.song.title}</p>
           <Badge variant={entry.kind === "scrobble" ? "default" : "secondary"}>
-            {entry.kind === "scrobble" ? "Scrobble" : "Session"}
+            {entryLabel(entry)}
           </Badge>
           {entry.skipped && <Badge variant="outline">Skipped</Badge>}
         </div>
@@ -352,6 +365,11 @@ function HistoryEntryRow({
           )}
           {entry.kind === "scrobble" && entry.playCount !== null && (
             <span>{formatCount(entry.playCount, "play")}</span>
+          )}
+          {entry.kind === "session" && (
+            <span>
+              {entry.scrobbleId != null ? "Scrobbled" : "Not scrobbled"}
+            </span>
           )}
           {entry.description && <span>{entry.description}</span>}
           {entry.queueSourceType && (
@@ -375,9 +393,11 @@ function GroupHeader({
   onToggle: () => void;
 }) {
   const scrobbles = group.entries.filter(
-    (entry) => entry.kind === "scrobble",
+    (entry) => entry.kind === "scrobble" || entry.scrobbleId != null,
   ).length;
-  const sessions = group.entries.length - scrobbles;
+  const sessions = group.entries.filter(
+    (entry) => entry.kind === "session",
+  ).length;
 
   return (
     <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-2 backdrop-blur">
@@ -452,6 +472,7 @@ export default function ManageHistoryPage() {
         maxDuration: appliedFilters.maxDuration,
         includeScrobbles: appliedFilters.includeScrobbles,
         includeSessions: appliedFilters.includeSessions,
+        combine: appliedFilters.combinePlays,
         offset,
         limit: PAGE_SIZE,
       });
@@ -519,6 +540,7 @@ export default function ManageHistoryPage() {
       maxDuration: "",
       includeScrobbles: true,
       includeSessions: true,
+      combinePlays: true,
     };
     const nextFilters = appliedFiltersFromForm(nextForm);
     setForm(nextForm);
@@ -680,6 +702,15 @@ export default function ManageHistoryPage() {
               }
             />
             Include listening sessions
+          </Label>
+          <Label className="flex items-center gap-2 font-normal">
+            <Checkbox
+              checked={form.combinePlays}
+              onCheckedChange={() =>
+                setForm({ ...form, combinePlays: !form.combinePlays })
+              }
+            />
+            Combine each play&apos;s session and scrobble
           </Label>
           <span className="flex items-center gap-1">
             <AlertTriangle className="h-4 w-4" />

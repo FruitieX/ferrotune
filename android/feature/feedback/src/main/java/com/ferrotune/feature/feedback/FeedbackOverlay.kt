@@ -3,6 +3,9 @@ package com.ferrotune.feature.feedback
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.view.View
+import android.view.ViewParent
+import android.view.Window
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -62,10 +65,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
 
@@ -85,27 +90,11 @@ fun FeedbackOverlay(
     if (viewModel.info == null) return
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var annotating by remember { mutableStateOf<Int?>(null) }
 
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
-    fun captureThenOpen() {
-        val activity = context.findActivity() ?: return
-        scope.launch {
-            viewModel.capturing = true
-            // Let the button disappear from the frame before copying the window.
-            withFrameNanos { }
-            withFrameNanos { }
-            val bitmap = runCatching { activity.captureWindow().scaledToMax() }.getOrNull()
-            viewModel.capturing = false
-            if (bitmap != null) viewModel.addShot(bitmap) else toast("Could not capture the screen")
-            viewModel.armed = false
-            viewModel.dialogOpen = true
-        }
-    }
-
-    if (!viewModel.hiddenForSession && !viewModel.capturing && !viewModel.dialogOpen && annotating == null) {
+    if (annotating == null) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -113,17 +102,7 @@ fun FeedbackOverlay(
                 .padding(end = 12.dp, bottom = bottomPadding),
             contentAlignment = Alignment.BottomEnd,
         ) {
-            FeedbackButton(
-                armed = viewModel.armed,
-                onClick = {
-                    if (viewModel.armed || viewModel.shots.isEmpty()) captureThenOpen() else viewModel.dialogOpen = true
-                },
-                onLongClick = {
-                    viewModel.hiddenForSession = true
-                    viewModel.armed = false
-                    toast("Feedback button hidden until the app restarts")
-                },
-            )
+            FeedbackTrigger(viewModel, sheetWindow = null)
         }
     }
 
@@ -156,6 +135,69 @@ fun FeedbackOverlay(
             )
         }
     }
+}
+
+/**
+ * The feedback button inside a modal sheet (provided to the sheets through
+ * `LocalSheetOverlay`): sheets are windows above the app, so the app's own
+ * button sits behind them. Its capture includes the sheet.
+ */
+@Composable
+fun SheetFeedbackButton(viewModel: FeedbackViewModel) {
+    val view = LocalView.current
+    FeedbackTrigger(viewModel, sheetWindow = { view.dialogWindow() })
+}
+
+/** The feedback button: capture the screen (plus [sheetWindow]) or reopen the report. */
+@Composable
+private fun FeedbackTrigger(viewModel: FeedbackViewModel, sheetWindow: (() -> Window?)?) {
+    if (viewModel.info == null || viewModel.hiddenForSession || viewModel.capturing || viewModel.dialogOpen) return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    fun captureThenOpen() {
+        val activity = context.findActivity() ?: return
+        val sheet = sheetWindow?.invoke()
+        scope.launch {
+            viewModel.capturing = true
+            // Let the button disappear from the frame before copying the window.
+            withFrameNanos { }
+            withFrameNanos { }
+            val bitmap = runCatching {
+                (if (sheet != null) activity.captureWindowWith(sheet) else activity.captureWindow()).scaledToMax()
+            }.getOrNull()
+            viewModel.capturing = false
+            if (bitmap != null) {
+                viewModel.addShot(bitmap)
+            } else {
+                Toast.makeText(context, "Could not capture the screen", Toast.LENGTH_SHORT).show()
+            }
+            viewModel.armed = false
+            viewModel.dialogOpen = true
+        }
+    }
+
+    FeedbackButton(
+        armed = viewModel.armed,
+        onClick = {
+            if (viewModel.armed || viewModel.shots.isEmpty()) captureThenOpen() else viewModel.dialogOpen = true
+        },
+        onLongClick = {
+            viewModel.hiddenForSession = true
+            viewModel.armed = false
+            Toast.makeText(context, "Feedback button hidden until the app restarts", Toast.LENGTH_SHORT).show()
+        },
+    )
+}
+
+/** The window of the dialog (e.g. a modal sheet) hosting this view, if any. */
+private fun View.dialogWindow(): Window? {
+    var parent: ViewParent? = this as? ViewParent
+    while (parent != null) {
+        if (parent is DialogWindowProvider) return parent.window
+        parent = parent.parent
+    }
+    return null
 }
 
 @OptIn(ExperimentalFoundationApi::class)
