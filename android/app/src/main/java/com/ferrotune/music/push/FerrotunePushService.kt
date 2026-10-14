@@ -13,9 +13,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Receives push wake-ups: another device handed playback to this app while
- * it was idle. Reattaches to the session and starts playing, the same as a
- * connected app does on the OwnerChanged event.
+ * Receives push wake-ups while this app is idle with its session stream
+ * closed: another device handed playback to it (`takeOver`, handled like the
+ * OwnerChanged event) or sent it, the session owner, a command such as play
+ * or seek (handled like the PlaybackCommand event). Reattaches to the session
+ * first.
  */
 @AndroidEntryPoint
 class FerrotunePushService : FirebaseMessagingService() {
@@ -31,23 +33,30 @@ class FerrotunePushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        if (data["type"] != TAKE_OVER) return
+        val type = data["type"]
+        if (type != TAKE_OVER && type != COMMAND) return
         // Work inside the handler: once it returns, the high-priority push's
         // permission to start playback from the background soon lapses.
         runBlocking {
-            withTimeoutOrNull(TAKE_OVER_TIMEOUT_MS) {
+            withTimeoutOrNull(PUSH_TIMEOUT_MS) {
                 withContext(Dispatchers.Main) {
                     runCatching { playbackStarter.restoreSession() }
                     val sessionId = playbackStarter.state.value.sessionId
                     if (sessionId == null || sessionId != data["sessionId"]) {
                         // Pushed for an account that is not the active one.
-                        Log.w(TAG, "Ignoring take-over push for another session")
+                        Log.w(TAG, "Ignoring $type push for another session")
                         return@withContext
                     }
-                    playback.applyRemoteTakeOver(
-                        positionMs = data["positionMs"]?.toLongOrNull(),
-                        resumePlayback = data["resumePlayback"].toBoolean(),
-                    )
+                    val positionMs = data["positionMs"]?.toLongOrNull()
+                    if (type == TAKE_OVER) {
+                        playback.applyRemoteTakeOver(
+                            positionMs = positionMs,
+                            resumePlayback = data["resumePlayback"].toBoolean(),
+                        )
+                    } else {
+                        val action = data["action"] ?: return@withContext
+                        playback.applyRemoteCommand(action, positionMs, data["currentIndex"]?.toIntOrNull())
+                    }
                 }
             }
         }
@@ -56,6 +65,7 @@ class FerrotunePushService : FirebaseMessagingService() {
     private companion object {
         const val TAG = "FerrotunePushService"
         const val TAKE_OVER = "takeOver"
-        const val TAKE_OVER_TIMEOUT_MS = 15_000L
+        const val COMMAND = "command"
+        const val PUSH_TIMEOUT_MS = 15_000L
     }
 }

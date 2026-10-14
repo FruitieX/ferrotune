@@ -578,7 +578,19 @@ async fn detach_client(
         return;
     }
 
-    let owner_cleared = if is_owner {
+    // A native app asleep with its stream closed can still be woken by push,
+    // so it keeps ownership (the idle-owner sweep frees the session later).
+    let owner_push_reachable = is_owner
+        && !force
+        && super::push_devices::is_push_reachable(state, user_id, client_id).await;
+    if owner_push_reachable {
+        tracing::info!(
+            client_id,
+            "Kept a push-reachable owner after its session stream closed"
+        );
+    }
+
+    let owner_cleared = if is_owner && !owner_push_reachable {
         match queries::clear_session_owner(&state.database, session_id).await {
             Ok(cleared) => {
                 tracing::warn!(
@@ -913,6 +925,14 @@ pub async fn session_events(
     ))
 }
 
+/// Commands meant for the current owner's player (not ownership or volume).
+fn is_owner_playback_command(action: &str) -> bool {
+    matches!(
+        action,
+        "play" | "pause" | "next" | "previous" | "playAtIndex" | "seek" | "stop"
+    )
+}
+
 /// POST /api/sessions/:id/command — Send a remote playback command
 pub async fn session_command(
     user: FerrotuneAuthenticatedUser,
@@ -921,7 +941,7 @@ pub async fn session_command(
     Json(request): Json<SessionCommandRequest>,
 ) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
     // Verify session belongs to user
-    queries::get_session(&state.database, &session_id, user.user_id)
+    let session = queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
@@ -1008,6 +1028,22 @@ pub async fn session_command(
                 new_client_id.to_string(),
                 request.position_ms,
                 request.resume_playback.unwrap_or(false),
+            );
+        }
+    }
+
+    // An idle phone owner has no session stream to receive the command on;
+    // wake it with a push carrying the command instead.
+    if let Some(owner_client_id) = session.owner_client_id.clone() {
+        if is_owner_playback_command(&request.action) {
+            super::push_devices::wake_for_command(
+                state.clone(),
+                user.user_id,
+                session_id.clone(),
+                owner_client_id,
+                request.action.clone(),
+                request.position_ms,
+                request.current_index,
             );
         }
     }
@@ -1143,6 +1179,24 @@ mod tests {
         assert_eq!(responses[0].client_name, "ferrotune-cast");
         assert_eq!(responses[0].display_name, "Chromecast");
         assert!(responses[0].is_owner);
+    }
+
+    #[test]
+    fn only_player_commands_wake_an_idle_owner() {
+        for action in [
+            "play",
+            "pause",
+            "next",
+            "previous",
+            "playAtIndex",
+            "seek",
+            "stop",
+        ] {
+            assert!(is_owner_playback_command(action), "{action}");
+        }
+        for action in ["takeOver", "volumeChange", "setVolume"] {
+            assert!(!is_owner_playback_command(action), "{action}");
+        }
     }
 
     #[test]

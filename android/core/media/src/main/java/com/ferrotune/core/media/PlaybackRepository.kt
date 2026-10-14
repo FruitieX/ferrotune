@@ -123,6 +123,10 @@ class PlaybackRepository @Inject constructor(
     suspend fun applyRemoteTakeOver(positionMs: Long?, resumePlayback: Boolean) =
         awaitService().applyRemoteTakeOver(positionMs, resumePlayback)
 
+    /** Applies a remote command (play, seek, ...) that reached this idle owner by push. */
+    suspend fun applyRemoteCommand(action: String, positionMs: Long?, currentIndex: Int?) =
+        awaitService().applyRemoteCommand(action, positionMs, currentIndex)
+
     suspend fun play() = awaitService().play()
 
     suspend fun pause() = awaitService().pause()

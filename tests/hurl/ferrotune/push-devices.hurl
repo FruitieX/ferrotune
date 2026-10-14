@@ -60,3 +60,14 @@ Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.clients[?(@.isIdle == true)]" count == 0
+
+# Test: remote commands to an owner that cannot be woken by push still succeed
+POST {{base_url}}/api/sessions/{{push_session_id}}/command
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "action": "play"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true

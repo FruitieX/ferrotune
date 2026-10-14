@@ -1866,6 +1866,29 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
+     * Applies a remote command (play, seek, ...) that arrived as a push
+     * because this app, the session owner, was asleep with its session stream
+     * closed: the same as the PlaybackCommand event it would have received.
+     */
+    fun applyRemoteCommand(action: String, positionMs: Long?, currentIndex: Int?) {
+        if (action == "play" || action == "playAtIndex") holdForegroundForPendingPlayback()
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "push_command",
+            "Remote command delivered by push",
+            mapOf("action" to action, "positionMs" to positionMs, "currentIndex" to currentIndex),
+        )
+        handleSessionEvent(
+            SessionEvent.PlaybackCommand(
+                action = action,
+                clientId = null,
+                positionMs = positionMs,
+                currentIndex = currentIndex,
+            ),
+        )
+    }
+
+    /**
      * Seeds the session owner reported by `POST /sessions/connect` when the app
      * reattaches to an existing session, without claiming ownership. A paused
      * restore must not heartbeat over another client that is still playing;

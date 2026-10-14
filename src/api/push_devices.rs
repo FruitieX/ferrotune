@@ -68,6 +68,16 @@ pub async fn unregister_push_device(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Whether a client can be woken by push: push is configured and the client
+/// registered a token. Such a client stays the session owner while asleep.
+pub async fn is_push_reachable(state: &AppState, user_id: i64, client_id: &str) -> bool {
+    crate::push::sender().is_some()
+        && matches!(
+            push_devices::get_push_device(&state.database, user_id, client_id).await,
+            Ok(Some(_))
+        )
+}
+
 /// Wakes a registered app that a `takeOver` names but that has no open
 /// session stream, so it starts playback itself. Runs in the background.
 pub fn wake_for_take_over(
@@ -77,6 +87,47 @@ pub fn wake_for_take_over(
     client_id: String,
     position_ms: Option<i64>,
     resume_playback: bool,
+) {
+    let mut fields = vec![
+        ("type", "takeOver".to_string()),
+        ("resumePlayback", resume_playback.to_string()),
+    ];
+    if let Some(position_ms) = position_ms {
+        fields.push(("positionMs", position_ms.to_string()));
+    }
+    wake_idle_client(state, user_id, session_id, client_id, fields);
+}
+
+/// Delivers a remote playback command (play, seek, ...) to the session owner
+/// by push when it has no open session stream: an idle phone closes it, and a
+/// command only broadcast on the stream would be lost.
+pub fn wake_for_command(
+    state: Arc<AppState>,
+    user_id: i64,
+    session_id: String,
+    client_id: String,
+    action: String,
+    position_ms: Option<i64>,
+    current_index: Option<usize>,
+) {
+    let mut fields = vec![("type", "command".to_string()), ("action", action)];
+    if let Some(position_ms) = position_ms {
+        fields.push(("positionMs", position_ms.to_string()));
+    }
+    if let Some(current_index) = current_index {
+        fields.push(("currentIndex", current_index.to_string()));
+    }
+    wake_idle_client(state, user_id, session_id, client_id, fields);
+}
+
+/// Sends `fields` (plus the session id) as a push to `client_id` unless it
+/// has an open session stream. Runs in the background.
+fn wake_idle_client(
+    state: Arc<AppState>,
+    user_id: i64,
+    session_id: String,
+    client_id: String,
+    fields: Vec<(&'static str, String)>,
 ) {
     let Some(sender) = crate::push::sender() else {
         return;
@@ -101,19 +152,15 @@ pub fn wake_for_take_over(
 
         // FCM data values are strings.
         let mut data = Map::new();
-        data.insert("type".into(), Value::from("takeOver"));
         data.insert("sessionId".into(), Value::from(session_id));
-        data.insert(
-            "resumePlayback".into(),
-            Value::from(resume_playback.to_string()),
-        );
-        if let Some(position_ms) = position_ms {
-            data.insert("positionMs".into(), Value::from(position_ms.to_string()));
+        for (key, value) in fields {
+            data.insert(key.into(), Value::from(value));
         }
+        let kind = data.get("action").or_else(|| data.get("type")).cloned();
 
         match sender.send_data(&device.token, data).await {
             Ok(PushOutcome::Sent) => {
-                tracing::info!(target: "session_ownership", client_id, "Woke idle client with a push");
+                tracing::info!(client_id, kind = ?kind, "Woke idle client with a push");
             }
             Ok(PushOutcome::TokenRejected) => {
                 tracing::info!(client_id, "Dropping push device whose token FCM rejected");
