@@ -24,6 +24,7 @@ const RADIO_COLUMN_VISIBILITY: ColumnVisibility = {
   duration: true,
   playCount: false,
   playStarts: false,
+  likes: false,
   year: false,
   dateAdded: false,
   lastPlayed: false,

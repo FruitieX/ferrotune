@@ -23,6 +23,7 @@ const downloadedSongsColumns: ColumnVisibility = {
   duration: true,
   playCount: false,
   playStarts: false,
+  likes: false,
   dateAdded: false,
   lastPlayed: false,
   year: false,

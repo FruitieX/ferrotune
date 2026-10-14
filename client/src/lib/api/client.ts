@@ -53,6 +53,8 @@ import type {
   AuthUrlTokenResponse,
   ForgottenFavoritesResponse,
   MostPlayedRecentlyResponse,
+  MostLikedResponse,
+  SongLikeResponse,
 } from "./types";
 import type { DirectoryPagedResponse } from "./generated/DirectoryPagedResponse";
 import type { GetDirectoryPagedParams } from "./generated/GetDirectoryPagedParams";
@@ -640,6 +642,32 @@ export class FerrotuneClient {
   ): Promise<MostPlayedRecentlyResponse> {
     const endpoint = buildEndpoint("/api/songs/most-played-recently", params);
     return this.request<MostPlayedRecentlyResponse>(endpoint);
+  }
+
+  /** The user's liked songs, most likes first. */
+  async getMostLiked(
+    params: {
+      size?: number;
+      offset?: number;
+      inlineImages?: "small" | "medium";
+      filter?: string;
+      sort?: string;
+      sortDir?: string;
+    } = {},
+  ): Promise<MostLikedResponse> {
+    const endpoint = buildEndpoint("/api/songs/most-liked", params);
+    return this.request<MostLikedResponse>(endpoint);
+  }
+
+  /**
+   * Like a song again, or undo its newest like when that is less than 12
+   * hours old. Liking also favorites the song.
+   */
+  async toggleSongLike(songId: string): Promise<SongLikeResponse> {
+    return this.request<SongLikeResponse>(
+      `/api/songs/${encodeURIComponent(songId)}/like`,
+      { method: "POST" },
+    );
   }
 
   async getHomePage(

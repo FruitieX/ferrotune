@@ -110,6 +110,7 @@ export type { ForgottenFavoritesResponse } from "./generated";
 
 // getMostPlayedRecently response
 export type { MostPlayedRecentlyResponse } from "./generated";
+export type { MostLikedResponse, SongLikeResponse } from "./generated";
 
 // search response, adapted to the legacy client-side `searchResult3` shape
 export type SearchContent = Omit<

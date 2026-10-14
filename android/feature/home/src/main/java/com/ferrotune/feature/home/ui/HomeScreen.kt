@@ -671,6 +671,7 @@ private fun String.toLabel(): String = when (this) {
     "history" -> "History"
     "forgottenFavorites" -> "Forgotten favorites"
     "mostPlayedRecently" -> "Most played"
+    "mostLiked" -> "Most liked"
     "similarTracks" -> "Similar tracks"
     else -> replaceFirstChar { it.uppercase() }
 }

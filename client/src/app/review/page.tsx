@@ -7,6 +7,7 @@ import {
   Clock,
   Music2,
   Disc3,
+  HeartPlus,
   User2,
   Award,
   TrendingUp,
@@ -44,6 +45,7 @@ import { formatListeningTime } from "@/lib/utils/format";
 import type { TopArtist } from "@/lib/api/generated/TopArtist";
 import type { TopAlbum } from "@/lib/api/generated/TopAlbum";
 import type { TopTrack } from "@/lib/api/generated/TopTrack";
+import type { TopLikedTrack } from "@/lib/api/generated/TopLikedTrack";
 import type { AvailablePeriod } from "@/lib/api/generated/AvailablePeriod";
 
 const MONTH_NAMES = [
@@ -236,10 +238,13 @@ function TopAlbumCard({
 function TopTrackCard({
   track,
   rank,
+  detail,
   onPlay,
 }: {
-  track: TopTrack;
+  track: TopTrack | TopLikedTrack;
   rank: number;
+  /** The stat line under the title, e.g. plays and time or likes. */
+  detail: string;
   onPlay?: () => void;
 }) {
   // Use inline data if available, otherwise fall back to getCoverArtUrl
@@ -307,10 +312,7 @@ function TopTrackCard({
             <span className="truncate">{track.albumName}</span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          {track.playCount} plays •{" "}
-          {formatListeningTime(Number(track.totalDurationSecs))}
-        </p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
       </div>
       {rank <= 3 && (
         <Award
@@ -424,10 +426,18 @@ export default function ReviewPage() {
     toast.success(`Playing "${albumName}"`);
   };
 
-  const handlePlayTrack = (trackId: string, trackTitle: string) => {
-    if (!reviewData?.review.topTracks.length) return;
+  const handlePlayTrack = (
+    trackId: string,
+    trackTitle: string,
+    list: "top" | "liked" = "top",
+  ) => {
+    const tracks =
+      list === "liked"
+        ? reviewData?.review.topLikedTracks
+        : reviewData?.review.topTracks;
+    if (!reviewData || !tracks?.length) return;
 
-    const trackIds = reviewData.review.topTracks.map((t) => t.trackId);
+    const trackIds = tracks.map((t) => t.trackId);
     const startIndex = trackIds.indexOf(trackId);
 
     const period = selectedPeriod?.month
@@ -436,7 +446,7 @@ export default function ReviewPage() {
 
     startQueue({
       sourceType: "history",
-      sourceName: `Top Tracks - ${period}`,
+      sourceName: `${list === "liked" ? "Most Liked" : "Top Tracks"} - ${period}`,
       songIds: trackIds,
       startIndex: startIndex >= 0 ? startIndex : 0,
       startSongId: trackId,
@@ -637,8 +647,8 @@ export default function ReviewPage() {
             </CardHeader>
             <CardContent>
               {reviewLoading ? (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  {Array.from({ length: 5 }).map((_, i) => (
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="p-3 rounded-lg bg-background/50">
                       <Skeleton className="h-4 w-16 mb-2" />
                       <Skeleton className="h-7 w-20" />
@@ -646,7 +656,7 @@ export default function ReviewPage() {
                   ))}
                 </div>
               ) : review ? (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                   <div className="p-3 rounded-lg bg-background/50">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Clock className="w-4 h-4" />
@@ -702,6 +712,17 @@ export default function ReviewPage() {
                       {Number(review.uniqueArtists).toLocaleString()}
                     </p>
                   </div>
+                  <div className="p-3 rounded-lg bg-background/50">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <HeartPlus className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">
+                        Likes
+                      </span>
+                    </div>
+                    <p className="text-xl font-bold">
+                      {Number(review.totalLikes).toLocaleString()}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <p className="text-muted-foreground text-sm">
@@ -736,7 +757,7 @@ export default function ReviewPage() {
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="tracks" className="w-full">
-                <TabsList className="w-full grid grid-cols-3 mb-4">
+                <TabsList className="w-full grid grid-cols-4 mb-4">
                   <TabsTrigger value="tracks" className="gap-2">
                     <Music2 className="w-4 h-4 hidden sm:block" />
                     Tracks
@@ -748,6 +769,10 @@ export default function ReviewPage() {
                   <TabsTrigger value="albums" className="gap-2">
                     <Disc3 className="w-4 h-4 hidden sm:block" />
                     Albums
+                  </TabsTrigger>
+                  <TabsTrigger value="liked" className="gap-2">
+                    <HeartPlus className="w-4 h-4 hidden sm:block" />
+                    Liked
                   </TabsTrigger>
                 </TabsList>
 
@@ -763,6 +788,9 @@ export default function ReviewPage() {
                           key={track.trackId}
                           track={track}
                           rank={i + 1}
+                          detail={`${track.playCount} plays • ${formatListeningTime(
+                            Number(track.totalDurationSecs),
+                          )}`}
                           onPlay={() =>
                             handlePlayTrack(track.trackId, track.trackTitle)
                           }
@@ -771,6 +799,36 @@ export default function ReviewPage() {
                     ) : (
                       <p className="text-muted-foreground text-sm py-4 text-center">
                         No track data for this period
+                      </p>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="liked" className="mt-0">
+                  <div className="space-y-2">
+                    {reviewLoading ? (
+                      Array.from({ length: 10 }).map((_, i) => (
+                        <TopListSkeleton key={i} rank={i + 1} />
+                      ))
+                    ) : review && review.topLikedTracks.length > 0 ? (
+                      review.topLikedTracks.map((track, i) => (
+                        <TopTrackCard
+                          key={track.trackId}
+                          track={track}
+                          rank={i + 1}
+                          detail={`${track.likeCount} ${track.likeCount === 1 ? "like" : "likes"}`}
+                          onPlay={() =>
+                            handlePlayTrack(
+                              track.trackId,
+                              track.trackTitle,
+                              "liked",
+                            )
+                          }
+                        />
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground text-sm py-4 text-center">
+                        No likes in this period
                       </p>
                     )}
                   </div>

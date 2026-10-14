@@ -7,6 +7,7 @@ import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
 import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
 import com.ferrotune.core.network.generated.ListeningStatsResponse
+import com.ferrotune.core.network.generated.MostLikedResponse
 import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
 import com.ferrotune.core.network.generated.PeriodReviewResponse
 import com.ferrotune.core.network.generated.SongResponse
@@ -41,6 +42,16 @@ class HomeRepository @Inject constructor(
             "inlineImages" to INLINE_IMAGES,
         ),
     )
+
+    /** The user's liked songs, most likes first. */
+    suspend fun mostLiked(size: Long = DEFAULT_SECTION_SIZE): MostLikedResponse =
+        apiProvider.requireApi().mostLiked(
+            mapOf(
+                "size" to size.toString(),
+                "offset" to "0",
+                "inlineImages" to INLINE_IMAGES,
+            ),
+        )
 
     suspend fun forgottenFavorites(
         minPlays: Int,

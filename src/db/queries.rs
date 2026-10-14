@@ -145,6 +145,7 @@ pub async fn get_playlist_songs(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
     Ok(songs)
 }
 
@@ -196,6 +197,7 @@ pub async fn get_playlist_songs_with_positions(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
 
     Ok(rows
         .into_iter()
@@ -1852,6 +1854,7 @@ pub async fn get_starred_songs(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
 
     // Populate starred_at and order by starred_at DESC (matching original query)
     let order_by_id: std::collections::HashMap<String, (usize, chrono::DateTime<chrono::Utc>)> =
@@ -1973,6 +1976,7 @@ async fn directory_songs(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
     Ok(songs)
 }
 
@@ -2135,6 +2139,7 @@ pub async fn get_songs_by_directory_page(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     crate::db::repo::browse::apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
     Ok(songs)
 }
 

@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.designsystem.components.HeartPlusIcon
 import com.ferrotune.core.designsystem.components.MediaActionRow
 import com.ferrotune.core.designsystem.components.MediaActionSeparator
 import com.ferrotune.core.designsystem.components.MediaActionSheet
@@ -166,6 +167,8 @@ fun songColumnDetails(
     song: SongResponse,
     columns: Set<SongColumn>,
     locale: Locale = Locale.getDefault(),
+    /** The current like count (after a like tap), else the song's. */
+    likeCount: Int = song.likeCount?.toInt() ?: 0,
 ): String? = buildList {
     if (SongColumn.YEAR in columns) song.year?.takeIf { it > 0 }?.let { add(it.toString()) }
     if (SongColumn.GENRE in columns) song.genre?.takeIf { it.isNotBlank() }?.let(::add)
@@ -173,6 +176,7 @@ fun songColumnDetails(
         val plays = song.playCount ?: 0
         add(if (plays == 1L) "1 play" else "$plays plays")
     }
+    if (SongColumn.LIKES in columns) add(if (likeCount == 1) "1 like" else "$likeCount likes")
     if (SongColumn.RATING in columns) song.userRating?.takeIf { it > 0 }?.let { add("★ $it") }
     if (SongColumn.FORMAT in columns) {
         add(listOfNotNull(song.suffix.uppercase(locale).ifBlank { null }, song.bitRate?.let { "$it kbps" }).joinToString(" "))
@@ -205,6 +209,7 @@ private val SongColumn.icon
         SongColumn.YEAR -> Icons.Filled.CalendarMonth
         SongColumn.GENRE -> Icons.Filled.Category
         SongColumn.PLAY_COUNT -> Icons.Filled.BarChart
+        SongColumn.LIKES -> HeartPlusIcon
         SongColumn.RATING -> Icons.Filled.Star
         SongColumn.FORMAT -> Icons.Filled.GraphicEq
         SongColumn.DATE_ADDED -> Icons.Filled.LibraryAdd

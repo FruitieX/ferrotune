@@ -115,6 +115,7 @@ export type SortField =
   | "addedToPlaylist"
   | "playCount"
   | "playStarts"
+  | "likes"
   | "lastPlayed"
   | "duration"
   | "albumCount"
@@ -148,6 +149,7 @@ export interface ColumnVisibility {
   duration: boolean;
   playCount: boolean;
   playStarts: boolean;
+  likes: boolean;
   dateAdded: boolean;
   lastPlayed: boolean;
   year: boolean;
@@ -166,6 +168,7 @@ export const columnVisibilityAtom =
     duration: true,
     playCount: false,
     playStarts: false,
+    likes: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -249,6 +252,7 @@ export const playlistColumnVisibilityAtom =
     duration: true,
     playCount: false,
     playStarts: false,
+    likes: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -360,6 +364,7 @@ export const homeSongColumnVisibilityAtom =
     duration: true,
     playCount: true,
     playStarts: false,
+    likes: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -426,6 +431,7 @@ export const albumDetailColumnVisibilityAtom =
     duration: true,
     playCount: false,
     playStarts: false,
+    likes: false,
     dateAdded: false,
     lastPlayed: false,
     year: false,
@@ -456,6 +462,7 @@ export const artistDetailColumnVisibilityAtom =
     duration: true,
     playCount: false,
     playStarts: false,
+    likes: false,
     dateAdded: false,
     lastPlayed: false,
     year: true,
@@ -486,6 +493,7 @@ export const genreDetailColumnVisibilityAtom =
     duration: true,
     playCount: false,
     playStarts: false,
+    likes: false,
     dateAdded: false,
     lastPlayed: false,
     year: true,
@@ -539,6 +547,8 @@ export interface AdvancedFilters {
   starredOnly?: boolean;
   minPlayCount?: number;
   maxPlayCount?: number;
+  minLikes?: number;
+  maxLikes?: number;
   shuffleExcludedOnly?: boolean; // Filter to only show shuffle-excluded tracks
   disabledOnly?: boolean; // Filter to only show disabled tracks
   minBitrate?: number; // in kbps

@@ -9,6 +9,7 @@ import {
   type QueueSourceType,
 } from "@/lib/store/server-queue";
 import { useStarred } from "@/lib/store/starred";
+import { useSongLike } from "@/lib/store/likes";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
@@ -48,6 +49,11 @@ interface UseSongActionsReturn {
   // Star state
   isStarred: boolean;
   toggleStar: () => Promise<void>;
+
+  // Like state (repeatable likes on top of favorites)
+  likeCount: number;
+  recentlyLiked: boolean;
+  toggleLike: () => Promise<void>;
 
   // Shuffle exclude state
   isExcludedFromShuffle: boolean;
@@ -99,6 +105,7 @@ export function useSongActions({
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
+  const { likeCount, recentlyLiked, toggleLike } = useSongLike(song);
   const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
   const [disabledSongs, setDisabledSongs] = useAtom(disabledSongsAtom);
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
@@ -303,6 +310,9 @@ export function useSongActions({
   return {
     isStarred,
     toggleStar,
+    likeCount,
+    recentlyLiked,
+    toggleLike,
     isExcludedFromShuffle,
     handleToggleShuffleExclude,
     isDisabled,

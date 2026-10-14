@@ -35,6 +35,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,9 +63,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.actions.SongActionsViewModel
+import com.ferrotune.core.actions.rememberSongFlags
+import com.ferrotune.core.actions.songLikeMenuLabel
 import com.ferrotune.core.designsystem.components.CoverArt
+import com.ferrotune.core.designsystem.components.HeartPlusIcon
 import com.ferrotune.core.designsystem.components.WaveformBar
 import com.ferrotune.core.designsystem.components.inlineCoverModel
+import com.ferrotune.core.designsystem.theme.FavoriteRed
 import com.ferrotune.core.media.TrackInfo
 import kotlin.math.abs
 import kotlin.math.max
@@ -455,6 +461,7 @@ private fun MoreMenu(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val castChooser = rememberCastChooser()
+    val songActions: SongActionsViewModel = hiltViewModel()
 
     Box {
         IconButton(
@@ -471,6 +478,29 @@ private fun MoreMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
+            state.track?.let { track ->
+                val flags = rememberSongFlags(
+                    songId = track.id,
+                    starred = track.starred != null,
+                    likeCount = track.likeCount,
+                    lastLiked = track.lastLiked,
+                )
+                val recentlyLiked = flags.isRecentlyLiked()
+                DropdownMenuItem(
+                    text = { Text(songLikeMenuLabel(flags.likes.count, recentlyLiked)) },
+                    leadingIcon = {
+                        Icon(
+                            HeartPlusIcon,
+                            contentDescription = null,
+                            tint = if (recentlyLiked) FavoriteRed else LocalContentColor.current,
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        songActions.toggleLike(track.id, flags)
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (state.isShuffled) "Shuffle on" else "Shuffle") },
                 leadingIcon = { Icon(Icons.Filled.Shuffle, contentDescription = null) },

@@ -722,13 +722,16 @@ async fn count_matching_songs(
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
                     FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                    FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+            ON s.id = lk.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
         combined_where
     );
 
     let count =
-        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 4).await?;
+        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 5).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -865,6 +868,7 @@ fn smart_playlist_text_order_by(
         (_, Some("year")) => "s.year",
         (_, Some("playCount")) => "pc.play_count",
         (_, Some("playStarts")) => "ps.play_starts",
+        (_, Some("likes")) => "COALESCE(lk.like_count, 0)",
         (_, Some("dateAdded")) | (_, Some("createdAt")) => "s.created_at",
         (_, Some("lastPlayed")) => "pc.last_played",
         (_, Some("duration")) => "s.duration",
@@ -970,7 +974,8 @@ pub async fn materialize_smart_playlist_songs(
 
     let sqlite_query = format!(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
-                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts, st.starred_at
+                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts,
+                lk.like_count, lk.last_liked, st.starred_at
          FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
@@ -982,6 +987,9 @@ pub async fn materialize_smart_playlist_songs(
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
                     FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                    FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+            ON s.id = lk.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
          ORDER BY {} {}
@@ -989,7 +997,7 @@ pub async fn materialize_smart_playlist_songs(
         combined_where, order_by, direction, limit_offset_clause
     );
 
-    execute_smart_playlist_song_query(database, &sqlite_query, where_args, user_id, 4).await
+    execute_smart_playlist_song_query(database, &sqlite_query, where_args, user_id, 5).await
 }
 
 /// Count songs matching the smart playlist rules with optional text filter (respecting max_songs if set)
@@ -1032,6 +1040,9 @@ async fn count_matching_songs_filtered(
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
                     FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                    FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+            ON s.id = lk.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
         combined_where
@@ -1040,7 +1051,7 @@ async fn count_matching_songs_filtered(
     where_args.append(&mut filter_args);
 
     let count =
-        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 4).await?;
+        execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 5).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -1106,6 +1117,9 @@ async fn sum_matching_songs_duration_filtered(
                 LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
                            FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
                    ON s.id = ps.song_id
+                LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                           FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+                   ON s.id = lk.song_id
                 LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
                 {}
                 ORDER BY {} {}
@@ -1126,6 +1140,9 @@ async fn sum_matching_songs_duration_filtered(
              LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
                         FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
                 ON s.id = ps.song_id
+             LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                        FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+                ON s.id = lk.song_id
              LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
              {}",
             combined_where
@@ -1134,7 +1151,7 @@ async fn sum_matching_songs_duration_filtered(
 
     where_args.append(&mut filter_args);
 
-    execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 4).await
+    execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 5).await
 }
 
 /// Materialize songs matching the smart playlist rules with optional text filter
@@ -1203,7 +1220,8 @@ async fn materialize_smart_playlist_songs_filtered(
 
     let query = format!(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
-                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts, st.starred_at
+                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts,
+                lk.like_count, lk.last_liked, st.starred_at
          FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
@@ -1215,6 +1233,9 @@ async fn materialize_smart_playlist_songs_filtered(
          LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
                     FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
             ON s.id = ps.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                    FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+            ON s.id = lk.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
          ORDER BY {} {}
@@ -1224,7 +1245,7 @@ async fn materialize_smart_playlist_songs_filtered(
 
     where_args.append(&mut filter_args);
 
-    execute_smart_playlist_song_query(database, &query, where_args, user_id, 4).await
+    execute_smart_playlist_song_query(database, &query, where_args, user_id, 5).await
 }
 
 /// Public helper to get songs from a smart playlist by ID.
@@ -1611,6 +1632,7 @@ fn build_condition(
         "bitrate" => ("COALESCE(s.bitrate, 0)".to_string(), vec![]),
         "playCount" => ("COALESCE(pc.play_count, 0)".to_string(), vec![]),
         "playStarts" => ("COALESCE(ps.play_starts, 0)".to_string(), vec![]),
+        "likes" => ("COALESCE(lk.like_count, 0)".to_string(), vec![]),
         "rating" => (
             "COALESCE((SELECT r.rating FROM ratings r WHERE r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?), 0)".to_string(),
             vec![SqlArg::I64(user_id)],

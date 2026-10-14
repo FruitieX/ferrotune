@@ -58,6 +58,7 @@ import com.ferrotune.core.actions.LocalMediaActions
 import com.ferrotune.core.actions.coverModel
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.ErrorState
+import com.ferrotune.core.designsystem.components.HeartPlusIcon
 import com.ferrotune.core.designsystem.components.MediaAction
 import com.ferrotune.core.designsystem.components.MediaActionSheet
 import com.ferrotune.core.designsystem.components.PageIconHeader
@@ -132,7 +133,7 @@ fun ReviewScreen(
                         }
                     }
                     SegmentedTabs(
-                        labels = listOf("Tracks", "Artists", "Albums"),
+                        labels = listOf("Tracks", "Artists", "Albums", "Liked"),
                         selectedIndex = tab,
                         onSelect = { tab = it },
                     )
@@ -160,6 +161,18 @@ fun ReviewScreen(
                                 coverShape = CircleShape,
                                 onClick = { mediaActions.openArtist(artist.artistId) },
                                 onPlay = { viewModel.playArtist(artist) },
+                            )
+                        }
+                        tab == 3 -> RankList(review.topLikedTracks, "No likes in this period") { rank, track ->
+                            RankRow(
+                                rank = rank,
+                                title = track.trackTitle,
+                                subtitle = listOfNotNull(track.artistName, formatCount(track.likeCount.toInt(), "like"))
+                                    .joinToString(" • "),
+                                cover = coverModel(track.coverArtData, track.coverArt),
+                                seed = track.albumId ?: track.trackId,
+                                placeholder = Icons.Filled.MusicNote,
+                                onClick = { viewModel.playLikedTrack(track) },
                             )
                         }
                         else -> RankList(review.topAlbums, "No album data for this period") { rank, album ->
@@ -274,6 +287,9 @@ private fun OverviewCard(review: PeriodReview?, loading: Boolean) {
             StatTile("Tracks", numbers.format(review.uniqueTracks), Icons.Filled.MusicNote, Modifier.weight(1f))
             StatTile("Albums", numbers.format(review.uniqueAlbums), Icons.Filled.Album, Modifier.weight(1f))
             StatTile("Artists", numbers.format(review.uniqueArtists), Icons.Filled.Person, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatTile("Likes", numbers.format(review.totalLikes), HeartPlusIcon, Modifier.weight(1f))
         }
     }
 }

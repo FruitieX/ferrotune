@@ -676,6 +676,7 @@ function PlaylistDetailContent() {
         showDuration={columnVisibility.duration}
         showPlayCount={columnVisibility.playCount}
         showPlayStarts={columnVisibility.playStarts}
+        showLikes={columnVisibility.likes}
         showYear={columnVisibility.year}
         showDateAdded={columnVisibility.dateAdded}
         dateAddedOverride={songItem.addedToPlaylist}

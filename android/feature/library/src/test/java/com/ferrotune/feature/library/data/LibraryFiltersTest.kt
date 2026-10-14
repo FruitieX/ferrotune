@@ -82,4 +82,18 @@ class LibraryFiltersTest {
         )
         assertTrue(LibraryFilters.NONE.toSmartPlaylistConditions().isEmpty())
     }
+
+    @Test
+    fun `a likes range reaches search, queues, smart playlists and badges`() {
+        val likes = LibraryFilters(minLikes = 3)
+
+        assertEquals(3, likes.applyTo(SearchParams(query = "*")).minLikes)
+        assertEquals(JsonPrimitive(3), likes.toQueueFilters()["minLikes"])
+        assertEquals(
+            listOf("likes" to "gte"),
+            likes.toSmartPlaylistConditions().map { it.field to it.operator },
+        )
+        assertEquals(listOf("Likes ≥ 3"), likes.badges().map { it.label })
+    }
 }
+

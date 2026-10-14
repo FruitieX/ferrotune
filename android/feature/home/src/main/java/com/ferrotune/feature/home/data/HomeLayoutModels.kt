@@ -147,6 +147,7 @@ fun encodeHomeTiles(tiles: List<HomeTileConfig>): JsonArray = JsonArray(
 enum class HomeSectionKind(val apiValue: String) {
     CONTINUE_LISTENING("continueListening"),
     MOST_PLAYED_RECENTLY("mostPlayedRecently"),
+    MOST_LIKED("mostLiked"),
     RECENTLY_ADDED("recentlyAdded"),
     FORGOTTEN_FAVORITES("forgottenFavorites"),
     DISCOVER("discover"),
@@ -206,6 +207,7 @@ val DEFAULT_HOME_SECTIONS: List<HomeSectionConfig> = listOf(
         kind = HomeSectionKind.MOST_PLAYED_RECENTLY,
         mostPlayedRecentlyDays = DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
     ),
+    HomeSectionConfig(id = "most-liked", kind = HomeSectionKind.MOST_LIKED),
     HomeSectionConfig(id = "recently-added", kind = HomeSectionKind.RECENTLY_ADDED),
     HomeSectionConfig(
         id = "forgotten-favorites",

@@ -13,6 +13,7 @@ import com.ferrotune.core.network.generated.FerrotuneAlbumListResponse
 import com.ferrotune.core.network.generated.GetPreferenceResponse
 import com.ferrotune.core.network.generated.HomeContinueListeningSection
 import com.ferrotune.core.network.generated.HomeForgottenFavoritesSection
+import com.ferrotune.core.network.generated.MostLikedResponse
 import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
 import com.ferrotune.core.network.generated.PeriodReview
 import com.ferrotune.core.network.generated.PeriodReviewResponse
@@ -118,6 +119,8 @@ internal fun testReviewResponse(): PeriodReviewResponse = PeriodReviewResponse(
         topArtists = emptyList(),
         topAlbums = emptyList(),
         topTracks = emptyList(),
+        totalLikes = 0,
+        topLikedTracks = emptyList(),
     ),
     availablePeriods = listOf(
         AvailablePeriod(year = 2026, month = null, hasData = true),
@@ -176,6 +179,11 @@ internal open class FakeHomeApi(
         failWhenOffline()
         mostPlayedParams = params
         return MostPlayedRecentlyResponse(song = listOf(testSong("song-1")), total = 1)
+    }
+
+    override suspend fun mostLiked(params: Map<String, String>): MostLikedResponse {
+        failWhenOffline()
+        return MostLikedResponse(song = emptyList(), total = 0)
     }
 
     override suspend fun forgottenFavorites(

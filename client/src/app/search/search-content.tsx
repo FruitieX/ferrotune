@@ -69,6 +69,8 @@ const SONG_ONLY_FILTER_KEYS: (keyof AdvancedFilters)[] = [
   "maxDuration",
   "minPlayCount",
   "maxPlayCount",
+  "minLikes",
+  "maxLikes",
   "minBitrate",
   "maxBitrate",
   "shuffleExcludedOnly",

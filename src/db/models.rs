@@ -76,6 +76,10 @@ pub struct Song {
     pub starred_at: Option<DateTime<Utc>>,
     /// Play starts count from listening_sessions table (populated via JOIN)
     pub play_starts: Option<i64>,
+    /// The user's like count (an `lk` JOIN or `song_likes::attach_song_likes`)
+    pub like_count: Option<i64>,
+    /// The user's newest like (same sources as `like_count`)
+    pub last_liked: Option<DateTime<Utc>>,
 }
 
 /// Song with its music library enabled status
@@ -114,6 +118,8 @@ pub struct SongWithLibraryStatus {
     pub last_played: Option<DateTime<Utc>>,
     pub starred_at: Option<DateTime<Utc>>,
     pub play_starts: Option<i64>,
+    pub like_count: Option<i64>,
+    pub last_liked: Option<DateTime<Utc>>,
 }
 
 impl SongWithLibraryStatus {
@@ -148,6 +154,8 @@ impl SongWithLibraryStatus {
             last_played: self.last_played,
             starred_at: self.starred_at,
             play_starts: self.play_starts,
+            like_count: self.like_count,
+            last_liked: self.last_liked,
         }
     }
 }
@@ -188,6 +196,8 @@ pub struct SongWithFolder {
     pub last_played: Option<DateTime<Utc>>,
     pub starred_at: Option<DateTime<Utc>>,
     pub play_starts: Option<i64>,
+    pub like_count: Option<i64>,
+    pub last_liked: Option<DateTime<Utc>>,
 }
 
 impl SongWithFolder {
@@ -222,6 +232,8 @@ impl SongWithFolder {
             last_played: self.last_played,
             starred_at: self.starred_at,
             play_starts: self.play_starts,
+            like_count: self.like_count,
+            last_liked: self.last_liked,
         }
     }
 
@@ -433,6 +445,8 @@ pub enum QueueSourceType {
     ForgottenFavorites,
     /// Most played recently - songs with the most recent-window scrobbles
     MostPlayedRecently,
+    /// Most liked - the user's liked songs, most likes first
+    MostLiked,
     /// Similar tracks - songs acoustically similar to the user's listening history
     SimilarTracks,
     #[default]
@@ -458,6 +472,7 @@ impl QueueSourceType {
             QueueSourceType::ContinueListening => "continueListening",
             QueueSourceType::ForgottenFavorites => "forgottenFavorites",
             QueueSourceType::MostPlayedRecently => "mostPlayedRecently",
+            QueueSourceType::MostLiked => "mostLiked",
             QueueSourceType::SimilarTracks => "similarTracks",
             QueueSourceType::Other => "other",
         }
@@ -485,6 +500,7 @@ impl std::str::FromStr for QueueSourceType {
             "continueListening" => Ok(QueueSourceType::ContinueListening),
             "forgottenFavorites" => Ok(QueueSourceType::ForgottenFavorites),
             "mostPlayedRecently" => Ok(QueueSourceType::MostPlayedRecently),
+            "mostLiked" => Ok(QueueSourceType::MostLiked),
             "similarTracks" => Ok(QueueSourceType::SimilarTracks),
             "other" => Ok(QueueSourceType::Other),
             _ => Err(format!("Unknown queue source type: {s}")),

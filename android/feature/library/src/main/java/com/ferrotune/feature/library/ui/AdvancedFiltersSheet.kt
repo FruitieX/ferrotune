@@ -83,6 +83,8 @@ internal data class FilterDraft(
     val starredOnly: Boolean = false,
     val minPlayCount: String = "",
     val maxPlayCount: String = "",
+    val minLikes: String = "",
+    val maxLikes: String = "",
     val minBitrate: String = "",
     val maxBitrate: String = "",
     val fileFormat: String? = null,
@@ -94,7 +96,9 @@ internal data class FilterDraft(
     val shuffleExcludedOnly: Boolean = false,
     val disabledOnly: Boolean = false,
 ) {
-    private val numbers get() = listOf(minYear, maxYear, minDuration, maxDuration, minPlayCount, maxPlayCount, minBitrate, maxBitrate)
+    private val numbers get() = listOf(
+            minYear, maxYear, minDuration, maxDuration, minPlayCount, maxPlayCount, minLikes, maxLikes, minBitrate, maxBitrate,
+        )
     private val dates get() = listOf(addedAfter, addedBefore, lastPlayedAfter, lastPlayedBefore)
 
     val isValid: Boolean
@@ -111,6 +115,8 @@ internal data class FilterDraft(
         starredOnly = starredOnly,
         minPlayCount = minPlayCount.toIntOrNull(),
         maxPlayCount = maxPlayCount.toIntOrNull(),
+        minLikes = minLikes.toIntOrNull(),
+        maxLikes = maxLikes.toIntOrNull(),
         minBitrate = minBitrate.toIntOrNull(),
         maxBitrate = maxBitrate.toIntOrNull(),
         fileFormat = fileFormat,
@@ -135,6 +141,8 @@ internal data class FilterDraft(
             starredOnly = filters.starredOnly,
             minPlayCount = filters.minPlayCount?.toString().orEmpty(),
             maxPlayCount = filters.maxPlayCount?.toString().orEmpty(),
+            minLikes = filters.minLikes?.toString().orEmpty(),
+            maxLikes = filters.maxLikes?.toString().orEmpty(),
             minBitrate = filters.minBitrate?.toString().orEmpty(),
             maxBitrate = filters.maxBitrate?.toString().orEmpty(),
             fileFormat = filters.fileFormat,
@@ -218,6 +226,13 @@ fun AdvancedFiltersSheet(
                     draft.maxPlayCount,
                     { draft = draft.copy(minPlayCount = it) },
                     { draft = draft.copy(maxPlayCount = it) },
+                )
+                RangeFields(
+                    "Likes",
+                    draft.minLikes,
+                    draft.maxLikes,
+                    { draft = draft.copy(minLikes = it) },
+                    { draft = draft.copy(maxLikes = it) },
                 )
                 RangeFields(
                     "Bitrate (kbps)",

@@ -90,6 +90,7 @@ export type QueueSourceType =
   | "continueListening"
   | "forgottenFavorites"
   | "mostPlayedRecently"
+  | "mostLiked"
   | "similarTracks"
   | "other";
 

@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ferrotune.core.designsystem.components.HeartPlusIcon
 import com.ferrotune.core.designsystem.components.MediaAction
 import com.ferrotune.core.designsystem.components.MediaActionRow
 import com.ferrotune.core.designsystem.components.MediaActionSeparator
@@ -64,6 +65,8 @@ data class SongMenuTarget(
     val coverModel: Any?,
     val starred: Boolean,
     val rating: Int,
+    val likeCount: Int = 0,
+    val lastLiked: String? = null,
 )
 
 fun SongResponse.toMenuTarget(): SongMenuTarget = SongMenuTarget(
@@ -76,6 +79,8 @@ fun SongResponse.toMenuTarget(): SongMenuTarget = SongMenuTarget(
     coverModel = inlineCoverModel(coverArtData),
     starred = starred != null,
     rating = userRating ?: 0,
+    likeCount = likeCount?.toInt() ?: 0,
+    lastLiked = lastLiked,
 )
 
 /**
@@ -168,7 +173,14 @@ fun SongListRow(
     val selected = selection != null && song.id in selection.selectedIds
     // Chosen columns override the screen's fixed layout (see SongColumnsState).
     val showIndex = if (columns != null) showIndexColumn && SongColumn.INDEX in columns else showIndexColumn
-    val starred = rememberSongFlags(song.id, song.starred != null, song.userRating ?: 0).starred
+    val flags = rememberSongFlags(
+        song.id,
+        song.starred != null,
+        song.userRating ?: 0,
+        song.likeCount?.toInt() ?: 0,
+        song.lastLiked,
+    )
+    val starred = flags.starred
     val showHeart = columns != null && SongColumn.FAVORITE in columns && starred
     TrackRow(
         title = song.title,
@@ -181,7 +193,7 @@ fun SongListRow(
         } else {
             subtitle
         },
-        details = columns?.let { songColumnDetails(song, it) },
+        details = columns?.let { songColumnDetails(song, it, likeCount = flags.likes.count) },
         coverModel = coverModel(song.coverArtData, song.coverArt, CoverSize.SMALL),
         coverSeed = song.album ?: song.title,
         onClick = { if (selecting) selection?.toggle(song.id) else onPlay() },
@@ -253,7 +265,7 @@ fun SongMenuSheet(
     state.detailsFor?.let { SongDetailsSheet(it, onDismiss = state::closeDetails) }
     val target = state.target ?: return
     val actions = LocalMediaActions.current
-    val flags = rememberSongFlags(target.id, target.starred, target.rating)
+    val flags = rememberSongFlags(target.id, target.starred, target.rating, target.likeCount, target.lastLiked)
     val disabled = target.id in rememberDisabledSongIds()
     MediaActionSheet(
         expanded = true,
@@ -283,6 +295,12 @@ fun SongMenuSheet(
                     icon = if (flags.starred) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                     separatorBefore = true,
                 ) { viewModel.toggleStar(target.id, flags) },
+            )
+            add(
+                MediaAction(
+                    label = songLikeMenuLabel(flags.likes.count, flags.isRecentlyLiked()),
+                    icon = HeartPlusIcon,
+                ) { viewModel.toggleLike(target.id, flags) },
             )
         },
         extraContent = {

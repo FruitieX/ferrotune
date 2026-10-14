@@ -103,6 +103,7 @@ internal val playlistSortOptions = listOf(
     SortOption("album", "Album"),
     SortOption("dateAdded", "Date added"),
     SortOption("duration", "Duration"),
+    SortOption("likes", "Likes"),
 )
 
 /** Web playlist header tile: `from-emerald-500 to-emerald-800`. */

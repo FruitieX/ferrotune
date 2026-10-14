@@ -729,6 +729,9 @@ export function SongContextMenu({
   const {
     isStarred,
     toggleStar,
+    likeCount,
+    recentlyLiked,
+    toggleLike,
     isExcludedFromShuffle,
     handleToggleShuffleExclude,
     isDisabled,
@@ -837,6 +840,7 @@ export function SongContextMenu({
           components={components}
           handlers={{
             toggleStar,
+            toggleLike,
             handleToggleShuffleExclude,
             handleToggleDisabled,
             handleRate,
@@ -846,6 +850,8 @@ export function SongContextMenu({
           }}
           state={{
             isStarred,
+            likeCount,
+            recentlyLiked,
             isExcludedFromShuffle,
             isDisabled,
             currentRating,
@@ -989,6 +995,9 @@ export function SongDropdownMenu({
   const {
     isStarred,
     toggleStar,
+    likeCount,
+    recentlyLiked,
+    toggleLike,
     isExcludedFromShuffle,
     handleToggleShuffleExclude,
     isDisabled,
@@ -1085,6 +1094,7 @@ export function SongDropdownMenu({
         components={components}
         handlers={{
           toggleStar,
+          toggleLike,
           handleToggleShuffleExclude,
           handleToggleDisabled,
           handleRate,
@@ -1094,6 +1104,8 @@ export function SongDropdownMenu({
         }}
         state={{
           isStarred,
+          likeCount,
+          recentlyLiked,
           isExcludedFromShuffle,
           isDisabled,
           currentRating,

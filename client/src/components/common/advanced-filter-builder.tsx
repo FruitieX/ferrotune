@@ -84,6 +84,7 @@ export const DEFAULT_SONG_FIELDS: FieldDefinition[] = [
   { value: "year", label: "Year", type: "number" },
   { value: "playCount", label: "Play Count", type: "number" },
   { value: "playStarts", label: "Play Starts", type: "number" },
+  { value: "likes", label: "Likes", type: "number" },
   { value: "duration", label: "Duration", type: "duration" },
   { value: "bitrate", label: "Bitrate (kbps)", type: "number" },
   { value: "rating", label: "Rating", type: "number" },
@@ -852,6 +853,19 @@ export function filtersToSearchParams(
           params.minPlayCount = Number(value) + 1;
         } else if (operator === "lt") {
           params.maxPlayCount = Number(value) - 1;
+        }
+        break;
+
+      case "likes":
+        if (operator === "gte" || operator === "eq") {
+          params.minLikes = Number(value);
+          if (operator === "eq") params.maxLikes = Number(value);
+        } else if (operator === "lte") {
+          params.maxLikes = Number(value);
+        } else if (operator === "gt") {
+          params.minLikes = Number(value) + 1;
+        } else if (operator === "lt") {
+          params.maxLikes = Number(value) - 1;
         }
         break;
 

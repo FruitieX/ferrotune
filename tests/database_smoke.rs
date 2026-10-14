@@ -119,6 +119,8 @@ fn search_params_for_last_played(direction: &str) -> SearchParams {
         starred_only: None,
         min_play_count: None,
         max_play_count: None,
+        min_likes: None,
+        max_likes: None,
         shuffle_excluded_only: None,
         disabled_only: None,
         min_bitrate: None,

@@ -1428,6 +1428,9 @@ pub async fn get_playlist_songs(
         "dateAdded" | "created" => PlaylistEntrySort::Created,
         "addedToPlaylist" => PlaylistEntrySort::AddedToPlaylist,
         "duration" => PlaylistEntrySort::Duration,
+        "likes" => PlaylistEntrySort::Likes {
+            user_id: user.user_id,
+        },
         "playCount" | "playStarts" | "lastPlayed" => {
             return Err(Error::InvalidRequest(
                 "playlist sorting by listening statistics is not supported".to_string(),

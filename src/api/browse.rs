@@ -254,6 +254,7 @@ fn collection_song_sort(value: Option<&str>) -> Result<CollectionSongSort, Ferro
         "format" => Ok(CollectionSongSort::Format),
         "playCount" => Ok(CollectionSongSort::PlayCount),
         "playStarts" => Ok(CollectionSongSort::PlayStarts),
+        "likes" => Ok(CollectionSongSort::Likes),
         "lastPlayed" => Ok(CollectionSongSort::LastPlayed),
         value => Err(crate::error::Error::InvalidRequest(format!(
             "unsupported collection song sort: {value}"

@@ -7,6 +7,7 @@ import {
   Clock,
   Disc,
   Heart,
+  HeartPlus,
   History,
   ListMusic,
   Play,
@@ -99,6 +100,8 @@ function getContinueListeningSourceIcon(
       return History;
     case "mostPlayedRecently":
       return TrendingUp;
+    case "mostLiked":
+      return HeartPlus;
     case "similarTracks":
       return AudioLines;
     default:
@@ -136,6 +139,7 @@ type HomeSectionConfig =
       queueSourceType:
         | "forgottenFavorites"
         | "mostPlayedRecently"
+        | "mostLiked"
         | "similarTracks";
       queueSourceName: string;
     }
@@ -181,6 +185,19 @@ function getHomeSectionConfig(
         gradientColor: "rgba(244,63,94,0.2)",
         queueSourceType: "mostPlayedRecently",
         queueSourceName: "Most Played Recently",
+      };
+    case "most-liked":
+      return {
+        id: sectionId,
+        kind: "song",
+        title: "Most Liked",
+        label: "Home",
+        emptyTitle: "No liked songs yet",
+        icon: HeartPlus,
+        iconClassName: "bg-linear-to-br from-red-500 to-pink-700",
+        gradientColor: "rgba(239,68,68,0.2)",
+        queueSourceType: "mostLiked",
+        queueSourceName: "Most Liked",
       };
     case "recently-added":
       return {
@@ -249,7 +266,9 @@ function getDefaultSortConfig(section: HomeSectionConfig | null): SortConfig {
   }
 
   if (section.kind === "song") {
-    return { field: "playCount", direction: "desc" };
+    return section.queueSourceType === "mostLiked"
+      ? { field: "likes", direction: "desc" }
+      : { field: "playCount", direction: "desc" };
   }
 
   if (section.albumListType === "random") {
@@ -664,6 +683,25 @@ export default function HomeSectionPage() {
         };
       }
 
+      if (section.kind === "song" && section.queueSourceType === "mostLiked") {
+        const response = await client.getMostLiked({
+          size: PAGE_SIZE,
+          offset: pageParam,
+          inlineImages: "small",
+          filter: filterParam,
+          ...sortParam,
+        });
+        return {
+          entries: [] as ContinueListeningEntry[],
+          songs: response.song ?? [],
+          albums: [] as Album[],
+          total: response.total,
+          count: response.song.length,
+          nextOffset: pageParam + PAGE_SIZE,
+          pageSize: PAGE_SIZE,
+        };
+      }
+
       if (
         section.kind === "song" &&
         section.queueSourceType === "forgottenFavorites"
@@ -810,18 +848,20 @@ export default function HomeSectionPage() {
 
     if (section.kind === "song") {
       const sectionFilters =
-        section.queueSourceType === "mostPlayedRecently"
-          ? mostPlayedFiltersRef.current
-          : section.queueSourceType === "similarTracks"
-            ? {
-                seed: similarTracksSeedRef.current,
-                count: similarTracksCountRef.current,
-                excludeRecentDays: similarTracksExcludeRef.current,
-                seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
-              }
-            : seedRef.current !== undefined
-              ? { ...forgottenFavoritesFilters, seed: seedRef.current }
-              : forgottenFavoritesFilters;
+        section.queueSourceType === "mostLiked"
+          ? undefined
+          : section.queueSourceType === "mostPlayedRecently"
+            ? mostPlayedFiltersRef.current
+            : section.queueSourceType === "similarTracks"
+              ? {
+                  seed: similarTracksSeedRef.current,
+                  count: similarTracksCountRef.current,
+                  excludeRecentDays: similarTracksExcludeRef.current,
+                  seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
+                }
+              : seedRef.current !== undefined
+                ? { ...forgottenFavoritesFilters, seed: seedRef.current }
+                : forgottenFavoritesFilters;
       startQueue({
         sourceType: section.queueSourceType,
         sourceName: section.queueSourceName,
@@ -909,18 +949,21 @@ export default function HomeSectionPage() {
           name: section.queueSourceName,
           filters: getQueueFilters(
             debouncedFilter,
-            section.queueSourceType === "mostPlayedRecently"
-              ? mostPlayedFiltersRef.current
-              : section.queueSourceType === "similarTracks"
-                ? {
-                    seed: similarTracksSeedRef.current,
-                    count: similarTracksCountRef.current,
-                    excludeRecentDays: similarTracksExcludeRef.current,
-                    seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
-                  }
-                : seedRef.current !== undefined
-                  ? { seed: seedRef.current }
-                  : undefined,
+            section.queueSourceType === "mostLiked"
+              ? undefined
+              : section.queueSourceType === "mostPlayedRecently"
+                ? mostPlayedFiltersRef.current
+                : section.queueSourceType === "similarTracks"
+                  ? {
+                      seed: similarTracksSeedRef.current,
+                      count: similarTracksCountRef.current,
+                      excludeRecentDays: similarTracksExcludeRef.current,
+                      seedSongId:
+                        similarTracksSeedSongIdRef.current ?? undefined,
+                    }
+                  : seedRef.current !== undefined
+                    ? { seed: seedRef.current }
+                    : undefined,
           ),
           sort: {
             field: sortConfig.field,
@@ -1087,6 +1130,7 @@ export default function HomeSectionPage() {
                   showDuration={songColumnVisibility.duration}
                   showPlayCount={songColumnVisibility.playCount}
                   showPlayStarts={songColumnVisibility.playStarts}
+                  showLikes={songColumnVisibility.likes}
                   showYear={songColumnVisibility.year}
                   showDateAdded={songColumnVisibility.dateAdded}
                   showLastPlayed={songColumnVisibility.lastPlayed}

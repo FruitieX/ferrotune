@@ -73,6 +73,14 @@ minPlayCount: number | null,
  */
 maxPlayCount: number | null, 
 /**
+ * Filter songs by minimum number of likes
+ */
+minLikes: number | null, 
+/**
+ * Filter songs by maximum number of likes
+ */
+maxLikes: number | null, 
+/**
  * Filter to only shuffle-excluded songs
  */
 shuffleExcludedOnly: boolean | null, 

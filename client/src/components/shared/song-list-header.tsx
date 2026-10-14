@@ -193,6 +193,15 @@ export function SongListHeader({
             onSort={handleSort}
           />
         )}
+        {columnVisibility.likes && (
+          <SortableHeader
+            field="likes"
+            label="Likes"
+            width="w-12"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
         {columnVisibility.lastPlayed && (
           <SortableHeader
             field="lastPlayed"

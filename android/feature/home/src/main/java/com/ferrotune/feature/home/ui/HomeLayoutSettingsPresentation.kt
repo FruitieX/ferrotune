@@ -51,6 +51,7 @@ fun homePlaylistChoiceLabel(choice: HomePlaylistChoice): String =
 fun homeSectionDescription(section: HomeSectionConfig): String = when (section.kind) {
     HomeSectionKind.CONTINUE_LISTENING -> "Recent albums, playlists, and generated sources"
     HomeSectionKind.MOST_PLAYED_RECENTLY -> "Tracks played most in a chosen recent period"
+    HomeSectionKind.MOST_LIKED -> "Tracks you've liked the most"
     HomeSectionKind.RECENTLY_ADDED -> "Newly added albums"
     HomeSectionKind.FORGOTTEN_FAVORITES -> "Older favorites worth revisiting"
     HomeSectionKind.DISCOVER -> "Random album discovery"

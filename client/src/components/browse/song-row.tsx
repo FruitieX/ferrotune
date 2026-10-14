@@ -34,6 +34,7 @@ import { useOfflineUnavailableSong } from "@/lib/store/downloads";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 import { hapticConfirm, hapticSelection } from "@/lib/utils/haptic";
+import { type LikeableSong, useSongLike } from "@/lib/store/likes";
 
 // Track number column - shows number, now playing indicator, or selection checkbox on hover
 interface TrackIndexProps {
@@ -45,6 +46,16 @@ interface TrackIndexProps {
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, e: React.MouseEvent) => void;
+}
+
+/** The Likes column: the song's like count, current after a like tap. */
+function SongLikeCount({ song }: { song: LikeableSong }) {
+  const { likeCount, recentlyLiked } = useSongLike(song);
+  return (
+    <span className={cn("w-12 text-right", recentlyLiked && "text-red-500")}>
+      {likeCount}
+    </span>
+  );
 }
 
 function TrackIndex({
@@ -141,6 +152,7 @@ interface SongRowProps {
   showDuration?: boolean;
   showPlayCount?: boolean;
   showPlayStarts?: boolean;
+  showLikes?: boolean;
   showYear?: boolean;
   showDateAdded?: boolean;
   /** Override the date shown in "Date Added" column (e.g., for playlist entry dates) */
@@ -200,6 +212,7 @@ export function SongRow({
   showDuration = true,
   showPlayCount = false,
   showPlayStarts = false,
+  showLikes = false,
   showYear = false,
   showDateAdded = false,
   dateAddedOverride,
@@ -514,6 +527,7 @@ export function SongRow({
               {showPlayStarts && (
                 <span className="w-12 text-right">{song.playStarts ?? 0}</span>
               )}
+              {showLikes && <SongLikeCount song={song} />}
               {showLastPlayed && (
                 <span className="w-24 text-right">
                   {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}

@@ -284,6 +284,11 @@ async fn search_songs_unified(
     } else {
         "COALESCE(ps.play_starts, 0) AS play_starts, "
     });
+    sql.push_str(if pg {
+        "lk.like_count::BIGINT AS like_count, lk.last_liked AS last_liked, "
+    } else {
+        "lk.like_count AS like_count, lk.last_liked AS last_liked, "
+    });
     sql.push_str(if filter_conds.has_starred_filter {
         "st.starred_at AS starred_at"
     } else if pg {
@@ -318,6 +323,12 @@ async fn search_songs_unified(
     } else {
         " AND explicit_start = 1 GROUP BY song_id) ps ON s.id = ps.song_id"
     });
+    sql.push_str(
+        " LEFT JOIN (SELECT song_id, COUNT(*) AS like_count, MAX(liked_at) AS last_liked \
+         FROM song_likes WHERE user_id = ",
+    );
+    push_bind(&mut sql, &mut binds, user_id, pg);
+    sql.push_str(" GROUP BY song_id) lk ON s.id = lk.song_id");
 
     if filter_conds.has_rating_filter {
         sql.push_str(
@@ -430,6 +441,13 @@ async fn count_songs_unified(
         );
         push_bind(&mut sql, &mut binds, user_id, pg);
     }
+    if filter_conds.has_likes_filter {
+        sql.push_str(
+            " LEFT JOIN (SELECT song_id, COUNT(*) AS like_count FROM song_likes WHERE user_id = ",
+        );
+        push_bind(&mut sql, &mut binds, user_id, pg);
+        sql.push_str(" GROUP BY song_id) lk ON s.id = lk.song_id");
+    }
     if !pg && fts_query.is_some() {
         sql.push_str(" INNER JOIN songs_fts fts ON s.id = fts.song_id");
     }
@@ -518,6 +536,10 @@ pub struct SearchParams {
     pub min_play_count: Option<i32>,
     /// Filter songs by maximum play count
     pub max_play_count: Option<i32>,
+    /// Filter songs by minimum number of likes
+    pub min_likes: Option<i32>,
+    /// Filter songs by maximum number of likes
+    pub max_likes: Option<i32>,
     /// Filter to only shuffle-excluded songs
     pub shuffle_excluded_only: Option<bool>,
     /// Filter to only disabled songs
@@ -590,6 +612,9 @@ pub fn get_song_order_clause_for_search(
         Some("playStarts") => {
             format!("COALESCE(play_starts, 0) {dir}, s.title COLLATE NOCASE {dir}")
         }
+        Some("likes") => format!(
+            "COALESCE(like_count, 0) {dir}, last_liked {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"
+        ),
         Some("lastPlayed") => format!("last_played {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("starred") => format!("starred_at {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("s.created_at {dir}, s.title COLLATE NOCASE {dir}"),
@@ -797,6 +822,8 @@ pub struct SongFilterConditions {
     pub conditions: Vec<String>,
     pub has_rating_filter: bool,
     pub has_starred_filter: bool,
+    /// The conditions reference the user's like counts (`lk`).
+    pub has_likes_filter: bool,
 }
 
 pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilterConditions {
@@ -839,6 +866,12 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
     }
     if let Some(max_pc) = params.max_play_count {
         conditions.push(format!("COALESCE(pc.play_count, 0) <= {}", max_pc));
+    }
+    if let Some(min_likes) = params.min_likes {
+        conditions.push(format!("COALESCE(lk.like_count, 0) >= {}", min_likes));
+    }
+    if let Some(max_likes) = params.max_likes {
+        conditions.push(format!("COALESCE(lk.like_count, 0) <= {}", max_likes));
     }
     if has_shuffle_exclude_filter {
         // Filter to only show songs that are in the shuffle_excludes table for this user
@@ -914,6 +947,7 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
         conditions,
         has_rating_filter,
         has_starred_filter,
+        has_likes_filter: params.min_likes.is_some() || params.max_likes.is_some(),
     }
 }
 
@@ -1828,8 +1862,9 @@ async fn fuzzy_supplement_songs(
     }
     binds.push(Value::from(limit * 3));
 
-    let candidates =
+    let mut candidates =
         query_all_for_backend::<crate::db::models::Song>(database, &sql, binds).await?;
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut candidates).await?;
 
     merge_results(existing, candidates, query, limit, |s| &s.title, |s| &s.id)
 }

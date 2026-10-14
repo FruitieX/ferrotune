@@ -57,6 +57,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/songs/most-played-recently",
             get(lists::get_most_played_recently),
         )
+        .route("/songs/most-liked", get(lists::get_most_liked))
         .route(
             "/songs/forgotten-favorites",
             get(lists::get_forgotten_favorites),
@@ -261,6 +262,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Waveform endpoints
         .route("/songs/{id}/waveform", get(waveform::get_waveform))
+        .route("/songs/{id}/like", post(starring::toggle_song_like))
         // Shuffle exclude endpoints
         .route(
             "/songs/{id}/shuffle-exclude",

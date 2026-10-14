@@ -100,6 +100,8 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
     computedReplayGainTrackGain: null,
     computedReplayGainTrackPeak: null,
     playStarts: null,
+    likeCount: null,
+    lastLiked: null,
   };
 }
 

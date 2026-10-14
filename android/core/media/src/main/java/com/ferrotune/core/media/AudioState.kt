@@ -18,6 +18,9 @@ data class TrackInfo(
     val starred: String? = null,
     val artistId: String? = null,
     val albumId: String? = null,
+    /** Repeatable likes on top of favorites; see `SongFlags.isRecentlyLiked`. */
+    val likeCount: Int = 0,
+    val lastLiked: String? = null,
 )
 
 /**

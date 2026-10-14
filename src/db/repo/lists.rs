@@ -16,11 +16,12 @@ use crate::error::Result;
 
 const ID_BACKED_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 4] =
     ["playlist", "smartPlaylist", "songRadio", "albumList"];
-const SINGLETON_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 4] = [
+const SINGLETON_CONTINUE_LISTENING_SOURCE_TYPES: [&str; 5] = [
     "favorites",
     "history",
     "forgottenFavorites",
     "mostPlayedRecently",
+    "mostLiked",
 ];
 
 fn album_select() -> sea_orm::Select<entity::albums::Entity> {

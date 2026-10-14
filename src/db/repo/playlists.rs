@@ -848,6 +848,10 @@ pub enum PlaylistEntrySort {
     Created,
     AddedToPlaylist,
     Duration,
+    /// By the viewer's like count.
+    Likes {
+        user_id: i64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1045,6 +1049,13 @@ fn order_playlist_entry_query(
         PlaylistEntrySort::Duration => {
             query.order_by(Expr::col((entity::songs::Entity, Song::Duration)), order)
         }
+        PlaylistEntrySort::Likes { user_id } => query.order_by(
+            Expr::cust(format!(
+                "(SELECT COUNT(*) FROM song_likes sl \
+                 WHERE sl.song_id = songs.id AND sl.user_id = {user_id})"
+            )),
+            order,
+        ),
     };
 
     query.order_by(Entry::Position, tie_order)

@@ -9,6 +9,7 @@ import com.ferrotune.core.network.generated.AvailablePeriod
 import com.ferrotune.core.network.generated.PeriodReview
 import com.ferrotune.core.network.generated.TopAlbum
 import com.ferrotune.core.network.generated.TopArtist
+import com.ferrotune.core.network.generated.TopLikedTrack
 import com.ferrotune.core.network.generated.TopTrack
 import com.ferrotune.core.network.readableMessage
 import com.ferrotune.feature.home.data.HomeRepository
@@ -90,6 +91,22 @@ class ReviewViewModel @Inject constructor(
             QueueStartSpec(
                 sourceType = "history",
                 sourceName = topTracksName(review),
+                songIds = ids,
+                startIndex = ids.indexOf(track.trackId).coerceAtLeast(0),
+                startSongId = track.trackId,
+            ),
+            track.trackTitle,
+        )
+    }
+
+    /** Plays the period's most liked tracks from [track]. */
+    fun playLikedTrack(track: TopLikedTrack) {
+        val review = state.value.review ?: return
+        val ids = review.topLikedTracks.map { it.trackId }
+        play(
+            QueueStartSpec(
+                sourceType = "history",
+                sourceName = "Most Liked - ${periodName(ReviewPeriod(review.year, review.month), Locale.getDefault())}",
                 songIds = ids,
                 startIndex = ids.indexOf(track.trackId).coerceAtLeast(0),
                 startSongId = track.trackId,

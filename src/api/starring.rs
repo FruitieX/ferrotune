@@ -10,7 +10,7 @@ use crate::api::common::starring::{
 };
 use crate::api::AppState;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -132,5 +132,55 @@ pub async fn get_starred(
         artists: artist_responses,
         albums: album_responses,
         songs: song_responses,
+    }))
+}
+
+// ============================================================================
+// Song likes
+// ============================================================================
+
+/// The song's like state after a like tap.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SongLikeResponse {
+    pub song_id: String,
+    /// True when the tap added a like, false when it undid the newest one.
+    pub liked: bool,
+    #[ts(type = "number")]
+    pub like_count: i64,
+    pub last_liked: Option<String>,
+    /// The song's favorite timestamp after the tap: liking a song favorites
+    /// it, and undoing the like that did so unfavorites it again.
+    pub starred: Option<String>,
+}
+
+/// POST /api/songs/{id}/like - Like a song again, or undo the newest like
+/// when it is less than 12 hours old (so repeated taps never pile up).
+pub async fn toggle_song_like(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(song_id): Path<String>,
+) -> FerrotuneApiResult<Json<SongLikeResponse>> {
+    if !crate::db::repo::listening::song_exists(&state.database, &song_id).await? {
+        return Err(Error::NotFound("Song not found".to_string()).into());
+    }
+    let toggle = crate::db::repo::song_likes::toggle_song_like(
+        &state.database,
+        user.user_id,
+        &song_id,
+        chrono::Utc::now(),
+    )
+    .await?;
+    Ok(Json(SongLikeResponse {
+        song_id,
+        liked: toggle.liked,
+        like_count: toggle.like_count,
+        last_liked: toggle
+            .last_liked
+            .map(crate::api::common::utils::format_datetime_iso_ms),
+        starred: toggle
+            .starred_at
+            .map(crate::api::common::utils::format_datetime_iso_ms),
     }))
 }

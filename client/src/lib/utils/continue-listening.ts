@@ -103,6 +103,12 @@ export function getContinueListeningSourceDetails(
         coverType: "mostPlayedRecently",
         filters: getMostPlayedRecentlyFilters(),
       };
+    case "mostLiked":
+      return {
+        queueSourceType: "mostLiked",
+        subtitle: "Your most liked tracks",
+        coverType: "favorites",
+      };
     case "similarTracks":
       return {
         queueSourceType: "similarTracks",

@@ -25,6 +25,7 @@ pub mod scrobbles;
 pub mod server_config;
 pub mod shuffle_excludes;
 pub mod smart_playlists;
+pub mod song_likes;
 pub mod songs;
 pub mod starred;
 pub mod tagger_pending_edits;

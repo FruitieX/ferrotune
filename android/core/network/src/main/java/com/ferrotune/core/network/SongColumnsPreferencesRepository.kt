@@ -20,6 +20,7 @@ enum class SongColumn(val value: String, val label: String) {
     YEAR("year", "Year"),
     GENRE("genre", "Genre"),
     PLAY_COUNT("playCount", "Plays"),
+    LIKES("likes", "Likes"),
     RATING("rating", "Rating"),
     FORMAT("format", "Format & bitrate"),
     DATE_ADDED("dateAdded", "Date added"),

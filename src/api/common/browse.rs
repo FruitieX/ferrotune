@@ -148,7 +148,13 @@ pub async fn get_song_logic(
         .ok_or_else(|| crate::error::Error::NotFound(format!("Song {} not found", song_id)))?;
 
     let folder_path = song_with_folder.folder_path.clone();
-    let song = song_with_folder.into_song();
+    let mut song = song_with_folder.into_song();
+    crate::db::repo::song_likes::attach_song_likes(
+        database,
+        user_id,
+        std::slice::from_mut(&mut song),
+    )
+    .await?;
 
     // Get album info if available
     let album = if let Some(album_id) = &song.album_id {
@@ -418,6 +424,8 @@ pub fn song_to_response_with_stats(
         play_count,
         last_played,
         play_starts: song.play_starts,
+        like_count: song.like_count,
+        last_liked: song.last_liked.map(format_datetime_iso_ms),
         replay_gain_track_gain,
         replay_gain_track_peak,
         original_replay_gain_track_gain,

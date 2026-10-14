@@ -23,6 +23,8 @@ data class LibraryFilters(
     val starredOnly: Boolean = false,
     val minPlayCount: Int? = null,
     val maxPlayCount: Int? = null,
+    val minLikes: Int? = null,
+    val maxLikes: Int? = null,
     val minBitrate: Int? = null,
     val maxBitrate: Int? = null,
     val fileFormat: String? = null,
@@ -65,6 +67,8 @@ data class LibraryFilters(
         starredOnly = if (starredOnly) true else params.starredOnly,
         minPlayCount = minPlayCount,
         maxPlayCount = maxPlayCount,
+        minLikes = minLikes,
+        maxLikes = maxLikes,
         minBitrate = minBitrate,
         maxBitrate = maxBitrate,
         fileFormat = fileFormat,
@@ -89,6 +93,8 @@ data class LibraryFilters(
         if (starredOnly) put("starredOnly", JsonPrimitive(true))
         minPlayCount?.let { put("minPlayCount", JsonPrimitive(it)) }
         maxPlayCount?.let { put("maxPlayCount", JsonPrimitive(it)) }
+        minLikes?.let { put("minLikes", JsonPrimitive(it)) }
+        maxLikes?.let { put("maxLikes", JsonPrimitive(it)) }
         minBitrate?.let { put("minBitrate", JsonPrimitive(it)) }
         maxBitrate?.let { put("maxBitrate", JsonPrimitive(it)) }
         fileFormat?.let { put("fileFormat", JsonPrimitive(it)) }
@@ -117,6 +123,8 @@ data class LibraryFilters(
         if (starredOnly) rule("starred", "eq", JsonPrimitive(true))
         minPlayCount?.let { rule("playCount", "gte", JsonPrimitive(it)) }
         maxPlayCount?.let { rule("playCount", "lte", JsonPrimitive(it)) }
+        minLikes?.let { rule("likes", "gte", JsonPrimitive(it)) }
+        maxLikes?.let { rule("likes", "lte", JsonPrimitive(it)) }
         if (shuffleExcludedOnly) rule("shuffleExcluded", "eq", JsonPrimitive(true))
         minBitrate?.let { rule("bitrate", "gte", JsonPrimitive(it)) }
         maxBitrate?.let { rule("bitrate", "lte", JsonPrimitive(it)) }
@@ -139,6 +147,7 @@ data class LibraryFilters(
         range("Rating", minRating?.let { "$it★" }, maxRating?.let { "$it★" }) { copy(minRating = null, maxRating = null) }
         if (starredOnly) add(FilterBadge("Favorites", copy(starredOnly = false)))
         range("Plays", minPlayCount, maxPlayCount) { copy(minPlayCount = null, maxPlayCount = null) }
+        range("Likes", minLikes, maxLikes) { copy(minLikes = null, maxLikes = null) }
         range("Bitrate", minBitrate?.let { "$it kbps" }, maxBitrate?.let { "$it kbps" }) {
             copy(minBitrate = null, maxBitrate = null)
         }

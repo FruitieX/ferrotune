@@ -273,4 +273,16 @@ class HomeTilePresentationTest {
         assertNull(spec.sourceId)
         assertTrue(spec.filters.isEmpty())
     }
+
+    @Test
+    fun `most liked section queues the liked songs`() {
+        val section = HomeSectionConfig(id = "most-liked", kind = HomeSectionKind.MOST_LIKED)
+
+        val spec = homeSectionQueueSpec(section, shuffle = true)
+
+        assertEquals("mostLiked", spec.sourceType)
+        assertEquals("Most Liked", spec.sourceName)
+        assertEquals("Most Liked", homeSectionLabel(section))
+    }
 }
+

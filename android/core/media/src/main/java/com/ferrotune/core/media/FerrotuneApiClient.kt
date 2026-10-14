@@ -63,6 +63,8 @@ data class QueueSong(
     val starred: String? = null,
     val artistId: String? = null,
     val albumId: String? = null,
+    val likeCount: Int = 0,
+    val lastLiked: String? = null,
 )
 
 /**
@@ -810,6 +812,8 @@ class FerrotuneApiClient {
             starred = json.optString("starred").ifEmpty { null },
             artistId = json.optNullableString("artistId"),
             albumId = json.optNullableString("albumId"),
+            likeCount = json.optInt("likeCount", 0),
+            lastLiked = json.optNullableString("lastLiked"),
         )
     }
 
@@ -831,6 +835,8 @@ class FerrotuneApiClient {
             starred = song.starred,
             artistId = song.artistId,
             albumId = song.albumId,
+            likeCount = song.likeCount,
+            lastLiked = song.lastLiked,
         )
     }
 

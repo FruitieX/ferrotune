@@ -4,17 +4,23 @@ import com.ferrotune.core.network.FerrotuneApiProvider
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.RatingRequest
 import com.ferrotune.core.network.dto.StarRequest
+import com.ferrotune.core.network.generated.SongLikeResponse
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Favorite and rating state for one song (`rating` 0 = unrated). */
+/** Favorite, rating and like state for one song (`rating` 0 = unrated). */
 data class SongFlags(
     val starred: Boolean,
     val rating: Int = 0,
-)
+    val likes: SongLikes = SongLikes(count = 0, lastLikedAtMs = null),
+) {
+    /** Whether the next like tap undoes the newest like ([LIKE_UNDO_WINDOW_MS]). */
+    fun isRecentlyLiked(nowMs: Long = System.currentTimeMillis()): Boolean =
+        likes.lastLikedAtMs != null && nowMs - likes.lastLikedAtMs < LIKE_UNDO_WINDOW_MS
+}
 
 /**
  * Partial optimistic change for one song. `null` fields fall through to the
@@ -23,15 +29,19 @@ data class SongFlags(
 data class SongFlagsOverride(
     val starred: Boolean? = null,
     val rating: Int? = null,
+    val likes: SongLikes? = null,
 ) {
     fun mergedWith(base: SongFlags): SongFlags = SongFlags(
         starred = starred ?: base.starred,
         rating = rating ?: base.rating,
+        likes = likes ?: base.likes,
     )
 
     /** True once [base] already reflects every overridden field. */
     fun isSatisfiedBy(base: SongFlags): Boolean =
-        (starred == null || starred == base.starred) && (rating == null || rating == base.rating)
+        (starred == null || starred == base.starred) &&
+            (rating == null || rating == base.rating) &&
+            (likes == null || likes == base.likes)
 }
 
 /**
@@ -70,6 +80,50 @@ class SongFlagsStore @Inject constructor(
             restore(previous, listOf(songId))
             throw e
         }
+    }
+
+    /**
+     * Likes the song again, or undoes its newest like within the undo window.
+     * Shows the expected result at once, then the server's (a like also
+     * favorites the song); reverts on failure.
+     */
+    suspend fun toggleLike(
+        songId: String,
+        base: SongFlags,
+        nowMs: Long = System.currentTimeMillis(),
+    ): SongLikeResponse {
+        val previous = _overrides.value
+        val current = (previous[songId] ?: SongFlagsOverride()).mergedWith(base)
+        val undo = current.isRecentlyLiked(nowMs)
+        val expected = if (undo) {
+            SongLikes(count = (current.likes.count - 1).coerceAtLeast(0), lastLikedAtMs = null)
+        } else {
+            SongLikes(count = current.likes.count + 1, lastLikedAtMs = nowMs)
+        }
+        update(
+            songId,
+            (previous[songId] ?: SongFlagsOverride()).copy(
+                likes = expected,
+                starred = if (undo) null else true,
+            ),
+        )
+        val result = try {
+            apiCall { apiProvider.requireApi().toggleSongLike(songId) }
+        } catch (e: Exception) {
+            restore(previous, listOf(songId))
+            throw e
+        }
+        update(
+            songId,
+            (_overrides.value[songId] ?: SongFlagsOverride()).copy(
+                likes = SongLikes(
+                    count = result.likeCount.toInt(),
+                    lastLikedAtMs = parseLikedAt(result.lastLiked),
+                ),
+                starred = result.starred != null,
+            ),
+        )
+        return result
     }
 
     /** Favorites/unfavorites many songs in one request; reverts all on failure. */

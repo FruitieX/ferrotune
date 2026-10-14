@@ -77,6 +77,7 @@ import {
   isMutedAtom,
 } from "@/lib/store/player";
 import { useStarred } from "@/lib/store/starred";
+import { LikeButton } from "@/components/shared/like-button";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
@@ -1581,6 +1582,11 @@ export function FullscreenPlayer() {
                     )}
                   />
                 </Button>
+                <LikeButton
+                  song={currentTrack}
+                  className="h-10 rounded-full"
+                  iconClassName="w-6 h-6"
+                />
               </motion.div>
 
               {/* Progress */}

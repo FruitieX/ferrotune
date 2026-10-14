@@ -17,6 +17,7 @@ enum class SongSort(val apiValue: String) {
     DURATION("duration"),
     DATE_ADDED("dateAdded"),
     PLAY_COUNT("playCount"),
+    LIKES("likes"),
     LAST_PLAYED("lastPlayed");
 
     companion object {

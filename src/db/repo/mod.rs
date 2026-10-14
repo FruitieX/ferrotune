@@ -27,6 +27,7 @@ pub mod recycle_bin;
 pub mod scanner;
 pub mod scrobbles;
 pub mod song_flags;
+pub mod song_likes;
 pub mod starring;
 pub mod stats;
 pub mod tagger;

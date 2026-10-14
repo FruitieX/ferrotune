@@ -41,6 +41,10 @@ class HomeSectionLoader @Inject constructor(
             ).song,
         )
 
+        HomeSectionKind.MOST_LIKED -> HomeSectionData(
+            songs = repository.mostLiked(size = size).song,
+        )
+
         HomeSectionKind.RECENTLY_ADDED -> HomeSectionData(
             albums = repository.albumList(type = "newest", size = size).album,
         )

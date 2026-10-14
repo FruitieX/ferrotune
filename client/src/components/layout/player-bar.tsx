@@ -72,6 +72,7 @@ import {
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { isOfflineModeAtom } from "@/lib/store/downloads";
 import { useStarred } from "@/lib/store/starred";
+import { LikeButton } from "@/components/shared/like-button";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import {
@@ -216,6 +217,7 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
             className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
           />
         </Button>
+        <LikeButton song={track} className="hidden lg:flex h-8" />
         <div className="hidden lg:block">
           <SongDropdownMenu song={track} />
         </div>

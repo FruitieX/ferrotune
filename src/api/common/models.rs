@@ -120,6 +120,15 @@ pub struct SongResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null")]
     pub play_starts: Option<i64>,
+    /// How many times the user liked the song (repeatable likes on top of
+    /// favorites); absent when never liked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub like_count: Option<i64>,
+    /// The user's newest like. For 12 hours after it (the server's
+    /// `LIKE_UNDO_WINDOW`) the next like tap undoes it instead of adding one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_liked: Option<String>,
     // Ferrotune extensions for ReplayGain
     /// ReplayGain track gain - prefers computed, falls back to original (in dB)
     #[serde(skip_serializing_if = "Option::is_none")]

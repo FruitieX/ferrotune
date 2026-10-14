@@ -18,4 +18,6 @@ data class PeriodReview(
     val topArtists: List<TopArtist>,
     val topAlbums: List<TopAlbum>,
     val topTracks: List<TopTrack>,
+    val totalLikes: Long,
+    val topLikedTracks: List<TopLikedTrack>,
 )

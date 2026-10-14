@@ -307,6 +307,25 @@ pub struct TopTrack {
     pub cover_art_data: Option<String>,
 }
 
+/// A track liked in the review period, with the likes it got in that period.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct TopLikedTrack {
+    pub track_id: String,
+    pub track_title: String,
+    pub artist_id: Option<String>,
+    pub artist_name: Option<String>,
+    pub album_id: Option<String>,
+    pub album_name: Option<String>,
+    #[ts(type = "number")]
+    pub like_count: i64,
+    pub cover_art: Option<String>,
+    /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
@@ -326,6 +345,11 @@ pub struct PeriodReview {
     pub top_artists: Vec<TopArtist>,
     pub top_albums: Vec<TopAlbum>,
     pub top_tracks: Vec<TopTrack>,
+    /// Likes given in the period.
+    #[ts(type = "number")]
+    pub total_likes: i64,
+    /// Tracks with the most likes given in the period.
+    pub top_liked_tracks: Vec<TopLikedTrack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -633,6 +657,46 @@ pub async fn get_period_review(
         .all(state.database.conn())
         .await?;
 
+    let total_likes =
+        crate::db::repo::song_likes::count_likes_between(&state.database, user.user_id, start, end)
+            .await?;
+    let liked = crate::db::repo::song_likes::top_liked_between(
+        &state.database,
+        user.user_id,
+        start,
+        end,
+        100,
+    )
+    .await?;
+    let liked_ids: Vec<String> = liked.iter().map(|row| row.song_id.clone()).collect();
+    let liked_songs: std::collections::HashMap<String, crate::db::models::Song> =
+        crate::db::repo::browse::get_songs_by_ids_for_user(
+            &state.database,
+            &liked_ids,
+            user.user_id,
+        )
+        .await?
+        .into_iter()
+        .map(|song| (song.id.clone(), song))
+        .collect();
+    let mut top_liked_tracks: Vec<TopLikedTrack> = liked
+        .iter()
+        .filter_map(|row| {
+            let song = liked_songs.get(&row.song_id)?;
+            Some(TopLikedTrack {
+                track_id: song.id.clone(),
+                track_title: song.title.clone(),
+                artist_id: Some(song.artist_id.clone()),
+                artist_name: Some(song.artist_name.clone()),
+                album_id: song.album_id.clone(),
+                album_name: song.album_name.clone(),
+                like_count: row.like_count,
+                cover_art: song.album_id.clone(),
+                cover_art_data: None,
+            })
+        })
+        .collect();
+
     // Get inline thumbnails if requested
     let inline_size = query.inline_images.get_size();
     if let Some(size) = inline_size {
@@ -660,6 +724,16 @@ pub async fn get_period_review(
             get_song_thumbnails_base64(&state.database, &song_thumbnail_data, size).await;
         for track in &mut top_tracks {
             track.cover_art_data = track_thumbnails.get(&track.track_id).cloned();
+        }
+
+        let liked_thumbnail_data: Vec<(String, Option<String>)> = top_liked_tracks
+            .iter()
+            .map(|t| (t.track_id.clone(), t.cover_art.clone()))
+            .collect();
+        let liked_thumbnails =
+            get_song_thumbnails_base64(&state.database, &liked_thumbnail_data, size).await;
+        for track in &mut top_liked_tracks {
+            track.cover_art_data = liked_thumbnails.get(&track.track_id).cloned();
         }
     }
 
@@ -731,6 +805,8 @@ pub async fn get_period_review(
         top_artists,
         top_albums,
         top_tracks,
+        total_likes,
+        top_liked_tracks,
     };
 
     Ok(Json(PeriodReviewResponse {

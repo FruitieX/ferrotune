@@ -40,6 +40,8 @@ export function getQueueSourceHref(source: {
       return homeSectionHrefs.forgottenFavorites;
     case "mostPlayedRecently":
       return homeSectionHrefs.mostPlayedRecently;
+    case "mostLiked":
+      return homeSectionHrefs.mostLiked;
     case "similarTracks":
       return "/home/similar-tracks";
     case "albumList":

@@ -40,6 +40,7 @@ val SMART_PLAYLIST_SORT_OPTIONS = listOf(
     SmartPlaylistSortOption("year", "Year"),
     SmartPlaylistSortOption("playCount", "Play Count"),
     SmartPlaylistSortOption("playStarts", "Play Starts"),
+    SmartPlaylistSortOption("likes", "Likes"),
     SmartPlaylistSortOption("dateAdded", "Date Added"),
     SmartPlaylistSortOption("lastPlayed", "Last Played"),
     SmartPlaylistSortOption("duration", "Duration"),

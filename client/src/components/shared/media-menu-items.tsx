@@ -5,6 +5,7 @@ import {
   ListPlus,
   ListEnd,
   Heart,
+  HeartPlus,
   Shuffle,
   User,
   Disc,
@@ -469,6 +470,7 @@ export interface SongMenuItemsStarringProps {
   components: MenuComponents;
   handlers: {
     toggleStar: () => void;
+    toggleLike?: () => void;
     handleToggleShuffleExclude?: () => void;
     handleToggleDisabled?: () => void;
     handleRate?: (rating: number) => void;
@@ -478,10 +480,19 @@ export interface SongMenuItemsStarringProps {
   };
   state: {
     isStarred: boolean;
+    likeCount?: number;
+    recentlyLiked?: boolean;
     isExcludedFromShuffle?: boolean;
     isDisabled?: boolean;
     currentRating?: number;
   };
+}
+
+/** "Like", "Like Again (3)" or, within the undo window, "Undo Like (3)". */
+export function songLikeMenuLabel(likeCount: number, recentlyLiked: boolean) {
+  const count = likeCount > 0 ? ` (${likeCount})` : "";
+  if (recentlyLiked) return `Undo Like${count}`;
+  return likeCount > 0 ? `Like Again${count}` : "Like";
 }
 
 export function SongMenuItemsStarring({
@@ -507,6 +518,17 @@ export function SongMenuItemsStarring({
         />
         {state.isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
+      {handlers.toggleLike && (
+        <Item onClick={handlers.toggleLike}>
+          <HeartPlus
+            className={`w-4 h-4 mr-2 ${state.recentlyLiked ? "text-red-500" : ""}`}
+          />
+          {songLikeMenuLabel(
+            state.likeCount ?? 0,
+            state.recentlyLiked ?? false,
+          )}
+        </Item>
+      )}
 
       {/* Track Options submenu for shuffle exclude, disabled state, and editing actions */}
       {hasTrackOptions && Sub && SubTrigger && SubContent && (

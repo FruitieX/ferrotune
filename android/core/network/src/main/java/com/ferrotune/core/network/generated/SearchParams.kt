@@ -32,6 +32,8 @@ data class SearchParams(
     val starredOnly: Boolean? = null,
     val minPlayCount: Int? = null,
     val maxPlayCount: Int? = null,
+    val minLikes: Int? = null,
+    val maxLikes: Int? = null,
     val shuffleExcludedOnly: Boolean? = null,
     val disabledOnly: Boolean? = null,
     val minBitrate: Int? = null,

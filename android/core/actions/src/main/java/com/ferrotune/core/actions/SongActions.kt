@@ -75,10 +75,20 @@ fun rememberDisabledSongIds(): Set<String> {
  * catches up.
  */
 @Composable
-fun rememberSongFlags(songId: String, starred: Boolean, rating: Int = 0): SongFlags {
+fun rememberSongFlags(
+    songId: String,
+    starred: Boolean,
+    rating: Int = 0,
+    likeCount: Int = 0,
+    lastLiked: String? = null,
+): SongFlags {
     val store = rememberSongFlagsStore()
     val overrides by store.overrides.collectAsStateWithLifecycle()
-    val base = SongFlags(starred = starred, rating = rating)
+    val base = SongFlags(
+        starred = starred,
+        rating = rating,
+        likes = SongLikes(count = likeCount, lastLikedAtMs = parseLikedAt(lastLiked)),
+    )
     val override = overrides[songId]
     val current = override?.mergedWith(base) ?: base
     LaunchedEffect(songId, override, base) {
@@ -116,6 +126,23 @@ class SongActionsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { store.setStarred(songId, !base.starred, base) }
                 .onFailure { messages.failure("Couldn't update favorites", it) }
+        }
+    }
+
+    /** Likes the song again, or undoes the newest like within the undo window. */
+    fun toggleLike(songId: String, base: SongFlags) {
+        viewModelScope.launch {
+            runCatching { store.toggleLike(songId, base) }
+                .onSuccess { result ->
+                    messages.show(
+                        when {
+                            !result.liked -> "Like removed"
+                            result.likeCount == 1L -> "Liked"
+                            else -> "Liked ${result.likeCount} times"
+                        },
+                    )
+                }
+                .onFailure { messages.failure("Couldn't update likes", it) }
         }
     }
 

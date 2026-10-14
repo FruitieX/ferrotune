@@ -74,6 +74,7 @@ import com.ferrotune.core.actions.rememberSongFlags
 import com.ferrotune.core.actions.rememberSongMenuState
 import com.ferrotune.core.designsystem.components.CoverArt
 import com.ferrotune.core.designsystem.components.FavoriteButton
+import com.ferrotune.core.designsystem.components.LikeButton
 import com.ferrotune.core.designsystem.components.inlineCoverModel
 import com.ferrotune.core.designsystem.theme.LocalDarkTheme
 import com.ferrotune.core.media.TrackInfo
@@ -222,6 +223,8 @@ internal fun TrackInfo.toMenuTarget() = SongMenuTarget(
     coverModel = inlineCoverModel(coverArtData) ?: coverArtUrl,
     starred = starred != null,
     rating = 0,
+    likeCount = likeCount,
+    lastLiked = lastLiked,
 )
 
 /**
@@ -311,11 +314,22 @@ private fun TitleRow(track: TrackInfo?, onOpenArtist: () -> Unit) {
             )
         }
         if (track != null) {
-            val flags = rememberSongFlags(songId = track.id, starred = track.starred != null)
+            val flags = rememberSongFlags(
+                songId = track.id,
+                starred = track.starred != null,
+                likeCount = track.likeCount,
+                lastLiked = track.lastLiked,
+            )
             val songActions: SongActionsViewModel = hiltViewModel()
             FavoriteButton(
                 isFavorite = flags.starred,
                 onToggle = { songActions.toggleStar(track.id, flags) },
+                iconSize = 26.dp,
+            )
+            LikeButton(
+                likeCount = flags.likes.count,
+                recentlyLiked = flags.isRecentlyLiked(),
+                onTap = { songActions.toggleLike(track.id, flags) },
                 iconSize = 26.dp,
             )
         }

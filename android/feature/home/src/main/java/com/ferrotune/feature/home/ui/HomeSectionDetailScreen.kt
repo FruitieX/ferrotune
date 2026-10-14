@@ -68,6 +68,9 @@ private fun sectionStyle(kind: HomeSectionKind): SectionStyle = when (kind) {
     HomeSectionKind.FORGOTTEN_FAVORITES ->
         SectionStyle(listOf(Color(0xFFF59E0B), Color(0xFF0F766E)), Color(0x33F59E0B))
 
+    HomeSectionKind.MOST_LIKED ->
+        SectionStyle(listOf(Color(0xFFEF4444), Color(0xFFBE185D)), Color(0x33EF4444))
+
     HomeSectionKind.DISCOVER ->
         SectionStyle(listOf(Color(0xFF8B5CF6), Color(0xFFA21CAF)), Color(0x338B5CF6))
 }

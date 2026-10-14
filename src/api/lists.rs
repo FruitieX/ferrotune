@@ -294,6 +294,75 @@ pub async fn get_most_played_recently(
 }
 
 // ============================================================================
+// Most Liked Endpoint
+// ============================================================================
+
+/// Query params for most liked
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MostLikedParams {
+    /// Number of songs to return (default 50)
+    pub size: Option<i64>,
+    /// Offset for pagination (default 0)
+    pub offset: Option<i64>,
+    /// Include inline cover art thumbnails (small or medium)
+    pub inline_images: Option<String>,
+    /// Quick filter text to match against song title, artist, or album
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// Sort field (default: likes, most first)
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    pub sort_dir: Option<String>,
+}
+
+/// Response for most liked
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MostLikedResponse {
+    pub song: Vec<SongResponse>,
+    /// Total number of liked songs (matching the filter)
+    #[ts(type = "number")]
+    pub total: i64,
+}
+
+/// GET /api/songs/most-liked - The user's liked songs, most likes first
+pub async fn get_most_liked(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MostLikedParams>,
+) -> FerrotuneApiResult<Json<MostLikedResponse>> {
+    use crate::thumbnails::ThumbnailSize;
+
+    let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
+        Some("small") | Some("s") => Some(ThumbnailSize::Small),
+        Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
+        _ => None,
+    };
+    let result = crate::api::common::lists::get_most_liked_logic(
+        &state.database,
+        user.user_id,
+        params.size.unwrap_or(50).min(500),
+        params.offset.unwrap_or(0),
+        inline_size,
+        ListViewOptions {
+            filter: params.filter.as_deref(),
+            sort: params.sort.as_deref(),
+            sort_dir: params.sort_dir.as_deref(),
+        },
+    )
+    .await?;
+
+    Ok(Json(MostLikedResponse {
+        song: result.songs,
+        total: result.total,
+    }))
+}
+
+// ============================================================================
 // Forgotten Favorites Endpoint
 // ============================================================================
 

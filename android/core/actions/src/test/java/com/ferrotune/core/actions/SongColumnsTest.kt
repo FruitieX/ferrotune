@@ -24,6 +24,7 @@ class SongColumnsTest {
         created = "2024-03-05T10:00:00Z",
         type = "music",
         playCount = 12,
+        likeCount = 3,
         userRating = 4,
         lastPlayed = "2026-10-01T08:00:00Z",
     )
@@ -33,7 +34,7 @@ class SongColumnsTest {
         val details = songColumnDetails(song, SongColumn.entries.toSet(), Locale.US)
 
         assertEquals(
-            "2011 • Rock • 12 plays • ★ 4 • FLAC 980 kbps • Added Mar 5, 2024 • Played Oct 1, 2026",
+            "2011 • Rock • 12 plays • 3 likes • ★ 4 • FLAC 980 kbps • Added Mar 5, 2024 • Played Oct 1, 2026",
             details,
         )
     }

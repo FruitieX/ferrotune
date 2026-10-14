@@ -179,6 +179,8 @@ pub(crate) fn song_select(database: &Database) -> sea_orm::Select<entity::songs:
         .column_as(nullable_timestamptz_expr(database), "last_played")
         .column_as(nullable_timestamptz_expr(database), "starred_at")
         .column_as(nullable_bigint_expr(database), "play_starts")
+        .column_as(nullable_bigint_expr(database), "like_count")
+        .column_as(nullable_timestamptz_expr(database), "last_liked")
 }
 
 fn song_with_folder_select(database: &Database) -> sea_orm::Select<entity::songs::Entity> {
@@ -477,6 +479,7 @@ pub async fn get_songs_by_album_for_user(
     let play_starts =
         crate::db::repo::listening::fetch_song_play_starts_rows(database, None, &song_ids).await?;
     apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
 
     Ok(songs)
 }
@@ -547,6 +550,7 @@ pub async fn get_songs_by_artist_for_user(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
 
     Ok(songs)
 }
@@ -566,6 +570,7 @@ pub enum CollectionSongSort {
     Format,
     PlayCount,
     PlayStarts,
+    Likes,
     LastPlayed,
 }
 
@@ -669,6 +674,13 @@ fn order_collection_songs(
             )),
             order.clone(),
         ),
+        CollectionSongSort::Likes => query.order_by(
+            Expr::cust(format!(
+                "(SELECT COUNT(*) FROM song_likes sl \
+                 WHERE sl.song_id = songs.id AND sl.user_id = {user_id})"
+            )),
+            order.clone(),
+        ),
         CollectionSongSort::LastPlayed => {
             let last_played = format!(
                 "(SELECT MAX(sc.played_at) FROM scrobbles sc \
@@ -733,6 +745,7 @@ async fn page_collection_songs(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     apply_song_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
     Ok(CollectionSongPage { songs, total })
 }
 
@@ -844,13 +857,14 @@ pub async fn get_songs_by_ids_for_user(
         return Ok(Vec::new());
     }
 
-    let songs = song_select(database)
+    let mut songs = song_select(database)
         .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
         .filter(entity::songs::Column::Id.is_in(ids.iter().cloned()))
         .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
         .into_model::<Song>()
         .all(database.conn())
         .await?;
+    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
 
     // Preserve the input ordering.
     let song_map: std::collections::HashMap<String, Song> =
@@ -890,6 +904,7 @@ pub async fn get_songs_by_ids_with_library_status(
         crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
             .await?;
     apply_song_library_status_play_stats(&mut songs, stats, play_starts);
+    crate::db::repo::song_likes::attach_library_song_likes(database, user_id, &mut songs).await?;
 
     // Preserve the input ordering.
     let song_map: std::collections::HashMap<String, SongWithLibraryStatus> =

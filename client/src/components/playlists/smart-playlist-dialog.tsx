@@ -51,6 +51,7 @@ const SORT_FIELDS = [
   { value: "year", label: "Year" },
   { value: "playCount", label: "Play Count" },
   { value: "playStarts", label: "Play Starts" },
+  { value: "likes", label: "Likes" },
   { value: "dateAdded", label: "Date Added" },
   { value: "lastPlayed", label: "Last Played" },
   { value: "duration", label: "Duration" },

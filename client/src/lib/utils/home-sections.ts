@@ -1,6 +1,7 @@
 import {
   AudioLines,
   Clock,
+  HeartPlus,
   History,
   ListMusic,
   Play,
@@ -12,6 +13,7 @@ import {
 export const homeSectionHrefs = {
   continueListening: "/home/continue-listening",
   mostPlayedRecently: "/home/most-played-recently",
+  mostLiked: "/home/most-liked",
   recentlyAdded: "/home/recently-added",
   forgottenFavorites: "/home/forgotten-favorites",
   discover: "/home/discover",
@@ -21,6 +23,7 @@ export const homeSectionHrefs = {
 export type HomeSectionKind =
   | "continueListening"
   | "mostPlayedRecently"
+  | "mostLiked"
   | "recentlyAdded"
   | "forgottenFavorites"
   | "discover"
@@ -84,6 +87,13 @@ export const HOME_SECTION_OPTIONS: HomeSectionOption[] = [
     hasSettings: true,
   },
   {
+    kind: "mostLiked",
+    label: "Most Liked",
+    description: "Tracks you've liked the most",
+    icon: HeartPlus,
+    href: homeSectionHrefs.mostLiked,
+  },
+  {
     kind: "recentlyAdded",
     label: "Recently Added",
     description: "Newly added albums",
@@ -142,6 +152,7 @@ export const DEFAULT_HOME_SECTIONS: HomeSectionConfig[] = [
     enabled: true,
     mostPlayedRecentlyDays: DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
   },
+  { id: "most-liked", kind: "mostLiked", enabled: true },
   { id: "recently-added", kind: "recentlyAdded", enabled: true },
   {
     id: "forgotten-favorites",

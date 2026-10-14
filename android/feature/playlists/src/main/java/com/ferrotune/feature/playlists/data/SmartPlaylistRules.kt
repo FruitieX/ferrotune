@@ -98,6 +98,7 @@ private val BASE_RULE_FIELDS = listOf(
     RuleField("year", "Year", RuleFieldType.NUMBER),
     RuleField("playCount", "Play Count", RuleFieldType.NUMBER),
     RuleField("playStarts", "Play Starts", RuleFieldType.NUMBER),
+    RuleField("likes", "Likes", RuleFieldType.NUMBER),
     RuleField("duration", "Duration (seconds)", RuleFieldType.NUMBER),
     RuleField("bitrate", "Bitrate (kbps)", RuleFieldType.NUMBER),
     RuleField("rating", "Rating", RuleFieldType.NUMBER),

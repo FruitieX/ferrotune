@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.ferrotune.core.designsystem.components.HeartPlusIcon
 import com.ferrotune.core.media.QueueStartSpec
 import com.ferrotune.feature.home.data.HomePlaylistType
 import com.ferrotune.feature.home.data.HomeSectionConfig
@@ -324,6 +325,12 @@ fun homeSectionQueueSpec(
             filters["since"] = JsonPrimitive(mostPlayedRecentlySince(section.mostPlayedDays))
         }
 
+        HomeSectionKind.MOST_LIKED -> {
+            sourceType = "mostLiked"
+            sourceId = null
+            sourceName = "Most Liked"
+        }
+
         HomeSectionKind.RECENTLY_ADDED -> {
             sourceType = "albumList"
             sourceId = "newest"
@@ -390,6 +397,7 @@ fun homeSectionSongQueueSpec(
 fun homeSectionLabel(section: HomeSectionConfig): String = when (section.kind) {
     HomeSectionKind.CONTINUE_LISTENING -> "Continue Listening"
     HomeSectionKind.MOST_PLAYED_RECENTLY -> "Most Played Recently"
+    HomeSectionKind.MOST_LIKED -> "Most Liked"
     HomeSectionKind.RECENTLY_ADDED -> "Recently Added"
     HomeSectionKind.FORGOTTEN_FAVORITES -> "Forgotten Favorites"
     HomeSectionKind.DISCOVER -> "Discover Something New"
@@ -402,6 +410,7 @@ fun homeSectionLabel(section: HomeSectionConfig): String = when (section.kind) {
 fun homeSectionIcon(section: HomeSectionConfig): ImageVector = when (section.kind) {
     HomeSectionKind.CONTINUE_LISTENING -> Icons.Filled.PlayArrow
     HomeSectionKind.MOST_PLAYED_RECENTLY -> Icons.Filled.TrendingUp
+    HomeSectionKind.MOST_LIKED -> HeartPlusIcon
     HomeSectionKind.RECENTLY_ADDED -> Icons.Filled.Schedule
     HomeSectionKind.FORGOTTEN_FAVORITES -> Icons.Filled.History
     HomeSectionKind.DISCOVER -> Icons.Filled.AutoAwesome

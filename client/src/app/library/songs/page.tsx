@@ -270,6 +270,7 @@ export default function SongsPage() {
                   showDuration={columnVisibility.duration}
                   showPlayCount={columnVisibility.playCount}
                   showPlayStarts={columnVisibility.playStarts}
+                  showLikes={columnVisibility.likes}
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
                   showLastPlayed={columnVisibility.lastPlayed}

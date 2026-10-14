@@ -23,6 +23,7 @@ pub use super::scrobbles::Entity as Scrobbles;
 pub use super::server_config::Entity as ServerConfig;
 pub use super::shuffle_excludes::Entity as ShuffleExcludes;
 pub use super::smart_playlists::Entity as SmartPlaylists;
+pub use super::song_likes::Entity as SongLikes;
 pub use super::songs::Entity as Songs;
 pub use super::starred::Entity as Starred;
 pub use super::tagger_pending_edits::Entity as TaggerPendingEdits;

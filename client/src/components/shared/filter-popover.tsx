@@ -671,6 +671,16 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
     badges.push({ key: "minPlayCount", label: `Plays: ${pcLabel}` });
   }
 
+  if (filters.minLikes || filters.maxLikes) {
+    const likesLabel =
+      filters.minLikes && filters.maxLikes
+        ? `${filters.minLikes}–${filters.maxLikes}`
+        : filters.minLikes
+          ? `${filters.minLikes}+`
+          : `≤${filters.maxLikes}`;
+    badges.push({ key: "minLikes", label: `Likes: ${likesLabel}` });
+  }
+
   if (filters.starredOnly) {
     badges.push({ key: "starredOnly", label: "Favorites Only" });
   }
@@ -770,6 +780,9 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
             } else if (key === "minPlayCount") {
               removeFilter("minPlayCount");
               removeFilter("maxPlayCount");
+            } else if (key === "minLikes") {
+              removeFilter("minLikes");
+              removeFilter("maxLikes");
             } else if (key === "minBitrate") {
               removeFilter("minBitrate");
               removeFilter("maxBitrate");

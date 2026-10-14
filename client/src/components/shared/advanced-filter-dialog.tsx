@@ -147,6 +147,24 @@ function flatToRules(flat: FlatFilters): RuleBasedFilters {
     });
   }
 
+  // Likes range
+  if (flat.minLikes !== undefined) {
+    conditions.push({
+      id: nextId(),
+      field: "likes",
+      operator: "gte",
+      value: flat.minLikes,
+    });
+  }
+  if (flat.maxLikes !== undefined) {
+    conditions.push({
+      id: nextId(),
+      field: "likes",
+      operator: "lte",
+      value: flat.maxLikes,
+    });
+  }
+
   // Shuffle excluded
   if (flat.shuffleExcludedOnly) {
     conditions.push({

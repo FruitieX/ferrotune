@@ -10,7 +10,7 @@ import type { ContinueListeningSource } from "./ContinueListeningSource";
  */
 export type ContinueListeningEntry = { 
 /**
- * "album" | "playlist" | "smartPlaylist" | "songRadio" | "albumList" | "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently"
+ * "album" | "playlist" | "smartPlaylist" | "songRadio" | "albumList" | "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently" | "mostLiked"
  */
 type: string, 
 /**

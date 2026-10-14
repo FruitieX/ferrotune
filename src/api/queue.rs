@@ -2191,6 +2191,28 @@ async fn materialize_most_played_recently_queue_songs(
     Ok(repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?)
 }
 
+async fn materialize_most_liked_queue_songs(
+    database: &crate::db::Database,
+    user_id: i64,
+    text_filter: Option<&str>,
+    sort_field: Option<&str>,
+    sort_dir: Option<&str>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    let (songs, _) = crate::api::common::lists::get_most_liked_song_models(
+        database,
+        user_id,
+        1000,
+        0,
+        crate::api::common::lists::ListViewOptions {
+            filter: text_filter,
+            sort: sort_field,
+            sort_dir,
+        },
+    )
+    .await?;
+    Ok(songs)
+}
+
 /// Materialize songs for the Similar Tracks (discovery) queue source.
 async fn materialize_similar_tracks_queue_songs(
     database: &crate::db::Database,
@@ -2515,6 +2537,12 @@ pub(crate) async fn materialize_queue_songs(
                             .await?;
                         songs.extend(most_played_recently_songs);
                     }
+                    "mostLiked" => {
+                        songs.extend(
+                            materialize_most_liked_queue_songs(database, user_id, None, None, None)
+                                .await?,
+                        );
+                    }
                     "similarTracks" => {
                         let similar_songs =
                             materialize_similar_tracks_queue_songs(database, user_id, filters)
@@ -2543,6 +2571,16 @@ pub(crate) async fn materialize_queue_songs(
                 database,
                 user_id,
                 filters,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            )
+            .await
+        }
+        QueueSourceType::MostLiked => {
+            materialize_most_liked_queue_songs(
+                database,
+                user_id,
                 text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
@@ -2624,6 +2662,8 @@ fn build_search_params_from_json(
         starred_only: None,
         min_play_count: None,
         max_play_count: None,
+        min_likes: None,
+        max_likes: None,
         shuffle_excluded_only: None,
         disabled_only: None,
         min_bitrate: None,
@@ -2673,6 +2713,12 @@ fn build_search_params_from_json(
             }
             if let Some(v) = obj.get("maxPlayCount").and_then(|v| v.as_i64()) {
                 params.max_play_count = Some(v as i32);
+            }
+            if let Some(v) = obj.get("minLikes").and_then(|v| v.as_i64()) {
+                params.min_likes = Some(v as i32);
+            }
+            if let Some(v) = obj.get("maxLikes").and_then(|v| v.as_i64()) {
+                params.max_likes = Some(v as i32);
             }
             if let Some(v) = obj.get("shuffleExcludedOnly").and_then(|v| v.as_bool()) {
                 params.shuffle_excluded_only = Some(v);
@@ -3263,6 +3309,8 @@ async fn build_window_from_entries(
 
     let starred_map = get_starred_map(database, user_id, ItemType::Song, &window_song_ids).await?;
     let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &window_song_ids).await?;
+    let likes_map =
+        crate::db::repo::song_likes::song_like_map(database, user_id, &window_song_ids).await?;
 
     let thumbnails = if let Some(size) = inline_size {
         let song_thumbnail_data: Vec<(String, Option<String>)> = window_entries
@@ -3309,6 +3357,8 @@ async fn build_window_from_entries(
                 computed_replaygain_track_gain: entry.computed_replaygain_track_gain,
                 computed_replaygain_track_peak: entry.computed_replaygain_track_peak,
                 play_starts: None,
+                like_count: likes_map.get(&entry.id).map(|likes| likes.like_count),
+                last_liked: likes_map.get(&entry.id).and_then(|likes| likes.last_liked),
             };
             let song_response = song_to_response_with_stats(
                 song,

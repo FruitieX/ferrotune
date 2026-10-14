@@ -63,6 +63,7 @@ import com.ferrotune.core.network.generated.LogListeningResponse
 import com.ferrotune.core.network.generated.MatchMissingEntryRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistRequest
 import com.ferrotune.core.network.generated.MaterializeSmartPlaylistResponse
+import com.ferrotune.core.network.generated.MostLikedResponse
 import com.ferrotune.core.network.generated.MostPlayedRecentlyResponse
 import com.ferrotune.core.network.generated.MovePlaylistEntryRequest
 import com.ferrotune.core.network.generated.MusicFoldersResponse
@@ -85,6 +86,7 @@ import com.ferrotune.core.network.generated.SmartPlaylistInfo
 import com.ferrotune.core.network.generated.SmartPlaylistSongsResponse
 import com.ferrotune.core.network.generated.SmartPlaylistsResponse
 import com.ferrotune.core.network.generated.SongIdsResponse
+import com.ferrotune.core.network.generated.SongLikeResponse
 import com.ferrotune.core.network.generated.SongPlaylistsResponse
 import com.ferrotune.core.network.generated.SourceSongIdsResponse
 import com.ferrotune.core.network.generated.SourceSongsRequest
@@ -301,6 +303,19 @@ interface FerrotuneApi {
     suspend fun mostPlayedRecently(
         @QueryMap params: Map<String, String>,
     ): MostPlayedRecentlyResponse
+
+    /** The user's liked songs, most likes first. */
+    @GET("api/songs/most-liked")
+    suspend fun mostLiked(
+        @QueryMap params: Map<String, String>,
+    ): MostLikedResponse
+
+    /**
+     * Likes the song again, or undoes its newest like when that is less than
+     * 12 hours old. Liking also favorites the song.
+     */
+    @POST("api/songs/{id}/like")
+    suspend fun toggleSongLike(@Path("id") songId: String): SongLikeResponse
 
     @GET("api/songs/forgotten-favorites")
     suspend fun forgottenFavorites(

@@ -127,6 +127,7 @@ internal val SONG_SORT_OPTIONS = listOf(
     SortOption(SongSort.DURATION.apiValue, "Duration"),
     SortOption(SongSort.DATE_ADDED.apiValue, "Date added"),
     SortOption(SongSort.PLAY_COUNT.apiValue, "Play count"),
+    SortOption(SongSort.LIKES.apiValue, "Likes"),
     SortOption(SongSort.LAST_PLAYED.apiValue, "Last played"),
 )
 
@@ -138,6 +139,7 @@ internal val DETAIL_SONG_SORT_OPTIONS = listOf(
     SortOption(SongSort.YEAR.apiValue, "Year"),
     SortOption(SongSort.DURATION.apiValue, "Duration"),
     SortOption(SongSort.DATE_ADDED.apiValue, "Date added"),
+    SortOption(SongSort.LIKES.apiValue, "Likes"),
 )
 
 internal val ALBUM_SORT_OPTIONS = listOf(

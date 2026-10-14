@@ -37,6 +37,8 @@ data class SongResponse(
     val playCount: Long? = null,
     val lastPlayed: String? = null,
     val playStarts: Long? = null,
+    val likeCount: Long? = null,
+    val lastLiked: String? = null,
     val replayGainTrackGain: Double? = null,
     val replayGainTrackPeak: Double? = null,
     val originalReplayGainTrackGain: Double? = null,

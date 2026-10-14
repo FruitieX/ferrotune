@@ -668,6 +668,123 @@ pub async fn get_most_played_recently_logic(
     })
 }
 
+pub struct MostLikedResult {
+    pub songs: Vec<SongResponse>,
+    pub total: i64,
+}
+
+fn is_default_most_liked_sort(sort: Option<&str>, sort_dir: Option<&str>) -> bool {
+    sort.is_none() || matches_sort(sort, sort_dir, "likes", "desc")
+}
+
+/// The user's liked songs, most likes first (newest like breaks ties). A text
+/// filter or another sort loads every liked song and sorts in memory.
+pub async fn get_most_liked_song_models(
+    database: &crate::db::Database,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    view_options: ListViewOptions<'_>,
+) -> crate::error::Result<(Vec<crate::db::models::Song>, i64)> {
+    use crate::db::repo::song_likes;
+
+    let total = song_likes::count_liked_songs(database, user_id).await?;
+    let post_process = has_text_filter(view_options.filter)
+        || !is_default_most_liked_sort(view_options.sort, view_options.sort_dir);
+    let liked = if post_process {
+        song_likes::list_most_liked(database, user_id, total, 0).await?
+    } else {
+        song_likes::list_most_liked(database, user_id, size, offset).await?
+    };
+    let song_ids: Vec<String> = liked.into_iter().map(|row| row.song_id).collect();
+    let mut songs =
+        crate::db::repo::browse::get_songs_by_ids_for_user(database, &song_ids, user_id).await?;
+    let stats = crate::db::repo::scrobbles::fetch_song_play_stats_rows(
+        database,
+        Some(user_id),
+        &song_ids,
+        crate::db::repo::scrobbles::PlayStatsAggregation::SumPlayCount,
+    )
+    .await?;
+    let stats: std::collections::HashMap<_, _> = stats
+        .into_iter()
+        .map(|row| (row.song_id.clone(), row))
+        .collect();
+    for song in &mut songs {
+        if let Some(row) = stats.get(&song.id) {
+            song.play_count = Some(row.play_count);
+            song.last_played = row.last_played;
+        }
+    }
+
+    if !post_process {
+        return Ok((songs, total));
+    }
+    let songs = crate::api::common::sorting::filter_and_sort_songs(
+        songs,
+        view_options.filter,
+        view_options.sort.or(Some("likes")),
+        view_options.sort_dir.or(Some("desc")),
+    );
+    let filtered_total = songs.len() as i64;
+    Ok((
+        songs
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(size.max(0) as usize)
+            .collect(),
+        filtered_total,
+    ))
+}
+
+/// `get_most_liked_song_models` as song responses (Home "Most liked").
+pub async fn get_most_liked_logic(
+    database: &crate::db::Database,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    inline_image_size: Option<ThumbnailSize>,
+    view_options: ListViewOptions<'_>,
+) -> crate::error::Result<MostLikedResult> {
+    let (songs, total) =
+        get_most_liked_song_models(database, user_id, size.min(1000), offset, view_options).await?;
+    let song_ids: Vec<String> = songs.iter().map(|song| song.id.clone()).collect();
+    let starred_map = get_starred_map(database, user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
+    let thumbnails = if let Some(thumb_size) = inline_image_size {
+        let song_album_pairs: Vec<(String, Option<String>)> = songs
+            .iter()
+            .map(|song| (song.id.clone(), song.album_id.clone()))
+            .collect();
+        get_song_thumbnails_base64(database, &song_album_pairs, thumb_size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let songs = songs
+        .into_iter()
+        .map(|song| {
+            let play_stats = SongPlayStats {
+                play_count: song.play_count,
+                last_played: song.last_played.map(format_datetime_iso_ms),
+            };
+            let starred = starred_map.get(&song.id).cloned();
+            let user_rating = ratings_map.get(&song.id).copied();
+            let cover_art_data = thumbnails.get(&song.id).cloned();
+            song_to_response_with_stats(
+                song,
+                None,
+                starred,
+                user_rating,
+                Some(play_stats),
+                None,
+                cover_art_data,
+            )
+        })
+        .collect();
+    Ok(MostLikedResult { songs, total })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn get_forgotten_favorites_song_models(
     database: &crate::db::Database,
@@ -844,7 +961,7 @@ pub async fn get_forgotten_favorites_logic(
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ContinueListeningEntry {
-    /// "album" | "playlist" | "smartPlaylist" | "songRadio" | "albumList" | "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently"
+    /// "album" | "playlist" | "smartPlaylist" | "songRadio" | "albumList" | "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently" | "mostLiked"
     #[serde(rename = "type")]
     pub entry_type: String,
     /// ISO 8601 timestamp of the last scrobble from this source
@@ -883,7 +1000,7 @@ pub struct ContinueListeningPlaylist {
 pub struct ContinueListeningSource {
     pub id: String,
     pub name: String,
-    /// "songRadio", "albumList", "favorites", "history", "forgottenFavorites", or "mostPlayedRecently"
+    /// "songRadio", "albumList", "favorites", "history", "forgottenFavorites", "mostPlayedRecently", or "mostLiked"
     pub source_type: String,
     pub cover_art: Option<String>,
 }
@@ -960,6 +1077,7 @@ fn virtual_continue_listening_source(
         "history" => "Recently Played".to_string(),
         "forgottenFavorites" => "Forgotten Favorites".to_string(),
         "mostPlayedRecently" => "Most Played Recently".to_string(),
+        "mostLiked" => "Most Liked".to_string(),
         _ => return None,
     };
 
@@ -1222,7 +1340,8 @@ pub async fn get_continue_listening_logic(
                         source: Some(source),
                     })
                 }
-                "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently" => {
+                "favorites" | "history" | "forgottenFavorites" | "mostPlayedRecently"
+                | "mostLiked" => {
                     let source = virtual_continue_listening_source(&source_type, &source_id)?;
                     Some(ContinueListeningEntry {
                         entry_type: source_type,

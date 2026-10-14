@@ -20,6 +20,7 @@ import {
   ListEnd,
   ListMusic,
   Heart,
+  HeartPlus,
   History,
   WifiOff,
   type LucideIcon,
@@ -142,6 +143,8 @@ function getContinueListeningSourceIcon(
       return History;
     case "mostPlayedRecently":
       return TrendingUp;
+    case "mostLiked":
+      return HeartPlus;
     case "similarTracks":
       return AudioLines;
     default:
@@ -982,6 +985,7 @@ export default function HomePage() {
     currentAccountKey,
     mostPlayedRecentlyDays,
   ] as const;
+  const mostLikedQueryKey = ["most-liked", "home", currentAccountKey] as const;
   const forgottenFavoritesQueryKey = [
     "songs",
     "forgotten-favorites",
@@ -1251,6 +1255,36 @@ export default function HomePage() {
     enabled: shouldFetchOnlineHome && isSectionEnabled("mostPlayedRecently"),
   });
 
+  const {
+    data: mostLikedData,
+    isLoading: loadingMostLiked,
+    hasNextPage: hasNextMostLiked,
+    isFetchingNextPage: fetchingNextMostLiked,
+    fetchNextPage: fetchNextMostLiked,
+  } = useInfiniteQuery({
+    queryKey: mostLikedQueryKey,
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getMostLiked({
+        size: pageSize,
+        offset: pageParam,
+        inlineImages: "medium",
+      });
+      return {
+        songs: response.song ?? [],
+        total: response.total,
+        nextOffset: pageParam + pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
+    },
+    enabled: shouldFetchOnlineHome && isSectionEnabled("mostLiked"),
+  });
+
   // --- Forgotten Favorites: songs played a lot long ago but not recently ---
   const {
     data: forgottenFavData,
@@ -1510,6 +1544,11 @@ export default function HomePage() {
   const mostPlayedRecentlyTotal =
     mostPlayedRecentlyData?.pages[0]?.total != null
       ? Math.min(mostPlayedRecentlyData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const mostLikedSongs = mostLikedData?.pages.flatMap((p) => p.songs) ?? [];
+  const mostLikedTotal =
+    mostLikedData?.pages[0]?.total != null
+      ? Math.min(mostLikedData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
   const forgottenFavSongs =
     stickyForgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
@@ -1829,6 +1868,61 @@ export default function HomePage() {
               renderSkeleton={() => <SongCardSkeleton />}
               getItemKey={(song) => song.id}
               emptyMessage="No recently played songs"
+            />
+          </section>
+        );
+      case "mostLiked":
+        return (
+          <section key={section.id} className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title={sectionOption.label}
+              icon={sectionOption.icon}
+              hasItems={mostLikedSongs.length > 0}
+              isLoading={loadingMostLiked}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "mostLiked",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: false,
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "mostLiked",
+                  sourceName: sectionOption.label,
+                  startIndex: 0,
+                  shuffle: true,
+                })
+              }
+              viewAllHref={getHomeSectionHref(section)}
+            />
+            <VirtualizedHorizontalScroll<Song>
+              items={mostLikedSongs}
+              totalCount={mostLikedTotal}
+              isLoading={loadingMostLiked}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              hasNextPage={hasNextMostLiked}
+              isFetchingNextPage={fetchingNextMostLiked}
+              fetchNextPage={fetchNextMostLiked}
+              renderItem={(song, index) => (
+                <SongCard
+                  song={song}
+                  index={index}
+                  songIndex={index}
+                  queueSource={{
+                    type: "mostLiked",
+                    name: sectionOption.label,
+                  }}
+                  inlineImagesRequested
+                  className="ring-0"
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+              emptyMessage="Tap the like button on songs you love"
             />
           </section>
         );

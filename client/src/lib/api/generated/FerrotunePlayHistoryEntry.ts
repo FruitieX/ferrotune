@@ -18,6 +18,16 @@ coverArtHeight: number | null, size: number, contentType: string, suffix: string
  */
 fullPath: string | null, starred: string | null, userRating: number | null, created: string, type: string, playCount: number | null, lastPlayed: string | null, playStarts: number | null, 
 /**
+ * How many times the user liked the song (repeatable likes on top of
+ * favorites); absent when never liked.
+ */
+likeCount: number | null, 
+/**
+ * The user's newest like. For 12 hours after it (the server's
+ * `LIKE_UNDO_WINDOW`) the next like tap undoes it instead of adding one.
+ */
+lastLiked: string | null, 
+/**
  * ReplayGain track gain - prefers computed, falls back to original (in dB)
  */
 replayGainTrackGain: number | null, 
