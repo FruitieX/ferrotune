@@ -16,6 +16,7 @@ import com.ferrotune.core.network.ConnectivityMonitor
 import com.ferrotune.core.network.PlaybackSessionResetter
 import com.ferrotune.core.network.ServerPreferences
 import com.ferrotune.feature.settings.data.AccentSettingsRepository
+import com.ferrotune.music.push.PushRegistrar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,7 @@ class AppViewModel @Inject constructor(
     private val playbackSessionResetter: PlaybackSessionResetter,
     private val playbackStarter: PlaybackStarter,
     private val serverPreferences: ServerPreferences,
+    private val pushRegistrar: PushRegistrar,
     userMessages: UserMessages,
     themePreferencesRepository: ThemePreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
@@ -86,6 +88,7 @@ class AppViewModel @Inject constructor(
                     if (accountId != null) {
                         restorePlaybackSession()
                         runCatching { serverPreferences.ensureLoaded() }
+                        pushRegistrar.register()
                     }
                 }
         }
@@ -120,6 +123,7 @@ class AppViewModel @Inject constructor(
 
     fun signOutLocally() {
         viewModelScope.launch {
+            pushRegistrar.unregister()
             runCatching { playbackSessionResetter.resetSession() }
             accounts.setActive(null)
         }

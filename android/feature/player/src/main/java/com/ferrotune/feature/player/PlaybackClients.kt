@@ -154,6 +154,8 @@ private fun PlaybackClientRows(state: PlaybackClientsUiState, onSelect: (ClientR
                 append(client.displayName)
                 if (isMe) append(" (this phone)")
                 if (detail != null && detail != client.displayName) append(" · ").append(detail)
+                // Asleep; choosing it wakes it with a push and plays there.
+                if (client.isIdle) append(" · idle")
             },
             onClick = { onSelect(client) },
             closesSheet = true,

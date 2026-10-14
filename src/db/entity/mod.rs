@@ -19,6 +19,7 @@ pub mod playlist_folders;
 pub mod playlist_shares;
 pub mod playlist_songs;
 pub mod playlists;
+pub mod push_devices;
 pub mod ratings;
 pub mod scrobbles;
 pub mod server_config;

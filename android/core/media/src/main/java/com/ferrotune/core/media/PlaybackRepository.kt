@@ -119,6 +119,10 @@ class PlaybackRepository @Inject constructor(
     suspend fun applyConnectedSessionOwner(ownerClientId: String?, ownerClientName: String?) =
         awaitService().applyConnectedSessionOwner(ownerClientId, ownerClientName)
 
+    /** Plays here because another device handed playback over by push. */
+    suspend fun applyRemoteTakeOver(positionMs: Long?, resumePlayback: Boolean) =
+        awaitService().applyRemoteTakeOver(positionMs, resumePlayback)
+
     suspend fun play() = awaitService().play()
 
     suspend fun pause() = awaitService().pause()

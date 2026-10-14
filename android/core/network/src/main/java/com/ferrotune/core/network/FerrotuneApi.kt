@@ -8,6 +8,7 @@ import com.ferrotune.core.network.dto.ConnectSessionRequest
 import com.ferrotune.core.network.dto.CreateFolderRequest
 import com.ferrotune.core.network.dto.LogListeningRequest
 import com.ferrotune.core.network.dto.MoveInQueueRequest
+import com.ferrotune.core.network.dto.PushDeviceRequest
 import com.ferrotune.core.network.dto.MovePlaylistRequest
 import com.ferrotune.core.network.dto.QueueParams
 import com.ferrotune.core.network.dto.QueueWindowParams
@@ -148,6 +149,13 @@ interface FerrotuneApi {
         @Path("id") sessionId: String,
         @Body request: SessionCommandRequest,
     ): SessionSuccessResponse
+
+    /** Lets the server wake this app with a push message (FCM) while idle. */
+    @PUT("api/push/device")
+    suspend fun registerPushDevice(@Body request: PushDeviceRequest)
+
+    @DELETE("api/push/device/{clientId}")
+    suspend fun unregisterPushDevice(@Path("clientId") clientId: String)
 
     @POST("api/queue/start")
     suspend fun startQueue(@Body request: StartQueueRequest): StartQueueResponse

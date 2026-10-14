@@ -189,6 +189,7 @@ class PlaybackClientsViewModelTest {
             clientName = name,
             displayName = display,
             isOwner = isOwner,
+            isIdle = false,
         )
     }
 }

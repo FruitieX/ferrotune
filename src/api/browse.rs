@@ -39,6 +39,9 @@ pub struct PingResponse {
     /// (`FERROTUNE_FEEDBACK_URL`); unset hides their feedback button.
     #[ts(optional)]
     pub feedback_url: Option<String>,
+    /// Whether native clients can register to be woken by push messages
+    /// (`FERROTUNE_FCM_SERVICE_ACCOUNT` is set).
+    pub push_enabled: bool,
 }
 
 /// GET /api/ping - Check server connectivity
@@ -50,6 +53,7 @@ pub async fn ping(_user: FerrotuneAuthenticatedUser) -> Json<PingResponse> {
             .ok()
             .map(|url| url.trim().trim_end_matches('/').to_string())
             .filter(|url| !url.is_empty()),
+        push_enabled: crate::push::sender().is_some(),
     })
 }
 

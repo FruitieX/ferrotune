@@ -31,6 +31,7 @@ These variables only matter when the server is bound to a non-local host. When r
 |----------|---------|-------------|
 | `FERROTUNE_CORS_ALLOWED_ORIGINS` | unset | Comma-separated allowlist of extra origins. If unset, Ferrotune automatically allows its own origin; localhost deployments also include common development origins. Tauri app origins are always allowed. |
 | `FERROTUNE_FEEDBACK_URL` | unset | Base URL of a [feedback-hub](https://github.com/FruitieX/feedback-hub)-compatible service. Advertised to clients in `GET /api/ping` as `feedbackUrl`; the native Android app then shows a small feedback button that sends reports with annotated screenshots there. Unset hides the button. |
+| `FERROTUNE_FCM_SERVICE_ACCOUNT` | unset | Firebase service account key (the JSON itself, or a path to the JSON file) for Firebase Cloud Messaging. Advertised as `pushEnabled` in `GET /api/ping`; the native Android app then registers its push token, idle phones appear in the connected-clients lists, and handing playback to one wakes it with a push. Unset disables push wake-ups. |
 | `FERROTUNE_CORS_ALLOW_ANY` | unset / false | If set to `true` or `1`, allows any origin. This is unsafe for production deployments. |
 
 ## Scanning And Analysis

@@ -9,6 +9,7 @@ use crate::api::{
     AppState, ConnectedClient, ConnectedClientMetadata, DiagnosticsBundle, SessionEvent,
 };
 use crate::db::queries;
+use crate::db::repo::push_devices::{self, PushDevice};
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
@@ -76,6 +77,9 @@ pub struct ClientResponse {
     pub network_label: Option<String>,
     pub device_label: Option<String>,
     pub is_owner: bool,
+    /// A native app with no open session stream that a push message can wake;
+    /// transferring playback to it starts playback there.
+    pub is_idle: bool,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -113,6 +117,11 @@ pub struct SessionCommandRequest {
     pub client_name: Option<String>,
     pub client_id: Option<String>,
     pub resume_playback: Option<bool>,
+    /// Set when a `takeOver` hands playback to another device: if that device
+    /// is an idle native app, the server wakes it with a push message. Not set
+    /// when a client claims playback for itself.
+    #[serde(default)]
+    pub wake_target: bool,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -212,9 +221,38 @@ fn compute_display_names(
             network_label: c.hostname.clone().or_else(|| c.network_address.clone()),
             device_label: c.device_label.clone(),
             is_owner: owner_client_id == Some(c.client_id.as_str()),
+            is_idle: false,
         });
     }
     result
+}
+
+/// Registered push devices that are not connected right now: idle native apps
+/// that transferring playback to wakes with a push message.
+fn idle_push_clients(
+    devices: &[PushDevice],
+    connected: &[ClientResponse],
+    owner_client_id: Option<&str>,
+) -> Vec<ClientResponse> {
+    devices
+        .iter()
+        .filter(|device| {
+            !connected
+                .iter()
+                .any(|client| client.client_id == device.client_id)
+        })
+        .map(|device| ClientResponse {
+            client_id: device.client_id.clone(),
+            client_name: device.client_name.clone(),
+            display_name: "Mobile".to_string(),
+            network_address: None,
+            hostname: None,
+            network_label: None,
+            device_label: device.device_label.clone(),
+            is_owner: owner_client_id == Some(device.client_id.as_str()),
+            is_idle: true,
+        })
+        .collect()
 }
 
 fn normalize_client_label(value: Option<&str>) -> Option<String> {
@@ -336,7 +374,16 @@ pub async fn list_clients(
 ) -> FerrotuneApiResult<Json<ClientListResponse>> {
     let session = queries::get_or_create_session(&state.database, user.user_id).await?;
     let clients = state.session_manager.get_clients(&session.id).await;
-    let client_responses = compute_display_names(&clients, session.owner_client_id.as_deref());
+    let mut client_responses = compute_display_names(&clients, session.owner_client_id.as_deref());
+    if crate::push::sender().is_some() {
+        let devices = push_devices::list_push_devices(&state.database, user.user_id).await?;
+        let idle = idle_push_clients(
+            &devices,
+            &client_responses,
+            session.owner_client_id.as_deref(),
+        );
+        client_responses.extend(idle);
+    }
 
     Ok(Json(ClientListResponse {
         clients: client_responses,
@@ -952,6 +999,17 @@ pub async fn session_command(
                 },
             )
             .await;
+
+        if request.wake_target {
+            super::push_devices::wake_for_take_over(
+                state.clone(),
+                user.user_id,
+                session_id.clone(),
+                new_client_id.to_string(),
+                request.position_ms,
+                request.resume_playback.unwrap_or(false),
+            );
+        }
     }
 
     // Broadcast the appropriate event type
@@ -1085,6 +1143,36 @@ mod tests {
         assert_eq!(responses[0].client_name, "ferrotune-cast");
         assert_eq!(responses[0].display_name, "Chromecast");
         assert!(responses[0].is_owner);
+    }
+
+    #[test]
+    fn registered_devices_without_a_session_stream_are_listed_as_idle() {
+        let connected = compute_display_names(
+            &[connected_client("web-1", "ferrotune-web")],
+            Some("phone-1"),
+        );
+        let device = |client_id: &str| PushDevice {
+            id: 1,
+            user_id: 1,
+            client_id: client_id.to_string(),
+            client_name: "ferrotune-mobile".to_string(),
+            device_label: Some("Pixel 10 Pro".to_string()),
+            token: "token".to_string(),
+            updated_at: chrono::Utc::now().fixed_offset(),
+        };
+
+        let idle = idle_push_clients(
+            &[device("phone-1"), device("web-1")],
+            &connected,
+            Some("phone-1"),
+        );
+
+        assert_eq!(idle.len(), 1);
+        assert_eq!(idle[0].client_id, "phone-1");
+        assert!(idle[0].is_idle);
+        assert!(idle[0].is_owner);
+        assert_eq!(idle[0].device_label.as_deref(), Some("Pixel 10 Pro"));
+        assert!(!connected[0].is_idle);
     }
 
     #[test]

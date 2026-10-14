@@ -6,3 +6,5 @@ local.properties
 .kotlin/
 captures/
 .cxx/
+# Firebase config for push (see app/build.gradle.kts)
+app/google-services.json

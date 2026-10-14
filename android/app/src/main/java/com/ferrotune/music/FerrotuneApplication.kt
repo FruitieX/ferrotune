@@ -7,6 +7,7 @@ import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.ferrotune.core.network.AuthenticatedHttpClientProvider
+import com.ferrotune.music.push.PushConfig
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -15,6 +16,11 @@ class FerrotuneApplication : Application(), SingletonImageLoader.Factory {
 
     @Inject
     lateinit var httpClientProvider: AuthenticatedHttpClientProvider
+
+    override fun onCreate() {
+        super.onCreate()
+        PushConfig.initialize(this)
+    }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)

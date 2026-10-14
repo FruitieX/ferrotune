@@ -11,4 +11,5 @@ data class PingResponse(
     val status: String,
     val version: String,
     val feedbackUrl: String? = null,
+    val pushEnabled: Boolean,
 )

@@ -28,6 +28,7 @@ pub mod music_folders;
 pub mod playlists;
 mod playqueue;
 mod preferences;
+mod push_devices;
 pub mod query;
 mod queue;
 pub mod recycle_bin;

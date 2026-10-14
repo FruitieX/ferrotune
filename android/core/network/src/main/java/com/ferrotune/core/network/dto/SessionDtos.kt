@@ -13,6 +13,8 @@ data class SessionCommandRequest(
     val clientName: String? = null,
     val clientId: String? = null,
     val resumePlayback: Boolean? = null,
+    /** Hands playback to another device: an idle phone is woken with a push. */
+    val wakeTarget: Boolean? = null,
 )
 
 /**
@@ -38,4 +40,16 @@ data class SessionHeartbeatRequest(
 data class ConnectSessionRequest(
     val clientName: String = "ferrotune-mobile",
     val clientId: String? = null,
+)
+
+/**
+ * Hand-written because ts-rs does not export this request struct. Registers
+ * this install's FCM token so the server can wake it for a remote "play here".
+ */
+@Serializable
+data class PushDeviceRequest(
+    val clientId: String,
+    val token: String,
+    val clientName: String = "ferrotune-mobile",
+    val deviceLabel: String? = null,
 )

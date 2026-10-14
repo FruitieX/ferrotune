@@ -8,4 +8,9 @@ export type PingResponse = { status: string, version: string,
  * Feedback hub that native clients may send in-app feedback to
  * (`FERROTUNE_FEEDBACK_URL`); unset hides their feedback button.
  */
-feedbackUrl?: string, };
+feedbackUrl?: string, 
+/**
+ * Whether native clients can register to be woken by push messages
+ * (`FERROTUNE_FCM_SERVICE_ACCOUNT` is set).
+ */
+pushEnabled: boolean, };

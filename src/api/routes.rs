@@ -3,9 +3,9 @@
 use super::{
     auth_routes, browse, directory, disabled_songs, discovery, duplicates, filesystem, history,
     history_admin, home, lastfm, listening, lists, match_dictionary, media, music_folders,
-    playlists, playqueue, preferences, queue, recycle_bin, scan, scrobbles, search, server_config,
-    sessions, setup, shuffle_exclude, smart_playlists, songs, starring, stats, tagger,
-    tagger_session, tags, testing, users, waveform,
+    playlists, playqueue, preferences, push_devices, queue, recycle_bin, scan, scrobbles, search,
+    server_config, sessions, setup, shuffle_exclude, smart_playlists, songs, starring, stats,
+    tagger, tagger_session, tags, testing, users, waveform,
 };
 
 use crate::api::AppState;
@@ -300,6 +300,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(sessions::get_session_info).post(sessions::connect_session),
         )
         .route("/sessions/clients", get(sessions::list_clients))
+        // Push wake-ups for native apps whose session stream is closed
+        .route(
+            "/push/device",
+            axum::routing::put(push_devices::register_push_device),
+        )
+        .route(
+            "/push/device/{client_id}",
+            delete(push_devices::unregister_push_device),
+        )
         .route(
             "/sessions/{id}/heartbeat",
             post(sessions::session_heartbeat),

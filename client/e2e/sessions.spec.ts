@@ -1233,6 +1233,54 @@ test.describe.serial("Multi-Session Playback", () => {
     }
   });
 
+  test("idle phones are listed and woken when playback moves to them", async ({
+    authenticatedPage: page,
+  }) => {
+    // The test server has no push messaging, so the idle phone a server with
+    // FCM would list is added to the real client list.
+    const idlePhone = {
+      clientId: "e2e-idle-phone",
+      clientName: "ferrotune-mobile",
+      displayName: "Mobile",
+      networkAddress: null,
+      hostname: null,
+      networkLabel: null,
+      deviceLabel: "Pixel E2E",
+      isOwner: false,
+      isIdle: true,
+    };
+    await page.route("**/api/sessions/clients", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({
+        response,
+        json: { ...body, clients: [...body.clients, idlePhone] },
+      });
+    });
+    await page.reload();
+    await waitForAuthenticatedHome(page);
+
+    await page
+      .getByRole("button", { name: /profile|@/i })
+      .first()
+      .click();
+    const phoneItem = page
+      .locator('[role="menuitem"]')
+      .filter({ hasText: idlePhone.deviceLabel });
+    await expect(phoneItem).toContainText("Idle", { timeout: 10000 });
+
+    const command = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && request.url().endsWith("/command"),
+    );
+    await phoneItem.click();
+    expect((await command).postDataJSON()).toMatchObject({
+      action: "takeOver",
+      clientId: idlePhone.clientId,
+      wakeTarget: true,
+    });
+  });
+
   test("follower joining mid-song loads the current waveform", async ({
     authenticatedPage: ownerPage,
     server,

@@ -12,6 +12,7 @@ import com.ferrotune.core.network.dto.CreateFolderRequest
 import com.ferrotune.core.network.dto.LogListeningRequest
 import com.ferrotune.core.network.dto.MoveInQueueRequest
 import com.ferrotune.core.network.dto.MovePlaylistRequest
+import com.ferrotune.core.network.dto.PushDeviceRequest
 import com.ferrotune.core.network.dto.QueueParams
 import com.ferrotune.core.network.dto.QueueWindowParams
 import com.ferrotune.core.network.dto.RatingRequest
@@ -148,7 +149,7 @@ open class FakeFerrotuneApi(
 ) : FerrotuneApi {
 
     override suspend fun login(request: AuthLoginRequest): AuthLoginResponseDto = error("unused")
-    var pingResponse = PingResponse(status = "ok", version = "test")
+    var pingResponse = PingResponse(status = "ok", version = "test", pushEnabled = false)
     override suspend fun ping(): PingResponse = pingResponse
     override suspend fun me(): AuthMeResponseDto = error("unused")
     override suspend fun refresh(): AuthSessionRefreshResponseDto = error("unused")
@@ -177,6 +178,17 @@ open class FakeFerrotuneApi(
         sessionId: String,
         request: SessionCommandRequest,
     ): SessionSuccessResponse = error("unused")
+
+    val registeredPushDevices = mutableListOf<PushDeviceRequest>()
+    val unregisteredPushClients = mutableListOf<String>()
+
+    override suspend fun registerPushDevice(request: PushDeviceRequest) {
+        registeredPushDevices += request
+    }
+
+    override suspend fun unregisterPushDevice(clientId: String) {
+        unregisteredPushClients += clientId
+    }
 
     override suspend fun startQueue(request: StartQueueRequest): StartQueueResponse = error("unused")
 

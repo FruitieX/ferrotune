@@ -11,6 +11,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod password;
+pub mod push;
 pub mod replaygain;
 pub mod scanner;
 pub mod thumbnails;

@@ -96,6 +96,9 @@ export function ConnectedClientsMenuItems({
         targetClientName,
         targetClientId,
         shouldResumePlayback,
+        undefined,
+        // An idle phone is woken with a push message to play.
+        !transferringToSelf,
       );
 
       if (transferringToSelf) {
@@ -160,9 +163,11 @@ export function ConnectedClientsMenuItems({
                     : "Owner"}
                 </span>
               )}
-              {metadataLabel && (
+              {(metadataLabel || client.isIdle) && (
                 <span className="truncate block text-xs text-muted-foreground">
-                  {metadataLabel}
+                  {[metadataLabel, client.isIdle ? "Idle" : null]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               )}
             </div>

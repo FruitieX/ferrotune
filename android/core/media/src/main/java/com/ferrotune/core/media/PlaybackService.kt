@@ -1859,6 +1859,31 @@ class PlaybackService : MediaSessionService() {
     fun hasSessionConfig(): Boolean = apiClient.hasSessionConfig()
 
     /**
+     * Applies a hand-over of playback to this app that arrived as a push
+     * message because its session stream was closed: the same as the
+     * OwnerChanged event a connected app receives. Enters the foreground first,
+     * while the push still lets a background app do that.
+     */
+    fun applyRemoteTakeOver(positionMs: Long?, resumePlayback: Boolean) {
+        val myClientId = apiClient.getClientId() ?: return
+        if (resumePlayback) holdForegroundForPendingPlayback()
+        logPlaybackDiagnostic(
+            DiagnosticLevel.INFO,
+            "push_take_over",
+            "Playback handed to this app by push",
+            mapOf("positionMs" to positionMs, "resumePlayback" to resumePlayback),
+        )
+        handleOwnerChanged(
+            SessionEvent.OwnerChanged(
+                ownerClientId = myClientId,
+                ownerClientName = "ferrotune-mobile",
+                resumePlayback = resumePlayback,
+                positionMs = positionMs,
+            ),
+        )
+    }
+
+    /**
      * Seeds the session owner reported by `POST /sessions/connect` when the app
      * reattaches to an existing session, without claiming ownership. A paused
      * restore must not heartbeat over another client that is still playing;

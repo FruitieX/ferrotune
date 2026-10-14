@@ -16,4 +16,5 @@ data class ClientResponse(
     val networkLabel: String? = null,
     val deviceLabel: String? = null,
     val isOwner: Boolean,
+    val isIdle: Boolean,
 )

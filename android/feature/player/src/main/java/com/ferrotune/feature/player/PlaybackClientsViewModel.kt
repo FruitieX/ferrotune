@@ -130,6 +130,7 @@ class PlaybackClientsViewModel @Inject constructor(
                             clientName = client.clientName,
                             clientId = client.clientId,
                             resumePlayback = resume,
+                            wakeTarget = client.clientId != myClientId.value,
                         ),
                     )
                 }

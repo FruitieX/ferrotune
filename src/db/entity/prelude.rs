@@ -17,6 +17,7 @@ pub use super::playlist_folders::Entity as PlaylistFolders;
 pub use super::playlist_shares::Entity as PlaylistShares;
 pub use super::playlist_songs::Entity as PlaylistSongs;
 pub use super::playlists::Entity as Playlists;
+pub use super::push_devices::Entity as PushDevices;
 pub use super::ratings::Entity as Ratings;
 pub use super::scrobbles::Entity as Scrobbles;
 pub use super::server_config::Entity as ServerConfig;

@@ -2275,6 +2275,7 @@ export class FerrotuneClient {
     clientId?: string,
     resumePlayback?: boolean,
     currentIndex?: number,
+    wakeTarget?: boolean,
   ): Promise<SessionSuccessResponse> {
     return this.request(
       `/api/sessions/${encodeURIComponent(sessionId)}/command`,
@@ -2289,6 +2290,7 @@ export class FerrotuneClient {
           clientId,
           resumePlayback,
           currentIndex,
+          wakeTarget,
         }),
       },
       true, // Silent — session errors are recovered automatically
