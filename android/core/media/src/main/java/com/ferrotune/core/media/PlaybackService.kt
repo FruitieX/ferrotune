@@ -245,10 +245,9 @@ class PlaybackService : MediaSessionService() {
     // Stored reference to update auth headers when session config changes
     private var httpDataSourceFactory: DefaultHttpDataSource.Factory? = null
     private var artworkDataSourceFactory: DefaultHttpDataSource.Factory? = null
-    // Chained (download-cache → http) data source for the MediaSession
-    // bitmap loader, so cover-art for downloaded songs is served from the
-    // download cache instead of the network. Set in onCreate after the
-    // DownloadManager is initialized. Falls back to artworkDataSourceFactory.
+    // Stream-cache-backed data source for the MediaSession bitmap loader, so
+    // recent cover art loads from disk. Set in onCreate. Falls back to
+    // artworkDataSourceFactory.
     private var artworkLoaderDataSourceFactory: DataSource.Factory? = null
     private data class NotificationArtworkData(
         val trackId: String,
@@ -647,6 +646,8 @@ class PlaybackService : MediaSessionService() {
         // requested at transcoding bitrate X will be served from cached bytes
         // downloaded at bitrate Y (the downloaded version is always preferred
         // even when the player asks for a different transcode profile).
+        // Playback only reads the download cache: only the DownloadManager
+        // writes it, so streamed songs never get pinned there.
         val streamOnlyCacheFactory = CacheDataSource.Factory()
             .setCache(streamCache!!)
             .setUpstreamDataSourceFactory(httpDataSourceFactory!!)
@@ -658,6 +659,7 @@ class PlaybackService : MediaSessionService() {
             CacheDataSource.Factory()
                 .setCache(downloadCache)
                 .setUpstreamDataSourceFactory(streamOnlyCacheFactory)
+                .setCacheWriteDataSinkFactory(null)
                 .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
                 .setFlags(
                     CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR or
@@ -682,21 +684,16 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
-        // Re-point the artwork loader at the same chained cache so cover-art
-        // requests for downloaded songs are served from disk instead of the
-        // network. We keep the inner DefaultHttpDataSource.Factory intact so
-        // auth-header updates can still be pushed via setDefaultRequestProperties.
-        val artworkCacheDataSourceFactory: DataSource.Factory =
-            if (downloadCache != null) {
-                CacheDataSource.Factory()
-                    .setCache(downloadCache)
-                    .setUpstreamDataSourceFactory(artworkDataSourceFactory!!)
-                    .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-            } else {
-                artworkDataSourceFactory!!
-            }
-        this.artworkLoaderDataSourceFactory = artworkCacheDataSourceFactory
+        // Notification artwork goes through the LRU stream cache, so recent
+        // covers load from disk (also offline) without being pinned forever;
+        // downloads keep their covers inline. We keep the inner
+        // DefaultHttpDataSource.Factory intact so auth-header updates can
+        // still be pushed via setDefaultRequestProperties.
+        this.artworkLoaderDataSourceFactory = CacheDataSource.Factory()
+            .setCache(streamCache!!)
+            .setUpstreamDataSourceFactory(artworkDataSourceFactory!!)
+            .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
         // Custom load error policy: keep transient network failures inside
         // ExoPlayer so Media3 can resume with byte-range requests while
