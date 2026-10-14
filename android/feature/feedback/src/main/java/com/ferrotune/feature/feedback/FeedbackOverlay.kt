@@ -257,7 +257,7 @@ private fun FeedbackDialog(
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("Screenshots", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                     Text(
-                        "Tap one to circle or mark things",
+                        "Tap one to mark it · refer to them as #1, #2…",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -270,6 +270,7 @@ private fun FeedbackDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         viewModel.shots.forEachIndexed { index, shot ->
+                            Column(Modifier.width(120.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Box {
                                 Image(
                                     bitmap = shot.rendered.asImageBitmap(),
@@ -277,10 +278,21 @@ private fun FeedbackDialog(
                                     contentScale = ContentScale.Crop,
                                     alignment = Alignment.TopCenter,
                                     modifier = Modifier
-                                        .size(width = 96.dp, height = 170.dp)
+                                        .size(width = 120.dp, height = 200.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable { onAnnotate(index) },
                                 )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                                ) {
+                                    Text(
+                                        "#${index + 1}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                                    )
+                                }
                                 IconButton(
                                     onClick = { viewModel.removeShot(index) },
                                     modifier = Modifier.align(Alignment.TopEnd).size(32.dp),
@@ -293,6 +305,14 @@ private fun FeedbackDialog(
                                         )
                                     }
                                 }
+                            }
+                            OutlinedTextField(
+                                value = shot.note,
+                                onValueChange = { viewModel.setNote(index, it) },
+                                placeholder = { Text("Note for #${index + 1}", style = MaterialTheme.typography.bodySmall) },
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                             }
                         }
                     }
@@ -312,13 +332,6 @@ private fun FeedbackDialog(
                         Text("Image")
                     }
                 }
-                OutlinedTextField(
-                    value = viewModel.reporter,
-                    onValueChange = { viewModel.reporter = it.take(100) },
-                    label = { Text("Your name (optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = viewModel.includeDiagnostics, onCheckedChange = { viewModel.includeDiagnostics = it })
                     Text(

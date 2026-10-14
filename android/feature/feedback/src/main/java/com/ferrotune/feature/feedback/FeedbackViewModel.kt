@@ -19,7 +19,7 @@ import javax.inject.Inject
 
 const val MAX_SHOTS = 8
 
-class Shot(val base: Bitmap, val strokes: List<Stroke> = emptyList()) {
+class Shot(val base: Bitmap, val strokes: List<Stroke> = emptyList(), val note: String = "") {
     val rendered: Bitmap by lazy { base.withStrokes(strokes) }
 }
 
@@ -28,8 +28,6 @@ class FeedbackViewModel @Inject constructor(
     private val repository: FeedbackRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
-    private val prefs = context.getSharedPreferences("feedback", Context.MODE_PRIVATE)
-
     var info by mutableStateOf<FeedbackServerInfo?>(null)
         private set
     var shots by mutableStateOf(listOf<Shot>())
@@ -42,7 +40,6 @@ class FeedbackViewModel @Inject constructor(
     var hiddenForSession by mutableStateOf(false)
     var kind by mutableStateOf(FeedbackKind.Bug)
     var message by mutableStateOf("")
-    var reporter by mutableStateOf(prefs.getString("reporter", "").orEmpty())
     var includeDiagnostics by mutableStateOf(true)
     var sending by mutableStateOf(false)
         private set
@@ -61,7 +58,11 @@ class FeedbackViewModel @Inject constructor(
     }
 
     fun setStrokes(index: Int, strokes: List<Stroke>) {
-        shots = shots.mapIndexed { i, shot -> if (i == index) Shot(shot.base, strokes) else shot }
+        shots = shots.mapIndexed { i, shot -> if (i == index) Shot(shot.base, strokes, shot.note) else shot }
+    }
+
+    fun setNote(index: Int, note: String) {
+        shots = shots.mapIndexed { i, shot -> if (i == index) Shot(shot.base, shot.strokes, note.take(1000)) else shot }
     }
 
     fun send(route: String?, onSent: (Long) -> Unit) {
@@ -72,7 +73,6 @@ class FeedbackViewModel @Inject constructor(
         }
         sending = true
         status = "Sending…"
-        prefs.edit().putString("reporter", reporter.trim()).apply()
         viewModelScope.launch {
             val result = runCatching {
                 val diagnostics = includeDiagnostics
@@ -80,7 +80,6 @@ class FeedbackViewModel @Inject constructor(
                 val report = FeedbackReport(
                     kind = kind,
                     message = message,
-                    reporter = reporter,
                     page = if (diagnostics) route?.let { "ferrotune-android://$it" } else null,
                     userAgent = if (diagnostics) {
                         "Ferrotune Android $version; Android ${Build.VERSION.RELEASE}; ${Build.MANUFACTURER} ${Build.MODEL}"
@@ -90,6 +89,7 @@ class FeedbackViewModel @Inject constructor(
                     context = if (diagnostics) diagnosticsContext(route, version) else mapOf("appVersion" to version),
                     logs = if (diagnostics) recentLogs() else emptyList(),
                     screenshots = shots.map { it.rendered.toDataUrl() },
+                    screenshotNotes = shots.map { it.note },
                 )
                 repository.submit(hub, report)
             }

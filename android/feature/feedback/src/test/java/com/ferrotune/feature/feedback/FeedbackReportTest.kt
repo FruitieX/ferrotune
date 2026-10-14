@@ -6,7 +6,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeedbackReportTest {
@@ -16,12 +15,12 @@ class FeedbackReportTest {
             FeedbackReport(
                 kind = FeedbackKind.Idea,
                 message = "  Add lyrics  ",
-                reporter = " ",
                 page = "ferrotune-android://home",
                 userAgent = "Ferrotune Android",
                 context = mapOf("device" to "Pixel"),
                 logs = listOf("E/Player: boom"),
                 screenshots = listOf("data:image/png;base64,AAAA"),
+                screenshotNotes = listOf(" Tap here "),
             ).toJson(),
         ).jsonObject
 
@@ -29,17 +28,17 @@ class FeedbackReportTest {
         assertEquals("idea", json["kind"]!!.jsonPrimitive.content)
         assertEquals("Add lyrics", json["message"]!!.jsonPrimitive.content)
         assertEquals("android", json["source"]!!.jsonPrimitive.content)
-        assertTrue(json["reporter"].toString() == "null")
         val context = json["context"]!!.jsonObject
         assertEquals("Pixel", context["device"]!!.jsonPrimitive.content)
         assertEquals("E/Player: boom", context["logs"]!!.jsonArray.single().jsonPrimitive.content)
         assertEquals(1, json["screenshots"]!!.jsonArray.size)
+        assertEquals("Tap here", json["screenshotNotes"]!!.jsonArray.single().jsonPrimitive.content)
     }
 
     @Test
     fun omitsLogsWhenThereAreNone() {
         val json = FerrotuneJson.parseToJsonElement(
-            FeedbackReport(FeedbackKind.Bug, "x", null, null, null, emptyMap(), emptyList(), emptyList()).toJson(),
+            FeedbackReport(FeedbackKind.Bug, "x", null, null, emptyMap(), emptyList(), emptyList()).toJson(),
         ).jsonObject
         assertFalse("logs" in json["context"]!!.jsonObject)
     }
