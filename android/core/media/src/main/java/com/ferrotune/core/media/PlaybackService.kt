@@ -149,8 +149,6 @@ class PlaybackService : MediaSessionService() {
         private const val STREAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 15_000
         private const val STREAM_TARGET_BUFFER_BYTES = 64 * 1024 * 1024
         private const val TRANSCODED_STREAM_LOAD_RETRY_COUNT = 10
-        private const val TRANSCODED_STREAM_LOAD_RETRY_BASE_DELAY_MS = 1_000L
-        private const val TRANSCODED_STREAM_LOAD_RETRY_MAX_DELAY_MS = 5_000L
         // Longer than the server's wait for a transcode to finish before it
         // answers a resumed range request.
         private const val STREAM_READ_TIMEOUT_MS = 20_000
@@ -721,27 +719,11 @@ class PlaybackService : MediaSessionService() {
                     return retryDelayMs
                 }
 
-                val httpError = loadErrorInfo.exception as? InvalidResponseCodeException
-                val responseCode = httpError?.responseCode
-                if (
-                    responseCode != null &&
-                    responseCode in 400..499 &&
-                    responseCode != 408 &&
-                    responseCode != 429
-                ) {
-                    logLoadErrorDecision(loadErrorInfo, C.TIME_UNSET)
-                    return C.TIME_UNSET
-                }
-
-                if (loadErrorInfo.errorCount > TRANSCODED_STREAM_LOAD_RETRY_COUNT) {
-                    logLoadErrorDecision(loadErrorInfo, C.TIME_UNSET)
-                    return C.TIME_UNSET
-                }
-
-                val retryDelayMs = minOf(
-                    TRANSCODED_STREAM_LOAD_RETRY_BASE_DELAY_MS * loadErrorInfo.errorCount,
-                    TRANSCODED_STREAM_LOAD_RETRY_MAX_DELAY_MS,
-                )
+                val retryDelayMs = transcodedStreamRetryDelayMs(
+                    errorCount = loadErrorInfo.errorCount,
+                    httpStatus = (loadErrorInfo.exception as? InvalidResponseCodeException)?.responseCode,
+                    quickRetries = TRANSCODED_STREAM_LOAD_RETRY_COUNT,
+                ) ?: C.TIME_UNSET
                 logLoadErrorDecision(loadErrorInfo, retryDelayMs)
                 return retryDelayMs
             }
