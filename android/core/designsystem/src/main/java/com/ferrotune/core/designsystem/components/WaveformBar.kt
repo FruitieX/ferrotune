@@ -62,7 +62,7 @@ internal fun progressTooltipsCollide(
 /**
  * Pre-computed waveform seek bar. Bars before [progress] are drawn in
  * [playedColor]; the rest use [trackColor]. When [onSeek] is set the bar is
- * tappable and draggable, reporting a 0..1 fraction, and scrubbing shows the
+ * tappable and draggable, reporting a 0..1 fraction on release, and scrubbing shows the
  * web client's progress affordances: a vertical position bar plus
  * start/end/current time tooltips that stay visible briefly after release.
  *
@@ -124,6 +124,7 @@ fun WaveformBar(
     val tooltipHeight = if (showTooltips) 22.dp else 0.dp
 
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
+    var scrubbing by remember { mutableStateOf(false) }
     var previewVisible by remember { mutableStateOf(false) }
     var previewGeneration by remember { mutableIntStateOf(0) }
     var previewTimerEnabled by remember { mutableStateOf(false) }
@@ -163,7 +164,9 @@ fun WaveformBar(
             val barCount = max(1, (size.width / step).toInt())
             val barW = barWidth.toPx()
             val radius = CornerRadius(barW / 2f, barW / 2f)
-            val playedBars = (barCount * clampedProgress).toInt()
+            // While scrubbing, the played part follows the finger.
+            val shownProgress = scrubFraction?.takeIf { scrubbing } ?: clampedProgress
+            val playedBars = (barCount * shownProgress).toInt()
             val incoming = downsampleHeights(heights, barCount)
             val sweeping = outProgress > 0f || inProgress > 0f
             val leaving = if (sweeping) downsampleHeights(outgoing, barCount) else incoming
@@ -267,17 +270,21 @@ fun WaveformBar(
                             val down = awaitFirstDown(requireUnconsumed = false)
                             fun update(positionX: Float) {
                                 if (size.width <= 0) return
-                                val fraction = (positionX / size.width).coerceIn(0f, 1f)
-                                scrubFraction = fraction
+                                scrubFraction = (positionX / size.width).coerceIn(0f, 1f)
                                 previewVisible = true
-                                onSeek(fraction)
                             }
                             previewTimerEnabled = false
+                            scrubbing = true
                             update(down.position.x)
-                            drag(down.id) { change ->
+                            val released = drag(down.id) { change ->
                                 update(change.position.x)
                                 change.consume()
                             }
+                            scrubbing = false
+                            // Seek once on release: every seek restarts the
+                            // stream download (and is a remote command when
+                            // following another device).
+                            if (released) scrubFraction?.let(onSeek)
                             previewGeneration += 1
                             previewTimerEnabled = true
                         }

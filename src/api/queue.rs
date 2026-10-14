@@ -492,7 +492,26 @@ async fn broadcast_queue_changed(state: &AppState, session_id: &str) {
 async fn broadcast_queue_updated(state: &AppState, session_id: &str) {
     state
         .session_manager
-        .broadcast(session_id, SessionEvent::QueueUpdated)
+        .broadcast(
+            session_id,
+            SessionEvent::QueueUpdated {
+                source_client_id: None,
+            },
+        )
+        .await;
+}
+
+/// Broadcast that a client moved the queue position. Naming the client lets
+/// it skip refetching the queue it just moved.
+async fn broadcast_position_updated(state: &AppState, session_id: &str, client_id: &str) {
+    state
+        .session_manager
+        .broadcast(
+            session_id,
+            SessionEvent::QueueUpdated {
+                source_client_id: Some(client_id.to_string()),
+            },
+        )
         .await;
 }
 
@@ -1843,7 +1862,7 @@ pub async fn update_position(
         .await?;
     }
 
-    broadcast_queue_updated(&state, session_id).await;
+    broadcast_position_updated(&state, session_id, request_client_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,

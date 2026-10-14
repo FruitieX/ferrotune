@@ -10,10 +10,14 @@ internal data class NativeListeningUpdate(
     val skipped: Boolean,
 )
 
-/** Pure state machine for native listening-session accounting. */
+/**
+ * Pure state machine for native listening-session accounting. Updates come
+ * only at pauses and track changes, where the app reports to the server
+ * anyway: a periodic update would wake the radio on its own every minute.
+ * Listening time of a track the app dies in the middle of is lost.
+ */
 internal class NativeListeningSessionLifecycle(
     private val minimumDurationMs: Long = 5_000L,
-    private val syncIntervalMs: Long = 60_000L,
 ) {
     private var nextGeneration = 0L
     private var generation = 0L
@@ -35,17 +39,9 @@ internal class NativeListeningSessionLifecycle(
         return finalUpdate
     }
 
-    fun addProgress(elapsedMs: Long): NativeListeningUpdate? {
-        if (songId == null) return null
+    fun addProgress(elapsedMs: Long) {
+        if (songId == null) return
         accumulatedMs += elapsedMs.coerceAtLeast(0)
-        return if (
-            accumulatedMs >= minimumDurationMs &&
-            accumulatedMs - lastScheduledMs >= syncIntervalMs
-        ) {
-            createUpdate(finalize = false, skipped = false)
-        } else {
-            null
-        }
     }
 
     fun snapshot(): NativeListeningUpdate? {

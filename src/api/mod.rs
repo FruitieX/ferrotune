@@ -182,7 +182,13 @@ pub enum SessionEvent {
     /// Queue contents changed AND playback should start (new queue / play at index)
     QueueChanged,
     /// Queue metadata updated (shuffle/repeat/add/remove/move) — no playback change
-    QueueUpdated,
+    #[serde(rename_all = "camelCase")]
+    QueueUpdated {
+        /// Set when only a client's position update caused this: that client
+        /// already has the new state and can skip refetching the queue.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_client_id: Option<String>,
+    },
     /// Playback command from a remote controller
     #[serde(rename_all = "camelCase")]
     PlaybackCommand {
@@ -785,6 +791,25 @@ mod tests {
                 "isMuted": false,
                 "clientId": "web-client",
             }))
+        );
+    }
+
+    #[test]
+    fn queue_updated_names_the_client_only_for_its_position_updates() {
+        let edit = SessionEvent::QueueUpdated {
+            source_client_id: None,
+        };
+        let position = SessionEvent::QueueUpdated {
+            source_client_id: Some("mobile-1".to_string()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(edit).map_err(|error| error.to_string()),
+            Ok(json!({ "type": "queueUpdated" }))
+        );
+        assert_eq!(
+            serde_json::to_value(position).map_err(|error| error.to_string()),
+            Ok(json!({ "type": "queueUpdated", "sourceClientId": "mobile-1" }))
         );
     }
 

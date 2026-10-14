@@ -8,20 +8,17 @@ import org.junit.Test
 
 class NativeListeningSessionLifecycleTest {
     @Test
-    fun tracksPlaybackWithoutDependingOnWebViewCallbacks() {
+    fun playbackIsReportedOnceWhenTheTrackChanges() {
         val lifecycle = NativeListeningSessionLifecycle()
 
         assertNull(lifecycle.changeTrack("song-a"))
-        assertNull(lifecycle.addProgress(59_000))
-
-        val periodic = lifecycle.addProgress(1_000)
-        assertEquals("song-a", periodic?.songId)
-        assertEquals(60L, periodic?.durationSeconds)
-        assertFalse(periodic?.finalize ?: true)
+        // No periodic updates: each would wake the radio on its own.
+        lifecycle.addProgress(185_000)
+        lifecycle.addProgress(1_000)
 
         val final = lifecycle.changeTrack("song-b")
-        assertEquals(periodic?.generation, final?.generation)
         assertEquals("song-a", final?.songId)
+        assertEquals(186L, final?.durationSeconds)
         assertTrue(final?.finalize ?: false)
     }
 

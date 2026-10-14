@@ -1005,10 +1005,14 @@ pub async fn update_session_heartbeat_with_position(
     use entity::playback_sessions::Column as S;
     let tx = database.conn().begin().await?;
 
+    // A pause ends a playing stretch now. Owners report only on changes (not
+    // on a timer), so the last "playing" heartbeat may be a whole track old.
     let last_playing_at_expr: SimpleExpr = if is_playing {
         Expr::current_timestamp().into()
     } else {
-        Expr::col(S::LastPlayingAt).into()
+        Expr::case(Expr::col(S::IsPlaying).eq(true), Expr::current_timestamp())
+            .finally(Expr::col(S::LastPlayingAt))
+            .into()
     };
 
     let result = entity::playback_sessions::Entity::update_many()

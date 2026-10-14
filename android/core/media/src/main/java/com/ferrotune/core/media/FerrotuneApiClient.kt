@@ -122,6 +122,9 @@ class FerrotuneApiClient {
         private const val TAG = "FerrotuneApiClient"
         private const val CLIENT_NAME = "ferrotune-mobile"
         private const val API_VERSION = "1.16.1"
+        // Session stream keep-alive interval asked of the server; it allows
+        // up to 240 s, under Envoy's 5-minute stream idle timeout.
+        private const val SSE_KEEP_ALIVE_SECS = 240L
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         /** Server URL tokens live for 4 hours; refresh well before expiry. */
@@ -239,19 +242,23 @@ class FerrotuneApiClient {
             uriBuilder.appendQueryParameter("timeOffset", formatTimeOffsetSeconds(timeOffsetMs))
             uriBuilder.appendQueryParameter("seekMode", "accurate")
         }
-        NativeAudioLogger.debug(
-            TAG,
-            "stream_url_built",
-            "Built native stream URL metadata",
-            mapOf(
-                "songId" to songId,
-                "transcoding" to settings.transcodingEnabled,
-                "bitrate" to settings.transcodingBitrate,
-                "format" to if (settings.transcodingEnabled) "opus" else null,
-                "timeOffsetMs" to timeOffsetMs,
-                "hasAuthHeader" to (config.sessionToken != null),
-            ),
-        )
+        // Every queue window builds ~100 of these; only seek reloads are worth a
+        // diagnostics line (writing them all cost flash writes and CPU).
+        if (timeOffsetMs > 0) {
+            NativeAudioLogger.debug(
+                TAG,
+                "stream_url_built",
+                "Built native stream URL metadata",
+                mapOf(
+                    "songId" to songId,
+                    "transcoding" to settings.transcodingEnabled,
+                    "bitrate" to settings.transcodingBitrate,
+                    "format" to if (settings.transcodingEnabled) "opus" else null,
+                    "timeOffsetMs" to timeOffsetMs,
+                    "hasAuthHeader" to (config.sessionToken != null),
+                ),
+            )
+        }
         return uriBuilder.build().toString()
     }
 
@@ -896,9 +903,12 @@ class FerrotuneApiClient {
     // SSE — real-time session events
     // =========================================================================
 
+    // The server's default 15 s keep-alive would wake the radio four times a
+    // minute while playing. A connection a carrier NAT silently dropped shows
+    // up as no keep-alive within the read timeout, and is then reconnected.
     private val sseClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS) // no read timeout for SSE
+        .readTimeout(SSE_KEEP_ALIVE_SECS * 5 / 2, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
@@ -936,6 +946,7 @@ class FerrotuneApiClient {
         val params = mutableListOf<String>()
         config.clientId?.let { params.add("clientId=${java.net.URLEncoder.encode(it, "UTF-8")}") }
         params.add("clientName=ferrotune-mobile")
+        params.add("keepAliveSecs=$SSE_KEEP_ALIVE_SECS")
         sseUrl += separator + params.joinToString("&")
 
         val request = Request.Builder().url(sseUrl).get().also { addAuthHeaders(it) }.build()
@@ -1055,7 +1066,9 @@ class FerrotuneApiClient {
     private fun parseSessionEvent(json: JSONObject): SessionEvent? {
         return when (json.optString("type")) {
             "queueChanged" -> SessionEvent.QueueChanged
-            "queueUpdated" -> SessionEvent.QueueUpdated
+            "queueUpdated" -> SessionEvent.QueueUpdated(
+                sourceClientId = json.optString("sourceClientId").ifEmpty { null },
+            )
             "playbackCommand" -> SessionEvent.PlaybackCommand(
                 action = json.getString("action"),
                 clientId = json.optString("clientId").ifEmpty { null },
@@ -1115,7 +1128,8 @@ internal fun formatTimeOffsetSeconds(timeOffsetMs: Long): String =
  */
 sealed class SessionEvent {
     object QueueChanged : SessionEvent()
-    object QueueUpdated : SessionEvent()
+    /** [sourceClientId] is set when that client's own position update caused it. */
+    data class QueueUpdated(val sourceClientId: String?) : SessionEvent()
     data class PlaybackCommand(
         val action: String,
         val clientId: String?,

@@ -138,6 +138,22 @@ pub struct SessionEventsQuery {
     pub client_id: Option<String>,
     pub client_name: Option<String>,
     pub device_label: Option<String>,
+    /// Seconds between keep-alive comments. Mobile clients ask for minutes:
+    /// each keep-alive wakes the phone's radio. Clamped to
+    /// [`SSE_KEEP_ALIVE_RANGE`].
+    pub keep_alive_secs: Option<u64>,
+}
+
+/// Default and allowed keep-alive intervals for session event streams. The
+/// upper bound stays below Envoy's 5-minute stream idle timeout.
+const SSE_KEEP_ALIVE_DEFAULT_SECS: u64 = 15;
+const SSE_KEEP_ALIVE_RANGE: std::ops::RangeInclusive<u64> = 15..=240;
+
+fn sse_keep_alive_interval(requested_secs: Option<u64>) -> Duration {
+    let secs = requested_secs
+        .unwrap_or(SSE_KEEP_ALIVE_DEFAULT_SECS)
+        .clamp(*SSE_KEEP_ALIVE_RANGE.start(), *SSE_KEEP_ALIVE_RANGE.end());
+    Duration::from_secs(secs)
 }
 
 // ============================================================================
@@ -845,7 +861,7 @@ pub async fn session_events(
 
     Ok(Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(15))
+            .interval(sse_keep_alive_interval(query.keep_alive_secs))
             .text("keep-alive"),
     ))
 }
@@ -1017,6 +1033,18 @@ pub struct DisconnectClientQuery {
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn sse_keep_alive_defaults_to_fifteen_seconds_and_clamps_requests() {
+        assert_eq!(sse_keep_alive_interval(None), Duration::from_secs(15));
+        assert_eq!(sse_keep_alive_interval(Some(240)), Duration::from_secs(240));
+        assert_eq!(sse_keep_alive_interval(Some(1)), Duration::from_secs(15));
+        // Envoy drops streams idle for 5 minutes.
+        assert_eq!(
+            sse_keep_alive_interval(Some(3600)),
+            Duration::from_secs(240)
+        );
+    }
 
     fn connected_client(client_id: &str, client_name: &str) -> ConnectedClient {
         ConnectedClient {

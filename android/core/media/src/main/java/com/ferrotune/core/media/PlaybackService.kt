@@ -45,6 +45,7 @@ import androidx.media3.common.util.BitmapLoader
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
@@ -119,8 +120,6 @@ class PlaybackService : MediaSessionService() {
         private const val QUEUE_WINDOW_RADIUS = 50
         // Fetch more songs when this many or fewer remain ahead in ExoPlayer queue
         private const val PREFETCH_THRESHOLD = 5
-        // Sync position to server every N milliseconds
-        private const val POSITION_SYNC_INTERVAL_MS = 30_000L
         // Stall watchdog: how often to sample playback progress while the player
         // intends to play.
         private const val STALL_WATCHDOG_INTERVAL_MS = 3_000L
@@ -160,8 +159,14 @@ class PlaybackService : MediaSessionService() {
         // doesn't release the session stream; that has its own idle delay.
         private const val INACTIVITY_TIMEOUT_MS = 60L * 1000
         // Release the session stream this long after the app went off screen
-        // with playback paused, so a quick resume keeps the connection.
-        private const val SESSION_SSE_IDLE_RELEASE_MS = 60_000L
+        // with playback paused. Handler delays only count while the CPU is
+        // awake, so a longer delay stretches to minutes in a pocket.
+        private const val SESSION_SSE_IDLE_RELEASE_MS = 5_000L
+        // How long the service stays in the foreground after playback pauses
+        // (Media3's default is 10 minutes, also counted only while the CPU is
+        // awake). Resuming later still works: media buttons and notification
+        // actions let the app start the foreground service again.
+        private const val FOREGROUND_GRACE_AFTER_PAUSE_MS = 60_000L
         // How long a just-requested playback may take to load before the
         // foreground hold for it lapses.
         private const val PENDING_PLAYBACK_FOREGROUND_HOLD_MS = 30_000L
@@ -295,6 +300,15 @@ class PlaybackService : MediaSessionService() {
     // Scrobble state
     private var accumulatedListenMs: Long = 0
     private var hasScrobbled = false
+    // A scrobble waits for the track change or pause the app reports anyway,
+    // instead of waking the radio mid-song on its own.
+    private data class PendingScrobble(
+        val songId: String,
+        val timestampMs: Long,
+        val sourceType: String?,
+        val sourceId: String?,
+    )
+    private var pendingScrobble: PendingScrobble? = null
     private var lastProgressTimestamp: Long = 0
     // Listening sessions belong to native playback. Android may suspend the
     // WebView while this service continues through the queue.
@@ -492,27 +506,11 @@ class PlaybackService : MediaSessionService() {
                 if (lastProgressTimestamp > 0) {
                     val elapsedMs = (now - lastProgressTimestamp).coerceAtLeast(0)
                     accumulatedListenMs += elapsedMs
-                    listeningLifecycle.addProgress(elapsedMs)?.let(::enqueueNativeListeningUpdate)
+                    listeningLifecycle.addProgress(elapsedMs)
                 }
                 lastProgressTimestamp = now
                 checkScrobble()
                 handler.postDelayed(this, PROGRESS_UPDATE_INTERVAL_MS)
-            }
-        }
-    }
-
-    // Periodic position sync to server
-    private val positionSyncRunnable = object : Runnable {
-        override fun run() {
-            if (isOfflinePlaybackQueue) {
-                return
-            }
-            if (nativeOwnsSession && isActive && player.isPlaying) {
-                syncPositionToServer()
-                // Also send heartbeat to keep the session alive (JS timer may
-                // be suspended when the WebView is backgrounded)
-                sendPlaybackStateHeartbeat(true)
-                handler.postDelayed(this, POSITION_SYNC_INTERVAL_MS)
             }
         }
     }
@@ -580,6 +578,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        setForegroundServiceTimeoutMs(FOREGROUND_GRACE_AFTER_PAUSE_MS)
         NativeAudioLogger.initialize(applicationContext)
         Log.d(TAG, "PlaybackService created")
         NativeAudioLogger.info(
@@ -647,15 +646,20 @@ class PlaybackService : MediaSessionService() {
         // downloaded at bitrate Y (the downloaded version is always preferred
         // even when the player asks for a different transcode profile).
         // Playback only reads the download cache: only the DownloadManager
-        // writes it, so streamed songs never get pinned there.
-        val streamOnlyCacheFactory = CacheDataSource.Factory()
+        // writes it, so streamed songs never get pinned there. The stream
+        // cache keys streams by bitrate too and also keeps streams of unknown
+        // length, so skips and previous-track reuse what was downloaded.
+        val streamCacheFactory = CacheDataSource.Factory()
             .setCache(streamCache!!)
             .setUpstreamDataSourceFactory(httpDataSourceFactory!!)
-            .setCacheKeyFactory(DownloadManagerHolder.cacheKeyFactory())
+            .setCacheKeyFactory(StreamCacheKeyFactory())
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val streamOnlyCacheFactory = DataSource.Factory {
+            CacheableStreamDataSource(streamCacheFactory.createDataSource())
+        }
 
         val downloadCache = DownloadManagerHolder.downloadCache
-        val cacheDataSourceFactory = if (downloadCache != null) {
+        val cacheDataSourceFactory: DataSource.Factory = if (downloadCache != null) {
             CacheDataSource.Factory()
                 .setCache(downloadCache)
                 .setUpstreamDataSourceFactory(streamOnlyCacheFactory)
@@ -1022,7 +1026,6 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(releaseIdleSessionSseRunnable)
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(inactivityTimeoutRunnable)
-        handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         handler.removeCallbacks(stallWatchdogRunnable)
         handler.removeCallbacks(releaseForegroundHoldRunnable)
@@ -1196,8 +1199,6 @@ class PlaybackService : MediaSessionService() {
                             true,
                         )
 
-                        handler.removeCallbacks(positionSyncRunnable)
-                        handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "play(): failed to bootstrap queue from server", e)
@@ -1288,7 +1289,6 @@ class PlaybackService : MediaSessionService() {
         queueSourceName = null
         queueSourceId = null
         isOfflinePlaybackQueue = false
-        handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         handler.removeCallbacks(stallWatchdogRunnable)
         stallMonitor.reset()
@@ -1338,7 +1338,6 @@ class PlaybackService : MediaSessionService() {
             apiClient.clearSessionConfig()
             activeSessionIdentity = null
         }
-        handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         handler.removeCallbacks(inactivityTimeoutRunnable)
         player.stop()
@@ -1605,7 +1604,6 @@ class PlaybackService : MediaSessionService() {
                         knownOwnerName
                     }
                     clearPendingNetworkRetry("remote takeover")
-                    handler.removeCallbacks(positionSyncRunnable)
                     handler.removeCallbacks(preApplyGainRunnable)
                     if (player.playWhenReady || player.isPlaying) {
                         player.pause()
@@ -1705,6 +1703,10 @@ class PlaybackService : MediaSessionService() {
                     Log.d(TAG, "Ignoring QueueUpdated while not session owner")
                     return
                 }
+                // The echo of this app's own position report: it already has
+                // that queue state, and refetching the window cost a request
+                // on every track change.
+                if (event.sourceClientId != null && event.sourceClientId == apiClient.getClientId()) return
                 refreshQueueAfterEdit("SSE QueueUpdated")
             }
             is SessionEvent.VolumeChange -> {
@@ -1839,7 +1841,6 @@ class PlaybackService : MediaSessionService() {
             Log.d(TAG, "Lost session ownership; pausing native playback")
             markPlaybackPauseIntent("ownership lost")
             clearPendingNetworkRetry("ownership lost")
-            handler.removeCallbacks(positionSyncRunnable)
             handler.removeCallbacks(preApplyGainRunnable)
             player.pause()
             hideLocalMediaNotificationForCastOwner("ownership lost")
@@ -1958,8 +1959,6 @@ class PlaybackService : MediaSessionService() {
                     }
 
                     if (playWhenReady) {
-                        handler.removeCallbacks(positionSyncRunnable)
-                        handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
                     }
                 }
             } catch (e: Exception) {
@@ -2087,8 +2086,6 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
                     // Start position sync
-                    handler.removeCallbacks(positionSyncRunnable)
-                    handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch initial queue window", e)
@@ -2185,7 +2182,6 @@ class PlaybackService : MediaSessionService() {
                 playWhenReady,
                 playbackIntentGenerationAtStart,
             )
-            handler.removeCallbacks(positionSyncRunnable)
         }
     }
 
@@ -3187,16 +3183,32 @@ class PlaybackService : MediaSessionService() {
         if (accumulatedListenMs.toFloat() / durationMs >= threshold) {
             hasScrobbled = true
             Log.d(TAG, "Scrobbling track: ${track.title} (${accumulatedListenMs}ms / ${durationMs}ms)")
-            val songId = track.id
-            backgroundExecutor.execute {
-                try {
-                    apiClient.scrobble(songId, System.currentTimeMillis(), queueSourceType = queueSourceType, queueSourceId = queueSourceId)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Scrobble failed for $songId", e)
-                }
+            pendingScrobble = PendingScrobble(
+                songId = track.id,
+                timestampMs = System.currentTimeMillis(),
+                sourceType = queueSourceType,
+                sourceId = queueSourceId,
+            )
+        }
+    }
+
+    /** Sends a scrobble that waited for a track change or pause. */
+    private fun flushPendingScrobble() {
+        val scrobble = pendingScrobble ?: return
+        pendingScrobble = null
+        backgroundExecutor.execute {
+            try {
+                apiClient.scrobble(
+                    scrobble.songId,
+                    scrobble.timestampMs,
+                    queueSourceType = scrobble.sourceType,
+                    queueSourceId = scrobble.sourceId,
+                )
+                // Notify UI so it can update play counts
+                _events.tryEmit(PlaybackEvent.Scrobbled(trackId = scrobble.songId))
+            } catch (e: Exception) {
+                Log.e(TAG, "Scrobble failed for ${scrobble.songId}", e)
             }
-            // Notify UI so it can update play counts
-            _events.tryEmit(PlaybackEvent.Scrobbled(trackId = songId))
         }
     }
 
@@ -3220,8 +3232,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Send an immediate heartbeat to the server so followers see the correct
-     * is_playing state without waiting for the JS heartbeat interval (30s).
+     * Reports play state, track, and position to the server, which relays them
+     * to followers. Sent only when they change (play, pause, seek, track
+     * change), never on a timer: followers interpolate the position between
+     * reports, and every report wakes the radio.
      */
     private fun sendPlaybackStateHeartbeat(isPlaying: Boolean) {
         if (isOfflinePlaybackQueue) return
@@ -3439,9 +3453,7 @@ class PlaybackService : MediaSessionService() {
     private fun evictCachedStreamForCurrentItem() {
         val cache = streamCache ?: return
         val uri = player.currentMediaItem?.localConfiguration?.uri ?: return
-        // CacheDataSource uses the URI string as the cache key by default
-        // (no custom CacheKeyFactory is set).
-        val cacheKey = uri.toString()
+        val cacheKey = StreamCacheKeyFactory().buildCacheKey(DataSpec(uri))
         try {
             val removedBytes = cache.getCacheSpace().let { before ->
                 cache.removeResource(cacheKey)
@@ -3873,7 +3885,6 @@ class PlaybackService : MediaSessionService() {
             sessionOwnerClientId = apiClient.getClientId()
             sessionOwnerClientName = "ferrotune-mobile"
             lastLocalOwnershipClaimElapsedRealtimeMs = SystemClock.elapsedRealtime()
-            handler.removeCallbacks(positionSyncRunnable)
             handler.removeCallbacks(inactivityTimeoutRunnable)
             seekTimeOffsetMs = 0
             serverQueueIndex = index
@@ -4635,6 +4646,7 @@ class PlaybackService : MediaSessionService() {
     private fun setCurrentTrack(track: TrackInfo?) {
         if (currentTrack?.id != track?.id) {
             listeningLifecycle.changeTrack(track?.id)?.let(::enqueueNativeListeningUpdate)
+            flushPendingScrobble()
         }
         currentTrack = track
         preloadNotificationArtwork(track)
@@ -5087,7 +5099,6 @@ class PlaybackService : MediaSessionService() {
             // schedule a service shutdown so we don't keep wake/wifi locks and
             // the SSE connection alive in the background.
             if (playbackState == Player.STATE_IDLE) {
-                handler.removeCallbacks(positionSyncRunnable)
                 handler.removeCallbacks(inactivityTimeoutRunnable)
                 handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
             }
@@ -5255,13 +5266,12 @@ class PlaybackService : MediaSessionService() {
                 handler.post(progressRunnable)
                 handler.removeCallbacks(inactivityTimeoutRunnable)
                 if (isActive) {
-                    handler.removeCallbacks(positionSyncRunnable)
-                    handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
                     // Send immediate heartbeat so followers see is_playing=true
                     sendPlaybackStateHeartbeat(true)
                 }
             } else {
                 listeningLifecycle.snapshot()?.let(::enqueueNativeListeningUpdate)
+                flushPendingScrobble()
                 markPlaybackPauseIntent(
                     "playWhenReady=false reason=$reasonName"
                 )
@@ -5272,7 +5282,6 @@ class PlaybackService : MediaSessionService() {
                 handler.removeCallbacks(progressRunnable)
                 handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
                 if (isActive) {
-                    handler.removeCallbacks(positionSyncRunnable)
                     // Sync final position to server so it stays up-to-date on pause
                     syncPositionToServer()
                     // Send immediate heartbeat so followers see is_playing=false
