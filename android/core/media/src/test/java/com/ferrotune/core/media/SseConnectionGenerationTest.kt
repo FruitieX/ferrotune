@@ -20,24 +20,18 @@ class SseConnectionGenerationTest {
     }
 
     @Test
-    fun owningServiceReconnectsBeforeMediaIsLoaded() {
-        assertTrue(
-            shouldReconnectSessionSse(
-                nativeOwnsSession = true,
-                hasSessionConfig = true,
-            ),
-        )
-        assertFalse(
-            shouldReconnectSessionSse(
-                nativeOwnsSession = false,
-                hasSessionConfig = true,
-            ),
-        )
-        assertFalse(
-            shouldReconnectSessionSse(
-                nativeOwnsSession = true,
-                hasSessionConfig = false,
-            ),
-        )
+    fun streamIsHeldWhilePlayingOrOnScreen() {
+        assertTrue(shouldHoldSessionSse(hasSessionConfig = true, appVisible = false, playbackIntended = true))
+        assertTrue(shouldHoldSessionSse(hasSessionConfig = true, appVisible = true, playbackIntended = false))
+    }
+
+    @Test
+    fun idleBackgroundAppReleasesTheStream() {
+        assertFalse(shouldHoldSessionSse(hasSessionConfig = true, appVisible = false, playbackIntended = false))
+    }
+
+    @Test
+    fun streamNeedsASession() {
+        assertFalse(shouldHoldSessionSse(hasSessionConfig = false, appVisible = true, playbackIntended = true))
     }
 }

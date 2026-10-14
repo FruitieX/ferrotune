@@ -14,8 +14,15 @@ internal class SseConnectionGeneration {
     fun isCurrent(generation: Long): Boolean = generation == current
 }
 
-/** Keep an owning service remotely controllable even before media is loaded. */
-internal fun shouldReconnectSessionSse(
-    nativeOwnsSession: Boolean,
+/**
+ * Whether to hold the session event stream open. It lets other clients
+ * control this app and keeps the UI's view of the session current, but the
+ * server's keep-alives wake the radio every 15 seconds for as long as it is
+ * open, even while Android has frozen the app. So it is held only while
+ * playback is intended or the app is on screen.
+ */
+internal fun shouldHoldSessionSse(
     hasSessionConfig: Boolean,
-): Boolean = nativeOwnsSession && hasSessionConfig
+    appVisible: Boolean,
+    playbackIntended: Boolean,
+): Boolean = hasSessionConfig && (appVisible || playbackIntended)

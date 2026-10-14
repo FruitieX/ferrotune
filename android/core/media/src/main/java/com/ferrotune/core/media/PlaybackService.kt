@@ -27,6 +27,9 @@ import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.media3.common.AdPlaybackState
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -152,11 +155,13 @@ class PlaybackService : MediaSessionService() {
         // Longer than the server's wait for a transcode to finish before it
         // answers a resumed range request.
         private const val STREAM_READ_TIMEOUT_MS = 20_000
-        // Stop the foreground service after this many ms of inactivity (paused).
-        // Kept short to release ExoPlayer's wake/wifi lock and tear down the
-        // MediaSessionService + SSE connection quickly when the user stops
-        // listening, so the app doesn't drain battery in the background.
+        // Stop the started service after this many ms of inactivity (paused).
+        // The app's own binding keeps the service alive after this, so it
+        // doesn't release the session stream; that has its own idle delay.
         private const val INACTIVITY_TIMEOUT_MS = 60L * 1000
+        // Release the session stream this long after the app went off screen
+        // with playback paused, so a quick resume keeps the connection.
+        private const val SESSION_SSE_IDLE_RELEASE_MS = 60_000L
         // How long a just-requested playback may take to load before the
         // foreground hold for it lapses.
         private const val PENDING_PLAYBACK_FOREGROUND_HOLD_MS = 30_000L
@@ -329,6 +334,21 @@ class PlaybackService : MediaSessionService() {
     private var sseConnected = false
     private var sseReconnectRunnable: Runnable? = null
     private val sseListenerGeneration = SseConnectionGeneration()
+    // Whether any of the app's activities is started. Off screen and not
+    // playing, the session stream is released (see shouldHoldSessionSse).
+    private var appVisible = false
+    private val releaseIdleSessionSseRunnable = Runnable { releaseIdleSessionSse() }
+    private val appVisibilityObserver = object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) {
+            appVisible = true
+            updateSessionSseDemand("app visible")
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            appVisible = false
+            updateSessionSseDemand("app hidden")
+        }
+    }
     private val SSE_RECONNECT_DELAY_MS = 3000L
     private val OWNERSHIP_CLAIM_GRACE_MS = 10_000L
     // Whether native playback is currently allowed to own and mutate the
@@ -768,6 +788,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(PlayerListener())
 
         registerAudioRouteCallbacks()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appVisibilityObserver)
 
         // Use ForwardingSimpleBasePlayer instead of ForwardingPlayer.
         // ForwardingSimpleBasePlayer uses atomic getState() which properly
@@ -1000,6 +1021,8 @@ class PlaybackService : MediaSessionService() {
             "PlaybackService destroyed",
         )
         unregisterAudioRouteCallbacks()
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(appVisibilityObserver)
+        handler.removeCallbacks(releaseIdleSessionSseRunnable)
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(inactivityTimeoutRunnable)
         handler.removeCallbacks(positionSyncRunnable)
@@ -1127,6 +1150,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(releaseForegroundHoldRunnable)
         handler.postDelayed(releaseForegroundHoldRunnable, PENDING_PLAYBACK_FOREGROUND_HOLD_MS)
         onUpdateNotification(mediaSession, false)
+        updateSessionSseDemand("pending playback")
     }
 
     private fun releaseForegroundHold() {
@@ -1134,6 +1158,7 @@ class PlaybackService : MediaSessionService() {
         if (!holdForegroundForPendingPlayback) return
         holdForegroundForPendingPlayback = false
         onUpdateNotification(mediaSession, false)
+        updateSessionSseDemand("pending playback released")
     }
 
     fun play() {
@@ -1429,6 +1454,7 @@ class PlaybackService : MediaSessionService() {
         if (shouldReconnectSSE) {
             connectSessionSSE()
         }
+        updateSessionSseDemand("session initialized")
     }
 
     /**
@@ -1468,10 +1494,7 @@ class PlaybackService : MediaSessionService() {
                 handler.post {
                     if (!sseListenerGeneration.isCurrent(generation)) return@post
                     sseConnected = false
-                    val shouldReconnect = shouldReconnectSessionSse(
-                        nativeOwnsSession,
-                        apiClient.hasSessionConfig(),
-                    )
+                    val shouldReconnect = holdsSessionSse()
                     NativeAudioLogger.warn(
                         TAG,
                         "sse_disconnected",
@@ -1485,9 +1508,9 @@ class PlaybackService : MediaSessionService() {
                                 if (shouldReconnect) SSE_RECONNECT_DELAY_MS else null,
                         ),
                     )
-                    // The owner must remain reachable even while paused or
-                    // before media is loaded; otherwise a web client cannot
-                    // send the remote Play command that makes it active.
+                    // Stay reachable while playing or on screen (a web client
+                    // can then send Play here); updateSessionSseDemand
+                    // reconnects when either starts again.
                     if (shouldReconnect) {
                         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
                         sseReconnectRunnable = Runnable { connectSessionSSE() }
@@ -1496,6 +1519,49 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
+    }
+
+    private fun holdsSessionSse(): Boolean = shouldHoldSessionSse(
+        hasSessionConfig = apiClient.hasSessionConfig(),
+        appVisible = appVisible,
+        playbackIntended = player.playWhenReady || holdForegroundForPendingPlayback,
+    )
+
+    /**
+     * Connects the session stream when the app comes on screen or playback is
+     * requested, and releases it [SESSION_SSE_IDLE_RELEASE_MS] after neither
+     * holds. Its keep-alives would otherwise wake the radio all day.
+     */
+    private fun updateSessionSseDemand(reason: String) {
+        handler.removeCallbacks(releaseIdleSessionSseRunnable)
+        if (!holdsSessionSse()) {
+            handler.postDelayed(releaseIdleSessionSseRunnable, SESSION_SSE_IDLE_RELEASE_MS)
+            return
+        }
+        if (!apiClient.isSSEActive() && sseReconnectRunnable == null) {
+            NativeAudioLogger.info(
+                TAG,
+                "sse_resumed",
+                "Reconnecting the session stream",
+                mapOf("reason" to reason),
+            )
+            connectSessionSSE()
+        }
+    }
+
+    private fun releaseIdleSessionSse() {
+        if (holdsSessionSse()) return
+        if (!apiClient.isSSEActive() && sseReconnectRunnable == null) return
+        NativeAudioLogger.info(
+            TAG,
+            "sse_released_idle",
+            "Released the session stream while idle off screen",
+        )
+        sseReconnectRunnable?.let { handler.removeCallbacks(it) }
+        sseReconnectRunnable = null
+        sseListenerGeneration.advance()
+        apiClient.disconnectSSE()
+        sseConnected = false
     }
 
     private fun disconnectSessionClient(config: SessionConfig?, reason: String) {
@@ -2663,10 +2729,11 @@ class PlaybackService : MediaSessionService() {
             emptyList()
         }
 
-        // Replace tracks after the current item first so the current index stays stable.
-        if (currentExoIndex + 1 < itemCount || afterItems.isNotEmpty()) {
-            player.replaceMediaItems(currentExoIndex + 1, itemCount, afterItems)
-        }
+        // Edit tracks after the current item first so the current index stays
+        // stable. Only changed items are touched: this runs on every refresh
+        // after a track change or position sync, and replacing the whole tail
+        // made ExoPlayer download its buffered tracks again.
+        editMediaItems(currentExoIndex + 1, itemCount, afterItems)
 
         val currentIndexAfterTailUpdate = player.currentMediaItemIndex
         if (currentIndexAfterTailUpdate == C.INDEX_UNSET) {
@@ -2680,9 +2747,7 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
-        if (currentIndexAfterTailUpdate > 0 || beforeItems.isNotEmpty()) {
-            player.replaceMediaItems(0, currentIndexAfterTailUpdate, beforeItems)
-        }
+        editMediaItems(0, currentIndexAfterTailUpdate, beforeItems)
 
         // Update tracking structures
         exoIndexToServerPosition = newPositions.toMutableList()
@@ -2704,6 +2769,28 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "Shuffle update: ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
             "targetExoIndex=$targetExoIndex, serverIndex=$targetIndex")
     }
+
+    /**
+     * Turns the player's items in [fromIndex, toIndex) into [items], keeping the
+     * ones already loaded (same song and stream URL) so their buffers survive.
+     */
+    private fun editMediaItems(fromIndex: Int, toIndex: Int, items: List<MediaItem>) {
+        val loaded = (fromIndex until toIndex).map { mediaItemKey(player.getMediaItemAt(it)) }
+        for (edit in playlistEdits(loaded, items.map(::mediaItemKey))) {
+            when (edit) {
+                is PlaylistEdit.Remove ->
+                    player.removeMediaItems(fromIndex + edit.fromIndex, fromIndex + edit.toIndex)
+                is PlaylistEdit.Insert ->
+                    player.addMediaItems(
+                        fromIndex + edit.index,
+                        items.subList(edit.newFromIndex, edit.newToIndex),
+                    )
+            }
+        }
+    }
+
+    private fun mediaItemKey(item: MediaItem): Pair<String, Uri?> =
+        item.mediaId to item.localConfiguration?.uri
 
     /**
      * Set repeat mode.
@@ -5154,6 +5241,7 @@ class PlaybackService : MediaSessionService() {
             player.setWakeMode(
                 if (playWhenReady) C.WAKE_MODE_NETWORK else C.WAKE_MODE_NONE
             )
+            updateSessionSseDemand("playWhenReady=$playWhenReady")
 
             if (playWhenReady) {
                 // Watch for silent stalls from the moment playback is intended,

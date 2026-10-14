@@ -1,6 +1,7 @@
 package com.ferrotune.core.media
 
 import androidx.media3.common.C
+import androidx.media3.extractor.DefaultExtractorInput
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorInput
 import androidx.media3.extractor.ExtractorOutput
@@ -38,6 +39,34 @@ class KnownDurationExtractorsTest {
     fun missingDurationLeavesTheStreamAlone() {
         val unknown = SeekMap.Unseekable(C.TIME_UNSET)
         assertSame(unknown, initWith(unknown, durationUs = 0))
+    }
+
+    @Test
+    fun extractorNeverSeesTheStreamLength() {
+        // With a length, the Ogg extractor re-requests the stream from its end
+        // and then from the start to read the duration.
+        val seenLengths = mutableListOf<Long>()
+        val extractor = KnownDurationExtractor(
+            object : Extractor {
+                override fun sniff(input: ExtractorInput) = true
+                override fun init(output: ExtractorOutput) = Unit
+                override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
+                    seenLengths += input.length
+                    input.skipFully(1)
+                    return Extractor.RESULT_CONTINUE
+                }
+                override fun seek(position: Long, timeUs: Long) = Unit
+                override fun release() = Unit
+            },
+            durationUs = 245_000_000L,
+        )
+        val input = DefaultExtractorInput({ _, _, length -> length }, 0, 6_000_000)
+
+        extractor.read(input, PositionHolder())
+        extractor.read(input, PositionHolder())
+
+        assertEquals(listOf(C.LENGTH_UNSET.toLong(), C.LENGTH_UNSET.toLong()), seenLengths)
+        assertEquals(2L, input.position)
     }
 
     private fun initWith(seekMap: SeekMap, durationUs: Long): SeekMap {
