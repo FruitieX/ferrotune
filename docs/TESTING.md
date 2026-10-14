@@ -287,6 +287,15 @@ Each file has:
 4. Check `playwright-report/` for traces and screenshots
 5. Look at `test-results/` for failure artifacts
 
+### Known e2e traps
+
+- **Stale client bundle.** `e2e/global-setup.ts` only checks that `client/out` exists, so a local `pnpm exec playwright test` serves whatever was built last. Run `moon run client:build` before local e2e runs. CI builds fresh via `client:ci-lite`, which is why local and CI results can disagree.
+- **`vite preview` does not proxy `/api`.** The app calls the worker's backend cross-origin, so CORS must mirror the request origin, methods and headers. tower-http panics at startup (`code=101`) if `allow_credentials(true)` is combined with any `*` value.
+- **Testing reset and in-memory state.** `POST /api/testing/reset` recreates the user's rows, but the session id survives. It must also clear the in-memory session state and the recorded `owner_client_id`, or the previous test's client stays the owner and the next test becomes a follower.
+- **Release-profile backend.** The e2e backend is the release build (`ferrotune:build-release`); the debug server was slow enough to make timing-sensitive specs flake. `findBinary()` picks the most recently built binary, so local debug iteration still wins.
+- **Diagnose from the artifacts, not test names.** `gh run download <run> --name playwright-failure-artifacts`, then read `0-trace.network` and the console entries in `0-trace.trace`. Failed credentialed requests show up as status `-1` with a CORS console error.
+- **Run `cargo fmt` before committing.** `ferrotune:fmt-check` is the first backend task, so an unformatted commit turns both Backend jobs red.
+
 ---
 
 ## CI/CD

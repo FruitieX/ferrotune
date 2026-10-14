@@ -629,7 +629,8 @@ seconds, so the playback engine never talks to the server on a timer:
 
 Read these when working on specific areas:
 
-- **[docs/TESTING.md](docs/TESTING.md)** - Comprehensive testing guide with examples
+- **[docs/TESTING.md](docs/TESTING.md)** - Comprehensive testing guide with examples, including known e2e traps
+- **[docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md)** - Non-obvious session ownership, scanner/tagging and play-history behaviour
 - **[docs/ANDROID_EMULATOR.md](docs/ANDROID_EMULATOR.md)** - Android emulator interaction (ADB commands, nix shell, debugging)
 
 ---
