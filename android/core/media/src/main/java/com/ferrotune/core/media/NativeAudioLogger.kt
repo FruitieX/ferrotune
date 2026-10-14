@@ -6,7 +6,9 @@ import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.zip.GZIPOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -36,6 +38,8 @@ object NativeAudioLogger {
     @Volatile
     private var logDirectory: File? = null
     @Volatile
+    private var appContext: Context? = null
+    @Volatile
     private var packageName: String = "unknown"
     @Volatile
     private var storageKind: String = "uninitialized"
@@ -45,6 +49,7 @@ object NativeAudioLogger {
         if (logDirectory != null) return
 
         val applicationContext = context.applicationContext
+        appContext = applicationContext
         packageName = applicationContext.packageName
 
         val externalDirectory = applicationContext.getExternalFilesDir(DIAGNOSTIC_DIRECTORY)
@@ -73,39 +78,41 @@ object NativeAudioLogger {
     }
 
     /**
-     * Build the sanitized diagnostics payload requested by the server.
-     * Only the logger's manifest and rotated JSONL files are included.
+     * The sanitized diagnostics payload requested by the server, gzipped for
+     * upload: the manifest, the device state ([DiagnosticsDeviceState]) and
+     * the newest [maxBytes] of log lines (default: all of them, up to 12 MiB).
      */
+    fun gzippedDiagnosticsPayload(requestId: String, clientId: String, maxBytes: Long? = null): ByteArray {
+        val json = diagnosticsPayload(requestId, clientId, maxBytes).toString().toByteArray(Charsets.UTF_8)
+        val gzipped = ByteArrayOutputStream(json.size / 8)
+        GZIPOutputStream(gzipped).use { it.write(json) }
+        return gzipped.toByteArray()
+    }
+
     @Synchronized
-    fun diagnosticsPayload(requestId: String, clientId: String): JSONObject {
+    internal fun diagnosticsPayload(requestId: String, clientId: String, maxBytes: Long?): JSONObject {
         val filesJson = JSONArray()
         val directory = logDirectory
-        var remainingBytes = MAX_DIAGNOSTICS_UPLOAD_BYTES
-        val files = directory
-            ?.listFiles()
-            ?.filter { file ->
-                file.name == MANIFEST_FILE ||
-                    file.name == ACTIVE_LOG_FILE ||
-                    (file.name.startsWith("native-audio-") && file.name.endsWith(".jsonl"))
+        if (directory != null) {
+            val manifest = File(directory, MANIFEST_FILE)
+            if (manifest.exists()) {
+                runCatching { manifest.readText() }.onSuccess { content ->
+                    filesJson.put(diagnosticsFile(manifest.name, manifest.length(), content))
+                }
             }
-            ?.sortedWith(compareBy<File> { it.name != MANIFEST_FILE }.thenBy { it.name })
-            .orEmpty()
-
-        for (file in files) {
-            if (remainingBytes <= 0L) break
-            val raw = try {
-                file.readBytes()
-            } catch (exception: Exception) {
-                Log.w(TAG, "Failed to read diagnostics file: ${file.name}", exception)
-                continue
+        }
+        appContext?.let { context ->
+            runCatching { DiagnosticsDeviceState.snapshot(context).toString(2) }
+                .onSuccess { content ->
+                    filesJson.put(diagnosticsFile(DiagnosticsDeviceState.FILE_NAME, content.length.toLong(), content))
+                }
+                .onFailure { exception -> Log.w(TAG, "Failed to read device state", exception) }
+        }
+        if (directory != null) {
+            val budget = (maxBytes ?: MAX_DIAGNOSTICS_UPLOAD_BYTES).coerceIn(0L, MAX_DIAGNOSTICS_UPLOAD_BYTES)
+            for ((file, content) in newestLogContent(newestLogFiles(directory), budget)) {
+                filesJson.put(diagnosticsFile(file.name, file.length(), String(content, Charsets.UTF_8)))
             }
-            val contentBytes = raw.copyOf(minOf(raw.size.toLong(), remainingBytes).toInt())
-            filesJson.put(JSONObject().apply {
-                put("name", file.name)
-                put("bytes", file.length())
-                put("content", String(contentBytes, Charsets.UTF_8))
-            })
-            remainingBytes -= contentBytes.size.toLong()
         }
 
         return JSONObject().apply {
@@ -115,6 +122,49 @@ object NativeAudioLogger {
             put("storageKind", storageKind)
             put("files", filesJson)
         }
+    }
+
+    private fun diagnosticsFile(name: String, bytes: Long, content: String) = JSONObject().apply {
+        put("name", name)
+        put("bytes", bytes)
+        put("content", content)
+    }
+
+    /** Log files newest first: the active file, then archives 1 (newest) up. */
+    internal fun newestLogFiles(directory: File): List<File> =
+        (listOf(File(directory, ACTIVE_LOG_FILE)) + (1 until MAX_LOG_FILE_COUNT).map { archiveFile(directory, it) })
+            .filter { it.exists() }
+
+    /**
+     * The newest [maxBytes] of log text in [files] (newest first): whole files
+     * while they fit, then the tail of the next one, starting at a line so
+     * every line stays valid JSON.
+     */
+    internal fun newestLogContent(files: List<File>, maxBytes: Long): List<Pair<File, ByteArray>> {
+        var remaining = maxBytes
+        val result = mutableListOf<Pair<File, ByteArray>>()
+        for (file in files) {
+            if (remaining <= 0L) break
+            val bytes = try {
+                file.readBytes()
+            } catch (exception: Exception) {
+                Log.w(TAG, "Failed to read diagnostics file: ${file.name}", exception)
+                continue
+            }
+            if (bytes.size <= remaining) {
+                result += file to bytes
+                remaining -= bytes.size
+                continue
+            }
+            var start = bytes.size - remaining.toInt()
+            if (bytes[start - 1] != '\n'.code.toByte()) {
+                while (start < bytes.size && bytes[start] != '\n'.code.toByte()) start++
+                start++
+            }
+            if (start < bytes.size) result += file to bytes.copyOfRange(start, bytes.size)
+            break
+        }
+        return result
     }
 
     fun debug(

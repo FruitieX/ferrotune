@@ -71,24 +71,33 @@ serial. Set `ANDROID_SERIAL` to choose among emulators.
 emulator without installing it. It checks the queue move method's suspend
 response type and runtime serializer. It honors `ANDROID_SERIAL`.
 
-## Preferred incident log collection: authenticated SSE pull
+## Preferred incident log collection: remote pull
 
-When the Android client has an active session SSE connection, prefer the authenticated server-mediated diagnostics pull over ADB. The server sends a `DiagnosticsRequest` event over the target client's SSE stream, waits up to 20 seconds for the client to upload its sanitized native-audio bundle, and returns the bundle in the HTTP response.
-
-Use the authenticated operator session without printing or persisting its token:
+Pull the native app's logs through the server instead of adb; this works
+while the phone is idle, in a pocket, or away from home (as long as it can
+reach the server):
 
 ```bash
-curl --fail --silent --show-error \
-  -H "Authorization: Bearer ${FERROTUNE_BEARER_TOKEN:?set this from the existing authenticated operator context}" \
-  -H 'Content-Type: application/json' \
-  --data '{"clientId":"<ANDROID_CLIENT_ID>"}' \
-  "https://<FERROTUNE_HOST>/api/sessions/<SESSION_ID>/diagnostics" \
-  > test-results/android-diagnostics/server-pull-$(date -u +%Y%m%dT%H%M%SZ).json
+FERROTUNE_USERNAME=... FERROTUNE_PASSWORD=... \
+  node scripts/pull-phone-diagnostics.mjs --max-bytes 2000000
 ```
 
-The endpoint is valid only for a connected `ferrotune-mobile` client. Treat `409 Target client has no active SSE connection` or a timeout as evidence that this collection path is unavailable; do not immediately assume playback or ownership failed. Redact credentials and inspect the returned bundle locally.
+`POST /api/sessions/{id}/diagnostics` asks the app over its session stream
+when that is open, and by push (FCM) when it isn't, or when the stream stays
+silent for 8 s, since a stream can look open after its connection died. The
+app uploads a gzipped bundle: the logger manifest, `device-state.json`
+(battery, Doze, power saver, standby bucket, background restriction, network,
+recent process exit reasons) and the newest `maxBytes` of JSONL log lines
+(default: all of them, up to 12 MiB). The server waits `waitSecs` (default
+45) for the upload; if it hasn't arrived, it answers `202` with
+`status: "pending"`, and the upload stays fetchable for an hour with
+`GET /api/sessions/{id}/diagnostics/{requestId}` (the script's
+`--request-id`). With one Android app the client id is found automatically.
 
-Use ADB only as the fallback when the server-mediated SSE pull is unavailable or when a fresh logcat/device-state capture is specifically needed.
+A `409` means the app has neither an open stream nor a push registration (a
+build without `google-services.json`, or a server without
+`FERROTUNE_FCM_SERVICE_ACCOUNT`); use adb then. Logs never leave the server
+unless pulled, and the bundle is sanitized on the device.
 
 ## Pulling Android Diagnostics Over ADB
 

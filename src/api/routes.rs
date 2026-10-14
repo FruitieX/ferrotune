@@ -320,7 +320,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/sessions/{id}/diagnostics/{request_id}",
-            post(sessions::upload_android_diagnostics),
+            get(sessions::get_android_diagnostics)
+                // Apps gzip their logs (about a tenth of the size over mobile data).
+                .post(sessions::upload_android_diagnostics)
+                .layer(tower_http::decompression::RequestDecompressionLayer::new()),
         )
         .route("/sessions/{id}/command", post(sessions::session_command))
         .route(

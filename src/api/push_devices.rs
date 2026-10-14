@@ -129,9 +129,9 @@ fn wake_idle_client(
     client_id: String,
     fields: Vec<(&'static str, String)>,
 ) {
-    let Some(sender) = crate::push::sender() else {
+    if crate::push::sender().is_none() {
         return;
-    };
+    }
     tokio::spawn(async move {
         if state
             .session_manager
@@ -140,38 +140,72 @@ fn wake_idle_client(
         {
             return;
         }
-        let device = match push_devices::get_push_device(&state.database, user_id, &client_id).await
-        {
-            Ok(Some(device)) => device,
-            Ok(None) => return,
-            Err(error) => {
-                tracing::warn!("Could not look up push device {client_id}: {error}");
-                return;
-            }
-        };
-
-        // FCM data values are strings.
-        let mut data = Map::new();
-        data.insert("sessionId".into(), Value::from(session_id));
-        for (key, value) in fields {
-            data.insert(key.into(), Value::from(value));
-        }
-        let kind = data.get("action").or_else(|| data.get("type")).cloned();
-
-        match sender.send_data(&device.token, data).await {
-            Ok(PushOutcome::Sent) => {
-                tracing::info!(client_id, kind = ?kind, "Woke idle client with a push");
-            }
-            Ok(PushOutcome::TokenRejected) => {
-                tracing::info!(client_id, "Dropping push device whose token FCM rejected");
-                if let Err(error) =
-                    push_devices::delete_push_devices_with_token(&state.database, &device.token)
-                        .await
-                {
-                    tracing::warn!("Could not drop rejected push token: {error}");
-                }
-            }
-            Err(error) => tracing::warn!(client_id, "Push wake-up failed: {error}"),
+        if let Err(error) = push_to_client(&state, user_id, &session_id, &client_id, fields).await {
+            tracing::warn!(client_id, "Push wake-up failed: {error}");
         }
     });
+}
+
+/// Asks a registered app for its diagnostics bundle by push, whether or not
+/// its session stream looks open (a stream can look open while its
+/// connection is already dead). Returns why the push could not be sent.
+pub async fn push_diagnostics_request(
+    state: &AppState,
+    user_id: i64,
+    session_id: &str,
+    client_id: &str,
+    request_id: &str,
+    max_bytes: Option<u64>,
+) -> Result<(), String> {
+    let mut fields = vec![
+        ("type", "diagnostics".to_string()),
+        ("requestId", request_id.to_string()),
+    ];
+    if let Some(max_bytes) = max_bytes {
+        fields.push(("maxBytes", max_bytes.to_string()));
+    }
+    push_to_client(state, user_id, session_id, client_id, fields).await
+}
+
+/// Sends `fields` plus the session id to `client_id`'s registered push token.
+/// Drops the registration when FCM rejects the token.
+async fn push_to_client(
+    state: &AppState,
+    user_id: i64,
+    session_id: &str,
+    client_id: &str,
+    fields: Vec<(&'static str, String)>,
+) -> Result<(), String> {
+    let Some(sender) = crate::push::sender() else {
+        return Err("push messaging is not configured".to_string());
+    };
+    let device = push_devices::get_push_device(&state.database, user_id, client_id)
+        .await
+        .map_err(|error| format!("could not look up push device: {error}"))?
+        .ok_or_else(|| "client has no push registration".to_string())?;
+
+    // FCM data values are strings.
+    let mut data = Map::new();
+    data.insert("sessionId".into(), Value::from(session_id));
+    for (key, value) in fields {
+        data.insert(key.into(), Value::from(value));
+    }
+    let kind = data.get("action").or_else(|| data.get("type")).cloned();
+
+    match sender.send_data(&device.token, data).await {
+        Ok(PushOutcome::Sent) => {
+            tracing::info!(client_id, kind = ?kind, "Woke idle client with a push");
+            Ok(())
+        }
+        Ok(PushOutcome::TokenRejected) => {
+            tracing::info!(client_id, "Dropping push device whose token FCM rejected");
+            if let Err(error) =
+                push_devices::delete_push_devices_with_token(&state.database, &device.token).await
+            {
+                tracing::warn!("Could not drop rejected push token: {error}");
+            }
+            Err("FCM rejected the client's push token".to_string())
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }

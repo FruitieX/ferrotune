@@ -6,7 +6,9 @@
 mod common;
 
 use common::{fixtures_dir, TestMusicFolderConfig, TestServer, TestServerConfig};
-use serde_json::Value;
+use flate2::{write::GzEncoder, Compression};
+use serde_json::{json, Value};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 /// Check if test fixtures exist.
@@ -138,4 +140,107 @@ fn test_multi_folder_rescan_preserves_other_folders() {
         "Full rescan should not delete songs from other folders! Had {} songs, now have {}",
         initial_count, final_count
     );
+}
+
+/// A diagnostics pull reaches an Android app over its open session stream,
+/// and the app's gzipped upload completes the pull and stays retrievable.
+#[test]
+fn test_diagnostics_pull_reaches_the_app_over_its_session_stream() {
+    if !fixtures_exist() {
+        eprintln!("Skipping test: fixtures not found");
+        return;
+    }
+    let server = TestServer::new().expect("Failed to start test server");
+    let client = reqwest::blocking::Client::new();
+    let user = server.admin_user.clone();
+    let password = server.admin_password.clone();
+
+    let session: Value = client
+        .post(server.api_url("sessions"))
+        .basic_auth(&user, Some(&password))
+        .json(&json!({ "clientName": "ferrotune-mobile", "clientId": "diag-phone" }))
+        .send()
+        .and_then(|response| response.json())
+        .expect("session should connect");
+    let session_id = session["id"].as_str().expect("session id").to_string();
+
+    let stream = client
+        .get(server.api_url(&format!(
+            "sessions/{session_id}/events?clientId=diag-phone&clientName=ferrotune-mobile"
+        )))
+        .basic_auth(&user, Some(&password))
+        .send()
+        .expect("session stream should open");
+    assert!(stream.status().is_success());
+
+    // The phone: wait for the request on the stream, then upload gzipped.
+    let upload_url = server.api_url(&format!("sessions/{session_id}/diagnostics"));
+    let phone = {
+        let (client, user, password) = (client.clone(), user.clone(), password.clone());
+        std::thread::spawn(move || {
+            let request = BufReader::new(stream)
+                .lines()
+                .map(|line| line.expect("stream should stay readable"))
+                .filter_map(|line| {
+                    serde_json::from_str::<Value>(line.strip_prefix("data:")?.trim()).ok()
+                })
+                .find(|event| event["type"] == "diagnosticsRequest")
+                .expect("diagnostics request should arrive on the stream");
+            let request_id = request["requestId"]
+                .as_str()
+                .expect("request id")
+                .to_string();
+            let bundle = json!({
+                "requestId": request_id,
+                "clientId": "diag-phone",
+                "collectedAt": "2026-10-14T12:00:00.000Z",
+                "storageKind": "external",
+                "files": [{ "name": "native-audio-current.jsonl", "bytes": 3, "content": "{}\n" }],
+            });
+            let mut gzip = GzEncoder::new(Vec::new(), Compression::default());
+            gzip.write_all(bundle.to_string().as_bytes())
+                .expect("gzip should encode");
+            let uploaded = client
+                .post(format!("{upload_url}/{request_id}"))
+                .basic_auth(&user, Some(&password))
+                .header("Content-Type", "application/json")
+                .header("Content-Encoding", "gzip")
+                .body(gzip.finish().expect("gzip should finish"))
+                .send()
+                .expect("upload should be sent");
+            assert!(
+                uploaded.status().is_success(),
+                "upload: {}",
+                uploaded.status()
+            );
+            request
+        })
+    };
+
+    let pulled = client
+        .post(server.api_url(&format!("sessions/{session_id}/diagnostics")))
+        .basic_auth(&user, Some(&password))
+        .json(&json!({ "waitSecs": 20, "maxBytes": 4096 }))
+        .send()
+        .expect("pull should answer");
+    assert_eq!(pulled.status().as_u16(), 200);
+    let pulled: Value = pulled.json().expect("pull response should be JSON");
+    let request = phone.join().expect("phone thread should finish");
+
+    assert_eq!(request["clientId"], "diag-phone");
+    assert_eq!(request["maxBytes"], 4096);
+    assert_eq!(pulled["status"], "complete");
+    assert_eq!(pulled["clientId"], "diag-phone");
+    assert_eq!(pulled["deliveredVia"], json!(["stream"]));
+    assert_eq!(pulled["bundle"]["files"][0]["content"], "{}\n");
+
+    let request_id = pulled["requestId"].as_str().expect("request id");
+    let later: Value = client
+        .get(server.api_url(&format!("sessions/{session_id}/diagnostics/{request_id}")))
+        .basic_auth(&user, Some(&password))
+        .send()
+        .and_then(|response| response.json())
+        .expect("retained upload should be readable");
+    assert_eq!(later["status"], "complete");
+    assert_eq!(later["bundle"]["requestId"], request_id);
 }

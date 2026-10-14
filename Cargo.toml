@@ -25,7 +25,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = "0.1"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tower-http = { version = "0.6", features = ["fs", "cors", "trace", "decompression-gzip"] }
 hyper = { version = "1.5", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto"] }
 
@@ -146,6 +146,7 @@ notify-debouncer-mini = "0.4"
 # Testing
 [dev-dependencies]
 datatest-stable = "0.3"
+flate2 = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 testcontainers-modules = { version = "0.15.0", features = ["blocking", "postgres"] }
 tokio = { version = "1", features = ["full", "test-util"] }

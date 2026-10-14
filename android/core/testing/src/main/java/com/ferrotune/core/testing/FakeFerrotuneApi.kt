@@ -101,6 +101,7 @@ import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.UpdateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.UserInfo
 import com.ferrotune.core.network.generated.WaveformResponse
+import okhttp3.RequestBody
 
 fun testAccount(): Account = Account(
     id = "test",
@@ -188,6 +189,12 @@ open class FakeFerrotuneApi(
 
     override suspend fun unregisterPushDevice(clientId: String) {
         unregisteredPushClients += clientId
+    }
+
+    val uploadedDiagnostics = mutableListOf<Pair<String, String>>()
+
+    override suspend fun uploadDiagnostics(sessionId: String, requestId: String, gzippedBundle: RequestBody) {
+        uploadedDiagnostics += sessionId to requestId
     }
 
     override suspend fun startQueue(request: StartQueueRequest): StartQueueResponse = error("unused")

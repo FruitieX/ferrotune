@@ -121,7 +121,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, oneshot, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 
 pub use scan_state::{create_scan_state, ScanState};
 
@@ -243,6 +243,9 @@ pub enum SessionEvent {
     DiagnosticsRequest {
         request_id: String,
         client_id: String,
+        /// Upload at most this many bytes of the newest logs.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_bytes: Option<u64>,
     },
 }
 
@@ -312,10 +315,21 @@ struct ConnectedClientState {
     last_heartbeat_at: Option<Instant>,
 }
 
-struct PendingDiagnosticsRequest {
+/// How long a diagnostics request accepts its upload and keeps the bundle,
+/// so an upload that arrives after the puller stopped waiting (a slow push, a
+/// phone briefly offline) can still be fetched by request id.
+const DIAGNOSTICS_RETENTION: Duration = Duration::from_secs(60 * 60);
+/// Bundles are up to 12 MiB each; keep only the newest requests.
+const MAX_DIAGNOSTICS_REQUESTS: usize = 8;
+
+/// The upload slot of one diagnostics request: `None` until the client uploads.
+pub type DiagnosticsUpload = watch::Receiver<Option<Arc<DiagnosticsBundle>>>;
+
+struct DiagnosticsRequestState {
     session_id: String,
     client_id: String,
-    response_tx: oneshot::Sender<DiagnosticsBundle>,
+    created_at: Instant,
+    upload: watch::Sender<Option<Arc<DiagnosticsBundle>>>,
 }
 
 /// Per-session state: broadcast channel + connected clients.
@@ -333,7 +347,7 @@ struct SessionState {
 pub struct SessionManager {
     /// Map of session_id -> session state
     sessions: RwLock<HashMap<String, SessionState>>,
-    diagnostics_requests: RwLock<HashMap<String, PendingDiagnosticsRequest>>,
+    diagnostics_requests: RwLock<HashMap<String, DiagnosticsRequestState>>,
 }
 
 impl Default for SessionManager {
@@ -433,26 +447,43 @@ impl SessionManager {
         }
     }
 
-    /// Register a one-shot diagnostics response and return its receiver.
+    /// Register a diagnostics request and return its upload slot. Drops
+    /// requests older than `DIAGNOSTICS_RETENTION` and the oldest beyond
+    /// `MAX_DIAGNOSTICS_REQUESTS`.
     pub async fn register_diagnostics_request(
         &self,
         request_id: String,
         session_id: String,
         client_id: String,
-    ) -> oneshot::Receiver<DiagnosticsBundle> {
-        let (response_tx, response_rx) = oneshot::channel();
-        self.diagnostics_requests.write().await.insert(
+    ) -> DiagnosticsUpload {
+        let (upload, upload_rx) = watch::channel(None);
+        let mut requests = self.diagnostics_requests.write().await;
+        requests.retain(|_, request| request.created_at.elapsed() < DIAGNOSTICS_RETENTION);
+        while requests.len() >= MAX_DIAGNOSTICS_REQUESTS {
+            let Some(oldest) = requests
+                .iter()
+                .min_by_key(|(_, request)| request.created_at)
+                .map(|(id, _)| id.clone())
+            else {
+                break;
+            };
+            requests.remove(&oldest);
+        }
+        requests.insert(
             request_id,
-            PendingDiagnosticsRequest {
+            DiagnosticsRequestState {
                 session_id,
                 client_id,
-                response_tx,
+                created_at: Instant::now(),
+                upload,
             },
         );
-        response_rx
+        upload_rx
     }
 
-    /// Complete a pending diagnostics request if it matches its target client.
+    /// Store a client's upload for a diagnostics request addressed to it. A
+    /// repeated upload (the request went out by stream and push) replaces the
+    /// earlier one.
     pub async fn complete_diagnostics_request(
         &self,
         request_id: &str,
@@ -460,20 +491,35 @@ impl SessionManager {
         client_id: &str,
         bundle: DiagnosticsBundle,
     ) -> bool {
-        let mut requests = self.diagnostics_requests.write().await;
-        let Some(pending) = requests.get(request_id) else {
-            return false;
-        };
-        if pending.session_id != session_id || pending.client_id != client_id {
-            return false;
+        let requests = self.diagnostics_requests.read().await;
+        match requests.get(request_id) {
+            Some(request)
+                if request.session_id == session_id
+                    && request.client_id == client_id
+                    && request.created_at.elapsed() < DIAGNOSTICS_RETENTION =>
+            {
+                request.upload.send_replace(Some(Arc::new(bundle)));
+                true
+            }
+            _ => false,
         }
-        let pending = requests.remove(request_id).expect("request was present");
-        pending.response_tx.send(bundle).is_ok()
     }
 
-    /// Remove a timed-out or cancelled diagnostics request.
-    pub async fn cancel_diagnostics_request(&self, request_id: &str) {
-        self.diagnostics_requests.write().await.remove(request_id);
+    /// The upload slot of a retained diagnostics request in `session_id`.
+    pub async fn diagnostics_upload(
+        &self,
+        request_id: &str,
+        session_id: &str,
+    ) -> Option<DiagnosticsUpload> {
+        self.diagnostics_requests
+            .read()
+            .await
+            .get(request_id)
+            .filter(|request| {
+                request.session_id == session_id
+                    && request.created_at.elapsed() < DIAGNOSTICS_RETENTION
+            })
+            .map(|request| request.upload.subscribe())
     }
 
     /// Get the number of active SSE receivers for a session.
@@ -817,7 +863,7 @@ mod tests {
     #[tokio::test]
     async fn diagnostics_request_round_trip_is_targeted() {
         let manager = SessionManager::new();
-        let response = manager
+        let mut upload = manager
             .register_diagnostics_request(
                 "request-1".to_string(),
                 "session-1".to_string(),
@@ -847,19 +893,67 @@ mod tests {
                 .await
         );
         assert!(
+            !manager
+                .complete_diagnostics_request("request-1", "session-2", "mobile-1", bundle.clone())
+                .await
+        );
+        assert!(upload.borrow().is_none());
+
+        assert!(
             manager
                 .complete_diagnostics_request("request-1", "session-1", "mobile-1", bundle.clone())
                 .await
         );
-        assert_eq!(
-            response.await.expect("response should arrive").client_id,
-            "mobile-1"
-        );
+        let uploaded = upload
+            .wait_for(Option::is_some)
+            .await
+            .expect("upload should arrive")
+            .clone()
+            .expect("bundle is set");
+        assert_eq!(uploaded.client_id, "mobile-1");
+
+        // The bundle stays retrievable after the first waiter got it, and a
+        // repeated upload (stream and push both delivered) replaces it.
+        let later = manager
+            .diagnostics_upload("request-1", "session-1")
+            .await
+            .expect("request is retained");
+        assert!(later.borrow().is_some());
+        assert!(manager
+            .diagnostics_upload("request-1", "session-2")
+            .await
+            .is_none());
         assert!(
-            !manager
+            manager
                 .complete_diagnostics_request("request-1", "session-1", "mobile-1", bundle)
                 .await
         );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_requests_keep_only_the_newest() {
+        let manager = SessionManager::new();
+        for index in 0..=super::MAX_DIAGNOSTICS_REQUESTS {
+            manager
+                .register_diagnostics_request(
+                    format!("request-{index}"),
+                    "session-1".to_string(),
+                    "mobile-1".to_string(),
+                )
+                .await;
+        }
+
+        assert!(manager
+            .diagnostics_upload("request-0", "session-1")
+            .await
+            .is_none());
+        assert!(manager
+            .diagnostics_upload(
+                &format!("request-{}", super::MAX_DIAGNOSTICS_REQUESTS),
+                "session-1"
+            )
+            .await
+            .is_some());
     }
 
     #[test]
@@ -867,6 +961,7 @@ mod tests {
         let event = SessionEvent::DiagnosticsRequest {
             request_id: "request-1".to_string(),
             client_id: "mobile-1".to_string(),
+            max_bytes: Some(1024),
         };
 
         assert_eq!(
@@ -875,6 +970,7 @@ mod tests {
                 "type": "diagnosticsRequest",
                 "requestId": "request-1",
                 "clientId": "mobile-1",
+                "maxBytes": 1024,
             })
         );
     }

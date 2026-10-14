@@ -98,10 +98,12 @@ import com.ferrotune.core.network.generated.UpdatePreferencesRequest
 import com.ferrotune.core.network.generated.UpdateSmartPlaylistRequest
 import com.ferrotune.core.network.generated.UserInfo
 import com.ferrotune.core.network.generated.WaveformResponse
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.HTTP
+import retrofit2.http.Headers
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
@@ -156,6 +158,15 @@ interface FerrotuneApi {
 
     @DELETE("api/push/device/{clientId}")
     suspend fun unregisterPushDevice(@Path("clientId") clientId: String)
+
+    /** Answers a diagnostics request with the gzipped bundle (see NativeAudioLogger). */
+    @Headers("Content-Encoding: gzip")
+    @POST("api/sessions/{sessionId}/diagnostics/{requestId}")
+    suspend fun uploadDiagnostics(
+        @Path("sessionId") sessionId: String,
+        @Path("requestId") requestId: String,
+        @Body gzippedBundle: RequestBody,
+    )
 
     @POST("api/queue/start")
     suspend fun startQueue(@Body request: StartQueueRequest): StartQueueResponse

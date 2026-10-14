@@ -13,14 +13,13 @@ use crate::db::repo::push_devices::{self, PushDevice};
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::sse::{Event, Sse},
     Extension, Json,
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
-use tokio::time::timeout;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -131,14 +130,48 @@ pub struct SessionSuccessResponse {
     pub success: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticsPullRequest {
-    pub client_id: String,
+    /// The app to ask. Defaults to the user's only Android app (or, with
+    /// several, the session owner).
+    pub client_id: Option<String>,
+    /// Seconds to wait for the upload before answering `202 pending`
+    /// (default 45, at most 120). The upload is kept for an hour either way.
+    pub wait_secs: Option<u64>,
+    /// Upload at most this many bytes of the newest logs (default: all of
+    /// them, up to 12 MiB).
+    pub max_bytes: Option<u64>,
 }
 
-const DIAGNOSTICS_RESPONSE_TIMEOUT: Duration = Duration::from_secs(20);
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DiagnosticsStatus {
+    Complete,
+    Pending,
+}
+
+/// The state of a diagnostics pull: `202` while the app has not uploaded.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsPullResponse {
+    pub request_id: String,
+    pub client_id: String,
+    pub status: DiagnosticsStatus,
+    /// How the request reached the app: "stream" and/or "push".
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub delivered_via: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<DiagnosticsBundle>,
+}
+
+const DEFAULT_DIAGNOSTICS_WAIT: Duration = Duration::from_secs(45);
+const MAX_DIAGNOSTICS_WAIT: Duration = Duration::from_secs(120);
+/// How long an upload may take over an open session stream before the
+/// request is also pushed: a stream can look open after its connection died.
+const DIAGNOSTICS_STREAM_FALLBACK_DELAY: Duration = Duration::from_secs(8);
 const MAX_DIAGNOSTICS_BYTES: usize = 12 * 1024 * 1024;
+const ANDROID_CLIENT_NAME: &str = "ferrotune-mobile";
 
 /// Query params for SSE events endpoint
 #[derive(Debug, Deserialize)]
@@ -659,73 +692,220 @@ impl Drop for ClientCleanupGuard {
     }
 }
 
-/// POST /api/sessions/:id/diagnostics — Ask a connected Android client to upload logs.
+/// POST /api/sessions/:id/diagnostics — Ask the Android app to upload its
+/// logs. Reaches it over its session stream when open and by push otherwise
+/// (or when the stream stays silent), so an idle phone answers too. Answers
+/// `202 pending` if the upload hasn't arrived within `waitSecs`; fetch it
+/// later with `GET /api/sessions/:id/diagnostics/:request_id`.
 pub async fn request_android_diagnostics(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-    Json(request): Json<DiagnosticsPullRequest>,
-) -> FerrotuneApiResult<Json<DiagnosticsBundle>> {
-    queries::get_session(&state.database, &session_id, user.user_id)
+    request: Option<Json<DiagnosticsPullRequest>>,
+) -> FerrotuneApiResult<(StatusCode, Json<DiagnosticsPullResponse>)> {
+    let request = request.map(|Json(request)| request).unwrap_or_default();
+    let session = queries::get_session(&state.database, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
-    let client_name = state
+    let push_enabled = crate::push::sender().is_some();
+    let devices = if push_enabled {
+        push_devices::list_push_devices(&state.database, user.user_id).await?
+    } else {
+        Vec::new()
+    };
+    let connected = state.session_manager.get_clients(&session_id).await;
+    let client_id = diagnostics_target(
+        request.client_id.as_deref(),
+        &connected,
+        &devices,
+        session.owner_client_id.as_deref(),
+    )?;
+    let stream_open = state
         .session_manager
-        .get_client_name(&session_id, &request.client_id)
-        .await
-        .ok_or_else(|| Error::NotFound("Connected client not found".to_string()))?;
-    if client_name != "ferrotune-mobile" {
-        return Err(FerrotuneApiError(Error::InvalidRequest(
-            "Diagnostics can only be pulled from a connected Android client".to_string(),
-        )));
-    }
-    if !state
-        .session_manager
-        .is_client_sse_connected(&session_id, &request.client_id)
-        .await
-    {
+        .is_client_sse_connected(&session_id, &client_id)
+        .await;
+    let pushable = devices.iter().any(|device| device.client_id == client_id);
+    if !stream_open && !pushable {
         return Err(FerrotuneApiError(Error::Conflict(
-            "Target client has no active SSE connection".to_string(),
+            "The app has no open session stream and no push registration".to_string(),
         )));
     }
 
+    let wait = request
+        .wait_secs
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_DIAGNOSTICS_WAIT)
+        .min(MAX_DIAGNOSTICS_WAIT);
+    let deadline = tokio::time::Instant::now() + wait;
     let request_id = Uuid::new_v4().to_string();
-    let response_rx = state
+    let mut upload = state
         .session_manager
-        .register_diagnostics_request(
-            request_id.clone(),
-            session_id.clone(),
-            request.client_id.clone(),
-        )
+        .register_diagnostics_request(request_id.clone(), session_id.clone(), client_id.clone())
         .await;
 
-    state
-        .session_manager
-        .broadcast(
+    let mut delivered_via = Vec::new();
+    if stream_open {
+        state
+            .session_manager
+            .broadcast(
+                &session_id,
+                SessionEvent::DiagnosticsRequest {
+                    request_id: request_id.clone(),
+                    client_id: client_id.clone(),
+                    max_bytes: request.max_bytes,
+                },
+            )
+            .await;
+        delivered_via.push("stream");
+    }
+    let uploaded_over_stream = stream_open
+        && wait_for_diagnostics(
+            &mut upload,
+            (tokio::time::Instant::now() + DIAGNOSTICS_STREAM_FALLBACK_DELAY).min(deadline),
+        )
+        .await;
+    if !uploaded_over_stream && pushable {
+        match super::push_devices::push_diagnostics_request(
+            &state,
+            user.user_id,
             &session_id,
-            SessionEvent::DiagnosticsRequest {
-                request_id: request_id.clone(),
-                client_id: request.client_id.clone(),
-            },
+            &client_id,
+            &request_id,
+            request.max_bytes,
         )
-        .await;
-
-    match timeout(DIAGNOSTICS_RESPONSE_TIMEOUT, response_rx).await {
-        Ok(Ok(bundle)) => Ok(Json(bundle)),
-        Ok(Err(_)) => Err(FerrotuneApiError(Error::Conflict(
-            "Diagnostics client disconnected before uploading logs".to_string(),
-        ))),
-        Err(_) => {
-            state
-                .session_manager
-                .cancel_diagnostics_request(&request_id)
-                .await;
-            Err(FerrotuneApiError(Error::Conflict(
-                "Timed out waiting for Android diagnostics".to_string(),
-            )))
+        .await
+        {
+            Ok(()) => delivered_via.push("push"),
+            Err(error) if delivered_via.is_empty() => {
+                return Err(FerrotuneApiError(Error::Conflict(format!(
+                    "Could not reach the app by push: {error}"
+                ))));
+            }
+            Err(error) => tracing::warn!(client_id, "Diagnostics push failed: {error}"),
         }
     }
+    wait_for_diagnostics(&mut upload, deadline).await;
+
+    let bundle = upload.borrow().as_deref().cloned();
+    Ok(diagnostics_response(
+        request_id,
+        client_id,
+        delivered_via,
+        bundle,
+    ))
+}
+
+/// GET /api/sessions/:id/diagnostics/:request_id — The upload of an earlier
+/// diagnostics pull (kept for an hour), or `202 pending`.
+pub async fn get_android_diagnostics(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path((session_id, request_id)): Path<(String, String)>,
+) -> FerrotuneApiResult<(StatusCode, Json<DiagnosticsPullResponse>)> {
+    queries::get_session(&state.database, &session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+    let upload = state
+        .session_manager
+        .diagnostics_upload(&request_id, &session_id)
+        .await
+        .ok_or_else(|| Error::NotFound("Diagnostics request not found or expired".to_string()))?;
+    let bundle = upload.borrow().as_deref().cloned();
+    let client_id = bundle
+        .as_ref()
+        .map(|bundle| bundle.client_id.clone())
+        .unwrap_or_default();
+    Ok(diagnostics_response(
+        request_id,
+        client_id,
+        Vec::new(),
+        bundle,
+    ))
+}
+
+/// Picks the app a diagnostics pull asks: the named client, else the only
+/// Android app connected or registered for push, else the session owner
+/// among several.
+fn diagnostics_target(
+    requested: Option<&str>,
+    connected: &[ConnectedClient],
+    devices: &[PushDevice],
+    owner_client_id: Option<&str>,
+) -> Result<String, Error> {
+    let mut candidates: Vec<&str> = connected
+        .iter()
+        .filter(|client| client.client_name == ANDROID_CLIENT_NAME)
+        .map(|client| client.client_id.as_str())
+        .chain(
+            devices
+                .iter()
+                .filter(|device| device.client_name == ANDROID_CLIENT_NAME)
+                .map(|device| device.client_id.as_str()),
+        )
+        .collect();
+    candidates.sort_unstable();
+    candidates.dedup();
+
+    if let Some(requested) = requested {
+        return if candidates.contains(&requested) {
+            Ok(requested.to_string())
+        } else {
+            Err(Error::NotFound(
+                "No Android app with that client id is connected or registered for push"
+                    .to_string(),
+            ))
+        };
+    }
+    match candidates.as_slice() {
+        [] => Err(Error::NotFound(
+            "No Android app is connected or registered for push".to_string(),
+        )),
+        [only] => Ok(only.to_string()),
+        several => owner_client_id
+            .filter(|owner| several.contains(owner))
+            .map(str::to_string)
+            .ok_or_else(|| {
+                Error::InvalidRequest(format!(
+                    "Several Android apps found; pass clientId (one of: {})",
+                    several.join(", ")
+                ))
+            }),
+    }
+}
+
+/// Waits until the app has uploaded or `deadline` passes; true if uploaded.
+async fn wait_for_diagnostics(
+    upload: &mut crate::api::DiagnosticsUpload,
+    deadline: tokio::time::Instant,
+) -> bool {
+    matches!(
+        tokio::time::timeout_at(deadline, upload.wait_for(Option::is_some)).await,
+        Ok(Ok(_))
+    )
+}
+
+fn diagnostics_response(
+    request_id: String,
+    client_id: String,
+    delivered_via: Vec<&'static str>,
+    bundle: Option<DiagnosticsBundle>,
+) -> (StatusCode, Json<DiagnosticsPullResponse>) {
+    let (status_code, status) = if bundle.is_some() {
+        (StatusCode::OK, DiagnosticsStatus::Complete)
+    } else {
+        (StatusCode::ACCEPTED, DiagnosticsStatus::Pending)
+    };
+    (
+        status_code,
+        Json(DiagnosticsPullResponse {
+            request_id,
+            client_id,
+            status,
+            delivered_via,
+            bundle,
+        }),
+    )
 }
 
 /// POST /api/sessions/:id/diagnostics/:request_id — Upload a diagnostics bundle.
@@ -1227,6 +1407,55 @@ mod tests {
         assert!(idle[0].is_owner);
         assert_eq!(idle[0].device_label.as_deref(), Some("Pixel 10 Pro"));
         assert!(!connected[0].is_idle);
+    }
+
+    #[test]
+    fn diagnostics_go_to_the_only_android_app_or_the_owner() {
+        let device = |client_id: &str| PushDevice {
+            id: 1,
+            user_id: 1,
+            client_id: client_id.to_string(),
+            client_name: "ferrotune-mobile".to_string(),
+            device_label: None,
+            token: "token".to_string(),
+            updated_at: chrono::Utc::now().fixed_offset(),
+        };
+        let web = connected_client("web-1", "ferrotune-web");
+        let phone = connected_client("phone-1", "ferrotune-mobile");
+
+        // An idle phone known only by its push registration is found.
+        assert_eq!(
+            diagnostics_target(None, &[web.clone()], &[device("phone-1")], None).ok(),
+            Some("phone-1".to_string())
+        );
+        // Connected and registered at once is still one app.
+        assert_eq!(
+            diagnostics_target(None, &[phone.clone()], &[device("phone-1")], None).ok(),
+            Some("phone-1".to_string())
+        );
+        // Several apps: the owner, else the caller must choose.
+        let several = [device("phone-1"), device("phone-2")];
+        assert_eq!(
+            diagnostics_target(None, &[], &several, Some("phone-2")).ok(),
+            Some("phone-2".to_string())
+        );
+        assert!(matches!(
+            diagnostics_target(None, &[], &several, Some("web-1")),
+            Err(Error::InvalidRequest(_))
+        ));
+        assert_eq!(
+            diagnostics_target(Some("phone-1"), &[], &several, None).ok(),
+            Some("phone-1".to_string())
+        );
+        // Web clients are never asked, and unknown ids are not found.
+        assert!(matches!(
+            diagnostics_target(Some("web-1"), &[web.clone()], &[], None),
+            Err(Error::NotFound(_))
+        ));
+        assert!(matches!(
+            diagnostics_target(None, &[web], &[], None),
+            Err(Error::NotFound(_))
+        ));
     }
 
     #[test]

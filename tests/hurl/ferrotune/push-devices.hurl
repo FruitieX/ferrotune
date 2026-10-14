@@ -71,3 +71,30 @@ Content-Type: application/json
 HTTP 200
 [Asserts]
 jsonpath "$.success" == true
+
+# Test: diagnostics can't be pulled from an app that is neither connected nor registered for push
+POST {{base_url}}/api/sessions/{{push_session_id}}/diagnostics
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "clientId": "hurl-phone-without-stream"
+}
+HTTP 404
+
+# Test: an unknown diagnostics request has nothing to fetch
+GET {{base_url}}/api/sessions/{{push_session_id}}/diagnostics/no-such-request
+Authorization: Basic {{auth_basic}}
+HTTP 404
+
+# Test: an upload for an unknown diagnostics request is refused
+POST {{base_url}}/api/sessions/{{push_session_id}}/diagnostics/no-such-request
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "requestId": "no-such-request",
+  "clientId": "hurl-phone-without-stream",
+  "collectedAt": "2026-10-14T12:00:00.000Z",
+  "storageKind": "external",
+  "files": []
+}
+HTTP 404

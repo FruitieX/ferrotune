@@ -1738,7 +1738,7 @@ class PlaybackService : MediaSessionService() {
                     mapOf("requestId" to event.requestId),
                 )
                 backgroundExecutor.execute {
-                    apiClient.uploadDiagnostics(event.requestId)
+                    apiClient.uploadDiagnostics(event.requestId, event.maxBytes)
                 }
             }
         }

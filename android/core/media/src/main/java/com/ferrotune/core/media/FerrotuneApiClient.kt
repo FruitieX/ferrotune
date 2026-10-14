@@ -851,17 +851,19 @@ class FerrotuneApiClient {
     }
 
     /**
-     * Upload sanitized native-audio diagnostics in response to a server request.
+     * Upload sanitized native-audio diagnostics (gzipped) in response to a
+     * server request on the session stream.
      */
-    fun uploadDiagnostics(requestId: String): Boolean {
+    fun uploadDiagnostics(requestId: String, maxBytes: Long?): Boolean {
         val config = getConfig()
         val sessionId = config.sessionId ?: return false
         val clientId = config.clientId ?: return false
-        val payload = NativeAudioLogger.diagnosticsPayload(requestId, clientId)
+        val payload = NativeAudioLogger.gzippedDiagnosticsPayload(requestId, clientId, maxBytes)
         val url = buildApiUrl("/api/sessions/$sessionId/diagnostics/$requestId")
         val request = Request.Builder()
             .url(url)
-            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .header("Content-Encoding", "gzip")
+            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
             .also { addAuthHeaders(it) }
             .build()
 
@@ -1097,6 +1099,8 @@ class FerrotuneApiClient {
             "diagnosticsRequest" -> SessionEvent.DiagnosticsRequest(
                 requestId = json.getString("requestId"),
                 clientId = json.getString("clientId"),
+                maxBytes = if (json.has("maxBytes") && !json.isNull("maxBytes"))
+                    json.getLong("maxBytes") else null,
             )
             "volumeChange" -> SessionEvent.VolumeChange(
                 volume = json.getDouble("volume").toFloat(),
@@ -1152,6 +1156,7 @@ sealed class SessionEvent {
     data class DiagnosticsRequest(
         val requestId: String,
         val clientId: String,
+        val maxBytes: Long? = null,
     ) : SessionEvent()
     data class VolumeChange(val volume: Float, val isMuted: Boolean) : SessionEvent()
 }
