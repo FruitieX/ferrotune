@@ -352,6 +352,7 @@ pub async fn create_smart_playlist(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateSmartPlaylistRequest>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
+    validate_rules(&request.rules, user.user_id)?;
     let id = Uuid::new_v4().to_string();
     let rules_json = serde_json::to_string(&request.rules)
         .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
@@ -425,6 +426,7 @@ pub async fn update_smart_playlist(
         has_updates = true;
     }
     if let Some(rules) = &request.rules {
+        validate_rules(rules, user.user_id)?;
         let rules_json = serde_json::to_string(rules)
             .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
         active.rules_json = Set(rules_json);
@@ -1313,7 +1315,7 @@ fn build_where_clause(
     let mut args: Vec<SqlArg> = Vec::new();
 
     for cond in &rules.conditions {
-        if let Some((sql, mut cond_args)) = build_condition(cond, user_id) {
+        if let Some((sql, mut cond_args)) = build_condition(cond, user_id)? {
             conditions.push(sql);
             args.append(&mut cond_args);
         }
@@ -1327,19 +1329,33 @@ fn build_where_clause(
     Ok((conditions.join(joiner), args))
 }
 
-/// Build a single SQL condition from a filter condition
+/// Reject rules with an unknown field or operator before they are stored.
+fn validate_rules(rules: &SmartPlaylistRulesApi, user_id: i64) -> FerrotuneApiResult<()> {
+    build_where_clause(rules, user_id).map(|_| ())
+}
+
+/// Build a single SQL condition from a filter condition.
+///
+/// Unknown fields and operators are errors: dropping them would leave the
+/// playlist matching every song. `Ok(None)` is a known rule whose value can't
+/// be applied (e.g. a blank number), which is left out of the WHERE clause.
 fn build_condition(
     cond: &SmartPlaylistConditionApi,
     user_id: i64,
-) -> Option<(String, Vec<SqlArg>)> {
+) -> Result<Option<(String, Vec<SqlArg>)>, Error> {
     let field = &cond.field;
     let op = &cond.operator;
     let value = &cond.value;
+    let unknown_operator = || {
+        Error::InvalidRequest(format!(
+            "Unknown operator '{op}' for smart playlist rule field '{field}'"
+        ))
+    };
 
     // Handle special boolean fields that need custom SQL
     match field.as_str() {
         "starred" => {
-            return match op.as_str() {
+            return Ok(match op.as_str() {
                 "eq" => {
                     if value.as_bool().unwrap_or(false) {
                         Some(("st.starred_at IS NOT NULL".to_string(), vec![]))
@@ -1354,10 +1370,15 @@ fn build_condition(
                         Some(("st.starred_at IS NOT NULL".to_string(), vec![]))
                     }
                 }
-                _ => None,
-            };
+                _ => return Err(unknown_operator()),
+            });
         }
         "coverArt" => {
+            let negate = match op.as_str() {
+                "eq" => false,
+                "neq" => true,
+                _ => return Err(unknown_operator()),
+            };
             // coverArt uses enum values: "any", "embedded", "album"
             // - "any": song has any cover art (either embedded or from album)
             // - "embedded": song has its own embedded cover art
@@ -1376,17 +1397,18 @@ fn build_condition(
                     "(s.album_id IS NOT NULL AND al.cover_art_hash IS NOT NULL)",
                     "(s.album_id IS NULL OR al.cover_art_hash IS NULL)",
                 ),
-                _ => return None,
+                _ => return Ok(None),
             };
-            return match op.as_str() {
-                "eq" => Some((has_condition.to_string(), vec![])),
-                "neq" => Some((not_has_condition.to_string(), vec![])),
-                _ => None,
+            let condition = if negate {
+                not_has_condition
+            } else {
+                has_condition
             };
+            return Ok(Some((condition.to_string(), vec![])));
         }
         "shuffleExcluded" => {
             // shuffleExcluded checks if song is in the shuffle_excludes table
-            return match op.as_str() {
+            return Ok(match op.as_str() {
                 "eq" => {
                     if value.as_bool().unwrap_or(false) {
                         Some((format!(
@@ -1413,12 +1435,12 @@ fn build_condition(
                         ), vec![]))
                     }
                 }
-                _ => None,
-            };
+                _ => return Err(unknown_operator()),
+            });
         }
         "disabled" => {
             // disabled checks if song is in the disabled_songs table
-            return match op.as_str() {
+            return Ok(match op.as_str() {
                 "eq" => {
                     if value.as_bool().unwrap_or(false) {
                         Some((format!(
@@ -1445,10 +1467,15 @@ fn build_condition(
                         ), vec![]))
                     }
                 }
-                _ => None,
-            };
+                _ => return Err(unknown_operator()),
+            });
         }
         "inPlaylist" => {
+            let exists = match op.as_str() {
+                "eq" => "EXISTS",
+                "neq" => "NOT EXISTS",
+                _ => return Err(unknown_operator()),
+            };
             // Filter by membership in existing playlist(s)
             // Supports both single string value and array of strings for multi-select
             let playlist_ids: Vec<String> = if let Some(arr) = value.as_array() {
@@ -1458,11 +1485,11 @@ fn build_condition(
             } else if let Some(id) = value.as_str() {
                 vec![id.to_string()]
             } else {
-                return None;
+                return Ok(None);
             };
 
             if playlist_ids.is_empty() {
-                return None;
+                return Ok(None);
             }
 
             let placeholders = playlist_ids
@@ -1472,31 +1499,29 @@ fn build_condition(
                 .join(", ");
             let args: Vec<SqlArg> = playlist_ids.into_iter().map(SqlArg::Text).collect();
 
-            return match op.as_str() {
-                "eq" => Some((
-                    format!(
-                        "EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id IN ({placeholders}))"
-                    ),
-                    args,
-                )),
-                "neq" => Some((
-                    format!(
-                        "NOT EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id IN ({placeholders}))"
-                    ),
-                    args,
-                )),
-                _ => None,
-            };
+            return Ok(Some((
+                format!(
+                    "{exists} (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id IN ({placeholders}))"
+                ),
+                args,
+            )));
         }
         "inPlaylistFolder" => {
+            let exists = match op.as_str() {
+                "eq" => "EXISTS",
+                "neq" => "NOT EXISTS",
+                _ => return Err(unknown_operator()),
+            };
             // Filter by membership in any playlist within a folder (recursively including sub-folders)
-            let folder_id = value.as_str()?;
+            let Some(folder_id) = value.as_str() else {
+                return Ok(None);
+            };
             let args = vec![SqlArg::Text(folder_id.to_string())];
 
-            return match op.as_str() {
-                "eq" => Some((
+            return Ok(Some((
+                format!(
                     concat!(
-                        "EXISTS (WITH RECURSIVE subfolder(id) AS (",
+                        "{} (WITH RECURSIVE subfolder(id) AS (",
                         "SELECT id FROM playlist_folders WHERE id = ? ",
                         "UNION ALL ",
                         "SELECT pf.id FROM playlist_folders pf ",
@@ -1506,46 +1531,36 @@ fn build_condition(
                         "JOIN subfolder ON p.folder_id = subfolder.id ",
                         "WHERE pls.song_id = s.id",
                         ")"
-                    )
-                    .to_string(),
-                    args,
-                )),
-                "neq" => Some((
-                    concat!(
-                        "NOT EXISTS (WITH RECURSIVE subfolder(id) AS (",
-                        "SELECT id FROM playlist_folders WHERE id = ? ",
-                        "UNION ALL ",
-                        "SELECT pf.id FROM playlist_folders pf ",
-                        "JOIN subfolder sf ON pf.parent_id = sf.id",
-                        ") SELECT 1 FROM playlist_songs pls ",
-                        "JOIN playlists p ON pls.playlist_id = p.id ",
-                        "JOIN subfolder ON p.folder_id = subfolder.id ",
-                        "WHERE pls.song_id = s.id",
-                        ")"
-                    )
-                    .to_string(),
-                    args,
-                )),
-                _ => None,
-            };
+                    ),
+                    exists
+                ),
+                args,
+            )));
         }
         "musicFolder" | "library" => {
-            // Filter by music folder ID - the value should be the music folder ID
-            let folder_id = value
-                .as_i64()
-                .or_else(|| value.as_str().and_then(|s| s.parse::<i64>().ok()))?;
-
-            return match op.as_str() {
-                "eq" => Some(("mf.id = ?".to_string(), vec![SqlArg::I64(folder_id)])),
-                "neq" => Some(("mf.id != ?".to_string(), vec![SqlArg::I64(folder_id)])),
-                _ => None,
+            let comparison = match op.as_str() {
+                "eq" => "=",
+                "neq" => "!=",
+                _ => return Err(unknown_operator()),
             };
+            // Filter by music folder ID - the value should be the music folder ID
+            let Some(folder_id) = value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|s| s.parse::<i64>().ok()))
+            else {
+                return Ok(None);
+            };
+
+            return Ok(Some((
+                format!("mf.id {comparison} ?"),
+                vec![SqlArg::I64(folder_id)],
+            )));
         }
         "coverArtResolution" => {
             // Filter by cover art resolution (the smaller of width/height)
             // Uses MIN(cover_art_width, cover_art_height) for comparison
             // Falls back to album cover art if song doesn't have embedded cover
-            return match op.as_str() {
+            return Ok(match op.as_str() {
                 "eq" => value.as_i64().map(|n| {
                     (
                         "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) = ?".to_string(),
@@ -1594,8 +1609,8 @@ fn build_condition(
                         vec![],
                     )
                 ),
-                _ => None,
-            };
+                _ => return Err(unknown_operator()),
+            });
         }
         _ => {}
     }
@@ -1619,9 +1634,13 @@ fn build_condition(
         "dateAdded" | "createdAt" => ("s.created_at".to_string(), vec![]),
         "fileFormat" => ("LOWER(s.file_format)".to_string(), vec![]),
         "albumartist" => ("ar.name".to_string(), vec![]), // Same as artist for now (album artist not stored separately)
-        "composer" => return None, // Composer field not in database schema
-        "comment" => return None,  // Comment field not in database schema for songs
-        _ => return None, // Unknown field
+        // Songs store no composer or comment, so those are unknown fields too
+        // rather than rules that silently match everything.
+        _ => {
+            return Err(Error::InvalidRequest(format!(
+                "Unknown smart playlist rule field '{field}'"
+            )))
+        }
     };
 
     let with_field_args = |mut op_args: Vec<SqlArg>| {
@@ -1631,7 +1650,7 @@ fn build_condition(
     };
 
     // Build the comparison based on operator
-    match op.as_str() {
+    let condition = match op.as_str() {
         "eq" => value
             .as_str()
             .map(|s| {
@@ -1764,8 +1783,9 @@ fn build_condition(
                 ))
             })
         }
-        _ => None,
-    }
+        _ => return Err(unknown_operator()),
+    };
+    Ok(condition)
 }
 
 /// Parse a duration string like "30d", "1w", "6m" into seconds
@@ -1824,7 +1844,9 @@ mod tests {
             value: serde_json::json!("a'b%_c"),
         };
 
-        let (sql, args) = build_condition(&condition, 1).expect("condition should be built");
+        let (sql, args) = build_condition(&condition, 1)
+            .expect("rule should be valid")
+            .expect("condition should be built");
 
         assert!(sql.contains("LIKE ?"));
         assert!(sql.contains("ESCAPE '\\'"));
@@ -1872,7 +1894,9 @@ mod tests {
             value: serde_json::json!(5),
         };
 
-        let (sql, args) = build_condition(&condition, 42).expect("condition should be built");
+        let (sql, args) = build_condition(&condition, 42)
+            .expect("rule should be valid")
+            .expect("condition should be built");
 
         assert!(sql.contains("r.user_id = ?"));
         assert!(!sql.contains("42"));
@@ -1895,7 +1919,9 @@ mod tests {
             value: serde_json::json!(5),
         };
 
-        let (sql, args) = build_condition(&condition, 42).expect("condition should be built");
+        let (sql, args) = build_condition(&condition, 42)
+            .expect("rule should be valid")
+            .expect("condition should be built");
 
         assert!(sql.contains("COALESCE(ps.play_starts, 0) >= ?"));
         assert_eq!(args.len(), 1);
@@ -1906,5 +1932,88 @@ mod tests {
             }
             _ => panic!("expected integer SQL arg"),
         }
+    }
+
+    fn condition(
+        field: &str,
+        operator: &str,
+        value: serde_json::Value,
+    ) -> SmartPlaylistConditionApi {
+        SmartPlaylistConditionApi {
+            field: field.to_string(),
+            operator: operator.to_string(),
+            value,
+        }
+    }
+
+    #[test]
+    fn test_build_condition_rejects_unknown_fields_and_operators() {
+        let rejected = [
+            condition("playCount", "greaterOrEqual", serde_json::json!(0)),
+            condition("plays", "gte", serde_json::json!(0)),
+            condition("composer", "contains", serde_json::json!("Bach")),
+            condition("comment", "contains", serde_json::json!("live")),
+            condition("starred", "is", serde_json::json!(true)),
+            // The operator is checked before the value, so a bad value can't
+            // hide a bad operator.
+            condition("coverArt", "has", serde_json::json!("unknown")),
+            condition("inPlaylist", "in", serde_json::json!([])),
+            condition("inPlaylistFolder", "in", serde_json::json!(null)),
+            condition("library", "is", serde_json::json!("not a number")),
+            condition("coverArtResolution", "atLeast", serde_json::json!(500)),
+        ];
+
+        for cond in rejected {
+            let error = build_condition(&cond, 1).expect_err("rule should be rejected");
+            let Error::InvalidRequest(message) = error else {
+                panic!("expected InvalidRequest for {cond:?}, got {error:?}");
+            };
+            assert!(
+                message.contains(&format!("'{}'", cond.field)),
+                "{message} should name the field"
+            );
+        }
+
+        let Err(Error::InvalidRequest(message)) =
+            build_condition(&condition("year", "atLeast", serde_json::json!(1990)), 1)
+        else {
+            panic!("expected InvalidRequest");
+        };
+        assert!(
+            message.contains("'atLeast'"),
+            "{message} should name the operator"
+        );
+    }
+
+    #[test]
+    fn test_build_condition_skips_unusable_values_of_known_rules() {
+        let skipped = [
+            condition("year", "gte", serde_json::json!("")),
+            condition("coverArt", "eq", serde_json::json!("unknown")),
+            condition("inPlaylist", "eq", serde_json::json!([])),
+            condition("lastPlayed", "within", serde_json::json!("soon")),
+        ];
+
+        for cond in skipped {
+            assert!(
+                build_condition(&cond, 1)
+                    .expect("rule should be valid")
+                    .is_none(),
+                "{cond:?} should be left out"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_rules_rejects_any_invalid_condition() {
+        let rules = SmartPlaylistRulesApi {
+            conditions: vec![
+                condition("starred", "eq", serde_json::json!(true)),
+                condition("playCount", "greaterOrEqual", serde_json::json!(0)),
+            ],
+            logic: "or".to_string(),
+        };
+
+        assert!(validate_rules(&rules, 1).is_err());
     }
 }

@@ -22,7 +22,7 @@ Content-Type: application/json
     "conditions": [
       {
         "field": "playCount",
-        "operator": "greaterOrEqual",
+        "operator": "gte",
         "value": 0
       }
     ]
@@ -79,7 +79,7 @@ Content-Type: application/json
     "conditions": [
       {
         "field": "year",
-        "operator": "greaterThan",
+        "operator": "gt",
         "value": 2000
       }
     ]
@@ -95,6 +95,76 @@ HTTP 200
 jsonpath "$.name" == "Updated Smart Playlist"
 jsonpath "$.rules.logic" == "or"
 jsonpath "$.rules.conditions[0].field" == "year"
+
+# ============================================================================
+# RULE VALIDATION
+# ============================================================================
+
+# An unknown operator is rejected instead of silently matching every song
+POST {{base_url}}/api/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Typo Operator",
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      { "field": "playCount", "operator": "greaterOrEqual", "value": 0 }
+    ]
+  }
+}
+HTTP 400
+[Asserts]
+jsonpath "$.error" contains "'greaterOrEqual'"
+jsonpath "$.error" contains "'playCount'"
+
+# An unknown field is rejected
+POST {{base_url}}/api/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Typo Field",
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      { "field": "starred", "operator": "eq", "value": true },
+      { "field": "plays", "operator": "gte", "value": 5 }
+    ]
+  }
+}
+HTTP 400
+[Asserts]
+jsonpath "$.error" contains "'plays'"
+
+# Updates validate rules too and leave the stored rules untouched
+PUT {{base_url}}/api/smart-playlists/{{playlist_id}}
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      { "field": "year", "operator": "after", "value": 2000 }
+    ]
+  }
+}
+HTTP 400
+[Asserts]
+jsonpath "$.error" contains "'after'"
+
+GET {{base_url}}/api/smart-playlists/{{playlist_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.rules.conditions[0].operator" == "gt"
+
+# Rejected creates are not stored
+GET {{base_url}}/api/smart-playlists
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.smartPlaylists[?(@.name == 'Typo Operator')]" count == 0
+jsonpath "$.smartPlaylists[?(@.name == 'Typo Field')]" count == 0
 
 # ============================================================================
 # GET SONGS
