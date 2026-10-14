@@ -10,4 +10,5 @@ import kotlinx.serialization.Serializable
 data class PingResponse(
     val status: String,
     val version: String,
+    val feedbackUrl: String? = null,
 )

@@ -25,6 +25,7 @@ import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
+import com.ferrotune.core.network.generated.PingResponse
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
 import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
@@ -147,6 +148,8 @@ open class FakeFerrotuneApi(
 ) : FerrotuneApi {
 
     override suspend fun login(request: AuthLoginRequest): AuthLoginResponseDto = error("unused")
+    var pingResponse = PingResponse(status = "ok", version = "test")
+    override suspend fun ping(): PingResponse = pingResponse
     override suspend fun me(): AuthMeResponseDto = error("unused")
     override suspend fun refresh(): AuthSessionRefreshResponseDto = error("unused")
     override suspend fun logout() = error("unused")

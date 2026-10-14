@@ -22,6 +22,7 @@ import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.dto.StarRequest
 import com.ferrotune.core.network.dto.UpdateFolderRequest
 import com.ferrotune.core.network.dto.UpdateQueuePositionRequest
+import com.ferrotune.core.network.generated.PingResponse
 import com.ferrotune.core.network.generated.AddPlaylistSongsRequest
 import com.ferrotune.core.network.generated.AddToQueueRequest
 import com.ferrotune.core.network.generated.ArtistAlbumsResponse
@@ -112,6 +113,9 @@ import retrofit2.http.QueryMap
  * one bearer session token.
  */
 interface FerrotuneApi {
+    @GET("api/ping")
+    suspend fun ping(): PingResponse
+
     @POST("api/auth/login")
     suspend fun login(@Body request: AuthLoginRequest): AuthLoginResponseDto
 

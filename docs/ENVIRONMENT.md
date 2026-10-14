@@ -30,6 +30,7 @@ These variables only matter when the server is bound to a non-local host. When r
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FERROTUNE_CORS_ALLOWED_ORIGINS` | unset | Comma-separated allowlist of extra origins. If unset, Ferrotune automatically allows its own origin; localhost deployments also include common development origins. Tauri app origins are always allowed. |
+| `FERROTUNE_FEEDBACK_URL` | unset | Base URL of a [feedback-hub](https://github.com/FruitieX/feedback-hub)-compatible service. Advertised to clients in `GET /api/ping` as `feedbackUrl`; the native Android app then shows a small feedback button that sends reports with annotated screenshots there. Unset hides the button. |
 | `FERROTUNE_CORS_ALLOW_ANY` | unset / false | If set to `true` or `1`, allows any origin. This is unsafe for production deployments. |
 
 ## Scanning And Analysis

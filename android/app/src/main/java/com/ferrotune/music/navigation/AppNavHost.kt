@@ -60,6 +60,7 @@ import com.ferrotune.core.designsystem.theme.FerrotuneTheme
 import com.ferrotune.core.model.ThemeMode
 import com.ferrotune.feature.auth.LoginScreen
 import com.ferrotune.feature.downloads.ui.DownloadsScreen
+import com.ferrotune.feature.feedback.FeedbackOverlay
 import com.ferrotune.feature.home.ui.HomeLayoutSettingsScreen
 import com.ferrotune.feature.home.ui.HomeLinkTarget
 import com.ferrotune.feature.home.ui.HomeScreen
@@ -449,6 +450,12 @@ private fun FerrotuneAppContent(
             onOpenChange = { nowPlayingOpen = it },
         )
         QueuePanelHost(state = queuePanel)
+        // Above the bottom navigation and mini player, where it stays out of the way.
+        FeedbackOverlay(
+            currentRoute = currentRoute,
+            accountKey = state.activeAccount?.id,
+            bottomPadding = if (showChrome) 152.dp else 16.dp,
+        )
     }
     }
     }

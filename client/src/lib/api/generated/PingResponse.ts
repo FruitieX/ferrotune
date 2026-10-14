@@ -3,4 +3,9 @@
 /**
  * Response for ping endpoint
  */
-export type PingResponse = { status: string, version: string, };
+export type PingResponse = { status: string, version: string, 
+/**
+ * Feedback hub that native clients may send in-app feedback to
+ * (`FERROTUNE_FEEDBACK_URL`); unset hides their feedback button.
+ */
+feedbackUrl?: string, };

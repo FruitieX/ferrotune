@@ -35,6 +35,10 @@ use ts_rs::TS;
 pub struct PingResponse {
     pub status: String,
     pub version: String,
+    /// Feedback hub that native clients may send in-app feedback to
+    /// (`FERROTUNE_FEEDBACK_URL`); unset hides their feedback button.
+    #[ts(optional)]
+    pub feedback_url: Option<String>,
 }
 
 /// GET /api/ping - Check server connectivity
@@ -42,6 +46,10 @@ pub async fn ping(_user: FerrotuneAuthenticatedUser) -> Json<PingResponse> {
     Json(PingResponse {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        feedback_url: std::env::var("FERROTUNE_FEEDBACK_URL")
+            .ok()
+            .map(|url| url.trim().trim_end_matches('/').to_string())
+            .filter(|url| !url.is_empty()),
     })
 }
 
