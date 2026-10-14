@@ -785,14 +785,88 @@ pub async fn get_most_liked_logic(
     Ok(MostLikedResult { songs, total })
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Preference key holding the user's [`ForgottenFavoritesSettings`].
+pub const FORGOTTEN_FAVORITES_PREFERENCE_KEY: &str = "forgotten-favorites";
+
+/// Which songs count as forgotten favorites. One per-user setting shared by
+/// the Home section, its detail page, tiles, and queues; stored as the
+/// `forgotten-favorites` client preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ForgottenFavoritesSettings {
+    /// Minimum total play count
+    #[ts(type = "number")]
+    pub min_plays: i64,
+    /// Days without a play before a song counts as forgotten
+    #[ts(type = "number")]
+    pub not_played_since_days: i64,
+}
+
+impl Default for ForgottenFavoritesSettings {
+    fn default() -> Self {
+        Self {
+            min_plays: 10,
+            not_played_since_days: 90,
+        }
+    }
+}
+
+impl ForgottenFavoritesSettings {
+    fn from_value(value: &serde_json::Value) -> Self {
+        let settings: Self = serde_json::from_value(value.clone()).unwrap_or_default();
+        Self {
+            min_plays: settings.min_plays.max(1),
+            not_played_since_days: settings.not_played_since_days.max(1),
+        }
+    }
+
+    /// The user's saved settings, or the defaults.
+    pub async fn for_user(
+        database: &crate::db::Database,
+        user_id: i64,
+    ) -> crate::error::Result<Self> {
+        let value = crate::db::repo::users::get_user_preference_value(
+            database,
+            user_id,
+            FORGOTTEN_FAVORITES_PREFERENCE_KEY,
+        )
+        .await?;
+        Ok(value.as_ref().map(Self::from_value).unwrap_or_default())
+    }
+
+    /// Settings for a stored queue: the snapshot taken when the queue started
+    /// (see [`Self::snapshot_into`]), else the user's current settings.
+    pub async fn for_queue(
+        database: &crate::db::Database,
+        user_id: i64,
+        filters: Option<&serde_json::Value>,
+    ) -> crate::error::Result<Self> {
+        match filters.and_then(|f| f.get("forgottenFavorites")) {
+            Some(snapshot) => Ok(Self::from_value(snapshot)),
+            None => Self::for_user(database, user_id).await,
+        }
+    }
+
+    /// Stores these settings in queue filters, so a lazy queue keeps its
+    /// songs when the user changes the setting later.
+    pub fn snapshot_into(&self, filters: &mut Option<serde_json::Value>) {
+        let value = serde_json::to_value(self).expect("settings serialize");
+        match filters {
+            Some(serde_json::Value::Object(map)) => {
+                map.insert("forgottenFavorites".to_string(), value);
+            }
+            _ => *filters = Some(serde_json::json!({ "forgottenFavorites": value })),
+        }
+    }
+}
+
 pub async fn get_forgotten_favorites_song_models(
     database: &crate::db::Database,
     user_id: i64,
     size: i64,
     offset: i64,
-    min_plays: i64,
-    not_played_since_days: i64,
+    settings: ForgottenFavoritesSettings,
     seed: Option<i64>,
     view_options: ListViewOptions<'_>,
 ) -> crate::error::Result<(Vec<crate::db::models::Song>, i64, i64)> {
@@ -802,7 +876,7 @@ pub async fn get_forgotten_favorites_song_models(
     let offset = offset.max(0) as u64;
     let actual_seed =
         seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(not_played_since_days);
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(settings.not_played_since_days);
     let sort = match view_options.sort {
         None | Some("custom" | "recommended") => {
             let seed_bits = actual_seed as u64;
@@ -839,7 +913,7 @@ pub async fn get_forgotten_favorites_song_models(
     let (summaries, total) = lists_repo::page_forgotten_favorite_song_summaries(
         database,
         user_id,
-        min_plays,
+        settings.min_plays,
         cutoff,
         view_options.filter,
         sort,
@@ -878,25 +952,22 @@ pub async fn get_forgotten_favorites_song_models(
     Ok((songs, total, actual_seed))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn get_forgotten_favorites_logic(
     database: &crate::db::Database,
     user_id: i64,
     size: i64,
     offset: i64,
-    min_plays: i64,
-    not_played_since_days: i64,
     inline_image_size: Option<ThumbnailSize>,
     seed: Option<i64>,
     view_options: ListViewOptions<'_>,
 ) -> crate::error::Result<ForgottenFavoritesResult> {
+    let settings = ForgottenFavoritesSettings::for_user(database, user_id).await?;
     let (songs, total, actual_seed) = get_forgotten_favorites_song_models(
         database,
         user_id,
         size,
         offset,
-        min_plays,
-        not_played_since_days,
+        settings,
         seed,
         view_options,
     )

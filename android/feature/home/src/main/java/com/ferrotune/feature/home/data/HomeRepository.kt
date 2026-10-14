@@ -54,15 +54,11 @@ class HomeRepository @Inject constructor(
         )
 
     suspend fun forgottenFavorites(
-        minPlays: Int,
-        notPlayedSinceDays: Int,
         size: Long = DEFAULT_SECTION_SIZE,
     ): HomeForgottenFavoritesSection = apiProvider.requireApi().forgottenFavorites(
         mapOf(
             "size" to size.toString(),
             "offset" to "0",
-            "minPlays" to minPlays.toString(),
-            "notPlayedSinceDays" to notPlayedSinceDays.toString(),
             "inlineImages" to INLINE_IMAGES,
         ),
     )

@@ -355,7 +355,6 @@ function getSectionConfigForTile(
     case "continueListening":
     case "mostPlayedRecently":
     case "recentlyAdded":
-    case "forgottenFavorites":
     case "discover":
       return homeSections?.find((section) => section.kind === kind);
     default:
@@ -369,7 +368,6 @@ function getQueueFiltersForTile(
 ): Record<string, unknown> | undefined {
   switch (kind) {
     case "mostPlayedRecently":
-    case "forgottenFavorites":
       return getHomeSectionQueueFilters(kind, section);
     default:
       return undefined;

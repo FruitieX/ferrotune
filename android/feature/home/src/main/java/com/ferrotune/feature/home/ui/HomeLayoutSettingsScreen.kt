@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -61,6 +62,7 @@ import com.ferrotune.core.designsystem.components.ErrorState
 import com.ferrotune.core.designsystem.components.PageIconHeader
 import com.ferrotune.core.designsystem.components.SectionCard
 import com.ferrotune.core.model.Account
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettings
 import com.ferrotune.feature.home.data.HomePlaylistChoice
 import com.ferrotune.feature.home.data.HomeSectionConfig
 import com.ferrotune.feature.home.data.HomeSectionKind
@@ -243,6 +245,12 @@ fun HomeLayoutSettingsScreen(
                                 Text("Add Playlist Section", modifier = Modifier.padding(start = 8.dp))
                             }
                         }
+                    }
+                    item(key = "forgotten-favorites") {
+                        ForgottenFavoritesCard(
+                            settings = state.forgottenFavorites,
+                            onSave = viewModel::setForgottenFavorites,
+                        )
                     }
                 }
             }
@@ -437,21 +445,6 @@ private fun HomeSectionEditDialog(
                         onValueChange = { draft = draft.copy(mostPlayedRecentlyDays = it) },
                     )
 
-                    HomeSectionKind.FORGOTTEN_FAVORITES -> {
-                        NumberField(
-                            label = "Minimum plays",
-                            value = draft.forgottenMinPlays,
-                            onValueChange = { draft = draft.copy(forgottenFavoritesMinPlays = it) },
-                        )
-                        NumberField(
-                            label = "Not played for days",
-                            value = draft.forgottenNotPlayedDays,
-                            onValueChange = {
-                                draft = draft.copy(forgottenFavoritesNotPlayedSinceDays = it)
-                            },
-                        )
-                    }
-
                     HomeSectionKind.TOP_ALBUMS -> NumberField(
                         label = "Days back",
                         value = draft.topAlbumsPeriodDays,
@@ -491,6 +484,35 @@ private fun HomeSectionEditDialog(
             TextButton(onClick = { onSave(draft) }) { Text("Done") }
         },
     )
+}
+
+/** Web Settings "Forgotten Favorites": one setting for the Home row, its page, tiles, and queues. */
+@Composable
+private fun ForgottenFavoritesCard(
+    settings: ForgottenFavoritesSettings,
+    onSave: (ForgottenFavoritesSettings) -> Unit,
+) {
+    var draft by remember(settings) { mutableStateOf(settings) }
+    SectionCard(
+        icon = Icons.Filled.History,
+        title = "Forgotten Favorites",
+        description = "Songs you played often but haven't heard in a while. " +
+            "Applies to the Home row, its page, tiles, and queues.",
+    ) {
+        NumberField(
+            label = "Minimum plays",
+            value = draft.minPlays,
+            onValueChange = { draft = draft.copy(minPlays = it) },
+        )
+        NumberField(
+            label = "Not played for days",
+            value = draft.notPlayedSinceDays,
+            onValueChange = { draft = draft.copy(notPlayedSinceDays = it) },
+        )
+        Button(onClick = { onSave(draft) }, enabled = draft != settings) {
+            Text("Save")
+        }
+    }
 }
 
 @Composable

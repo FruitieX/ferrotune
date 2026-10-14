@@ -341,8 +341,6 @@ fun homeSectionQueueSpec(
             sourceType = "forgottenFavorites"
             sourceId = null
             sourceName = "Forgotten Favorites"
-            filters["minPlays"] = JsonPrimitive(section.forgottenMinPlays)
-            filters["notPlayedSinceDays"] = JsonPrimitive(section.forgottenNotPlayedDays)
         }
 
         HomeSectionKind.DISCOVER -> {

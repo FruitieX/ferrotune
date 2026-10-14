@@ -377,10 +377,6 @@ pub struct ForgottenFavoritesParams {
     /// Random seed for reproducible ordering across pagination
     #[serde(default)]
     pub seed: Option<i64>,
-    /// Minimum total play count threshold (default 10)
-    pub min_plays: Option<i64>,
-    /// Days since last play to qualify as "forgotten" (default 90)
-    pub not_played_since_days: Option<i64>,
     /// Include inline cover art thumbnails (small or medium)
     pub inline_images: Option<String>,
     /// Quick filter text to match against song title, artist, or album
@@ -418,8 +414,6 @@ pub async fn get_forgotten_favorites(
 
     let size = params.size.unwrap_or(50).min(500);
     let offset = params.offset.unwrap_or(0);
-    let min_plays = params.min_plays.unwrap_or(10);
-    let not_played_since_days = params.not_played_since_days.unwrap_or(90);
 
     let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
         Some("small") | Some("s") => Some(ThumbnailSize::Small),
@@ -432,8 +426,6 @@ pub async fn get_forgotten_favorites(
         user.user_id,
         size,
         offset,
-        min_plays,
-        not_played_since_days,
         inline_size,
         params.seed,
         ListViewOptions {

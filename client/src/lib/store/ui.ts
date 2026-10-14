@@ -11,6 +11,7 @@ import {
   DEFAULT_HOME_SECTIONS,
   type HomeSectionConfig,
 } from "@/lib/utils/home-sections";
+import type { ForgottenFavoritesSettings } from "@/lib/api/generated/ForgottenFavoritesSettings";
 
 // Sidebar state
 export const sidebarCollapsedAtom = atomWithServerStorage(
@@ -39,6 +40,14 @@ export const homeSectionsAtom = atomWithServerStorage<HomeSectionConfig[]>(
   "home-sections-v1",
   DEFAULT_HOME_SECTIONS,
 );
+
+// Which songs count as forgotten favorites; the server reads this preference
+// for every forgotten-favorites list and queue.
+export const forgottenFavoritesSettingsAtom =
+  atomWithServerStorage<ForgottenFavoritesSettings>("forgotten-favorites", {
+    minPlays: 10,
+    notPlayedSinceDays: 90,
+  });
 
 // Queue panel state - persisted so sidebar stays open on reload
 export const queuePanelOpenAtom = atomWithClientAccountStorage<boolean>(

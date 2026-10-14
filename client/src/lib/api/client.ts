@@ -617,8 +617,6 @@ export class FerrotuneClient {
       size?: number;
       offset?: number;
       seed?: number;
-      minPlays?: number;
-      notPlayedSinceDays?: number;
       inlineImages?: "small" | "medium";
       filter?: string;
       sort?: string;

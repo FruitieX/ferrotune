@@ -97,6 +97,7 @@ export type { FerrotuneSongResponse } from './FerrotuneSongResponse';
 export type { FerrotuneSongsByGenreResponse } from './FerrotuneSongsByGenreResponse';
 export type { FerrotuneStarredResponse } from './FerrotuneStarredResponse';
 export type { ForgottenFavoritesResponse } from './ForgottenFavoritesResponse';
+export type { ForgottenFavoritesSettings } from './ForgottenFavoritesSettings';
 export type { FullScanStatusResponse } from './FullScanStatusResponse';
 export type { GenreResponse } from './GenreResponse';
 export type { GenresList } from './GenresList';

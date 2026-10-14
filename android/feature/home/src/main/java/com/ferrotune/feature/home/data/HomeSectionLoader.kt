@@ -49,11 +49,7 @@ class HomeSectionLoader @Inject constructor(
             albums = repository.albumList(type = "newest", size = size).album,
         )
 
-        HomeSectionKind.FORGOTTEN_FAVORITES -> repository.forgottenFavorites(
-            minPlays = section.forgottenMinPlays,
-            notPlayedSinceDays = section.forgottenNotPlayedDays,
-            size = size,
-        ).let {
+        HomeSectionKind.FORGOTTEN_FAVORITES -> repository.forgottenFavorites(size = size).let {
             HomeSectionData(
                 songs = it.song,
                 seed = it.seed,

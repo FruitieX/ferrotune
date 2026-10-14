@@ -534,11 +534,23 @@ async fn broadcast_position_updated(state: &AppState, session_id: &str, client_i
 pub async fn start_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Json(request): Json<StartQueueRequest>,
+    Json(mut request): Json<StartQueueRequest>,
 ) -> FerrotuneApiResult<Json<StartQueueResponse>> {
     let source_type: QueueSourceType = request.source_type.parse().map_err(|_| {
         Error::InvalidRequest(format!("Invalid source type: {}", request.source_type))
     })?;
+
+    if source_type == QueueSourceType::ForgottenFavorites
+        && request.song_ids.is_none()
+        && request.sources.is_empty()
+    {
+        crate::api::common::lists::ForgottenFavoritesSettings::for_user(
+            &state.database,
+            user.user_id,
+        )
+        .await?
+        .snapshot_into(&mut request.filters);
+    }
 
     // For playlists with missing entries, we need to track position mappings
     // to correctly translate the client's start_index (based on full playlist positions)
@@ -2089,22 +2101,17 @@ async fn materialize_forgotten_favorites_queue_songs(
         .and_then(|f| f.get("seed"))
         .and_then(|v| v.as_i64())
         .or(Some(0));
-    let min_plays = filters
-        .and_then(|f| f.get("minPlays"))
-        .and_then(|v| v.as_i64())
-        .unwrap_or(10);
-    let not_played_since_days = filters
-        .and_then(|f| f.get("notPlayedSinceDays"))
-        .and_then(|v| v.as_i64())
-        .unwrap_or(90);
+    let settings = crate::api::common::lists::ForgottenFavoritesSettings::for_queue(
+        database, user_id, filters,
+    )
+    .await?;
 
     let result = crate::api::common::lists::get_forgotten_favorites_song_models(
         database,
         user_id,
         MAX_QUEUE_SIZE as i64,
         0,
-        min_plays,
-        not_played_since_days,
+        settings,
         seed,
         crate::api::common::lists::ListViewOptions {
             filter: text_filter,
@@ -2136,22 +2143,17 @@ async fn materialize_forgotten_favorites_queue_song_page(
         .and_then(|f| f.get("seed"))
         .and_then(|v| v.as_i64())
         .or(Some(0));
-    let min_plays = filters
-        .and_then(|f| f.get("minPlays"))
-        .and_then(|v| v.as_i64())
-        .unwrap_or(10);
-    let not_played_since_days = filters
-        .and_then(|f| f.get("notPlayedSinceDays"))
-        .and_then(|v| v.as_i64())
-        .unwrap_or(90);
+    let settings = crate::api::common::lists::ForgottenFavoritesSettings::for_queue(
+        database, user_id, filters,
+    )
+    .await?;
 
     let result = crate::api::common::lists::get_forgotten_favorites_song_models(
         database,
         user_id,
         limit as i64,
         offset as i64,
-        min_plays,
-        not_played_since_days,
+        settings,
         seed,
         view_options,
     )

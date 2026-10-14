@@ -67,7 +67,6 @@ fun homeSectionDescription(section: HomeSectionConfig): String = when (section.k
 
 fun homeSectionHasSettings(kind: HomeSectionKind): Boolean = when (kind) {
     HomeSectionKind.MOST_PLAYED_RECENTLY,
-    HomeSectionKind.FORGOTTEN_FAVORITES,
     HomeSectionKind.TOP_ALBUMS,
     HomeSectionKind.PLAYLIST_SONGS,
     -> true

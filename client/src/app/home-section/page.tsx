@@ -23,10 +23,7 @@ import { getClient } from "@/lib/api/client";
 import { homeSectionsAtom } from "@/lib/store/ui";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
-  DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
-  DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
   DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
-  getForgottenFavoritesFilters,
   getHomeSectionHref,
   getMostPlayedRecentlyDays,
   getMostPlayedRecentlyFilters,
@@ -510,9 +507,6 @@ export default function HomeSectionPage() {
   const forgottenFavoritesHref = forgottenFavoritesSection
     ? getHomeSectionHref(forgottenFavoritesSection)
     : undefined;
-  const configuredForgottenFavoritesFilters = getForgottenFavoritesFilters(
-    forgottenFavoritesSection,
-  );
   const configuredMostPlayedRecentlyFilters = getMostPlayedRecentlyFilters(
     getMostPlayedRecentlyDays(
       normalizeHomeSections(homeSections).find(
@@ -540,20 +534,6 @@ export default function HomeSectionPage() {
     "days",
     DEFAULT_MOST_PLAYED_RECENTLY_DAYS,
   );
-  const forgottenFavoritesMinPlays = getPositiveNumberParam(
-    searchParams,
-    "minPlays",
-    DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
-  );
-  const forgottenFavoritesNotPlayedSinceDays = getPositiveNumberParam(
-    searchParams,
-    "notPlayedSinceDays",
-    DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
-  );
-  const forgottenFavoritesFilters = {
-    minPlays: forgottenFavoritesMinPlays,
-    notPlayedSinceDays: forgottenFavoritesNotPlayedSinceDays,
-  };
   const linkedSeed = getOptionalNonNegativeNumberParam(searchParams, "seed");
   const linkedSimilarCount = getOptionalNonNegativeNumberParam(
     searchParams,
@@ -600,8 +580,6 @@ export default function HomeSectionPage() {
   }, [
     sectionId,
     mostPlayedRecentlyDays,
-    forgottenFavoritesFilters.minPlays,
-    forgottenFavoritesFilters.notPlayedSinceDays,
     linkedSeed,
     linkedSimilarCount,
     linkedSimilarExcludeRecentDays,
@@ -616,8 +594,6 @@ export default function HomeSectionPage() {
       sortConfig.field,
       sortConfig.direction,
       mostPlayedRecentlyDays,
-      forgottenFavoritesFilters.minPlays,
-      forgottenFavoritesFilters.notPlayedSinceDays,
       similarTracksRequestSeed,
       linkedSimilarCount,
       linkedSimilarExcludeRecentDays,
@@ -711,7 +687,6 @@ export default function HomeSectionPage() {
           offset: pageParam,
           inlineImages: "small",
           seed: seedRef.current,
-          ...forgottenFavoritesFilters,
           filter: filterParam,
           ...sortParam,
         });
@@ -860,8 +835,8 @@ export default function HomeSectionPage() {
                   seedSongId: similarTracksSeedSongIdRef.current ?? undefined,
                 }
               : seedRef.current !== undefined
-                ? { ...forgottenFavoritesFilters, seed: seedRef.current }
-                : forgottenFavoritesFilters;
+                ? { seed: seedRef.current }
+                : undefined;
       startQueue({
         sourceType: section.queueSourceType,
         sourceName: section.queueSourceName,
@@ -926,11 +901,9 @@ export default function HomeSectionPage() {
     }
 
     const filters =
-      details.queueSourceType === "forgottenFavorites"
-        ? configuredForgottenFavoritesFilters
-        : details.queueSourceType === "mostPlayedRecently"
-          ? configuredMostPlayedRecentlyFilters
-          : details.filters;
+      details.queueSourceType === "mostPlayedRecently"
+        ? configuredMostPlayedRecentlyFilters
+        : details.filters;
 
     startQueue({
       sourceType: details.queueSourceType,

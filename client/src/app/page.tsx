@@ -69,7 +69,6 @@ import {
 } from "@/lib/utils/source-links";
 import {
   getEnabledHomeSections,
-  getForgottenFavoritesFilters,
   getHomeSectionHref,
   getHomeSectionOption,
   getHomeSectionPresentation,
@@ -871,20 +870,13 @@ export default function HomePage() {
   const mostPlayedRecentlyFilters = getMostPlayedRecentlyFilters(
     mostPlayedRecentlyDays,
   );
-  const forgottenFavoritesFilters = getForgottenFavoritesFilters(
-    forgottenFavoritesSection,
-  );
   const topAlbumsDays = getTopAlbumsDays(topAlbumsSection);
   const topAlbumsFilters = getTopAlbumsFilters(topAlbumsDays);
 
   useEffect(() => {
     discoverSeedRef.current = undefined;
     forgottenFavSeedRef.current = undefined;
-  }, [
-    currentAccountKey,
-    forgottenFavoritesFilters.minPlays,
-    forgottenFavoritesFilters.notPlayedSinceDays,
-  ]);
+  }, [currentAccountKey]);
 
   // Dynamic page size based on viewport width
   const pageSize =
@@ -991,8 +983,6 @@ export default function HomePage() {
     "forgotten-favorites",
     "home",
     currentAccountKey,
-    forgottenFavoritesFilters.minPlays,
-    forgottenFavoritesFilters.notPlayedSinceDays,
   ] as const;
   const continueListeningQueryKey = [
     "continue-listening",
@@ -1302,7 +1292,6 @@ export default function HomePage() {
           size: pageSize,
           offset: 0,
           inlineImages: "medium",
-          ...forgottenFavoritesFilters,
         });
         if (forgottenFavSeedRef.current === undefined) {
           forgottenFavSeedRef.current = response.seed;
@@ -1322,7 +1311,6 @@ export default function HomePage() {
         offset: pageParam,
         inlineImages: "medium",
         seed: forgottenFavSeedRef.current,
-        ...forgottenFavoritesFilters,
       });
       return {
         songs: response.song ?? [],
@@ -1618,11 +1606,9 @@ export default function HomePage() {
     }
 
     const filters =
-      details.queueSourceType === "forgottenFavorites"
-        ? forgottenFavoritesFilters
-        : details.queueSourceType === "mostPlayedRecently"
-          ? mostPlayedRecentlyFilters
-          : details.filters;
+      details.queueSourceType === "mostPlayedRecently"
+        ? mostPlayedRecentlyFilters
+        : details.filters;
 
     startQueue({
       sourceType: details.queueSourceType,
@@ -1738,11 +1724,9 @@ export default function HomePage() {
               : undefined
           }
           sourceFilters={
-            item.source.sourceType === "forgottenFavorites"
-              ? forgottenFavoritesFilters
-              : item.source.sourceType === "mostPlayedRecently"
-                ? mostPlayedRecentlyFilters
-                : undefined
+            item.source.sourceType === "mostPlayedRecently"
+              ? mostPlayedRecentlyFilters
+              : undefined
           }
         />
       );
@@ -1950,10 +1934,7 @@ export default function HomePage() {
           />
         );
       case "forgottenFavorites": {
-        const queueFilters = {
-          ...forgottenFavoritesFilters,
-          seed: forgottenFavSeed,
-        };
+        const queueFilters = { seed: forgottenFavSeed };
 
         if (forgottenFavSongs.length === 0 && !loadingForgottenFav) {
           return null;

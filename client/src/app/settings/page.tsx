@@ -87,8 +87,6 @@ import {
 } from "@/lib/utils/home-tiles";
 import {
   createPlaylistHomeSectionConfig,
-  getForgottenFavoritesMinPlays,
-  getForgottenFavoritesNotPlayedDays,
   getHomeSectionPresentation,
   getHomeSectionOption,
   getMostPlayedRecentlyDays,
@@ -130,6 +128,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { ForgottenFavoritesSettings } from "@/components/settings/forgotten-favorites-settings";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildInfo, formatBuildDate } from "@/lib/build-info";
 import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
@@ -1285,50 +1284,6 @@ export default function SettingsPage() {
                         </div>
                       ) : null}
 
-                      {editingHomeSection.kind === "forgottenFavorites" ? (
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="forgotten-min-plays">
-                              Minimum plays
-                            </Label>
-                            <Input
-                              id="forgotten-min-plays"
-                              type="number"
-                              min={1}
-                              value={getForgottenFavoritesMinPlays(
-                                editingHomeSection,
-                              )}
-                              onChange={(event) =>
-                                updateHomeSection(editingHomeSection.id, {
-                                  forgottenFavoritesMinPlays: numberFromInput(
-                                    event.target.value,
-                                  ),
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="forgotten-not-played-days">
-                              Not played for days
-                            </Label>
-                            <Input
-                              id="forgotten-not-played-days"
-                              type="number"
-                              min={1}
-                              value={getForgottenFavoritesNotPlayedDays(
-                                editingHomeSection,
-                              )}
-                              onChange={(event) =>
-                                updateHomeSection(editingHomeSection.id, {
-                                  forgottenFavoritesNotPlayedSinceDays:
-                                    numberFromInput(event.target.value),
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-
                       {editingHomeSection.kind === "topAlbums" ? (
                         <div className="space-y-2">
                           <Label htmlFor="top-albums-days">Days back</Label>
@@ -1398,6 +1353,8 @@ export default function SettingsPage() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              <ForgottenFavoritesSettings />
             </CardContent>
           </Card>
         </motion.div>

@@ -287,7 +287,7 @@ let songs: Vec<Song> = crate::db::raw::query_all(
 | `scrobbling.rs` | Shared scrobble dedupe/insert utilities | `insert_submission_scrobble_if_not_recent_duplicate()` |
 | `playqueue.rs` | Queue utilities | `find_current_index()` |
 | `browse.rs` | Browse operations | `get_artists_logic()`, `get_album_logic()`, `song_to_response()`, `song_to_response_with_stats()` |
-| `lists.rs` | List generation | `get_album_list_logic()`, `get_random_songs_logic()`, `get_songs_by_genre_logic()` |
+| `lists.rs` | List generation; forgotten-favorites thresholds come from the user's `forgotten-favorites` preference (clients never send them; queue starts snapshot them into `filters.forgottenFavorites` so lazy queues stay stable) | `get_album_list_logic()`, `get_random_songs_logic()`, `get_songs_by_genre_logic()`, `ForgottenFavoritesSettings::for_user()` / `for_queue()` / `snapshot_into()` |
 | `search.rs` | Search operations | `search_artists()`, `search_albums()`, `search_songs()` |
 | `sorting.rs` | Server-side sorting | `filter_and_sort_songs()` |
 
@@ -391,6 +391,8 @@ if (options?.sort) params.set("sort", options.sort);
 |--------|---------|
 | `home-sections.ts` | Home section defaults, normalization, display presentation, section detail links, queue filters, and playlist-backed custom section creation |
 | `home-tiles.ts` | Home quick tile defaults, normalization, settings requirements, display presentation, and section-aware queue/link actions |
+
+The forgotten-favorites thresholds are one global setting (`forgottenFavoritesSettingsAtom`, Settings → Home Sections → `ForgottenFavoritesSettings`); after saving, call `flushPendingWrites()` and `invalidateForgottenFavoritesQueries()` so lists refetch only once the server has the value.
 
 Server-backed UI preferences such as Home tiles and sections use `atomWithServerStorage`. That helper keeps an account-scoped memory cache and mirrors values into the shared IndexedDB cache store, so account switches can render the correct Home/settings state before the fresh server preference fetch completes.
 
@@ -497,6 +499,7 @@ typed flows.
 | `android/feature/playlists/AddToPlaylistDialog.kt` | Overflow action/dialog for adding song IDs to an editable playlist, plus an `AddToPlaylistMenuItem()` sheet row; hosts its own Hilt VM so any feature can use it | `AddToPlaylistAction()`, `AddToPlaylistMenuItem()`, `AddToPlaylistDialog()` |
 | `android/feature/home/HomeRepository.kt` | Home dashboard per-section reads, stats, and listening review reads | `continueListening()`, `mostPlayedRecently()`, `forgottenFavorites()`, `albumList()`, `similarTracks()`, `playlistSongs()`, `smartPlaylistSongs()`, `stats()`, `listeningStats()`, `periodReview()` |
 | `android/feature/home/HomeSectionLoader.kt` | Loads one dashboard section's preview items, honoring its configured filters | `load(section, size)`, `HomeSectionData` |
+| `android/feature/home/ForgottenFavoritesSettingsRepository.kt` | Global forgotten-favorites thresholds under the shared `forgotten-favorites` key (edited in Settings → Home layout); the server applies them, so Home reloads on `saved` (emitted after the server stores a change) rather than on the optimistic `settings` flow | `settings`, `saved`, `set()`, `ForgottenFavoritesSettings` |
 | `android/feature/home/HomeLayoutPreferencesRepository.kt` | Server-synced dashboard layout stored under the web/Tauri client's `home-tiles-v1` / `home-sections-v1` keys so both clients stay in sync | `tiles`, `sections`, `ensureLoaded()`, `load()`, `setTiles()`, `setSections()` |
 | `android/feature/home/HomeTilePresentation.kt` | Tile/section presentation and queue-source mapping matching the web client, plus `HomeLinkTarget` navigation targets | `homeTilePresentation()`, `homeSectionQueueSpec()`, `homeSectionLabel()`, `homeSectionIcon()` |
 | `android/feature/home/HomePlaylistChoicesRepository.kt` | Playlist + smart-playlist choices for the Home layout editors | `choices()`, `HomePlaylistChoice` |

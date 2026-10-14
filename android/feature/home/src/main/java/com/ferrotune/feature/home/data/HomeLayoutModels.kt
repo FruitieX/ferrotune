@@ -164,8 +164,6 @@ enum class HomeSectionKind(val apiValue: String) {
 }
 
 const val DEFAULT_MOST_PLAYED_RECENTLY_DAYS = 30
-const val DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS = 10
-const val DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS = 90
 const val DEFAULT_TOP_ALBUMS_DAYS = 90
 
 data class HomeSectionConfig(
@@ -173,8 +171,6 @@ data class HomeSectionConfig(
     val kind: HomeSectionKind,
     val enabled: Boolean = true,
     val mostPlayedRecentlyDays: Int? = null,
-    val forgottenFavoritesMinPlays: Int? = null,
-    val forgottenFavoritesNotPlayedSinceDays: Int? = null,
     val topAlbumsDays: Int? = null,
     val playlistId: String? = null,
     val playlistName: String? = null,
@@ -182,16 +178,6 @@ data class HomeSectionConfig(
 ) {
     val mostPlayedDays: Int
         get() = maxOf(1, mostPlayedRecentlyDays ?: DEFAULT_MOST_PLAYED_RECENTLY_DAYS)
-
-    val forgottenMinPlays: Int
-        get() = maxOf(1, forgottenFavoritesMinPlays ?: DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS)
-
-    val forgottenNotPlayedDays: Int
-        get() = maxOf(
-            1,
-            forgottenFavoritesNotPlayedSinceDays
-                ?: DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
-        )
 
     val topAlbumsPeriodDays: Int
         get() = maxOf(1, topAlbumsDays ?: DEFAULT_TOP_ALBUMS_DAYS)
@@ -209,12 +195,7 @@ val DEFAULT_HOME_SECTIONS: List<HomeSectionConfig> = listOf(
     ),
     HomeSectionConfig(id = "most-liked", kind = HomeSectionKind.MOST_LIKED),
     HomeSectionConfig(id = "recently-added", kind = HomeSectionKind.RECENTLY_ADDED),
-    HomeSectionConfig(
-        id = "forgotten-favorites",
-        kind = HomeSectionKind.FORGOTTEN_FAVORITES,
-        forgottenFavoritesMinPlays = DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
-        forgottenFavoritesNotPlayedSinceDays = DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
-    ),
+    HomeSectionConfig(id = "forgotten-favorites", kind = HomeSectionKind.FORGOTTEN_FAVORITES),
     HomeSectionConfig(id = "discover", kind = HomeSectionKind.DISCOVER),
     HomeSectionConfig(id = "similar-tracks", kind = HomeSectionKind.SIMILAR_TRACKS),
     HomeSectionConfig(
@@ -268,10 +249,6 @@ private fun HomeSectionConfig.withDefaults(defaults: HomeSectionConfig?): HomeSe
         enabled = enabled,
         mostPlayedRecentlyDays = mostPlayedRecentlyDays
             ?: defaults?.mostPlayedRecentlyDays,
-        forgottenFavoritesMinPlays = forgottenFavoritesMinPlays
-            ?: defaults?.forgottenFavoritesMinPlays,
-        forgottenFavoritesNotPlayedSinceDays = forgottenFavoritesNotPlayedSinceDays
-            ?: defaults?.forgottenFavoritesNotPlayedSinceDays,
         topAlbumsDays = topAlbumsDays ?: defaults?.topAlbumsDays,
     )
 
@@ -286,8 +263,6 @@ fun parseHomeSections(array: JsonArray): List<HomeSectionConfig> = normalizeHome
                 ?: DEFAULT_HOME_SECTIONS.firstOrNull { it.kind == kind }?.enabled
                 ?: true,
             mostPlayedRecentlyDays = obj.int("mostPlayedRecentlyDays"),
-            forgottenFavoritesMinPlays = obj.int("forgottenFavoritesMinPlays"),
-            forgottenFavoritesNotPlayedSinceDays = obj.int("forgottenFavoritesNotPlayedSinceDays"),
             topAlbumsDays = obj.int("topAlbumsDays"),
             playlistId = obj.string("playlistId"),
             playlistName = obj.string("playlistName"),
@@ -305,14 +280,6 @@ fun encodeHomeSections(sections: List<HomeSectionConfig>): JsonArray = JsonArray
             when (section.kind) {
                 HomeSectionKind.MOST_PLAYED_RECENTLY ->
                     put("mostPlayedRecentlyDays", JsonPrimitive(section.mostPlayedDays))
-
-                HomeSectionKind.FORGOTTEN_FAVORITES -> {
-                    put("forgottenFavoritesMinPlays", JsonPrimitive(section.forgottenMinPlays))
-                    put(
-                        "forgottenFavoritesNotPlayedSinceDays",
-                        JsonPrimitive(section.forgottenNotPlayedDays),
-                    )
-                }
 
                 HomeSectionKind.TOP_ALBUMS ->
                     put("topAlbumsDays", JsonPrimitive(section.topAlbumsPeriodDays))

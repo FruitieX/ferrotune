@@ -586,8 +586,6 @@ fn test_postgres_ferrotune_lists_handlers_work() {
                 size: Some(10),
                 offset: Some(0),
                 seed: Some(42),
-                min_plays: Some(2),
-                not_played_since_days: Some(90),
                 inline_images: None,
                 filter: None,
                 sort: None,
@@ -5369,6 +5367,20 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
         .await
         .expect("postgres forgotten-favorites scrobble should be inserted");
 
+        // The song has one play; the server reads the threshold from the
+        // user's forgotten-favorites preference.
+        db::repo::users::upsert_user_preferences(
+            &database,
+            user.id,
+            "rust",
+            None,
+            None,
+            None,
+            r#"{"forgotten-favorites":{"minPlays":1,"notPlayedSinceDays":90}}"#,
+        )
+        .await
+        .expect("postgres forgotten-favorites preference should be stored");
+
         let session = db::queries::get_or_create_session(&database, user.id)
             .await
             .expect("postgres playback session should exist for most-played queue start");
@@ -5440,11 +5452,7 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
                 start_song_id: Some(song_2.clone()),
                 shuffle: false,
                 repeat_mode: None,
-                filters: Some(serde_json::json!({
-                    "minPlays": 1,
-                    "notPlayedSinceDays": 90,
-                    "seed": 0,
-                })),
+                filters: Some(serde_json::json!({ "seed": 0 })),
                 sort: None,
                 song_ids: None,
                 sources: Vec::new(),
@@ -5482,12 +5490,7 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
             shuffle_indices_json: None,
             repeat_mode: "off".to_string(),
             filters_json: Some(
-                serde_json::json!({
-                    "minPlays": 1,
-                    "notPlayedSinceDays": 90,
-                    "seed": 0,
-                })
-                .to_string(),
+                serde_json::json!({ "seed": 0 }).to_string(),
             ),
             sort_json: None,
             created_at: now,

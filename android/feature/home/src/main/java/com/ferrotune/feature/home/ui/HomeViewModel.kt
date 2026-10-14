@@ -13,6 +13,7 @@ import com.ferrotune.core.network.ConnectivityMonitor
 import com.ferrotune.core.network.generated.AlbumResponse
 import com.ferrotune.core.network.generated.ContinueListeningEntry
 import com.ferrotune.core.network.generated.SongResponse
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettingsRepository
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.home.data.HomeRepository
 import com.ferrotune.feature.home.data.HomeSectionConfig
@@ -70,6 +71,7 @@ data class HomeUiState(
 class HomeViewModel @Inject constructor(
     private val repository: HomeRepository,
     private val layoutRepository: HomeLayoutPreferencesRepository,
+    private val forgottenFavoritesSettings: ForgottenFavoritesSettingsRepository,
     private val sectionLoader: HomeSectionLoader,
     private val sessionStarter: PlaybackStarter,
     private val accounts: Accounts,
@@ -93,6 +95,10 @@ class HomeViewModel @Inject constructor(
                         layoutRepository.sections,
                     ) { _, _ -> Unit }.collect { reload() }
                 }
+        }
+        viewModelScope.launch {
+            // The server applies the setting; refetch once it has stored it.
+            forgottenFavoritesSettings.saved.collect { reload() }
         }
         viewModelScope.launch {
             connectivity.isOnline.collect { online ->

@@ -120,8 +120,8 @@ jsonpath "$.song" isCollection
 jsonpath "$.total" isInteger
 jsonpath "$.seed" isInteger
 
-# Get forgotten favorites with explicit params
-GET {{base_url}}/api/songs/forgotten-favorites?size=5&minPlays=1&notPlayedSinceDays=1
+# Get forgotten favorites with a page size
+GET {{base_url}}/api/songs/forgotten-favorites?size=5
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

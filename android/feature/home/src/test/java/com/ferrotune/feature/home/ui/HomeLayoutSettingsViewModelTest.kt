@@ -15,6 +15,8 @@ import com.ferrotune.core.testing.testAccount
 import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.home.data.DEFAULT_HOME_SECTIONS
 import com.ferrotune.feature.home.data.DEFAULT_HOME_TILES
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettings
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettingsRepository
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.home.data.HomePlaylistChoicesRepository
 import com.ferrotune.feature.home.data.HomePlaylistType
@@ -35,6 +37,9 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -96,6 +101,9 @@ class HomeLayoutSettingsViewModelTest {
         return HomeLayoutSettingsViewModel(
             layoutRepository = HomeLayoutPreferencesRepository(testServerPreferences(provider.api)),
             choicesRepository = HomePlaylistChoicesRepository(PlaylistRepository(provider)),
+            forgottenFavoritesRepository = ForgottenFavoritesSettingsRepository(
+                testServerPreferences(provider.api),
+            ),
             accounts = accounts,
         ).also { mainDispatcher.scheduler.advanceUntilIdle() }
     }
@@ -129,6 +137,24 @@ class HomeLayoutSettingsViewModelTest {
         assertEquals("Road trip", homePlaylistChoiceLabel(choices[0]))
         assertEquals(HomePlaylistType.SMART_PLAYLIST, choices[1].type)
         assertEquals("Fresh (smart)", homePlaylistChoiceLabel(choices[1]))
+    }
+
+    @Test
+    fun `forgotten favorites settings persist the shared preference`() {
+        val api = FakeLayoutApi()
+        val viewModel = viewModel(api)
+        assertEquals(ForgottenFavoritesSettings(), viewModel.uiState.value.forgottenFavorites)
+
+        viewModel.setForgottenFavorites(ForgottenFavoritesSettings(minPlays = 4, notPlayedSinceDays = 60))
+        mainDispatcher.scheduler.advanceUntilIdle()
+
+        val persisted = api.preferenceValues[ForgottenFavoritesSettingsRepository.KEY] as JsonObject
+        assertEquals(4, persisted["minPlays"]?.jsonPrimitive?.int)
+        assertEquals(60, persisted["notPlayedSinceDays"]?.jsonPrimitive?.int)
+        assertEquals(
+            ForgottenFavoritesSettings(minPlays = 4, notPlayedSinceDays = 60),
+            viewModel.uiState.value.forgottenFavorites,
+        )
     }
 
     @Test

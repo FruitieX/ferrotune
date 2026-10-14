@@ -39,8 +39,6 @@ export interface HomeSectionConfig {
   kind: HomeSectionKind;
   enabled: boolean;
   mostPlayedRecentlyDays?: number;
-  forgottenFavoritesMinPlays?: number;
-  forgottenFavoritesNotPlayedSinceDays?: number;
   topAlbumsDays?: number;
   playlistId?: string;
   playlistName?: string;
@@ -65,8 +63,6 @@ export interface HomeSectionPresentation {
   isConfigured: boolean;
 }
 
-export const DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS = 10;
-export const DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS = 90;
 export const DEFAULT_MOST_PLAYED_RECENTLY_DAYS = 30;
 export const DEFAULT_TOP_ALBUMS_DAYS = 90;
 
@@ -106,7 +102,6 @@ export const HOME_SECTION_OPTIONS: HomeSectionOption[] = [
     description: "Older favorites worth revisiting",
     icon: History,
     href: homeSectionHrefs.forgottenFavorites,
-    hasSettings: true,
   },
   {
     kind: "discover",
@@ -158,9 +153,6 @@ export const DEFAULT_HOME_SECTIONS: HomeSectionConfig[] = [
     id: "forgotten-favorites",
     kind: "forgottenFavorites",
     enabled: true,
-    forgottenFavoritesMinPlays: DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
-    forgottenFavoritesNotPlayedSinceDays:
-      DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
   },
   { id: "discover", kind: "discover", enabled: true },
   { id: "similar-tracks", kind: "similarTracks", enabled: true },
@@ -241,26 +233,6 @@ export function getMostPlayedRecentlyDays(section?: HomeSectionConfig): number {
   );
 }
 
-export function getForgottenFavoritesMinPlays(
-  section?: HomeSectionConfig,
-): number {
-  return Math.max(
-    1,
-    section?.forgottenFavoritesMinPlays ??
-      DEFAULT_FORGOTTEN_FAVORITES_MIN_PLAYS,
-  );
-}
-
-export function getForgottenFavoritesNotPlayedDays(
-  section?: HomeSectionConfig,
-): number {
-  return Math.max(
-    1,
-    section?.forgottenFavoritesNotPlayedSinceDays ??
-      DEFAULT_FORGOTTEN_FAVORITES_NOT_PLAYED_DAYS,
-  );
-}
-
 export function getTopAlbumsDays(section?: HomeSectionConfig): number {
   return Math.max(1, section?.topAlbumsDays ?? DEFAULT_TOP_ALBUMS_DAYS);
 }
@@ -281,13 +253,6 @@ export function getTopAlbumsFilters(days = DEFAULT_TOP_ALBUMS_DAYS) {
   return getDaysAgoIso(Math.max(1, days));
 }
 
-export function getForgottenFavoritesFilters(section?: HomeSectionConfig) {
-  return {
-    minPlays: getForgottenFavoritesMinPlays(section),
-    notPlayedSinceDays: getForgottenFavoritesNotPlayedDays(section),
-  };
-}
-
 export function getHomeSectionQueueFilters(
   kind: HomeSectionKind,
   section?: HomeSectionConfig,
@@ -295,8 +260,6 @@ export function getHomeSectionQueueFilters(
   switch (kind) {
     case "mostPlayedRecently":
       return getMostPlayedRecentlyFilters(getMostPlayedRecentlyDays(section));
-    case "forgottenFavorites":
-      return getForgottenFavoritesFilters(section);
     default:
       return undefined;
   }
@@ -329,12 +292,6 @@ export function getHomeSectionHref(
 
   if (section.kind === "mostPlayedRecently") {
     params.set("days", String(getMostPlayedRecentlyDays(section)));
-  } else if (section.kind === "forgottenFavorites") {
-    params.set("minPlays", String(getForgottenFavoritesMinPlays(section)));
-    params.set(
-      "notPlayedSinceDays",
-      String(getForgottenFavoritesNotPlayedDays(section)),
-    );
   }
 
   if (

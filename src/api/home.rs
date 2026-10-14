@@ -270,8 +270,6 @@ pub async fn get_home(
                 user_id,
                 size,
                 0,
-                10,
-                90,
                 inline_size,
                 params.forgotten_fav_seed,
                 ListViewOptions::default(),

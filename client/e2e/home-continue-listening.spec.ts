@@ -108,7 +108,7 @@ test.describe("Home continue listening", () => {
     ).toHaveAttribute("href", "/history");
   });
 
-  test("quick tile queue actions use configured section filters", async ({
+  test("forgotten favorites tile leaves thresholds to the server", async ({
     authenticatedPage: page,
   }) => {
     await setServerPreference(page, "home-tiles-v1", [
@@ -123,8 +123,6 @@ test.describe("Home continue listening", () => {
         id: "forgotten-favorites",
         kind: "forgottenFavorites",
         enabled: true,
-        forgottenFavoritesMinPlays: 42,
-        forgottenFavoritesNotPlayedSinceDays: 365,
       },
     ]);
 
@@ -189,10 +187,9 @@ test.describe("Home continue listening", () => {
     };
     expect(requestBody.sourceType).toBe("forgottenFavorites");
     expect(requestBody.shuffle).toBe(true);
-    expect(requestBody.filters).toMatchObject({
-      minPlays: 42,
-      notPlayedSinceDays: 365,
-    });
+    // The server applies the user's forgotten-favorites setting.
+    expect(requestBody.filters?.minPlays).toBeUndefined();
+    expect(requestBody.filters?.notPlayedSinceDays).toBeUndefined();
   });
 
   test("custom playlist sections render multiple rows and start playlist queues", async ({
@@ -479,6 +476,38 @@ test.describe("Home continue listening", () => {
     ).toHaveAttribute("href", /^\/home\/similar-tracks\?(?=.*\bseed=\d+)/);
   });
 
+  test("forgotten favorites setting is saved to the server", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/settings");
+    const settings = page.getByTestId("forgotten-favorites-settings");
+    await expect(settings).toBeVisible();
+
+    // Wait for the write that carries both values; a slow first fill may
+    // already have sent one with only the minimum.
+    const saveRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/preferences/forgotten-favorites") &&
+        request.method() === "PUT" &&
+        request.postDataJSON()?.value?.notPlayedSinceDays === 180,
+    );
+    const minPlays = settings.getByLabel("Minimum plays");
+    const notPlayedDays = settings.getByLabel("Not played for days");
+    await minPlays.fill("25");
+    await notPlayedDays.fill("180");
+    await notPlayedDays.blur();
+    expect((await saveRequest).postDataJSON()).toEqual({
+      value: { minPlays: 25, notPlayedSinceDays: 180 },
+    });
+
+    await page.reload();
+    await expect(
+      page
+        .getByTestId("forgotten-favorites-settings")
+        .getByLabel("Minimum plays"),
+    ).toHaveValue("25");
+  });
+
   test("forgotten favorites header retains its displayed seed", async ({
     authenticatedPage: page,
   }) => {
@@ -490,8 +519,6 @@ test.describe("Home continue listening", () => {
         id: "forgotten-favorites",
         kind: "forgottenFavorites",
         enabled: true,
-        forgottenFavoritesMinPlays: 10,
-        forgottenFavoritesNotPlayedSinceDays: 90,
       },
     ]);
     await page.route("**/api/songs/forgotten-favorites*", async (route) => {
@@ -511,20 +538,19 @@ test.describe("Home continue listening", () => {
       .first();
     await expect(sectionLink).toHaveAttribute(
       "href",
-      "/home/forgotten-favorites?minPlays=10&notPlayedSinceDays=90&seed=4242",
+      "/home/forgotten-favorites?seed=4242",
     );
 
     await sectionLink.click();
     await expect(page).toHaveURL(/\/home\/forgotten-favorites\?/, {
       timeout: 30000,
     });
-    await expect.poll(() => requestedSeeds.length).toBeGreaterThan(1);
     // The home page's own in-flight section query can land after the
-    // navigation, so assert on the requests that carried a seed rather than on
-    // the last one: the section keeps the seed its header displays.
-    const seededRequests = requestedSeeds.filter((seed) => seed !== "");
-    expect(seededRequests.length).toBeGreaterThan(0);
-    expect(new Set(seededRequests)).toEqual(new Set(["4242"]));
+    // navigation, so wait for the section page's seeded request rather than a
+    // request count: the section keeps the seed its header displays.
+    const seededRequests = () => requestedSeeds.filter((seed) => seed !== "");
+    await expect.poll(() => seededRequests().length).toBeGreaterThan(0);
+    expect(new Set(seededRequests())).toEqual(new Set(["4242"]));
   });
 
   test("discover header retains its displayed album seed", async ({
@@ -890,8 +916,6 @@ test.describe("Home continue listening", () => {
         id: "forgotten-favorites",
         kind: "forgottenFavorites",
         enabled: true,
-        forgottenFavoritesMinPlays: 42,
-        forgottenFavoritesNotPlayedSinceDays: 365,
       },
       {
         id: "most-played-recently",
@@ -1008,10 +1032,7 @@ test.describe("Home continue listening", () => {
     ).toHaveAttribute("href", "/home/recently-added");
     await expect(
       page.getByRole("link", { name: "Forgotten Favorites" }).first(),
-    ).toHaveAttribute(
-      "href",
-      "/home/forgotten-favorites?minPlays=42&notPlayedSinceDays=365",
-    );
+    ).toHaveAttribute("href", "/home/forgotten-favorites");
     await expect(
       page.getByRole("link", { name: "Most Played Recently" }).first(),
     ).toHaveAttribute("href", "/home/most-played-recently?days=180");
@@ -1044,11 +1065,12 @@ test.describe("Home continue listening", () => {
         request.method() === "POST",
     );
     await contextMenu.getByRole("menuitem", { name: /shuffle/i }).click();
-    expect((await forgottenShuffleRequest).postDataJSON()).toMatchObject({
+    const forgottenShuffleBody = (await forgottenShuffleRequest).postDataJSON();
+    expect(forgottenShuffleBody).toMatchObject({
       sourceType: "forgottenFavorites",
       shuffle: true,
-      filters: { minPlays: 42, notPlayedSinceDays: 365 },
     });
+    expect(forgottenShuffleBody.filters?.minPlays).toBeUndefined();
 
     const mostPlayedCard = page
       .getByTestId("media-card")

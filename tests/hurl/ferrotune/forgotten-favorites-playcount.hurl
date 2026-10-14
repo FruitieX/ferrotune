@@ -28,11 +28,31 @@ Content-Type: application/json
 }
 HTTP 200
 
-# The song should appear in forgotten-favorites (played_at is NULL,
-# notPlayedSinceDays=0 includes None) with playCount=12 (the SUM), not 2.
+# Thresholds come from the user's forgotten-favorites preference. Above
+# the song's 12 plays, it does not qualify.
+PUT {{base_url}}/api/preferences/forgotten-favorites
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{ "value": { "minPlays": 13, "notPlayedSinceDays": 1 } }
+HTTP 200
+
+GET {{base_url}}/api/songs/forgotten-favorites?size=100
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.total" == 0
+
+# The song should appear in forgotten-favorites (played_at is NULL, which
+# counts as not played recently) with playCount=12 (the SUM), not 2.
 # Other fixture songs have no scrobbles and are excluded by minPlays=1,
 # so playCount=12 uniquely identifies the imported song.
-GET {{base_url}}/api/songs/forgotten-favorites?minPlays=1&notPlayedSinceDays=0&size=100
+PUT {{base_url}}/api/preferences/forgotten-favorites
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{ "value": { "minPlays": 1, "notPlayedSinceDays": 1 } }
+HTTP 200
+
+GET {{base_url}}/api/songs/forgotten-favorites?size=100
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]

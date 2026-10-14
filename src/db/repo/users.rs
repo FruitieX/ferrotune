@@ -384,6 +384,21 @@ pub async fn get_user_preferences(
     Ok(model.map(UserPreferences::from))
 }
 
+/// One generic preference value from `preferences_json`, for server-side
+/// features configured through the client preference store.
+pub async fn get_user_preference_value(
+    database: &Database,
+    user_id: i64,
+    key: &str,
+) -> Result<Option<serde_json::Value>> {
+    let Some(prefs) = get_user_preferences(database, user_id).await? else {
+        return Ok(None);
+    };
+    let mut preferences: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&prefs.preferences_json).unwrap_or_default();
+    Ok(preferences.remove(key))
+}
+
 pub async fn upsert_user_preferences(
     database: &Database,
     user_id: i64,

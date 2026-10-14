@@ -72,3 +72,16 @@ export function invalidateSmartPlaylistQueries(queryClient: QueryClient): void {
 export function invalidateRecycleBinQueries(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
 }
+
+/**
+ * Invalidate forgotten-favorites lists (Home row and its section page).
+ * Use after the forgotten-favorites settings change on the server.
+ */
+export function invalidateForgottenFavoritesQueries(
+  queryClient: QueryClient,
+): void {
+  queryClient.invalidateQueries({ queryKey: ["songs", "forgotten-favorites"] });
+  queryClient.invalidateQueries({
+    queryKey: ["home-section", "forgotten-favorites"],
+  });
+}

@@ -80,7 +80,7 @@ class HomeTilePresentationTest {
     }
 
     @Test
-    fun `section tile play queues with the section filters`() {
+    fun `forgotten favorites tile leaves thresholds to the server`() {
         val tile = HomeTileConfig(
             id = "forgotten",
             kind = HomeTileKind.FORGOTTEN_FAVORITES,
@@ -91,8 +91,7 @@ class HomeTilePresentationTest {
         val action = presentation.action as HomeTileAction.Queue
 
         assertEquals("forgottenFavorites", action.spec.sourceType)
-        assertEquals(10, action.spec.filters["minPlays"]?.toString()?.toInt())
-        assertEquals(90, action.spec.filters["notPlayedSinceDays"]?.toString()?.toInt())
+        assertFalse(action.spec.filters.containsKey("minPlays"))
         assertFalse(action.spec.shuffle)
     }
 

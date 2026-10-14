@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrotune.core.datastore.Accounts
 import com.ferrotune.core.model.Account
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettings
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettingsRepository
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.home.data.HomePlaylistChoice
 import com.ferrotune.feature.home.data.HomePlaylistChoicesRepository
@@ -24,6 +26,7 @@ data class HomeLayoutSettingsUiState(
     val tiles: List<HomeTileConfig> = emptyList(),
     val sections: List<HomeSectionConfig> = emptyList(),
     val playlistChoices: List<HomePlaylistChoice> = emptyList(),
+    val forgottenFavorites: ForgottenFavoritesSettings = ForgottenFavoritesSettings(),
     val accounts: List<Account> = emptyList(),
     val message: String? = null,
 )
@@ -32,6 +35,7 @@ data class HomeLayoutSettingsUiState(
 class HomeLayoutSettingsViewModel @Inject constructor(
     private val layoutRepository: HomeLayoutPreferencesRepository,
     private val choicesRepository: HomePlaylistChoicesRepository,
+    private val forgottenFavoritesRepository: ForgottenFavoritesSettingsRepository,
     private val accounts: Accounts,
 ) : ViewModel() {
 
@@ -57,6 +61,7 @@ class HomeLayoutSettingsViewModel @Inject constructor(
                         tiles = layoutRepository.tiles.value,
                         sections = layoutRepository.sections.value,
                         playlistChoices = choices,
+                        forgottenFavorites = forgottenFavoritesRepository.settings.value,
                     )
                 }
             } catch (e: Exception) {
@@ -112,6 +117,22 @@ class HomeLayoutSettingsViewModel @Inject constructor(
 
     fun removeSection(sectionId: String) {
         persistSections(state.value.sections.filterNot { it.id == sectionId })
+    }
+
+    fun setForgottenFavorites(settings: ForgottenFavoritesSettings) {
+        val previous = state.value.forgottenFavorites
+        state.update { it.copy(forgottenFavorites = settings) }
+        viewModelScope.launch {
+            runCatching { forgottenFavoritesRepository.set(settings) }
+                .onFailure {
+                    state.update { current ->
+                        current.copy(
+                            forgottenFavorites = previous,
+                            message = "Could not save Forgotten Favorites settings",
+                        )
+                    }
+                }
+        }
     }
 
     fun dismissMessage() = state.update { it.copy(message = null) }

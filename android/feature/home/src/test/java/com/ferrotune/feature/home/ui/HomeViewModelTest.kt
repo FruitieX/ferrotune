@@ -33,6 +33,8 @@ import com.ferrotune.core.testing.testAccount
 import com.ferrotune.core.testing.testServerPreferences
 import com.ferrotune.feature.home.data.DEFAULT_HOME_SECTIONS
 import com.ferrotune.feature.home.data.DEFAULT_HOME_TILES
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettings
+import com.ferrotune.feature.home.data.ForgottenFavoritesSettingsRepository
 import com.ferrotune.feature.home.data.HomeLayoutPreferencesRepository
 import com.ferrotune.feature.home.data.HomePlaylistType
 import com.ferrotune.feature.home.data.HomeRepository
@@ -136,6 +138,7 @@ internal open class FakeHomeApi(
     var continueListeningCalls = 0
     var mostPlayedParams: Map<String, String>? = null
     var forgottenParams: Map<String, String>? = null
+    var forgottenCalls = 0
     val albumParams = mutableListOf<Map<String, String>>()
     var similarTracksParams: Map<String, String>? = null
     var playlistSongsId: String? = null
@@ -191,6 +194,7 @@ internal open class FakeHomeApi(
     ): HomeForgottenFavoritesSection {
         failWhenOffline()
         forgottenParams = params
+        forgottenCalls++
         return HomeForgottenFavoritesSection(
             song = listOf(testSong("song-2")),
             total = 1,
@@ -303,6 +307,9 @@ class HomeViewModelTest {
         return HomeViewModel(
             repository = HomeRepository(provider),
             layoutRepository = HomeLayoutPreferencesRepository(testServerPreferences(provider.api)),
+            forgottenFavoritesSettings = ForgottenFavoritesSettingsRepository(
+                testServerPreferences(provider.api),
+            ),
             sectionLoader = HomeSectionLoader(HomeRepository(provider)),
             sessionStarter = starter,
             accounts = FakeAccounts(listOf(account), account.id),
@@ -386,22 +393,48 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `forgotten favorites uses the configured thresholds`() {
+    fun `forgotten favorites leaves thresholds to the server`() {
         val api = FakeHomeApi(
             sections = listOf(
-                HomeSectionConfig(
-                    id = "forgotten-favorites",
-                    kind = HomeSectionKind.FORGOTTEN_FAVORITES,
-                    forgottenFavoritesMinPlays = 5,
-                    forgottenFavoritesNotPlayedSinceDays = 30,
-                ),
+                HomeSectionConfig(id = "forgotten-favorites", kind = HomeSectionKind.FORGOTTEN_FAVORITES),
             ),
         )
 
         viewModel(api)
 
-        assertEquals("5", api.forgottenParams?.get("minPlays"))
-        assertEquals("30", api.forgottenParams?.get("notPlayedSinceDays"))
+        assertNotNull(api.forgottenParams)
+        assertNull(api.forgottenParams?.get("minPlays"))
+        assertNull(api.forgottenParams?.get("notPlayedSinceDays"))
+    }
+
+    @Test
+    fun `saving forgotten favorites settings refetches home`() {
+        val api = FakeHomeApi(
+            sections = listOf(
+                HomeSectionConfig(id = "forgotten-favorites", kind = HomeSectionKind.FORGOTTEN_FAVORITES),
+            ),
+        )
+        val provider = FakeApiProvider(api)
+        val settings = ForgottenFavoritesSettingsRepository(testServerPreferences(provider.api))
+        HomeViewModel(
+            repository = HomeRepository(provider),
+            layoutRepository = HomeLayoutPreferencesRepository(testServerPreferences(provider.api)),
+            forgottenFavoritesSettings = settings,
+            sectionLoader = HomeSectionLoader(HomeRepository(provider)),
+            sessionStarter = FakePlaybackStarter(),
+            accounts = FakeAccounts(listOf(testAccount()), testAccount().id),
+            accountSwitcher = FakeAccountSwitcher(),
+            messages = UserMessages(),
+            connectivity = FakeConnectivityMonitor(),
+        )
+        drain()
+        val callsBefore = api.forgottenCalls
+
+        runBlocking { settings.set(ForgottenFavoritesSettings(minPlays = 3, notPlayedSinceDays = 30)) }
+        drain()
+
+        assertEquals(callsBefore + 1, api.forgottenCalls)
+        assertEquals(ForgottenFavoritesSettings(3, 30), settings.settings.value)
     }
 
     @Test
@@ -523,6 +556,9 @@ class HomeViewModelTest {
         val viewModel = HomeViewModel(
             repository = HomeRepository(provider),
             layoutRepository = layoutRepository,
+            forgottenFavoritesSettings = ForgottenFavoritesSettingsRepository(
+                testServerPreferences(provider.api),
+            ),
             sectionLoader = HomeSectionLoader(HomeRepository(provider)),
             sessionStarter = FakePlaybackStarter(),
             accounts = FakeAccounts(listOf(testAccount()), testAccount().id),
