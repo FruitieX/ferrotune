@@ -450,11 +450,12 @@ private fun FerrotuneAppContent(
             onOpenChange = { nowPlayingOpen = it },
         )
         QueuePanelHost(state = queuePanel)
-        // Above the bottom navigation and mini player, where it stays out of the way.
+        // Above the bottom navigation and mini player, clear of the mini
+        // player's waveform scrubber, where it stays out of the way.
         FeedbackOverlay(
             currentRoute = currentRoute,
             accountKey = state.activeAccount?.id,
-            bottomPadding = if (showChrome) 152.dp else 16.dp,
+            bottomPadding = if (showChrome) 170.dp else 16.dp,
         )
     }
     }
