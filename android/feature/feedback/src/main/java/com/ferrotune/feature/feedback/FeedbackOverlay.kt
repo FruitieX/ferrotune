@@ -150,9 +150,11 @@ fun SheetFeedbackButton(viewModel: FeedbackViewModel) {
 
 /** The feedback button: capture the screen (plus [sheetWindow]) or reopen the report. */
 @Composable
-private fun FeedbackTrigger(viewModel: FeedbackViewModel, sheetWindow: (() -> Window?)?) {
-    if (viewModel.info == null || viewModel.hiddenForSession || viewModel.capturing || viewModel.dialogOpen) return
+internal fun FeedbackTrigger(viewModel: FeedbackViewModel, sheetWindow: (() -> Window?)?) {
+    if (viewModel.info == null || viewModel.hiddenForSession) return
     val context = LocalContext.current
+    // Stays in composition while capturing: leaving it would cancel this scope and
+    // with it the capture, leaving the button hidden and the form unopened.
     val scope = rememberCoroutineScope()
 
     fun captureThenOpen() {
@@ -163,10 +165,13 @@ private fun FeedbackTrigger(viewModel: FeedbackViewModel, sheetWindow: (() -> Wi
             // Let the button disappear from the frame before copying the window.
             withFrameNanos { }
             withFrameNanos { }
-            val bitmap = runCatching {
-                (if (sheet != null) activity.captureWindowWith(sheet) else activity.captureWindow()).scaledToMax()
-            }.getOrNull()
-            viewModel.capturing = false
+            val bitmap = try {
+                runCatching {
+                    (if (sheet != null) activity.captureWindowWith(sheet) else activity.captureWindow()).scaledToMax()
+                }.getOrNull()
+            } finally {
+                viewModel.capturing = false
+            }
             if (bitmap != null) {
                 viewModel.addShot(bitmap)
             } else {
@@ -177,6 +182,7 @@ private fun FeedbackTrigger(viewModel: FeedbackViewModel, sheetWindow: (() -> Wi
         }
     }
 
+    if (viewModel.capturing || viewModel.dialogOpen) return
     FeedbackButton(
         armed = viewModel.armed,
         onClick = {

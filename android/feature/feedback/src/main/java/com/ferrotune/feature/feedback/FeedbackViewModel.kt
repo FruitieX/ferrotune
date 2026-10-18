@@ -29,7 +29,7 @@ class FeedbackViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     var info by mutableStateOf<FeedbackServerInfo?>(null)
-        private set
+        internal set // for tests
     var shots by mutableStateOf(listOf<Shot>())
         private set
 

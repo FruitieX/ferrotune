@@ -64,7 +64,8 @@ AppCompat theme failures.
 handle dragging moves the song without opening its context menu, while a
 long press on the song content still opens the menu. It also verifies the
 animated insertion preview before the move is committed. The fixture uses
-fake song data. All three tasks select an emulator and reject a physical-device
+fake song data. It also taps the feedback button and checks that the screen
+capture finishes and opens the report form. All three tasks select an emulator and reject a physical-device
 serial. Set `ANDROID_SERIAL` to choose among emulators.
 
 `test-release-contracts` builds the minified native APK and loads it on the
