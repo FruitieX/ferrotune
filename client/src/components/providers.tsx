@@ -69,6 +69,7 @@ import {
   useOnlineTransition,
 } from "@/lib/hooks/use-offline-mode";
 import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
+import { AppUpdateNotifier } from "@/components/shared/app-update-notifier";
 
 const NO_ACCOUNT_QUERY_KEY = "__no_account__";
 
@@ -471,6 +472,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             <AudioEngineProvider>{children}</AudioEngineProvider>
           </AccentColorProvider>
           <ResponsiveToaster />
+          <AppUpdateNotifier />
         </ThemeProvider>
       </AccountScopedQueryProvider>
     </JotaiProvider>

@@ -1,6 +1,7 @@
 import { Component, type ReactNode, type ErrorInfo } from "react";
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isStaleAssetError } from "@/lib/utils/app-update";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -47,24 +48,46 @@ export class ErrorBoundary extends Component<
         return this.props.fallback;
       }
 
+      // After a deploy the old build's chunks are gone and a failed lazy
+      // import stays failed, so retrying can't help: offer a reload instead.
+      const isStaleBuild = isStaleAssetError(this.state.error);
+
       return (
         <div className="flex flex-col items-center justify-center py-16 text-center px-4 animate-in fade-in-0 zoom-in-95 duration-500">
           <div className="w-16 h-16 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center mb-4">
             <AlertTriangle className="w-8 h-8 text-destructive" />
           </div>
-          <h3 className="text-lg font-semibold mb-2">Something went wrong</h3>
+          <h3 className="text-lg font-semibold mb-2">
+            {isStaleBuild
+              ? "Ferrotune has been updated"
+              : "Something went wrong"}
+          </h3>
           <p className="text-sm text-muted-foreground max-w-sm mb-4">
-            {this.state.error?.message || "An unexpected error occurred"}
+            {isStaleBuild
+              ? "This page belongs to an older version. Reload to get the latest one."
+              : this.state.error?.message || "An unexpected error occurred"}
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={this.handleReset}
-            className="gap-2"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Try again
-          </Button>
+          {isStaleBuild ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.location.reload()}
+              className="gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reload
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={this.handleReset}
+              className="gap-2"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Try again
+            </Button>
+          )}
         </div>
       );
     }
