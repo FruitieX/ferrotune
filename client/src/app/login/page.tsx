@@ -38,9 +38,14 @@ import {
   savedAccountsAtom,
   accountKey,
   accountLabel,
+  forgetSavedAccountAtom,
   type SavedAccount,
 } from "@/lib/store/auth";
-import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
+import {
+  initializeClient,
+  FerrotuneApiError,
+  FerrotuneClient,
+} from "@/lib/api/client";
 import type { AuthLoginResponse, ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 import {
@@ -59,6 +64,7 @@ export default function LoginPage() {
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const setConnectionError = useSetAtom(connectionErrorAtom);
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
+  const forgetSavedAccount = useSetAtom(forgetSavedAccountAtom);
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [username, setUsername] = useState("");
@@ -74,6 +80,41 @@ export default function LoginPage() {
   const [useEmbeddedServer, setUseEmbeddedServer] = useState(false);
   const [isEmbeddedAvailable, setIsEmbeddedAvailable] = useState(false);
   const [embeddedLoading, setEmbeddedLoading] = useState(true);
+
+  // Ask each saved account's server whether its session still works: drop
+  // the ones it rejects instead of offering a button that only fails, and
+  // keep the rest alive (a refresh slides the session's expiry).
+  const [checkedAccountKeys] = useState(() => new Set<string>());
+  useEffect(() => {
+    for (const account of savedAccounts) {
+      const key = accountKey(account);
+      if (!account.sessionToken || checkedAccountKeys.has(key)) {
+        continue;
+      }
+      checkedAccountKeys.add(key);
+
+      // Only the session token: a URL token would start refresh timers.
+      new FerrotuneClient({
+        serverUrl: account.serverUrl,
+        sessionToken: account.sessionToken,
+      })
+        .refreshSession()
+        .then(({ sessionExpiresAt }) => {
+          setSavedAccounts((accounts) =>
+            accounts.map((saved) =>
+              accountKey(saved) === key
+                ? { ...saved, sessionExpiresAt }
+                : saved,
+            ),
+          );
+        })
+        .catch((err: unknown) => {
+          if (err instanceof FerrotuneApiError && err.status === 401) {
+            forgetSavedAccount(account);
+          }
+        });
+    }
+  }, [savedAccounts, checkedAccountKeys, setSavedAccounts, forgetSavedAccount]);
 
   // Check if embedded server is available on mount
   useEffect(() => {
@@ -333,7 +374,29 @@ export default function LoginPage() {
       console.error("Quick connect error:", err);
       setConnectionStatus("error");
 
-      if (err instanceof FerrotuneApiError) {
+      if (err instanceof FerrotuneApiError && err.status === 401) {
+        // The server no longer accepts this session: forget it and prefill
+        // the form so signing in again only needs the password.
+        forgetSavedAccount(account);
+        if (account.username) {
+          setUsername(account.username);
+        }
+        const isEmbeddedAccount =
+          isEmbeddedAvailable && account.serverUrl === getApiBaseUrl();
+        if (
+          account.serverUrl &&
+          account.serverUrl !== window.location.origin &&
+          !isEmbeddedAccount
+        ) {
+          setUseEmbeddedServer(false);
+          setServerUrl(account.serverUrl);
+          setShowAdvanced(true);
+        }
+        setPassword("");
+        setError(
+          `The session for ${account.label || accountLabel(account)} has expired. Enter your password to sign in again.`,
+        );
+      } else if (err instanceof FerrotuneApiError) {
         setError(`Authentication failed: ${err.message}`);
       } else if (err instanceof Error) {
         if (err.message.includes("fetch")) {

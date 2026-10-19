@@ -1,6 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 use rand::{rngs::OsRng, RngCore};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::{
@@ -11,8 +11,13 @@ use crate::{
 const SESSION_TOKEN_BYTES: usize = 32;
 const URL_TOKEN_BYTES: usize = 32;
 const URL_TOKEN_ALL_SCOPE: &str = "all";
-const SESSION_DURATION_DAYS: i64 = 30;
-const SESSION_RENEWAL_THRESHOLD_DAYS: i64 = 7;
+// Sessions slide: every authenticated request pushes expiry a full duration
+// out, so a session only lapses after a year without any use.
+const SESSION_DURATION_DAYS: i64 = 365;
+// Authenticated requests (every cover and stream URL included) touch the
+// session row at most this often, so a busy page does not turn into a stream
+// of SQLite writes.
+const SESSION_TOUCH_INTERVAL_MINUTES: i64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct CreatedAuthSession {
@@ -213,21 +218,20 @@ async fn touch_session(
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>> {
     let current_expires_at = session.expires_at.with_timezone(&Utc);
-    let expires_at = renewed_session_expires_at(current_expires_at, now);
-    let mut update = entity::auth_sessions::Entity::update_many();
-    update = update.col_expr(
-        entity::auth_sessions::Column::LastUsedAt,
-        sea_orm::sea_query::Expr::value(now.fixed_offset()),
-    );
-
-    if expires_at != current_expires_at {
-        update = update.col_expr(
-            entity::auth_sessions::Column::ExpiresAt,
-            sea_orm::sea_query::Expr::value(expires_at.fixed_offset()),
-        );
+    let expires_at = now + session_duration();
+    if expires_at - current_expires_at < Duration::minutes(SESSION_TOUCH_INTERVAL_MINUTES) {
+        return Ok(current_expires_at);
     }
 
-    update
+    entity::auth_sessions::Entity::update_many()
+        .col_expr(
+            entity::auth_sessions::Column::LastUsedAt,
+            sea_orm::sea_query::Expr::value(now.fixed_offset()),
+        )
+        .col_expr(
+            entity::auth_sessions::Column::ExpiresAt,
+            sea_orm::sea_query::Expr::value(expires_at.fixed_offset()),
+        )
         .filter(entity::auth_sessions::Column::Id.eq(&session.id))
         .exec(database.conn())
         .await?;
@@ -235,19 +239,38 @@ async fn touch_session(
     Ok(expires_at)
 }
 
-fn renewed_session_expires_at(
-    current_expires_at: DateTime<Utc>,
-    now: DateTime<Utc>,
-) -> DateTime<Utc> {
-    if current_expires_at - now <= session_renewal_threshold() {
-        now + session_duration()
-    } else {
-        current_expires_at
-    }
-}
+/// Deletes expired URL tokens and expired or revoked sessions (with their URL
+/// tokens). Returns the number of sessions removed.
+pub async fn purge_expired(database: &Database) -> Result<u64> {
+    let now = Utc::now().fixed_offset();
 
-fn session_renewal_threshold() -> Duration {
-    Duration::days(SESSION_RENEWAL_THRESHOLD_DAYS)
+    entity::auth_url_tokens::Entity::delete_many()
+        .filter(entity::auth_url_tokens::Column::ExpiresAt.lte(now))
+        .exec(database.conn())
+        .await?;
+
+    let dead_sessions = Condition::any()
+        .add(entity::auth_sessions::Column::ExpiresAt.lte(now))
+        .add(entity::auth_sessions::Column::RevokedAt.is_not_null());
+    entity::auth_url_tokens::Entity::delete_many()
+        .filter(
+            entity::auth_url_tokens::Column::SessionId.in_subquery(
+                sea_orm::sea_query::Query::select()
+                    .column(entity::auth_sessions::Column::Id)
+                    .from(entity::auth_sessions::Entity)
+                    .cond_where(dead_sessions.clone())
+                    .to_owned(),
+            ),
+        )
+        .exec(database.conn())
+        .await?;
+
+    let deleted = entity::auth_sessions::Entity::delete_many()
+        .filter(dead_sessions)
+        .exec(database.conn())
+        .await?;
+
+    Ok(deleted.rows_affected)
 }
 
 fn generate_token(prefix: &str, bytes: usize) -> String {
@@ -362,20 +385,42 @@ mod tests {
             .expect("session auth should query")
             .expect("session token should authenticate");
         let stored_expires_at = stored_session_expires_at(&database, &session.session_id).await;
-        let minimum_extended_expiry = Utc::now() + Duration::days(20);
+        let minimum_extended_expiry = Utc::now() + Duration::days(300);
 
         assert!(authenticated.expires_at > minimum_extended_expiry);
         assert!(stored_expires_at > minimum_extended_expiry);
     }
 
     #[tokio::test]
-    async fn bearer_session_authentication_keeps_far_expiry_unchanged() {
+    async fn bearer_session_authentication_slides_far_expiry_to_full_duration() {
         let database = Database::new_sqlite_in_memory()
             .await
             .expect("in-memory database should migrate");
         let user_id = create_test_user(&database).await;
 
-        let session = create_session(&database, user_id, Some("test-client"), Duration::days(20))
+        let session = create_session(&database, user_id, Some("test-client"), Duration::days(200))
+            .await
+            .expect("session should be created");
+
+        let authenticated = authenticate_session_token(&database, &session.token)
+            .await
+            .expect("session auth should query")
+            .expect("session token should authenticate");
+        let stored_expires_at = stored_session_expires_at(&database, &session.session_id).await;
+        let expected = Utc::now() + session_duration();
+
+        assert_expires_at_close(authenticated.expires_at, expected);
+        assert_expires_at_close(stored_expires_at, expected);
+    }
+
+    #[tokio::test]
+    async fn recently_touched_session_is_not_rewritten() {
+        let database = Database::new_sqlite_in_memory()
+            .await
+            .expect("in-memory database should migrate");
+        let user_id = create_test_user(&database).await;
+
+        let session = create_session(&database, user_id, Some("test-client"), session_duration())
             .await
             .expect("session should be created");
 
@@ -385,8 +430,83 @@ mod tests {
             .expect("session token should authenticate");
         let stored_expires_at = stored_session_expires_at(&database, &session.session_id).await;
 
-        assert_expires_at_close(authenticated.expires_at, session.expires_at);
+        assert_eq!(authenticated.expires_at, session.expires_at);
         assert_expires_at_close(stored_expires_at, session.expires_at);
+    }
+
+    #[tokio::test]
+    async fn purge_expired_removes_dead_sessions_and_tokens() {
+        let database = Database::new_sqlite_in_memory()
+            .await
+            .expect("in-memory database should migrate");
+        let user_id = create_test_user(&database).await;
+
+        let live = create_session(&database, user_id, Some("live"), Duration::days(1))
+            .await
+            .expect("live session should be created");
+        let expired = create_session(&database, user_id, Some("expired"), Duration::days(-1))
+            .await
+            .expect("expired session should be created");
+        let revoked = create_session(&database, user_id, Some("revoked"), Duration::days(1))
+            .await
+            .expect("revoked session should be created");
+        let revoked_url_token = create_url_token(
+            &database,
+            &revoked.session_id,
+            user_id,
+            "all",
+            Duration::hours(1),
+        )
+        .await
+        .expect("URL token should be created");
+        let expired_url_token = create_url_token(
+            &database,
+            &live.session_id,
+            user_id,
+            "all",
+            Duration::hours(-1),
+        )
+        .await
+        .expect("URL token should be created");
+        let live_url_token = create_url_token(
+            &database,
+            &live.session_id,
+            user_id,
+            "all",
+            Duration::hours(1),
+        )
+        .await
+        .expect("URL token should be created");
+        revoke_session_token(&database, &revoked.token)
+            .await
+            .expect("session should be revoked");
+
+        let purged = purge_expired(&database).await.expect("purge should run");
+        assert_eq!(purged, 2);
+
+        let remaining_sessions: Vec<String> = entity::auth_sessions::Entity::find()
+            .all(database.conn())
+            .await
+            .expect("sessions should query")
+            .into_iter()
+            .map(|session| session.id)
+            .collect();
+        assert_eq!(remaining_sessions, vec![live.session_id.clone()]);
+        assert!(!remaining_sessions.contains(&expired.session_id));
+
+        let remaining_tokens: Vec<String> = entity::auth_url_tokens::Entity::find()
+            .all(database.conn())
+            .await
+            .expect("URL tokens should query")
+            .into_iter()
+            .map(|token| token.token_hash)
+            .collect();
+        assert_eq!(
+            remaining_tokens,
+            vec![hash_auth_token(&live_url_token.token)]
+        );
+        assert!(!remaining_tokens.contains(&hash_auth_token(&revoked_url_token.token)));
+        assert!(!remaining_tokens.contains(&hash_auth_token(&expired_url_token.token)));
     }
 
     #[tokio::test]
@@ -413,7 +533,7 @@ mod tests {
             .expect("URL-token auth should query")
             .expect("matching URL-token scope should authenticate");
         let stored_expires_at = stored_session_expires_at(&database, &session.session_id).await;
-        let minimum_extended_expiry = Utc::now() + Duration::days(20);
+        let minimum_extended_expiry = Utc::now() + Duration::days(300);
 
         assert!(authenticated.expires_at > minimum_extended_expiry);
         assert!(stored_expires_at > minimum_extended_expiry);

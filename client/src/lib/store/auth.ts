@@ -19,6 +19,20 @@ export const savedAccountsAtom = atomWithStorage<SavedAccount[]>(
   [],
 );
 
+/**
+ * Drops a saved account whose session the server no longer accepts, so the
+ * account lists only offer sessions that can still sign in.
+ */
+export const forgetSavedAccountAtom = atom(
+  null,
+  (_get, set, account: ServerConnection) => {
+    const key = accountKey(account);
+    set(savedAccountsAtom, (accounts) =>
+      accounts.filter((saved) => accountKey(saved) !== key),
+    );
+  },
+);
+
 export interface AuthSessionUpdate {
   sessionExpiresAt?: string;
   urlToken?: string;

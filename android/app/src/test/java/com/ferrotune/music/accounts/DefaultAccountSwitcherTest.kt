@@ -4,6 +4,7 @@ import com.ferrotune.core.model.Account
 import com.ferrotune.core.network.AccountApiFactory
 import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.AccountSwitchResult
+import com.ferrotune.core.network.FerrotuneApiException
 import com.ferrotune.core.network.PlaybackSessionResetter
 import com.ferrotune.core.testing.FakeAccounts
 import com.ferrotune.core.testing.FakeFerrotuneApi
@@ -83,6 +84,21 @@ class DefaultAccountSwitcherTest {
         assertEquals(primary.id, accounts.activeAccount.first()?.id)
         assertEquals(0, resetter.count)
         assertEquals(false, caches.single().invalidated)
+    }
+
+    @Test
+    fun `rejected session is removed from saved accounts`() = runTest {
+        val accounts = FakeAccounts(listOf(primary, secondary), activeId = primary.id)
+        val resetter = FakeResetter()
+        val api = FakeRefreshApi { throw FerrotuneApiException(401, "Invalid or expired session") }
+        val switcher = switcher(accounts, resetter, listOf(FakeCache()), api)
+
+        val result = switcher.switchTo(secondary.id)
+
+        assertTrue(result is AccountSwitchResult.Failure)
+        assertEquals(listOf(primary.id), accounts.accounts.first().map { it.id })
+        assertEquals(primary.id, accounts.activeAccount.first()?.id)
+        assertEquals(0, resetter.count)
     }
 
     private fun switcher(

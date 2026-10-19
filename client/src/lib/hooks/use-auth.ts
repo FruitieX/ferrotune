@@ -7,6 +7,7 @@ import {
   isHydratedAtom,
   isClientInitializedAtom,
   authSessionUpdateAtom,
+  forgetSavedAccountAtom,
   isSessionExpired,
   type AuthSessionUpdate,
 } from "@/lib/store/auth";
@@ -60,6 +61,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const setClientInitialized = useSetAtom(isClientInitializedAtom);
   const persistAuthSessionUpdate = useSetAtom(authSessionUpdateAtom);
+  const forgetSavedAccount = useSetAtom(forgetSavedAccountAtom);
   const [isValidatingSession, setIsValidatingSession] = useState(false);
   // Live offline flag — when true we use the cached connection as-is,
   // skipping any network round-trip that would fail.
@@ -125,6 +127,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
         }
 
         if (isInvalidSessionError(error)) {
+          forgetSavedAccount(connection);
           setConnection(null);
         } else {
           console.warn("Failed to refresh auth session", error);
@@ -167,6 +170,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   }, [
     connection,
     persistAuthSessionUpdate,
+    forgetSavedAccount,
     setClientInitialized,
     setConnection,
     isOffline,

@@ -169,8 +169,9 @@ impl ServerRuntime {
         };
 
         let maintenance_tasks = vec![
-            spawn_inactive_owner_cleanup(database, session_manager.clone()),
+            spawn_inactive_owner_cleanup(database.clone(), session_manager.clone()),
             spawn_stale_client_sweep(session_manager),
+            spawn_auth_session_purge(database),
         ];
         let router = build_server_router(state.clone(), &config, options.cors);
 
@@ -382,6 +383,20 @@ fn spawn_inactive_owner_cleanup(
                 Err(error) => {
                     tracing::warn!("Failed to check for inactive session owners: {}", error)
                 }
+            }
+        }
+    })
+}
+
+fn spawn_auth_session_purge(database: db::Database) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+        loop {
+            interval.tick().await;
+            match db::repo::auth_sessions::purge_expired(&database).await {
+                Ok(0) => {}
+                Ok(count) => tracing::debug!("Purged {count} expired auth sessions"),
+                Err(error) => tracing::warn!("Failed to purge expired auth sessions: {}", error),
             }
         }
     })

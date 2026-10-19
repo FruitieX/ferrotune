@@ -110,8 +110,21 @@ class LoginViewModel @Inject constructor(
                 accountStore.upsert(updated)
                 form.update { it.copy(isConnecting = false, loggedInAccount = updated) }
             } catch (e: FerrotuneApiException) {
-                form.update {
-                    it.copy(isConnecting = false, error = "Saved session expired: ${e.message}")
+                if (e.statusCode == 401) {
+                    // The server no longer accepts this session: forget it and
+                    // prefill the form so signing in again only needs the password.
+                    accountStore.remove(account.id)
+                    form.update {
+                        it.copy(
+                            isConnecting = false,
+                            serverUrl = account.serverUrl,
+                            username = account.username,
+                            password = "",
+                            error = "The session for ${account.label} has expired. Enter your password to sign in again.",
+                        )
+                    }
+                } else {
+                    form.update { it.copy(isConnecting = false, error = e.message) }
                 }
             } catch (e: Exception) {
                 form.update { it.copy(isConnecting = false, error = e.message ?: "Unable to connect to server") }

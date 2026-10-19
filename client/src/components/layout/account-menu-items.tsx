@@ -20,6 +20,7 @@ import {
   accountKey,
   accountLabel,
   connectionStatusAtom,
+  forgetSavedAccountAtom,
 } from "@/lib/store/auth";
 import {
   effectiveSessionIdAtom,
@@ -36,6 +37,7 @@ import {
   currentTimeAtom,
 } from "@/lib/store/player";
 import {
+  FerrotuneApiError,
   FerrotuneClient,
   initializeClient,
   getClient,
@@ -189,6 +191,7 @@ export function AccountMenuItems({
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+  const forgetSavedAccount = useSetAtom(forgetSavedAccountAtom);
 
   const currentKey = connection ? accountKey(connection) : null;
   const hasMultipleAccounts = savedAccounts.length > 1;
@@ -198,18 +201,34 @@ export function AccountMenuItems({
     if (key === currentKey) return;
 
     try {
-      const client = new FerrotuneClient(account);
+      const client = new FerrotuneClient({
+        serverUrl: account.serverUrl,
+        sessionToken: account.sessionToken,
+      });
       setConnectionStatus("connecting");
-      await client.ping();
+      // Refreshing (rather than pinging) checks the saved session is still
+      // valid and slides its expiry before switching to it.
+      const session = await client.refreshSession();
+      const refreshed = {
+        ...account,
+        sessionExpiresAt: session.sessionExpiresAt,
+      };
 
-      initializeClient(account);
-      setConnection(account);
+      initializeClient(refreshed);
+      setConnection(refreshed);
       setConnectionStatus("connected");
 
       toast.success(`Switched to ${accountLabel(account)}`);
-    } catch {
+    } catch (error) {
       setConnectionStatus("error");
-      toast.error("Failed to connect. The account may have expired.");
+      if (error instanceof FerrotuneApiError && error.status === 401) {
+        forgetSavedAccount(account);
+        toast.error(
+          `The session for ${accountLabel(account)} has expired. Sign in again to add it back.`,
+        );
+      } else {
+        toast.error("Failed to connect to the account's server.");
+      }
     }
   };
 

@@ -5,6 +5,7 @@ import com.ferrotune.core.network.AccountApiFactory
 import com.ferrotune.core.network.AccountScopedPreferences
 import com.ferrotune.core.network.AccountSwitchResult
 import com.ferrotune.core.network.AccountSwitcher
+import com.ferrotune.core.network.FerrotuneApiException
 import com.ferrotune.core.network.PlaybackSessionResetter
 import com.ferrotune.core.network.apiCall
 import javax.inject.Inject
@@ -35,6 +36,15 @@ class DefaultAccountSwitcher @Inject constructor(
             apiCall {
                 accountApiFactory.create(account.serverUrl, account.sessionToken).refresh()
             }
+        } catch (e: FerrotuneApiException) {
+            if (e.statusCode == 401) {
+                // The server no longer accepts this session; drop it from the list.
+                accounts.remove(account.id)
+                return AccountSwitchResult.Failure(
+                    "The session for ${account.label} has expired. Sign in again to add it back.",
+                )
+            }
+            return AccountSwitchResult.Failure(e.message)
         } catch (e: Exception) {
             return AccountSwitchResult.Failure(
                 e.message ?: "Could not sign in to ${account.label}",

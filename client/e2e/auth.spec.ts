@@ -356,6 +356,110 @@ test.describe("Authentication", () => {
       .toBe(loginResponse.sessionExpiresAt);
   });
 
+  test("login page drops saved accounts whose session was revoked", async ({
+    page,
+    server,
+  }) => {
+    const credentials = {
+      username: server.username,
+      password: server.password,
+    };
+    const valid = await loginForSession(server.url, credentials);
+    const revoked = await loginForSession(server.url, credentials);
+    await fetch(`${server.url}/api/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${revoked.sessionToken}` },
+    });
+
+    const savedAccount = (
+      response: typeof valid,
+      serverUrl: string,
+      label: string,
+    ) => ({
+      serverUrl,
+      username: response.user.username,
+      userId: response.user.id,
+      sessionToken: response.sessionToken,
+      sessionExpiresAt: response.sessionExpiresAt,
+      label,
+    });
+
+    await page.evaluate(
+      (accounts) =>
+        localStorage.setItem(
+          "ferrotune-saved-accounts",
+          JSON.stringify(accounts),
+        ),
+      [
+        savedAccount(valid, server.url, "Valid account"),
+        savedAccount(revoked, `${server.url}/`, "Revoked account"),
+      ],
+    );
+    await page.reload();
+
+    await expect(
+      page.getByRole("button", { name: "Valid account" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Revoked account" }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          JSON.parse(
+            localStorage.getItem("ferrotune-saved-accounts") || "[]",
+          ).map((account: { label: string }) => account.label),
+        ),
+      )
+      .toEqual(["Valid account"]);
+  });
+
+  test("a rejected active session is removed from saved accounts", async ({
+    page,
+    server,
+  }) => {
+    const loginResponse = await loginForSession(server.url, {
+      username: server.username,
+      password: server.password,
+    });
+    await fetch(`${server.url}/api/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${loginResponse.sessionToken}` },
+    });
+    const storedConnection = {
+      serverUrl: server.url,
+      username: loginResponse.user.username,
+      userId: loginResponse.user.id,
+      email: loginResponse.user.email ?? null,
+      isAdmin: loginResponse.user.isAdmin,
+      sessionToken: loginResponse.sessionToken,
+      sessionExpiresAt: loginResponse.sessionExpiresAt,
+      urlToken: loginResponse.urlToken,
+      urlTokenExpiresAt: loginResponse.urlTokenExpiresAt,
+    };
+
+    await setStoredConnection(page, storedConnection);
+    await page.evaluate((account) => {
+      localStorage.setItem(
+        "ferrotune-saved-accounts",
+        JSON.stringify([{ ...account, label: "Saved account" }]),
+      );
+    }, storedConnection);
+
+    await page.goto("/");
+
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.locator("#username")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Saved account" }),
+    ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem("ferrotune-saved-accounts")),
+      )
+      .toBe("[]");
+  });
+
   test("discover keeps the cached cards visible during background refresh", async ({
     page,
     server,
