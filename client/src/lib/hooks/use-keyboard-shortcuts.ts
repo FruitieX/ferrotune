@@ -44,9 +44,12 @@ export function useKeyboardShortcuts() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // event.target is retargeted to the host of a shadow root (e.g. the
+      // feedback widget); the first path entry is the element really focused.
+      const target = event.composedPath()[0] ?? event.target;
       const action = resolveShortcut(
         event,
-        event.target instanceof HTMLElement ? event.target : null,
+        target instanceof HTMLElement ? target : null,
       );
       if (!action) return;
       event.preventDefault();

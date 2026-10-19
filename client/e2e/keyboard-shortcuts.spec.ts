@@ -79,4 +79,22 @@ test.describe("Keyboard shortcuts", () => {
     // The button switched the view, so Space reached it.
     await expect(page.getByTestId("song-row").first()).toBeVisible();
   });
+
+  test("letters and Space type into text fields inside a shadow root", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/songs");
+    await waitForLibraryContent(page);
+    // Embedded widgets such as the feedback form live in a shadow root, so
+    // the keydown's target is their host element, not the textarea.
+    await page.evaluate(() => {
+      const host = document.createElement("div");
+      host.attachShadow({ mode: "open" }).innerHTML = "<textarea></textarea>";
+      document.body.append(host);
+    });
+    const textarea = page.locator("div textarea").last();
+    await textarea.click();
+    await page.keyboard.type("next song, mrps");
+    await expect(textarea).toHaveValue("next song, mrps");
+  });
 });
