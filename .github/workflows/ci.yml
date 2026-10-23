@@ -20,7 +20,7 @@ jobs:
   backend:
     name: Backend (${{ matrix.database }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -45,10 +45,11 @@ jobs:
         run: |
           curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/6.0.0/hurl_6.0.0_amd64.deb
           sudo apt-get install -y ./hurl_6.0.0_amd64.deb
-      - name: Install ffmpeg for test fixtures
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev libopus-dev ninja-build pkg-config
+      # One apt-get update and no recommends: GitHub's Ubuntu mirror is
+      # sometimes slow enough that two updates plus ffmpeg's recommends
+      # took 27 minutes.
+      - name: Install ffmpeg and native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg cmake libclang-dev libopus-dev ninja-build pkg-config
       - name: Run backend CI
         run: env -u FERROTUNE_DATABASE_URL moon run ferrotune:ci${{ matrix.database == 'postgres' && '-postgres' || '' }}
 
@@ -72,10 +73,8 @@ jobs:
           node-version: "lts/*"
           cache: "pnpm"
           cache-dependency-path: client/pnpm-lock.yaml
-      - name: Install ffmpeg for test fixtures
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake google-chrome-stable libclang-dev libopus-dev ninja-build pkg-config
+      - name: Install ffmpeg and native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg cmake google-chrome-stable libclang-dev libopus-dev ninja-build pkg-config
       - name: Run client CI
         run: env -u FERROTUNE_DATABASE_URL moon run client:ci
       - name: Upload Playwright failure artifacts
