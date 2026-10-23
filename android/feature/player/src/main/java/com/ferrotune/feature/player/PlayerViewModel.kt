@@ -223,6 +223,18 @@ class PlayerViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            // A playback error stays up only until the player recovers: the
+            // track changes or playback resumes.
+            var previousTrackId: Any? = null
+            repository.state
+                .map { it.track?.id to (it.status == PlaybackStatus.PLAYING) }
+                .distinctUntilChanged()
+                .collect { (trackId, playing) ->
+                    if (playing || trackId != previousTrackId) error.value = null
+                    previousTrackId = trackId
+                }
+        }
+        viewModelScope.launch {
             repository.events.collect { event ->
                 if (event is PlaybackEvent.PlaybackError) {
                     error.value = event.message
