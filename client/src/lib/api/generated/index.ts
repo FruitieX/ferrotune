@@ -159,6 +159,8 @@ export type { MovePlaylistEntryRequest } from './MovePlaylistEntryRequest';
 export type { MusicFolderInfo } from './MusicFolderInfo';
 export type { MusicFolderStats } from './MusicFolderStats';
 export type { MusicFoldersResponse } from './MusicFoldersResponse';
+export type { OidcConfigResponse } from './OidcConfigResponse';
+export type { OidcExchangeRequest } from './OidcExchangeRequest';
 export type { OrphanedFilesResponse } from './OrphanedFilesResponse';
 export type { PathConflict } from './PathConflict';
 export type { PeriodReview } from './PeriodReview';

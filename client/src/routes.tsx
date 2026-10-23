@@ -33,6 +33,7 @@ const GenreDetailsPage = lazy(
 );
 const SongsPage = lazy(() => import("@/app/library/songs/page"));
 const LoginPage = lazy(() => import("@/app/login/page"));
+const OidcCallbackPage = lazy(() => import("@/app/login/callback/page"));
 const PlaylistsPage = lazy(() => import("@/app/playlists/page"));
 const PlaylistDetailsPage = lazy(() => import("@/app/playlists/details/page"));
 const SmartPlaylistPage = lazy(() => import("@/app/playlists/smart/page"));
@@ -90,6 +91,7 @@ export function AppRouter() {
             <Route path="songs" element={<SongsPage />} />
           </Route>
           <Route path="login" element={<LoginPage />} />
+          <Route path="login/callback" element={<OidcCallbackPage />} />
           <Route path="playlists" element={<PlaylistsPage />} />
           <Route path="playlists/details" element={<PlaylistDetailsPage />} />
           <Route path="playlists/smart" element={<SmartPlaylistPage />} />

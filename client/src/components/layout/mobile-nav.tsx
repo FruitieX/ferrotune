@@ -16,7 +16,7 @@ export function MobileNav() {
   const { pathname } = useLocation();
 
   // Don't show on login page
-  if (pathname === "/login") {
+  if (pathname.startsWith("/login")) {
     return null;
   }
 

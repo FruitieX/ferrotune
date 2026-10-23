@@ -25,6 +25,7 @@ mod match_dictionary;
 mod media;
 pub mod media_stream;
 pub mod music_folders;
+mod oidc_routes;
 pub mod playlists;
 mod playqueue;
 mod preferences;
@@ -1276,6 +1277,8 @@ pub struct AppState {
     pub shuffle_cache: ShuffleIndicesCache,
     /// Manages per-session broadcast channels for real-time playback sync.
     pub session_manager: Arc<SessionManager>,
+    /// OIDC (Pocket ID) sign-in, when `FERROTUNE_OIDC_*` is configured.
+    pub oidc: Option<Arc<crate::oidc::Oidc>>,
 }
 
 /// Common query parameters for native API API requests.

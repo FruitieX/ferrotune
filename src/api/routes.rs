@@ -3,9 +3,9 @@
 use super::{
     auth_routes, browse, directory, disabled_songs, discovery, duplicates, filesystem, history,
     history_admin, home, lastfm, listening, lists, match_dictionary, media, music_folders,
-    playlists, playqueue, preferences, push_devices, queue, recycle_bin, scan, scrobbles, search,
-    server_config, sessions, setup, shuffle_exclude, smart_playlists, songs, starring, stats,
-    tagger, tagger_session, tags, testing, users, waveform,
+    oidc_routes, playlists, playqueue, preferences, push_devices, queue, recycle_bin, scan,
+    scrobbles, search, server_config, sessions, setup, shuffle_exclude, smart_playlists, songs,
+    starring, stats, tagger, tagger_session, tags, testing, users, waveform,
 };
 
 use crate::api::AppState;
@@ -30,6 +30,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/auth/me", get(auth_routes::me))
         .route("/auth/refresh", post(auth_routes::refresh_session))
         .route("/auth/url-token", post(auth_routes::create_url_token))
+        // OIDC (Pocket ID) sign-in: unauthenticated by design
+        .route("/auth/oidc/config", get(oidc_routes::config))
+        .route("/auth/oidc/start", get(oidc_routes::start))
+        .route("/auth/oidc/callback", get(oidc_routes::callback))
+        .route("/auth/oidc/exchange", post(oidc_routes::exchange))
         // Home page batch endpoint
         .route("/home", get(home::get_home))
         .route("/continue-listening", get(home::get_continue_listening))

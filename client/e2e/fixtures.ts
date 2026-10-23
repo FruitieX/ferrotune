@@ -268,6 +268,7 @@ async function waitForServerOrExit(
 async function startServerWithRetry(
   instanceName: string,
   prepareMusicDir: (musicDir: string) => void,
+  extraEnv: (port: number) => Record<string, string> = () => ({}),
 ): Promise<{
   port: number;
   tempDir: string;
@@ -307,6 +308,7 @@ async function startServerWithRetry(
           FERROTUNE_DATA_DIR: tempDir,
           FERROTUNE_TRANSCODE_CACHE_PATH: transcodeCacheDir,
           FERROTUNE_TESTING: "true",
+          ...extraEnv(port),
         },
       },
     );
@@ -568,13 +570,20 @@ async function seedServer(
 /**
  * Spawn a dedicated Ferrotune server for a test worker or isolated test.
  */
-async function spawnServer(instanceName: string): Promise<ServerInfo> {
+async function spawnServer(
+  instanceName: string,
+  extraEnv?: (port: number) => Record<string, string>,
+): Promise<ServerInfo> {
   const projectRoot = path.resolve(__dirname, "../..");
   const fixturesMusic = path.join(projectRoot, "tests/fixtures/music");
 
-  const started = await startServerWithRetry(instanceName, (musicDir) => {
-    copyDirSync(fixturesMusic, musicDir);
-  });
+  const started = await startServerWithRetry(
+    instanceName,
+    (musicDir) => {
+      copyDirSync(fixturesMusic, musicDir);
+    },
+    extraEnv,
+  );
 
   const bootstrap = { username: "admin", password: "admin" };
   const primary = { username: "testadmin", password: "testpass" };
@@ -589,6 +598,17 @@ async function spawnServer(instanceName: string): Promise<ServerInfo> {
     tempDir: started.tempDir,
     process: started.serverProcess,
   };
+}
+
+/**
+ * Spawn a seeded server with extra environment variables; `env` gets the
+ * server's port (e.g. to build its public URL).
+ */
+export async function spawnServerWithEnv(
+  instanceName: string,
+  env: (port: number) => Record<string, string>,
+): Promise<ServerInfo> {
+  return spawnServer(instanceName, env);
 }
 
 async function setupAuthenticatedPage(page: Page, server: ServerInfo) {

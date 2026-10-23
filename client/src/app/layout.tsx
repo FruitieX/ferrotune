@@ -19,7 +19,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const { pathname } = useLocation();
-  const isStandaloneRoute = pathname === "/login" || pathname === "/setup";
+  const isStandaloneRoute =
+    pathname.startsWith("/login") || pathname === "/setup";
 
   // Cancel inertial scrolling on the first pointerdown so taps on controls
   // aren't lost stopping a coasting scroll on Android WebView.

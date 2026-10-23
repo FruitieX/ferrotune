@@ -157,6 +157,20 @@ pub async fn get_user_by_username(database: &Database, username: &str) -> Result
     Ok(model.map(User::from))
 }
 
+/// Users whose name matches `username` ignoring ASCII case.
+pub async fn find_users_by_username_ci(database: &Database, username: &str) -> Result<Vec<User>> {
+    use sea_orm::sea_query::{Expr, Func};
+    let rows = entity::users::Entity::find()
+        .filter(
+            Expr::expr(Func::lower(Expr::col(entity::users::Column::Username)))
+                .eq(username.to_lowercase()),
+        )
+        .order_by_asc(entity::users::Column::Id)
+        .all(database.conn())
+        .await?;
+    Ok(rows.into_iter().map(User::from).collect())
+}
+
 pub async fn get_user_ids(database: &Database) -> Result<Vec<i64>> {
     let rows = entity::users::Entity::find()
         .select_only()

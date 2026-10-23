@@ -91,10 +91,21 @@ pub async fn login(
     Json(request): Json<AuthLoginRequest>,
 ) -> FerrotuneApiResult<Json<AuthLoginResponse>> {
     let user = authenticate_password(&state, &request.username, &request.password).await?;
+    Ok(Json(
+        issue_login(&state, user, request.client_name.as_deref()).await?,
+    ))
+}
+
+/// Starts a regular (year-long, sliding) session for a signed-in user.
+pub(crate) async fn issue_login(
+    state: &AppState,
+    user: User,
+    client_name: Option<&str>,
+) -> crate::error::Result<AuthLoginResponse> {
     let session = auth_sessions::create_session(
         &state.database,
         user.id,
-        request.client_name.as_deref(),
+        client_name,
         auth_sessions::session_duration(),
     )
     .await?;
@@ -107,13 +118,13 @@ pub async fn login(
     )
     .await?;
 
-    Ok(Json(AuthLoginResponse {
+    Ok(AuthLoginResponse {
         user: AuthUserResponse::from(user),
         session_token: session.token,
         session_expires_at: session.expires_at,
         url_token: url_token.token,
         url_token_expires_at: url_token.expires_at,
-    }))
+    })
 }
 
 pub async fn logout(

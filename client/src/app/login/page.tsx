@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSetAtom, useAtom } from "jotai";
@@ -14,6 +14,7 @@ import {
   Settings,
   X,
   Users,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,14 +40,16 @@ import {
   accountKey,
   accountLabel,
   forgetSavedAccountAtom,
+  saveAccountAtom,
   type SavedAccount,
 } from "@/lib/store/auth";
+import { connectionFromLogin, startOidcLogin } from "@/lib/auth/oidc";
 import {
   initializeClient,
   FerrotuneApiError,
   FerrotuneClient,
 } from "@/lib/api/client";
-import type { AuthLoginResponse, ServerConnection } from "@/lib/api/types";
+import type { ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 import {
   isTauri,
@@ -58,19 +61,39 @@ import {
 // Default server URL - empty means use current origin (works in dev with proxy)
 const DEFAULT_SERVER_URL = "";
 
+/** The server a login form targets: the entered URL, else this page's origin. */
+function effectiveServerUrl(serverUrl: string): string {
+  let url = serverUrl.trim();
+  if (!url) {
+    return typeof window !== "undefined" ? window.location.origin : "";
+  }
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = `http://${url}`;
+  }
+  return url.replace(/\/+$/, "");
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const setConnection = useSetAtom(serverConnectionAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const setConnectionError = useSetAtom(connectionErrorAtom);
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
   const forgetSavedAccount = useSetAtom(forgetSavedAccountAtom);
+  const saveAccount = useSetAtom(saveAccountAtom);
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    const state = location.state as { oidcError?: unknown } | null;
+    return typeof state?.oidcError === "string"
+      ? `Sign-in failed: ${state.oidcError}`
+      : null;
+  });
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
   // On Tauri mobile (Android/iOS), there's no embedded server, so the server URL
   // must always be visible since it can't default to window.location.origin
   const isMobileTauri = isTauri() && !isTauriDesktop();
@@ -80,6 +103,36 @@ export default function LoginPage() {
   const [useEmbeddedServer, setUseEmbeddedServer] = useState(false);
   const [isEmbeddedAvailable, setIsEmbeddedAvailable] = useState(false);
   const [embeddedLoading, setEmbeddedLoading] = useState(true);
+
+  // "Sign in with passkey" (OIDC) is offered when the target server has it
+  // configured. Probe the page origin, or the entered server URL once the
+  // field loses focus (not per keystroke). The Tauri apps can't receive the
+  // browser redirect back, so they keep password sign-in.
+  const [oidcProbeUrl, setOidcProbeUrl] = useState(() =>
+    effectiveServerUrl(DEFAULT_SERVER_URL),
+  );
+  const { data: oidcConfig } = useQuery({
+    queryKey: ["oidcConfig", oidcProbeUrl],
+    queryFn: () =>
+      new FerrotuneClient({ serverUrl: oidcProbeUrl })
+        .oidcConfig()
+        .catch(() => ({ enabled: false })),
+    enabled: !isTauri() && !!oidcProbeUrl,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const oidcEnabled = !isTauri() && oidcConfig?.enabled === true;
+
+  const handlePasskeyLogin = async () => {
+    setIsConnecting(true);
+    setError(null);
+    try {
+      await startOidcLogin(effectiveServerUrl(serverUrl));
+    } catch (err) {
+      setIsConnecting(false);
+      setError(err instanceof Error ? err.message : "Sign-in failed");
+    }
+  };
 
   // Ask each saved account's server whether its session still works: drop
   // the ones it rejects instead of offering a button that only fails, and
@@ -313,33 +366,6 @@ export default function LoginPage() {
     return connectionFromLogin(url, response);
   };
 
-  const connectionFromLogin = (
-    url: string,
-    response: AuthLoginResponse,
-  ): ServerConnection => ({
-    serverUrl: url,
-    username: response.user.username,
-    userId: response.user.id,
-    email: response.user.email,
-    isAdmin: response.user.isAdmin,
-    sessionToken: response.sessionToken,
-    sessionExpiresAt: response.sessionExpiresAt,
-    urlToken: response.urlToken,
-    urlTokenExpiresAt: response.urlTokenExpiresAt,
-  });
-
-  const saveAccount = (connection: ServerConnection) => {
-    const key = accountKey(connection);
-    const account: SavedAccount = {
-      ...connection,
-      label: accountLabel(connection),
-    };
-    setSavedAccounts((prev) => {
-      const filtered = prev.filter((a) => accountKey(a) !== key);
-      return [account, ...filtered];
-    });
-  };
-
   const removeSavedAccount = (account: SavedAccount) => {
     const key = accountKey(account);
     setSavedAccounts((prev) => prev.filter((a) => accountKey(a) !== key));
@@ -394,7 +420,9 @@ export default function LoginPage() {
         }
         setPassword("");
         setError(
-          `The session for ${account.label || accountLabel(account)} has expired. Enter your password to sign in again.`,
+          oidcEnabled
+            ? `The session for ${account.label || accountLabel(account)} has expired. Sign in again to continue.`
+            : `The session for ${account.label || accountLabel(account)} has expired. Enter your password to sign in again.`,
         );
       } else if (err instanceof FerrotuneApiError) {
         setError(`Authentication failed: ${err.message}`);
@@ -575,69 +603,99 @@ export default function LoginPage() {
                     </div>
                   )}
 
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="username"
-                        className="text-sm font-medium flex items-center gap-2"
-                      >
-                        <User className="w-4 h-4" />
-                        Username
-                      </label>
-                      <Input
-                        id="username"
-                        placeholder="admin"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        disabled={isConnecting}
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="password"
-                        className="text-sm font-medium flex items-center gap-2"
-                      >
-                        <Lock className="w-4 h-4" />
-                        Password
-                      </label>
-                      <Input
-                        id="password"
-                        type="password"
-                        placeholder="Enter your password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (
-                            e.key === "Enter" &&
-                            username &&
-                            password &&
-                            !isConnecting
-                          ) {
-                            handleConnect();
-                          }
-                        }}
-                        disabled={isConnecting}
-                      />
-                    </div>
-
+                  {oidcEnabled && (
                     <Button
                       className="w-full"
-                      onClick={() => handleConnect()}
-                      disabled={isConnecting || !username || !password}
+                      size="lg"
+                      onClick={handlePasskeyLogin}
+                      disabled={isConnecting}
                     >
                       {isConnecting ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Connecting...
-                        </>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       ) : (
-                        "Connect"
+                        <KeyRound className="w-4 h-4 mr-2" />
                       )}
+                      Sign in with passkey
                     </Button>
-                  </div>
+                  )}
+
+                  {oidcEnabled && !showPasswordForm && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="w-full text-muted-foreground"
+                      onClick={() => setShowPasswordForm(true)}
+                    >
+                      Sign in with a password instead
+                    </Button>
+                  )}
+
+                  {(!oidcEnabled || showPasswordForm) && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="username"
+                          className="text-sm font-medium flex items-center gap-2"
+                        >
+                          <User className="w-4 h-4" />
+                          Username
+                        </label>
+                        <Input
+                          id="username"
+                          placeholder="admin"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          disabled={isConnecting}
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="password"
+                          className="text-sm font-medium flex items-center gap-2"
+                        >
+                          <Lock className="w-4 h-4" />
+                          Password
+                        </label>
+                        <Input
+                          id="password"
+                          type="password"
+                          placeholder="Enter your password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (
+                              e.key === "Enter" &&
+                              username &&
+                              password &&
+                              !isConnecting
+                            ) {
+                              handleConnect();
+                            }
+                          }}
+                          disabled={isConnecting}
+                        />
+                      </div>
+
+                      <Button
+                        className="w-full"
+                        variant={oidcEnabled ? "outline" : "default"}
+                        onClick={() => handleConnect()}
+                        disabled={isConnecting || !username || !password}
+                      >
+                        {isConnecting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          "Connect"
+                        )}
+                      </Button>
+                    </div>
+                  )}
 
                   {/* Server URL - in Advanced collapsible on web (non-mobile Tauri) */}
                   {!isMobileTauri && (
@@ -685,6 +743,9 @@ export default function LoginPage() {
                                 placeholder="Leave empty to use current origin"
                                 value={serverUrl}
                                 onChange={(e) => setServerUrl(e.target.value)}
+                                onBlur={() =>
+                                  setOidcProbeUrl(effectiveServerUrl(serverUrl))
+                                }
                                 disabled={isConnecting}
                                 autoCapitalize="off"
                                 autoCorrect="off"

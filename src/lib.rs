@@ -10,6 +10,7 @@ pub mod bliss;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod oidc;
 pub mod password;
 pub mod push;
 pub mod replaygain;
@@ -157,6 +158,7 @@ impl ServerRuntime {
             scan_state: scan_state.clone(),
             shuffle_cache: Default::default(),
             session_manager: session_manager.clone(),
+            oidc: oidc::Oidc::from_env()?.map(Arc::new),
         });
 
         let library_watcher = Arc::new(watcher::LibraryWatcher::new(database.clone(), scan_state));

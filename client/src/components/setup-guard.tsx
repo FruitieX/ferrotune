@@ -18,7 +18,7 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
   const connection = useAtomValue(serverConnectionAtom);
 
   // Skip check on setup and login pages
-  const shouldCheck = pathname !== "/setup" && pathname !== "/login";
+  const shouldCheck = pathname !== "/setup" && !pathname.startsWith("/login");
 
   // Use stored connection URL or default backend URL
   const backendUrl = connection?.serverUrl || DEFAULT_BACKEND_URL;

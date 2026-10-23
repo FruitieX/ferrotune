@@ -33,6 +33,7 @@ pub mod tagger_scripts;
 pub mod tagger_session_tracks;
 pub mod tagger_sessions;
 pub mod user_library_access;
+pub mod user_oidc_identities;
 pub mod user_playlist_overrides;
 pub mod user_preferences;
 pub mod users;

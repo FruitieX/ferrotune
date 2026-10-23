@@ -31,6 +31,7 @@ pub use super::tagger_scripts::Entity as TaggerScripts;
 pub use super::tagger_session_tracks::Entity as TaggerSessionTracks;
 pub use super::tagger_sessions::Entity as TaggerSessions;
 pub use super::user_library_access::Entity as UserLibraryAccess;
+pub use super::user_oidc_identities::Entity as UserOidcIdentities;
 pub use super::user_playlist_overrides::Entity as UserPlaylistOverrides;
 pub use super::user_preferences::Entity as UserPreferences;
 pub use super::users::Entity as Users;

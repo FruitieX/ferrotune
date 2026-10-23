@@ -9,8 +9,17 @@ import com.ferrotune.core.network.FerrotuneApiException
 import com.ferrotune.core.network.FerrotuneApiFactory
 import com.ferrotune.core.network.apiCall
 import com.ferrotune.core.network.dto.AuthLoginRequest
+import com.ferrotune.core.network.dto.AuthLoginResponseDto
+import com.ferrotune.core.network.generated.OidcExchangeRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -27,12 +36,20 @@ data class LoginUiState(
     val error: String? = null,
     val savedAccounts: List<Account> = emptyList(),
     val loggedInAccount: Account? = null,
+    /** The entered server offers "Sign in with passkey" (OIDC). */
+    val oidcAvailable: Boolean = false,
+    /** Show the username/password form even though passkey sign-in is available. */
+    val showPasswordForm: Boolean = false,
+    /** Sign-in page for the screen to open in a Custom Tab, then report via [LoginViewModel.onOidcLaunched]. */
+    val oidcLaunchUrl: String? = null,
 )
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val apiFactory: FerrotuneApiFactory,
     private val accountStore: AccountStore,
+    private val oidcRedirects: OidcRedirects,
+    private val pendingOidc: PendingOidcLoginStore,
 ) : ViewModel() {
 
     private val form = MutableStateFlow(LoginUiState())
@@ -40,6 +57,108 @@ class LoginViewModel @Inject constructor(
     val uiState: StateFlow<LoginUiState> = combine(form, accountStore.accounts) { state, saved ->
         state.copy(savedAccounts = saved)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LoginUiState())
+
+    init {
+        probeOidcSupport()
+        viewModelScope.launch {
+            oidcRedirects.pending.filterNotNull().collect { uri ->
+                oidcRedirects.consume(uri)
+                completePasskeyLogin(uri)
+            }
+        }
+    }
+
+    /** Asks the entered server whether it offers passkey sign-in, once typing pauses. */
+    @OptIn(FlowPreview::class)
+    private fun probeOidcSupport() {
+        viewModelScope.launch {
+            form.map { it.serverUrl.trim() }
+                .distinctUntilChanged()
+                .debounce(OIDC_PROBE_DEBOUNCE_MS)
+                .collectLatest { raw ->
+                    val enabled = raw.isNotEmpty() && try {
+                        apiFactory.create(ServerUrl.normalize(raw)).oidcConfig().enabled
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        false
+                    }
+                    form.update { if (it.serverUrl.trim() == raw) it.copy(oidcAvailable = enabled) else it }
+                }
+        }
+    }
+
+    fun showPasswordForm() = form.update { it.copy(showPasswordForm = true) }
+
+    /** Starts passkey sign-in: the screen opens [LoginUiState.oidcLaunchUrl] in a Custom Tab. */
+    fun startPasskeyLogin() {
+        val rawUrl = form.value.serverUrl.trim()
+        if (rawUrl.isEmpty()) {
+            form.update { it.copy(error = "Server URL is required") }
+            return
+        }
+        val serverUrl = ServerUrl.normalize(rawUrl)
+        val pkce = OidcLogin.newPkce()
+        pendingOidc.save(PendingOidcLogin(serverUrl, pkce.verifier))
+        form.update { it.copy(error = null, oidcLaunchUrl = OidcLogin.startUrl(serverUrl, pkce.challenge)) }
+    }
+
+    fun onOidcLaunched() = form.update { it.copy(oidcLaunchUrl = null) }
+
+    fun onOidcLaunchFailed(message: String) =
+        form.update { it.copy(oidcLaunchUrl = null, error = message) }
+
+    private fun completePasskeyLogin(uri: String) {
+        val pending = pendingOidc.take()
+        val code = when (val redirect = OidcLogin.parseRedirect(uri)) {
+            is OidcLogin.Redirect.Failure -> {
+                form.update { it.copy(isConnecting = false, error = "Sign-in failed: ${redirect.message}") }
+                return
+            }
+            is OidcLogin.Redirect.Code -> redirect.code
+        }
+        if (pending == null) {
+            form.update { it.copy(error = "The sign-in expired. Please try again.") }
+            return
+        }
+
+        form.update { it.copy(isConnecting = true, error = null, serverUrl = pending.serverUrl) }
+        viewModelScope.launch {
+            try {
+                val api = apiFactory.create(pending.serverUrl)
+                val response = apiCall {
+                    api.oidcExchange(
+                        OidcExchangeRequest(
+                            code = code,
+                            codeVerifier = pending.verifier,
+                            clientName = CLIENT_NAME,
+                        ),
+                    )
+                }
+                signedIn(pending.serverUrl, response)
+            } catch (e: FerrotuneApiException) {
+                form.update { it.copy(isConnecting = false, error = "Sign-in failed: ${e.message}") }
+            } catch (e: Exception) {
+                form.update { it.copy(isConnecting = false, error = e.message ?: "Unable to connect to server") }
+            }
+        }
+    }
+
+    private suspend fun signedIn(serverUrl: String, response: AuthLoginResponseDto) {
+        val account = Account(
+            id = Account.key(response.user.id, serverUrl),
+            label = Account.displayLabel(response.user.username, serverUrl),
+            serverUrl = serverUrl,
+            username = response.user.username,
+            userId = response.user.id,
+            email = response.user.email,
+            isAdmin = response.user.isAdmin,
+            sessionToken = response.sessionToken,
+            sessionExpiresAt = response.sessionExpiresAt,
+        )
+        accountStore.upsert(account)
+        form.update { it.copy(isConnecting = false, password = "", loggedInAccount = account) }
+    }
 
     fun onServerUrlChange(value: String) = form.update { it.copy(serverUrl = value, error = null) }
 
@@ -72,20 +191,7 @@ class LoginViewModel @Inject constructor(
                     anonymousApi.login(AuthLoginRequest(username = username, password = password))
                 }
 
-                val account = Account(
-                    id = Account.key(response.user.id, serverUrl),
-                    label = Account.displayLabel(response.user.username, serverUrl),
-                    serverUrl = serverUrl,
-                    username = response.user.username,
-                    userId = response.user.id,
-                    email = response.user.email,
-                    isAdmin = response.user.isAdmin,
-                    sessionToken = response.sessionToken,
-                    sessionExpiresAt = response.sessionExpiresAt,
-                )
-
-                accountStore.upsert(account)
-                form.update { it.copy(isConnecting = false, password = "", loggedInAccount = account) }
+                signedIn(serverUrl, response)
             } catch (e: FerrotuneApiException) {
                 form.update {
                     it.copy(
@@ -120,7 +226,7 @@ class LoginViewModel @Inject constructor(
                             serverUrl = account.serverUrl,
                             username = account.username,
                             password = "",
-                            error = "The session for ${account.label} has expired. Enter your password to sign in again.",
+                            error = "The session for ${account.label} has expired. Sign in again to continue.",
                         )
                     }
                 } else {
@@ -134,5 +240,10 @@ class LoginViewModel @Inject constructor(
 
     fun removeSavedAccount(account: Account) {
         viewModelScope.launch { accountStore.remove(account.id) }
+    }
+
+    private companion object {
+        const val OIDC_PROBE_DEBOUNCE_MS = 400L
+        const val CLIENT_NAME = "ferrotune-mobile"
     }
 }

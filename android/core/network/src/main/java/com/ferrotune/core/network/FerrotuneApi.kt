@@ -1,6 +1,8 @@
 package com.ferrotune.core.network
 
 import com.ferrotune.core.network.dto.AuthLoginRequest
+import com.ferrotune.core.network.generated.OidcConfigResponse
+import com.ferrotune.core.network.generated.OidcExchangeRequest
 import com.ferrotune.core.network.dto.AuthLoginResponseDto
 import com.ferrotune.core.network.dto.AuthMeResponseDto
 import com.ferrotune.core.network.dto.AuthSessionRefreshResponseDto
@@ -127,6 +129,14 @@ interface FerrotuneApi {
 
     @GET("api/auth/me")
     suspend fun me(): AuthMeResponseDto
+
+    /** Whether the server offers "Sign in with passkey" (OIDC). Unauthenticated. */
+    @GET("api/auth/oidc/config")
+    suspend fun oidcConfig(): OidcConfigResponse
+
+    /** Redeems the single-use code from an OIDC sign-in for a session. */
+    @POST("api/auth/oidc/exchange")
+    suspend fun oidcExchange(@Body request: OidcExchangeRequest): AuthLoginResponseDto
 
     @GET("api/users/me")
     suspend fun currentUser(): UserInfo

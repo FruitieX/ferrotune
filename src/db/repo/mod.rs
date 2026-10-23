@@ -21,6 +21,7 @@ pub mod lists;
 pub mod matching;
 pub mod media;
 pub mod music_folders;
+pub mod oidc_identities;
 pub mod playlists;
 pub mod push_devices;
 pub mod recycle_bin;

@@ -1,5 +1,9 @@
 package com.ferrotune.feature.auth
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
@@ -33,6 +38,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -63,6 +70,25 @@ fun LoginScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<Account?>(null) }
+    val context = LocalContext.current
+
+    // Passkey sign-in happens in a Custom Tab, which shares the browser's
+    // provider session, so most sign-ins don't even ask for the passkey.
+    LaunchedEffect(state.oidcLaunchUrl) {
+        val url = state.oidcLaunchUrl ?: return@LaunchedEffect
+        val uri = Uri.parse(url)
+        try {
+            CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, uri)
+            viewModel.onOidcLaunched()
+        } catch (_: ActivityNotFoundException) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                viewModel.onOidcLaunched()
+            } catch (_: ActivityNotFoundException) {
+                viewModel.onOidcLaunchFailed("No browser available for signing in")
+            }
+        }
+    }
 
     LaunchedEffect(state.loggedInAccount) {
         if (state.loggedInAccount != null) {
@@ -74,7 +100,7 @@ fun LoginScreen(
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
             title = { Text("Remove ${account.label}?") },
-            text = { Text("This device forgets the account. You can sign in again with the password.") },
+            text = { Text("This device forgets the account. You can sign in again later.") },
             confirmButton = {
                 TextButton(onClick = {
                     pendingRemoval = null
@@ -170,35 +196,102 @@ fun LoginScreen(
                 )
                 Spacer(Modifier.height(12.dp))
 
-                OutlinedTextField(
-                    value = state.username,
-                    onValueChange = viewModel::onUsernameChange,
-                    label = { Text("Username") },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Filled.Person, contentDescription = null)
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
+                if (state.oidcAvailable) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = viewModel::startPasskeyLogin,
+                        enabled = !state.isConnecting,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        if (state.isConnecting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text("Sign in with passkey")
+                    }
+                    if (!state.showPasswordForm) {
+                        Spacer(Modifier.height(4.dp))
+                        TextButton(
+                            onClick = viewModel::showPasswordForm,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Sign in with a password instead",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.height(16.dp))
+                    }
+                }
 
-                OutlinedTextField(
-                    value = state.password,
-                    onValueChange = viewModel::onPasswordChange,
-                    label = { Text("Password") },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Filled.Lock, contentDescription = null)
-                    },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { if (!state.isConnecting) viewModel.login() }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (!state.oidcAvailable || state.showPasswordForm) {
+                    OutlinedTextField(
+                        value = state.username,
+                        onValueChange = viewModel::onUsernameChange,
+                        label = { Text("Username") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Filled.Person, contentDescription = null)
+                        },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = state.password,
+                        onValueChange = viewModel::onPasswordChange,
+                        label = { Text("Password") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Filled.Lock, contentDescription = null)
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { if (!state.isConnecting) viewModel.login() }),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(Modifier.height(24.dp))
+                    val connectContent: @Composable () -> Unit = {
+                        if (state.isConnecting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = if (state.oidcAvailable) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onPrimary
+                                },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (state.isConnecting) "Connecting…" else "Connect")
+                    }
+                    if (state.oidcAvailable) {
+                        OutlinedButton(
+                            onClick = viewModel::login,
+                            enabled = !state.isConnecting,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { connectContent() }
+                    } else {
+                        Button(
+                            onClick = viewModel::login,
+                            enabled = !state.isConnecting,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { connectContent() }
+                    }
+                }
 
                 state.error?.let { error ->
                     Spacer(Modifier.height(12.dp))
@@ -207,23 +300,6 @@ fun LoginScreen(
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                }
-
-                Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = viewModel::login,
-                    enabled = !state.isConnecting,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (state.isConnecting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(if (state.isConnecting) "Connecting…" else "Connect")
                 }
             }
         }

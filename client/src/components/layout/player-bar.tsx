@@ -1382,7 +1382,7 @@ export function PlayerBar() {
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
 
   // Don't show on login or setup pages
-  if (pathname === "/login" || pathname === "/setup") {
+  if (pathname.startsWith("/login") || pathname === "/setup") {
     return null;
   }
 

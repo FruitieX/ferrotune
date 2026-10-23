@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import type { PlaylistFoldersResponse } from "./generated/PlaylistFoldersResponse";
+import type { OidcConfigResponse } from "./generated/OidcConfigResponse";
 import type { PlaylistBrowseResponse } from "./generated/PlaylistBrowseResponse";
 import type { QueueSourceRequest } from "./generated/QueueSourceRequest";
 import type { PlaylistFolderResponse } from "./generated/PlaylistFolderResponse";
@@ -321,6 +322,27 @@ export class FerrotuneClient {
       method: "POST",
       body: JSON.stringify({ username, password, clientName }),
     });
+  }
+
+  /** Whether the server offers "Sign in with passkey" (OIDC). */
+  async oidcConfig(): Promise<OidcConfigResponse> {
+    return this.request<OidcConfigResponse>("/api/auth/oidc/config", {}, true);
+  }
+
+  /** Redeems the single-use code from an OIDC sign-in for a session. */
+  async oidcExchange(
+    code: string,
+    codeVerifier: string | null,
+    clientName: string = getClientName(),
+  ): Promise<AuthLoginResponse> {
+    return this.request<AuthLoginResponse>(
+      "/api/auth/oidc/exchange",
+      {
+        method: "POST",
+        body: JSON.stringify({ code, codeVerifier, clientName }),
+      },
+      true,
+    );
   }
 
   async logout(): Promise<void> {

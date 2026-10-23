@@ -156,6 +156,10 @@ open class FakeFerrotuneApi(
     var pingResponse = PingResponse(status = "ok", version = "test", pushEnabled = false)
     override suspend fun ping(): PingResponse = pingResponse
     override suspend fun me(): AuthMeResponseDto = error("unused")
+    override suspend fun oidcConfig(): com.ferrotune.core.network.generated.OidcConfigResponse = error("unused")
+    override suspend fun oidcExchange(
+        request: com.ferrotune.core.network.generated.OidcExchangeRequest,
+    ): AuthLoginResponseDto = error("unused")
     override suspend fun refresh(): AuthSessionRefreshResponseDto = error("unused")
     override suspend fun logout() = error("unused")
     override suspend fun connectSession(request: ConnectSessionRequest): ConnectSessionResponse =

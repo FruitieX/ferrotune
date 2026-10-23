@@ -24,6 +24,24 @@
             </intent-filter>
         </activity>
 
+        <!-- End of "Sign in with passkey": the server redirects the Custom Tab here. -->
+        <activity
+            android:name=".OidcRedirectActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="ferrotune"
+                    android:host="oidc"
+                    android:path="/callback" />
+            </intent-filter>
+        </activity>
+
         <!-- Push wake-ups: another device hands playback to this idle app. -->
         <service
             android:name=".push.FerrotunePushService"

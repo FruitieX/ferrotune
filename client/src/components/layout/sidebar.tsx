@@ -213,7 +213,7 @@ export function Sidebar() {
   }, [hydrated, collapsed, sidebarWidth]);
 
   // Don't show sidebar on login page
-  if (pathname === "/login") {
+  if (pathname.startsWith("/login")) {
     return null;
   }
 

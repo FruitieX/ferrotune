@@ -488,6 +488,7 @@ fn test_postgres_ferrotune_lists_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let auth_user = || FerrotuneAuthenticatedUser {
@@ -688,6 +689,7 @@ fn test_postgres_scrobble_helper_and_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let second_submission_time = base_play + chrono::Duration::seconds(62);
@@ -791,6 +793,7 @@ fn test_postgres_lastfm_config_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let staging_username = format!(
@@ -942,6 +945,7 @@ fn test_postgres_scrobble_import_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let auth_user = || FerrotuneAuthenticatedUser {
@@ -1140,6 +1144,7 @@ fn test_postgres_listening_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let auth_user = || FerrotuneAuthenticatedUser {
@@ -1294,6 +1299,7 @@ fn test_postgres_playqueue_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let ferrotune_response = ferrotune_save_play_queue(
@@ -1359,6 +1365,7 @@ fn test_postgres_preferences_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let auth_user = || FerrotuneAuthenticatedUser {
@@ -1494,6 +1501,7 @@ fn test_postgres_duplicates_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_get_duplicates(State(state))
@@ -1550,6 +1558,7 @@ fn test_postgres_setup_and_match_dictionary_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         // Setup: before completion
@@ -1654,6 +1663,7 @@ fn test_postgres_recycle_bin_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let auth = || FerrotuneAuthenticatedUser {
@@ -1775,6 +1785,7 @@ fn test_postgres_list_music_folders_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune::api::music_folders::list_music_folders(
@@ -1956,6 +1967,7 @@ fn test_postgres_directory_paged_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let auth_user = || FerrotuneAuthenticatedUser {
@@ -2264,6 +2276,7 @@ fn test_postgres_users_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let admin_auth = || FerrotuneAuthenticatedUser {
@@ -2394,6 +2407,7 @@ fn test_postgres_tagger_core_helpers_and_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let staging_username = format!(
@@ -3084,6 +3098,7 @@ fn test_postgres_stats_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let stats = ferrotune_get_stats(
@@ -3153,6 +3168,7 @@ fn test_postgres_waveform_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_get_waveform(
@@ -3227,6 +3243,7 @@ fn test_postgres_home_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_get_home(
@@ -3434,6 +3451,7 @@ fn test_postgres_browse_library_reads_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
         let authenticated_user = || FerrotuneAuthenticatedUser {
             user_id: user.id,
@@ -4516,6 +4534,7 @@ fn test_postgres_playlist_start_queue_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_start_queue(
@@ -4686,6 +4705,7 @@ fn test_postgres_smart_playlist_start_queue_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_start_queue(
@@ -4807,6 +4827,7 @@ fn test_postgres_smart_playlist_read_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let list_response = ferrotune_smart_playlists::list_smart_playlists(
@@ -4942,6 +4963,7 @@ fn test_postgres_smart_playlist_write_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let create_response = ferrotune_smart_playlists::create_smart_playlist(
@@ -5167,6 +5189,7 @@ fn test_postgres_continue_listening_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_get_continue_listening(
@@ -5277,6 +5300,7 @@ fn test_postgres_continue_listening_start_queue_handler_works() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let response = ferrotune_start_queue(
@@ -5391,6 +5415,7 @@ fn test_postgres_most_played_recently_start_queue_uses_tracks() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let since = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
@@ -6536,6 +6561,7 @@ fn test_postgres_ferrotune_playlist_folder_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let owner_user = || FerrotuneAuthenticatedUser {
@@ -6778,6 +6804,7 @@ fn test_postgres_ferrotune_playlist_entry_mutation_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let owner_user = || FerrotuneAuthenticatedUser {
@@ -7040,6 +7067,7 @@ fn test_postgres_ferrotune_playlist_write_admin_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let owner_user = || FerrotuneAuthenticatedUser {
@@ -7311,6 +7339,7 @@ fn test_postgres_ferrotune_playlist_read_handlers_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let owner_user = || FerrotuneAuthenticatedUser {
@@ -7511,6 +7540,7 @@ fn test_postgres_ferrotune_history_handler_work() {
             scan_state: ferrotune::api::create_scan_state(),
             shuffle_cache: Default::default(),
             session_manager: Arc::new(SessionManager::new()),
+            oidc: None,
         });
 
         let history = ferrotune_history::get_play_history(

@@ -76,6 +76,8 @@ pub struct TestServerConfig {
     pub readonly_tags: Option<bool>,
     /// Database target for the test server.
     pub database: TestDatabaseConfig,
+    /// Extra environment variables for the server process.
+    pub env: Vec<(String, String)>,
 }
 
 impl TestServer {
@@ -172,7 +174,8 @@ impl TestServer {
             command
                 .env(DATABASE_URL_ENV, &database_url)
                 .env(DATA_DIR_ENV, &temp_dir)
-                .env(TRANSCODE_CACHE_PATH_ENV, &transcode_cache_dir);
+                .env(TRANSCODE_CACHE_PATH_ENV, &transcode_cache_dir)
+                .envs(config.env.iter().map(|(k, v)| (k, v)));
             let mut child = match command
                 .arg("serve")
                 .arg("--host")

@@ -170,3 +170,22 @@ export type ConnectionStatus =
   | "error";
 export const connectionStatusAtom = atom<ConnectionStatus>("disconnected");
 export const connectionErrorAtom = atom<string | null>(null);
+
+/**
+ * Puts a freshly signed-in connection at the top of the saved accounts,
+ * replacing an older entry for the same account.
+ */
+export const saveAccountAtom = atom(
+  null,
+  (_get, set, connection: ServerConnection) => {
+    const key = accountKey(connection);
+    const account: SavedAccount = {
+      ...connection,
+      label: accountLabel(connection),
+    };
+    set(savedAccountsAtom, (prev) => [
+      account,
+      ...prev.filter((saved) => accountKey(saved) !== key),
+    ]);
+  },
+);

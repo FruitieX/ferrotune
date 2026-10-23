@@ -34,6 +34,23 @@ These variables only matter when the server is bound to a non-local host. When r
 | `FERROTUNE_FCM_SERVICE_ACCOUNT` | unset | Firebase service account key (the JSON itself, or a path to the JSON file) for Firebase Cloud Messaging. Advertised as `pushEnabled` in `GET /api/ping`; the native Android app then registers its push token, idle phones appear in the connected-clients lists, and handing playback to one wakes it with a push. Unset disables push wake-ups. |
 | `FERROTUNE_CORS_ALLOW_ANY` | unset / false | If set to `true` or `1`, allows any origin. This is unsafe for production deployments. |
 
+## Passkey Sign-In (OIDC)
+
+Optional sign-in through an OpenID Connect provider such as Pocket ID. With none of these set, only password sign-in exists. When configured, the web client and the native Android app lead with "Sign in with passkey" and keep password sign-in as a fallback. The server is the relying party (confidential client, authorization code + PKCE); clients get a normal year-long sliding session, never provider tokens. Register `<FERROTUNE_PUBLIC_URL>/api/auth/oidc/callback` as the client's callback URL at the provider.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FERROTUNE_OIDC_ISSUER` | unset | Provider issuer URL, e.g. `https://id.example.org` (discovery is read from `/.well-known/openid-configuration`). |
+| `FERROTUNE_OIDC_CLIENT_ID` | unset | Client id at the provider. |
+| `FERROTUNE_OIDC_CLIENT_SECRET` | unset | Client secret. Keep it in a secret store. |
+| `FERROTUNE_PUBLIC_URL` | unset | Public origin of this server, e.g. `https://music.example.org`. Required with OIDC; gives the callback URL and the web client's `/login/callback`. |
+| `FERROTUNE_OIDC_ALLOWED_GROUPS` | unset | Comma-separated groups; sign-in needs membership in one of them. Unset allows anyone the provider lets through. |
+| `FERROTUNE_OIDC_ADMIN_GROUP` | unset | Members of this group get the admin flag at each sign-in, everyone else loses it. Unset leaves admin flags alone. |
+| `FERROTUNE_OIDC_USER_MAP` | unset | `provideruser:localuser,…` for local accounts whose names differ from the provider usernames. Others link by case-insensitive username match; provider accounts without a local user get a new password-less account with access to all libraries. Links are stored by issuer + subject (`user_oidc_identities`), so later renames don't matter. |
+| `FERROTUNE_OIDC_REDIRECT_URIS` | unset | Extra comma-separated client URIs a sign-in may return to (e.g. a dev server's `http://localhost:3000/login/callback`). `<FERROTUNE_PUBLIC_URL>/login/callback` and the Android app's `ferrotune://oidc/callback` are always allowed; anything else is refused. |
+
+Setting some of `FERROTUNE_OIDC_ISSUER`/`_CLIENT_ID`/`_CLIENT_SECRET` without the rest (or without `FERROTUNE_PUBLIC_URL`) fails startup.
+
 ## Scanning And Analysis
 
 These variables affect background audio analysis during library scans.
