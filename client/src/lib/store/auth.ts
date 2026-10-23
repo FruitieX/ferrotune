@@ -14,9 +14,15 @@ export interface SavedAccount extends ServerConnection {
   label?: string;
 }
 
+// Read from localStorage when first used, not when a component subscribes:
+// pages that only write (the passkey callback adds an account through
+// saveAccountAtom without rendering the list) would otherwise start from []
+// and replace every other saved account.
 export const savedAccountsAtom = atomWithStorage<SavedAccount[]>(
   "ferrotune-saved-accounts",
   [],
+  undefined,
+  { getOnInit: true },
 );
 
 /**
