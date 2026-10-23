@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -194,6 +196,22 @@ fun LoginScreen(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (state.serverSuggestions.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        state.serverSuggestions.forEach { server ->
+                            SuggestionChip(
+                                onClick = { viewModel.onServerUrlChange(server) },
+                                label = { Text(server.substringAfter("://")) },
+                                enabled = !state.isConnecting,
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
 
                 if (state.oidcAvailable) {

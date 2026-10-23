@@ -44,6 +44,17 @@ class OidcLoginTest {
                 "?redirect=ferrotune%3A%2F%2Foidc%2Fcallback&challenge=abc-_",
             OidcLogin.startUrl("https://music.example.org/", "abc-_"),
         )
+        assertEquals(
+            "https://music.example.org/api/auth/oidc/start" +
+                "?redirect=ferrotune%3A%2F%2Foidc%2Fcallback&challenge=abc-_&prompt=select_account",
+            OidcLogin.startUrl("https://music.example.org", "abc-_", OidcLogin.PROMPT_SELECT_ACCOUNT),
+        )
+    }
+
+    @Test
+    fun `only adding an account prompts the provider`() {
+        assertEquals(null, OidcLogin.promptFor(0))
+        assertEquals("select_account", OidcLogin.promptFor(2))
     }
 
     @Test

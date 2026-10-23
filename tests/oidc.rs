@@ -379,6 +379,40 @@ fn oidc_sign_in_links_creates_and_refuses() {
 }
 
 #[test]
+fn oidc_start_forwards_only_allowlisted_prompts() {
+    let h = Harness::new();
+    let authorize_prompt = |prompt: Option<&str>| -> Option<String> {
+        let mut start = format!(
+            "{}?redirect={}",
+            h.server.api_url("auth/oidc/start"),
+            urlencoding::encode(ANDROID_REDIRECT)
+        );
+        if let Some(prompt) = prompt {
+            start.push_str(&format!("&prompt={}", urlencoding::encode(prompt)));
+        }
+        let response = h.http.get(&start).send().unwrap();
+        let authorize = Harness::location(&response);
+        let (endpoint, query) = authorize.split_once('?').unwrap();
+        assert!(endpoint.ends_with("/authorize"), "{authorize}");
+        let params: HashMap<String, String> = serde_urlencoded::from_str(query).unwrap();
+        params.get("prompt").cloned()
+    };
+
+    // A plain sign-in stays silent: the provider may reuse its session.
+    assert_eq!(authorize_prompt(None), None);
+    // Adding an account asks the provider to let the person pick the account.
+    assert_eq!(
+        authorize_prompt(Some("select_account")).as_deref(),
+        Some("select_account")
+    );
+    assert_eq!(authorize_prompt(Some("login")).as_deref(), Some("login"));
+    // Anything else is dropped instead of forwarded.
+    for prompt in ["none", "consent", "login consent", "", "LOGIN"] {
+        assert_eq!(authorize_prompt(Some(prompt)), None, "prompt={prompt:?}");
+    }
+}
+
+#[test]
 fn oidc_is_off_without_configuration() {
     let server = TestServer::new().expect("server should start");
     let http = Client::new();

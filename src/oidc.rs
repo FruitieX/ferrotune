@@ -254,6 +254,36 @@ pub fn is_valid_challenge(challenge: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// The OIDC `prompt` values a client may ask the provider for. Anything
+/// else (`none`, `consent`, combinations) is dropped rather than forwarded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prompt {
+    /// Re-authenticate the provider's signed-in user.
+    Login,
+    /// Let the person confirm or switch the provider account (Pocket ID shows
+    /// the signed-in user with "Use a different account"). Clients send it
+    /// when adding another account, so a provider session can't silently
+    /// sign in the same person again.
+    SelectAccount,
+}
+
+impl Prompt {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "login" => Some(Self::Login),
+            "select_account" => Some(Self::SelectAccount),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Login => "login",
+            Self::SelectAccount => "select_account",
+        }
+    }
+}
+
 pub fn hash_secret(value: &str) -> String {
     blake3::hash(value.as_bytes()).to_hex().to_string()
 }
@@ -332,6 +362,7 @@ impl Oidc {
         binding: &str,
         client_redirect: &str,
         client_challenge: Option<&str>,
+        prompt: Option<Prompt>,
     ) -> Result<String> {
         let discovery = self.discovery().await?;
         let state = random_token();
@@ -343,7 +374,7 @@ impl Oidc {
             client_challenge: client_challenge.map(str::to_string),
             created: Instant::now(),
         };
-        let url = self.authorization_url(&discovery, &state, &login);
+        let url = self.authorization_url(&discovery, &state, &login, prompt);
         {
             let mut pending = self.pending.lock().unwrap();
             pending.retain(|_, login| login.created.elapsed() < LOGIN_TTL);
@@ -362,22 +393,24 @@ impl Oidc {
         discovery: &Discovery,
         state: &str,
         login: &PendingLogin,
+        prompt: Option<Prompt>,
     ) -> String {
         let challenge = pkce_challenge(&login.verifier);
         let callback = self.config.callback_url();
-        with_query(
-            &discovery.authorization_endpoint,
-            &[
-                ("response_type", "code"),
-                ("client_id", &self.config.client_id),
-                ("redirect_uri", &callback),
-                ("scope", "openid profile email groups"),
-                ("state", state),
-                ("nonce", &login.nonce),
-                ("code_challenge", &challenge),
-                ("code_challenge_method", "S256"),
-            ],
-        )
+        let mut params: Vec<(&str, &str)> = vec![
+            ("response_type", "code"),
+            ("client_id", self.config.client_id.as_str()),
+            ("redirect_uri", callback.as_str()),
+            ("scope", "openid profile email groups"),
+            ("state", state),
+            ("nonce", login.nonce.as_str()),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+        ];
+        if let Some(prompt) = prompt {
+            params.push(("prompt", prompt.as_str()));
+        }
+        with_query(&discovery.authorization_endpoint, &params)
     }
 
     /// Takes the pending sign-in for `state` (single use). `None` when it is
@@ -686,7 +719,7 @@ mod tests {
             .build()
             .unwrap();
         let url = runtime
-            .block_on(oidc.start("binding", "ferrotune://oidc/callback", None))
+            .block_on(oidc.start("binding", "ferrotune://oidc/callback", None, None))
             .unwrap();
         assert!(url.starts_with("https://id.example.org/authorize?response_type=code&"));
         assert!(url.contains("code_challenge_method=S256"));
@@ -709,7 +742,7 @@ mod tests {
         assert!(oidc.take_pending(&state, Some("binding")).is_none());
 
         let url = runtime
-            .block_on(oidc.start("binding", "ferrotune://oidc/callback", None))
+            .block_on(oidc.start("binding", "ferrotune://oidc/callback", None, None))
             .unwrap();
         let state = url
             .split('&')
@@ -718,7 +751,7 @@ mod tests {
             .to_string();
         assert!(oidc.take_pending(&state, None).is_none());
         let url = runtime
-            .block_on(oidc.start("binding", "ferrotune://oidc/callback", None))
+            .block_on(oidc.start("binding", "ferrotune://oidc/callback", None, None))
             .unwrap();
         let state = url
             .split('&')

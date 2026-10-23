@@ -43,6 +43,9 @@ pub struct OidcStartParams {
     pub redirect: String,
     /// PKCE S256 challenge of a verifier the client sends to the exchange.
     pub challenge: Option<String>,
+    /// OIDC `prompt` for the provider: `select_account` (clients send it when
+    /// adding another account) or `login`. Other values are not forwarded.
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,7 +122,7 @@ fn failure_page(status: StatusCode, message: &str) -> Response {
     (status, format!("Sign-in failed: {message}")).into_response()
 }
 
-/// GET /api/auth/oidc/start?redirect=<client uri>&challenge=<pkce>
+/// GET /api/auth/oidc/start?redirect=<client uri>&challenge=<pkce>&prompt=<select_account|login>
 pub async fn start(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -139,6 +142,13 @@ pub async fn start(
             return failure_page(StatusCode::BAD_REQUEST, "invalid challenge");
         }
     }
+    let prompt = params.prompt.as_deref().and_then(|value| {
+        let prompt = oidc::Prompt::parse(value);
+        if prompt.is_none() {
+            tracing::debug!(prompt = %value, "Ignoring an OIDC prompt that is not allowed");
+        }
+        prompt
+    });
     // Reuse the browser's binding so sign-ins started in two tabs both work.
     let binding = cookie(&headers, oidc::BINDING_COOKIE)
         .filter(|value| {
@@ -151,7 +161,7 @@ pub async fn start(
         .unwrap_or_else(oidc::random_token);
 
     match oidc
-        .start(&binding, &params.redirect, challenge.as_deref())
+        .start(&binding, &params.redirect, challenge.as_deref(), prompt)
         .await
     {
         Ok(url) => {

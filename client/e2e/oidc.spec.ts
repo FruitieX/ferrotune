@@ -19,10 +19,13 @@ function startProvider() {
   const state: {
     issuer: string;
     next: MockUser;
+    /** The `prompt` of each authorize request, in order (null when absent). */
+    prompts: (string | null)[];
     codes: Map<string, { user: MockUser; nonce: string; challenge: string }>;
   } = {
     issuer: "",
     next: { sub: "sub-owner", username: "owner", groups: ["family"] },
+    prompts: [],
     codes: new Map(),
   };
   const server = http.createServer((req, res) => {
@@ -39,6 +42,7 @@ function startProvider() {
       });
     }
     if (url.pathname === "/authorize") {
+      state.prompts.push(url.searchParams.get("prompt"));
       const code = randomBytes(16).toString("hex");
       state.codes.set(code, {
         user: state.next,
@@ -149,8 +153,11 @@ test.describe("passkey sign-in (OIDC)", () => {
       .click();
     await expect(page.locator("#password")).toBeVisible();
 
+    provider.state.prompts = [];
     await passkey.click();
     await waitForAuthenticatedHome(page);
+    // A first account signs in silently through the provider's session.
+    expect(provider.state.prompts).toEqual([null]);
 
     const connection = await page.evaluate(() =>
       JSON.parse(localStorage.getItem("ferrotune-connection") ?? "null"),
@@ -180,6 +187,44 @@ test.describe("passkey sign-in (OIDC)", () => {
     );
     expect(connection.username).toBe("kiddo");
     expect(connection.isAdmin).toBe(false);
+  });
+
+  test("adding an account lets the provider offer another account", async ({
+    page,
+  }) => {
+    provider.state.next = {
+      sub: "sub-owner",
+      username: "owner",
+      groups: ["admins", "family"],
+    };
+    await openLogin(page);
+    await page.getByRole("button", { name: "Sign in with passkey" }).click();
+    await waitForAuthenticatedHome(page);
+
+    // "Add Account" opens the login page with the owner already saved. The
+    // provider still has the owner's session, so without a prompt it would
+    // sign the owner in again and the kid could never be added.
+    provider.state.prompts = [];
+    provider.state.next = {
+      sub: "sub-kid",
+      username: "kiddo",
+      groups: ["kids"],
+    };
+    await openLogin(page);
+    await page.getByRole("button", { name: "Sign in with passkey" }).click();
+    await waitForAuthenticatedHome(page);
+    expect(provider.state.prompts).toEqual(["select_account"]);
+
+    const saved = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("ferrotune-saved-accounts") ?? "[]"),
+    );
+    expect(
+      saved.map((account: { username: string }) => account.username),
+    ).toEqual(["kiddo", "testadmin"]);
+    const connection = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("ferrotune-connection") ?? "null"),
+    );
+    expect(connection.username).toBe("kiddo");
   });
 
   test("refuses someone outside the allowed groups", async ({ page }) => {

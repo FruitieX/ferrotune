@@ -44,8 +44,28 @@ async function pkcePair(): Promise<{
   return { verifier, challenge: base64Url(new Uint8Array(digest)) };
 }
 
+/**
+ * OIDC `prompt` forwarded to the provider. `select_account` makes Pocket ID
+ * show its signed-in user with "Use a different account" instead of silently
+ * reusing that session, which is what adding another account needs.
+ */
+export type OidcPrompt = "select_account" | "login";
+
+/**
+ * The prompt for a passkey sign-in from the login page: none for a first
+ * account (the provider session signs in seamlessly), `select_account` once
+ * accounts are saved, since the person may be adding someone else (a
+ * family member whose passkey they hold) and must get to pick.
+ */
+export function oidcPromptFor(savedAccountCount: number): OidcPrompt | null {
+  return savedAccountCount > 0 ? "select_account" : null;
+}
+
 /** Leaves for the provider; the page unloads on success. */
-export async function startOidcLogin(serverUrl: string): Promise<void> {
+export async function startOidcLogin(
+  serverUrl: string,
+  prompt: OidcPrompt | null = null,
+): Promise<void> {
   const pkce = await pkcePair();
   const pending: PendingOidcLogin = {
     serverUrl,
@@ -58,6 +78,9 @@ export async function startOidcLogin(serverUrl: string): Promise<void> {
   });
   if (pkce) {
     params.set("challenge", pkce.challenge);
+  }
+  if (prompt) {
+    params.set("prompt", prompt);
   }
   window.location.assign(`${serverUrl}/api/auth/oidc/start?${params}`);
 }

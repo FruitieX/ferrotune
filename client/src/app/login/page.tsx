@@ -43,7 +43,11 @@ import {
   saveAccountAtom,
   type SavedAccount,
 } from "@/lib/store/auth";
-import { connectionFromLogin, startOidcLogin } from "@/lib/auth/oidc";
+import {
+  connectionFromLogin,
+  oidcPromptFor,
+  startOidcLogin,
+} from "@/lib/auth/oidc";
 import {
   initializeClient,
   FerrotuneApiError,
@@ -127,7 +131,12 @@ export default function LoginPage() {
     setIsConnecting(true);
     setError(null);
     try {
-      await startOidcLogin(effectiveServerUrl(serverUrl));
+      // With accounts saved this is "add account": let the provider offer
+      // another account instead of reusing its session for the same person.
+      await startOidcLogin(
+        effectiveServerUrl(serverUrl),
+        oidcPromptFor(savedAccounts.length),
+      );
     } catch (err) {
       setIsConnecting(false);
       setError(err instanceof Error ? err.message : "Sign-in failed");

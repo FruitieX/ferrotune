@@ -1,6 +1,8 @@
 package com.ferrotune.feature.auth
 
 import android.content.Context
+import com.ferrotune.core.network.FerrotuneApi
+import com.ferrotune.core.network.FerrotuneApiFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,10 +61,22 @@ object OidcLogin {
         return out.toString()
     }
 
-    fun startUrl(serverUrl: String, challenge: String): String {
+    /**
+     * OIDC `prompt` for adding another account: Pocket ID then shows its
+     * signed-in user with "Use a different account" instead of silently
+     * reusing the Custom Tab's provider session for the same person.
+     */
+    const val PROMPT_SELECT_ACCOUNT = "select_account"
+
+    /** No prompt for a first account (seamless), [PROMPT_SELECT_ACCOUNT] once accounts are saved. */
+    fun promptFor(savedAccountCount: Int): String? =
+        if (savedAccountCount > 0) PROMPT_SELECT_ACCOUNT else null
+
+    fun startUrl(serverUrl: String, challenge: String, prompt: String? = null): String {
         fun enc(value: String) = URLEncoder.encode(value, "UTF-8")
         return "${serverUrl.trimEnd('/')}/api/auth/oidc/start" +
-            "?redirect=${enc(REDIRECT_URI)}&challenge=${enc(challenge)}"
+            "?redirect=${enc(REDIRECT_URI)}&challenge=${enc(challenge)}" +
+            (prompt?.let { "&prompt=${enc(it)}" } ?: "")
     }
 
     /** Whether [uri] is the end of a sign-in meant for this app. */
@@ -99,6 +113,41 @@ class OidcRedirects @Inject constructor() {
     fun consume(uri: String) {
         latest.compareAndSet(uri, null)
     }
+}
+
+/** The server this install last signed in to, so the login screen can start there after sign-out. */
+interface LastServerStore {
+    fun get(): String?
+    fun save(serverUrl: String)
+}
+
+@Singleton
+class SharedPrefsLastServerStore @Inject constructor(
+    @ApplicationContext context: Context,
+) : LastServerStore {
+    private val prefs = context.getSharedPreferences("ferrotune_login", Context.MODE_PRIVATE)
+
+    override fun get(): String? = prefs.getString(KEY_SERVER, null)?.takeIf { it.isNotBlank() }
+
+    override fun save(serverUrl: String) {
+        prefs.edit().putString(KEY_SERVER, serverUrl).apply()
+    }
+
+    private companion object {
+        const val KEY_SERVER = "last_server_url"
+    }
+}
+
+/** Unauthenticated (or saved-session) API clients for the login screen. */
+fun interface LoginApis {
+    fun create(serverUrl: String, sessionToken: String?): FerrotuneApi
+}
+
+class DefaultLoginApis @Inject constructor(
+    private val factory: FerrotuneApiFactory,
+) : LoginApis {
+    override fun create(serverUrl: String, sessionToken: String?): FerrotuneApi =
+        factory.create(serverUrl, sessionToken?.let { token -> { token } })
 }
 
 /** A sign-in waiting for its redirect; kept on disk in case the app is killed meanwhile. */
