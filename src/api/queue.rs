@@ -2302,15 +2302,19 @@ pub(crate) async fn materialize_queue_songs(
         QueueSourceType::Artist => {
             let artist_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Artist ID required".to_string()))?;
-            let songs =
-                repo::browse::get_songs_by_artist_for_user(database, artist_id, user_id).await?;
-            // Apply text filtering and sorting if provided
-            Ok(sorting::filter_and_sort_songs(
-                songs,
+            // Same query, filter and order as the artist page's song list, so
+            // the queue matches what the user saw.
+            let sort = crate::api::browse::collection_song_sort(sort_field.as_deref())?;
+            let descending = crate::api::browse::collection_song_descending(sort_dir.as_deref())?;
+            Ok(repo::browse::get_songs_by_artist_for_user(
+                database,
+                artist_id,
+                user_id,
                 text_filter,
-                sort_field.as_deref(),
-                sort_dir.as_deref(),
-            ))
+                sort,
+                descending,
+            )
+            .await?)
         }
         QueueSourceType::Playlist => {
             let playlist_id = source_id

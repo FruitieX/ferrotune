@@ -269,14 +269,22 @@ fn apply_song_library_status_play_stats(
     }
 }
 
-fn artist_song_condition(artist_id: &str, album_ids: &[String]) -> Condition {
-    let mut condition = Condition::any().add(entity::songs::Column::ArtistId.eq(artist_id));
-
-    if !album_ids.is_empty() {
-        condition = condition.add(entity::songs::Column::AlbumId.is_in(album_ids.iter().cloned()));
-    }
-
-    condition
+/// Songs by an artist: ones the artist performs plus every song on albums
+/// credited to the artist. The same set the artist page lists, so playing the
+/// page queues exactly what it shows (not whole compilations the artist only
+/// appears on).
+fn artist_song_condition(artist_id: &str) -> Condition {
+    Condition::any()
+        .add(entity::songs::Column::ArtistId.eq(artist_id))
+        .add(
+            Expr::col((entity::songs::Entity, entity::songs::Column::AlbumId)).in_subquery(
+                entity::albums::Entity::find()
+                    .select_only()
+                    .column(entity::albums::Column::Id)
+                    .filter(entity::albums::Column::ArtistId.eq(artist_id))
+                    .into_query(),
+            ),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -487,11 +495,11 @@ pub async fn get_songs_by_album_for_user(
 /// Get all songs by a specific artist (both track artist and album artist).
 pub async fn get_songs_by_artist(database: &Database, artist_id: &str) -> Result<Vec<Song>> {
     let folder_ids = enabled_music_folder_ids(database).await?;
-    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
 
     let mut songs = song_select(database)
         .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
-        .filter(artist_song_condition(artist_id, &album_ids))
+        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
+        .filter(artist_song_condition(artist_id))
         .order_by_asc(entity::songs::Column::AlbumId)
         .order_by_asc(entity::songs::Column::DiscNumber)
         .order_by_asc(entity::songs::Column::TrackNumber)
@@ -515,44 +523,27 @@ pub async fn get_songs_by_artist(database: &Database, artist_id: &str) -> Result
     Ok(songs)
 }
 
+/// Every song the artist page lists, in the page's order, for queueing.
 pub async fn get_songs_by_artist_for_user(
     database: &Database,
     artist_id: &str,
     user_id: i64,
+    filter: Option<&str>,
+    sort: CollectionSongSort,
+    descending: bool,
 ) -> Result<Vec<Song>> {
-    let folder_ids = users::get_enabled_accessible_music_folder_ids(database, user_id).await?;
-    if folder_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let album_ids = visible_album_ids_for_artist(database, artist_id, &folder_ids).await?;
-    let mut songs = song_select(database)
-        .filter(entity::songs::Column::MarkedForDeletionAt.is_null())
-        .filter(entity::songs::Column::MusicFolderId.is_in(folder_ids.iter().copied()))
-        .filter(artist_song_condition(artist_id, &album_ids))
-        .order_by_asc(entity::songs::Column::AlbumId)
-        .order_by_asc(entity::songs::Column::DiscNumber)
-        .order_by_asc(entity::songs::Column::TrackNumber)
-        .order_by_asc(entity::songs::Column::Title)
-        .into_model::<Song>()
-        .all(database.conn())
-        .await?;
-
-    let song_ids = songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>();
-    let stats = scrobbles::fetch_song_play_stats_rows(
+    let page = page_artist_songs_for_user(
         database,
-        Some(user_id),
-        &song_ids,
-        PlayStatsAggregation::CountRows,
+        artist_id,
+        user_id,
+        filter,
+        sort,
+        descending,
+        0,
+        i64::MAX as u64,
     )
     .await?;
-    let play_starts =
-        crate::db::repo::listening::fetch_song_play_starts_rows(database, Some(user_id), &song_ids)
-            .await?;
-    apply_song_play_stats(&mut songs, stats, play_starts);
-    crate::db::repo::song_likes::attach_song_likes(database, user_id, &mut songs).await?;
-
-    Ok(songs)
+    Ok(page.songs)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -787,9 +778,7 @@ pub async fn page_artist_songs_for_user(
     page_collection_songs(
         database,
         user_id,
-        Condition::any()
-            .add(entity::songs::Column::ArtistId.eq(artist_id))
-            .add(entity::albums::Column::ArtistId.eq(artist_id)),
+        artist_song_condition(artist_id),
         filter,
         sort,
         descending,
@@ -1506,8 +1495,9 @@ pub async fn list_user_songs_by_path_prefix(
 #[cfg(test)]
 mod tests {
     use super::{
-        album_select, order_artist_albums, page_directory_folders, page_directory_songs,
-        DirectoryPageOptions, DirectorySort,
+        album_select, get_songs_by_artist_for_user, order_artist_albums,
+        page_artist_songs_for_user, page_directory_folders, page_directory_songs,
+        CollectionSongSort, DirectoryPageOptions, DirectorySort,
     };
     use crate::db::{entity, Database};
     use sea_orm::{ActiveModelTrait, ActiveValue::Set, DbBackend, EntityTrait, QueryTrait};
@@ -1623,5 +1613,105 @@ mod tests {
         assert_eq!(song_page.rows.len(), 10);
         assert_eq!(song_page.rows[0].id, "root-050");
         assert_eq!(song_page.rows[9].id, "root-059");
+    }
+
+    #[tokio::test]
+    async fn artist_queue_matches_the_artist_page() {
+        let database = directory_database().await;
+        let user_id =
+            crate::db::repo::users::create_user(&database, "listener", "hash", None, true)
+                .await
+                .expect("create user");
+        crate::db::repo::users::grant_user_library_access(&database, user_id, 1)
+            .await
+            .expect("grant library access");
+
+        for (id, name) in [
+            ("naganuma", "Hideki Naganuma"),
+            ("various", "Various Artists"),
+        ] {
+            entity::artists::ActiveModel {
+                id: Set(id.to_string()),
+                name: Set(name.to_string()),
+                ..Default::default()
+            }
+            .insert(database.conn())
+            .await
+            .expect("insert artist");
+        }
+        for (id, artist_id) in [("single", "naganuma"), ("soundtrack", "various")] {
+            entity::albums::ActiveModel {
+                id: Set(id.to_string()),
+                name: Set(id.to_string()),
+                artist_id: Set(artist_id.to_string()),
+                song_count: Set(0),
+                duration: Set(0),
+                created_at: Set(chrono::Utc::now().fixed_offset()),
+                ..Default::default()
+            }
+            .insert(database.conn())
+            .await
+            .expect("insert album");
+        }
+        // A single by the artist plus a various-artists soundtrack the artist
+        // appears on twice: only the artist's own tracks belong in the queue.
+        let songs = [
+            ("single-1", "single", "naganuma", 1),
+            ("ost-1", "soundtrack", "artist", 1),
+            ("ost-2", "soundtrack", "naganuma", 2),
+            ("ost-3", "soundtrack", "artist", 3),
+            ("ost-4", "soundtrack", "naganuma", 4),
+        ]
+        .into_iter()
+        .map(
+            |(id, album_id, artist_id, track)| entity::songs::ActiveModel {
+                id: Set(id.to_string()),
+                title: Set(id.to_string()),
+                album_id: Set(Some(album_id.to_string())),
+                artist_id: Set(artist_id.to_string()),
+                track_number: Set(Some(track)),
+                disc_number: Set(1),
+                music_folder_id: Set(Some(1)),
+                duration: Set(1),
+                file_path: Set(format!("{id}.mp3")),
+                file_size: Set(1),
+                file_format: Set("mp3".to_string()),
+                ..Default::default()
+            },
+        )
+        .collect::<Vec<_>>();
+        entity::songs::Entity::insert_many(songs)
+            .exec(database.conn())
+            .await
+            .expect("insert songs");
+
+        let page = page_artist_songs_for_user(
+            &database,
+            "naganuma",
+            user_id,
+            None,
+            CollectionSongSort::TrackNumber,
+            false,
+            0,
+            50,
+        )
+        .await
+        .expect("page artist songs");
+        let queue = get_songs_by_artist_for_user(
+            &database,
+            "naganuma",
+            user_id,
+            None,
+            CollectionSongSort::TrackNumber,
+            false,
+        )
+        .await
+        .expect("artist songs for queue");
+
+        let ids = |songs: &[crate::db::models::Song]| {
+            songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&queue), vec!["single-1", "ost-2", "ost-4"]);
+        assert_eq!(ids(&queue), ids(&page.songs));
     }
 }

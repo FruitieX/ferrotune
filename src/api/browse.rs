@@ -240,7 +240,9 @@ fn validate_page(offset: i64, count: i64) -> Result<(u64, u64), FerrotuneApiErro
     Ok((offset as u64, count as u64))
 }
 
-fn collection_song_sort(value: Option<&str>) -> Result<CollectionSongSort, FerrotuneApiError> {
+pub(crate) fn collection_song_sort(
+    value: Option<&str>,
+) -> Result<CollectionSongSort, FerrotuneApiError> {
     match value.unwrap_or("trackNumber") {
         "custom" | "trackNumber" => Ok(CollectionSongSort::TrackNumber),
         "name" => Ok(CollectionSongSort::Name),
@@ -263,7 +265,7 @@ fn collection_song_sort(value: Option<&str>) -> Result<CollectionSongSort, Ferro
     }
 }
 
-fn collection_song_descending(value: Option<&str>) -> Result<bool, FerrotuneApiError> {
+pub(crate) fn collection_song_descending(value: Option<&str>) -> Result<bool, FerrotuneApiError> {
     match value.unwrap_or("asc") {
         "asc" => Ok(false),
         "desc" => Ok(true),
