@@ -106,7 +106,7 @@ function ArtistDetailContent() {
       return client.getArtistSongs(id!, {
         offset: pageParam,
         count: pageSize,
-        sort: sortConfig.field === "custom" ? "name" : sortConfig.field,
+        sort: sortConfig.field,
         sortDir: sortConfig.direction,
         filter: debouncedFilter.trim() || null,
       });

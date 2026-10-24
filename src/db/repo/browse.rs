@@ -548,7 +548,9 @@ pub async fn get_songs_by_artist_for_user(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectionSongSort {
-    Natural,
+    /// Album by album (newest first, like the artist album grid), then disc
+    /// and track: the artist page's default order.
+    AlbumGrouped,
     TrackNumber,
     Name,
     Artist,
@@ -613,7 +615,29 @@ fn order_collection_songs(
 
     let order = if descending { Order::Desc } else { Order::Asc };
     query = match sort {
-        CollectionSongSort::Natural | CollectionSongSort::TrackNumber => query
+        CollectionSongSort::AlbumGrouped => {
+            let (newest_first, a_to_z) = if descending {
+                (Order::Asc, Order::Desc)
+            } else {
+                (Order::Desc, Order::Asc)
+            };
+            query
+                .order_by(
+                    Expr::col((entity::albums::Entity, entity::albums::Column::Year)),
+                    newest_first,
+                )
+                .order_by(
+                    case_insensitive_order(
+                        database.sea_backend(),
+                        (entity::albums::Entity, entity::albums::Column::Name),
+                    ),
+                    a_to_z.clone(),
+                )
+                .order_by(SongColumn::AlbumId, a_to_z)
+                .order_by(SongColumn::DiscNumber, order.clone())
+                .order_by(SongColumn::TrackNumber, order.clone())
+        }
+        CollectionSongSort::TrackNumber => query
             .order_by(SongColumn::DiscNumber, order.clone())
             .order_by(SongColumn::TrackNumber, order.clone()),
         CollectionSongSort::Name => query.order_by(
@@ -1639,11 +1663,15 @@ mod tests {
             .await
             .expect("insert artist");
         }
-        for (id, artist_id) in [("single", "naganuma"), ("soundtrack", "various")] {
+        for (id, artist_id, year) in [
+            ("single", "naganuma", 2023),
+            ("soundtrack", "various", 2024),
+        ] {
             entity::albums::ActiveModel {
                 id: Set(id.to_string()),
                 name: Set(id.to_string()),
                 artist_id: Set(artist_id.to_string()),
+                year: Set(Some(year)),
                 song_count: Set(0),
                 duration: Set(0),
                 created_at: Set(chrono::Utc::now().fixed_offset()),
@@ -1690,7 +1718,7 @@ mod tests {
             "naganuma",
             user_id,
             None,
-            CollectionSongSort::TrackNumber,
+            CollectionSongSort::AlbumGrouped,
             false,
             0,
             50,
@@ -1702,7 +1730,7 @@ mod tests {
             "naganuma",
             user_id,
             None,
-            CollectionSongSort::TrackNumber,
+            CollectionSongSort::AlbumGrouped,
             false,
         )
         .await
@@ -1711,7 +1739,8 @@ mod tests {
         let ids = |songs: &[crate::db::models::Song]| {
             songs.iter().map(|song| song.id.clone()).collect::<Vec<_>>()
         };
-        assert_eq!(ids(&queue), vec!["single-1", "ost-2", "ost-4"]);
+        // Grouped by album, newest first, then by track.
+        assert_eq!(ids(&queue), vec!["ost-2", "ost-4", "single-1"]);
         assert_eq!(ids(&queue), ids(&page.songs));
     }
 }

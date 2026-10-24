@@ -240,6 +240,17 @@ fn validate_page(offset: i64, count: i64) -> Result<(u64, u64), FerrotuneApiErro
     Ok((offset as u64, count as u64))
 }
 
+/// The artist song list's sort: by default (or "custom") songs are grouped by
+/// album, since track numbers alone interleave the artist's albums.
+pub(crate) fn artist_song_sort(
+    value: Option<&str>,
+) -> Result<CollectionSongSort, FerrotuneApiError> {
+    match value {
+        None | Some("custom") => Ok(CollectionSongSort::AlbumGrouped),
+        value => collection_song_sort(value),
+    }
+}
+
 pub(crate) fn collection_song_sort(
     value: Option<&str>,
 ) -> Result<CollectionSongSort, FerrotuneApiError> {
@@ -349,7 +360,7 @@ pub async fn get_artist_songs(
     Query(params): Query<CollectionSongsParams>,
 ) -> FerrotuneApiResult<Json<CollectionSongsResponse>> {
     let (offset, count) = validate_page(params.offset, params.count)?;
-    let sort = collection_song_sort(params.sort.as_deref())?;
+    let sort = artist_song_sort(params.sort.as_deref())?;
     let descending = collection_song_descending(params.sort_dir.as_deref())?;
     let page = crate::db::repo::browse::page_artist_songs_for_user(
         &state.database,
