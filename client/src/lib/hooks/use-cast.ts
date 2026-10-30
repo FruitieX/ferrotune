@@ -1302,11 +1302,9 @@ export function useCastInit() {
     // Set up the callback before the SDK script loads
     let context: cast.framework.CastContext | null = null;
     let handleCastStateChange:
-      | ((event: cast.framework.CastStateEventData) => void)
-      | null = null;
+      ((event: cast.framework.CastStateEventData) => void) | null = null;
     let handleSessionStateChange:
-      | ((event: cast.framework.SessionStateEventData) => void)
-      | null = null;
+      ((event: cast.framework.SessionStateEventData) => void) | null = null;
 
     window.__onGCastApiAvailable = (isAvailable: boolean) => {
       if (!isAvailable) {

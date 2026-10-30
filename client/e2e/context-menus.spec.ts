@@ -190,10 +190,14 @@ test.describe("Context Menus", () => {
       .filter({ hasText: "FLAC Track Two" })
       .first();
 
-    await (await openContextMenu(page, flacTrackOne))
+    await (
+      await openContextMenu(page, flacTrackOne)
+    )
       .getByRole("menuitem", { name: /play next/i })
       .click();
-    await (await openContextMenu(page, flacTrackTwo))
+    await (
+      await openContextMenu(page, flacTrackTwo)
+    )
       .getByRole("menuitem", { name: /play next/i })
       .click();
 
@@ -249,10 +253,14 @@ test.describe("Context Menus", () => {
       .filter({ hasText: "FLAC Track Two" })
       .first();
 
-    await (await openContextMenu(page, flacTrackOne))
+    await (
+      await openContextMenu(page, flacTrackOne)
+    )
       .getByRole("menuitem", { name: /play next/i })
       .click();
-    await (await openContextMenu(page, flacTrackTwo))
+    await (
+      await openContextMenu(page, flacTrackTwo)
+    )
       .getByRole("menuitem", { name: /play next/i })
       .click();
 

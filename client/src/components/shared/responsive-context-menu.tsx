@@ -78,8 +78,7 @@ interface ResponsiveContextMenuProps {
   contentClassName?: string;
   /** Collision padding for desktop context menu */
   collisionPadding?:
-    | number
-    | { top?: number; right?: number; bottom?: number; left?: number };
+    number | { top?: number; right?: number; bottom?: number; left?: number };
   /** Drawer header info */
   drawerTitle?: string;
   drawerSubtitle?: string;

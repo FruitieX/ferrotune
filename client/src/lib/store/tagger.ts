@@ -636,10 +636,7 @@ export async function loadTaggerState(): Promise<void> {
       detailsPanelOpen: sessionResponse.detailsPanelOpen,
       dangerousCharMode:
         (sessionResponse.dangerousCharMode as
-          | "ignore"
-          | "strip"
-          | "replace"
-          | undefined) ?? "replace",
+          "ignore" | "strip" | "replace" | undefined) ?? "replace",
       dangerousCharReplacement: sessionResponse.dangerousCharReplacement ?? "_",
     };
     if (setSessionBase) setSessionBase(session);

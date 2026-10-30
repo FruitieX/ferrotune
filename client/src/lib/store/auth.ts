@@ -170,10 +170,7 @@ function connectionWithAuthSessionUpdate(
 
 // Connection status
 export type ConnectionStatus =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "error";
+  "disconnected" | "connecting" | "connected" | "error";
 export const connectionStatusAtom = atom<ConnectionStatus>("disconnected");
 export const connectionErrorAtom = atom<string | null>(null);
 

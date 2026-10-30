@@ -39,7 +39,7 @@ import {
   downloadedContainersAtom,
 } from "@/lib/store/downloads";
 import type { Song } from "@/lib/api/types";
-import type { Store } from "jotai/vanilla/store";
+import type { Store } from "jotai/vanilla";
 
 const DOWNLOADED_SONGS_KEY = "offline:downloader:songs";
 const CONTAINER_PREFIX = "offline:downloaded-container:";

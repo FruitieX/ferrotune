@@ -696,8 +696,7 @@ interface SongContextMenuProps {
   onUnmatch?: (song: Song, index: number) => void;
   /** Padding from viewport edges for collision detection. Use larger bottom value for elements near screen bottom. */
   collisionPadding?:
-    | number
-    | { top?: number; right?: number; bottom?: number; left?: number };
+    number | { top?: number; right?: number; bottom?: number; left?: number };
   onNavigate?: () => void;
   /** Optional className for the mobile context menu wrapper */
   className?: string;

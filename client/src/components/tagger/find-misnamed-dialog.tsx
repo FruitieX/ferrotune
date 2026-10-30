@@ -159,9 +159,7 @@ export function FindMisnamedDialog({
     try {
       const response = await client.getSongPaths();
       const dangerousCharMode = (session.dangerousCharMode ?? "replace") as
-        | "ignore"
-        | "strip"
-        | "replace";
+        "ignore" | "strip" | "replace";
       const dangerousCharReplacement = session.dangerousCharReplacement ?? "_";
 
       const results: MismatchedSong[] = [];

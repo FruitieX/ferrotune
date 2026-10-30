@@ -225,8 +225,7 @@ export async function initNativeAudioEngine(
       switch (event) {
         case "state-change": {
           const status = data?.state?.status as
-            | NativePlaybackState["status"]
-            | undefined;
+            NativePlaybackState["status"] | undefined;
           if (status) {
             console.debug("[NativeAudio] State change:", status);
             const appState = mapNativeStatusToAppState(status);

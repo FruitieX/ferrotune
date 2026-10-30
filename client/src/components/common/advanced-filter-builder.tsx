@@ -52,13 +52,7 @@ export interface AdvancedFilters {
 }
 
 export type FieldType =
-  | "text"
-  | "number"
-  | "duration"
-  | "date"
-  | "boolean"
-  | "enum"
-  | "multiEnum";
+  "text" | "number" | "duration" | "date" | "boolean" | "enum" | "multiEnum";
 
 export interface FieldDefinition {
   value: string;

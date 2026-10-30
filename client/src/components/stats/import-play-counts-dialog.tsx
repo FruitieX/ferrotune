@@ -107,12 +107,7 @@ interface PlayCountTrack extends MatchableTrack {
 }
 
 type SortOption =
-  | "playCount"
-  | "title"
-  | "artist"
-  | "previewTotal"
-  | "duration"
-  | "lastPlayed";
+  "playCount" | "title" | "artist" | "previewTotal" | "duration" | "lastPlayed";
 
 // ============================================================================
 // CSV Parsing Result
@@ -956,13 +951,11 @@ export function ImportPlayCountsDialog({
         .filter((t) => t.match && t.selected !== false && t.plays)
         .map((t) => ({
           songId: t.match!.id,
-          plays: t.plays!.map(
-            (p): PlayEvent => ({
-              playedAt: p.playedAt,
-              durationSeconds: p.durationSeconds,
-              isScrobble: p.isScrobble,
-            }),
-          ),
+          plays: t.plays!.map((p): PlayEvent => ({
+            playedAt: p.playedAt,
+            durationSeconds: p.durationSeconds,
+            isScrobble: p.isScrobble,
+          })),
         }));
 
       // Process in batches for progress tracking

@@ -5,12 +5,7 @@ import { isRemoteControllingAtom, remotePlaybackStateAtom } from "./session";
 
 // Playback state
 export type PlaybackState =
-  | "idle"
-  | "loading"
-  | "playing"
-  | "paused"
-  | "ended"
-  | "error";
+  "idle" | "loading" | "playing" | "paused" | "ended" | "error";
 export const playbackStateAtom = atom<PlaybackState>("idle");
 
 /**

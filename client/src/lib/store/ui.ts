@@ -190,13 +190,7 @@ export const columnVisibilityAtom =
 
 // Files browser sort options
 export type FilesSortField =
-  | "name"
-  | "artist"
-  | "album"
-  | "year"
-  | "duration"
-  | "size"
-  | "dateAdded";
+  "name" | "artist" | "album" | "year" | "duration" | "size" | "dateAdded";
 
 export interface FilesSortConfig {
   field: FilesSortField;

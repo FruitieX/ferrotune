@@ -62,9 +62,7 @@ export interface EngineSetters {
   ) => void;
   setQueueWindow: (
     updater:
-      | QueueWindow
-      | null
-      | ((prev: QueueWindow | null) => QueueWindow | null),
+      QueueWindow | null | ((prev: QueueWindow | null) => QueueWindow | null),
   ) => void;
   setStarredItems: (
     updater:
