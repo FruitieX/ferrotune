@@ -522,6 +522,7 @@ class PlaybackService : MediaSessionService() {
         return binder ?: this.binder
     }
 
+    @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         NativeAudioLogger.initialize(applicationContext)
@@ -560,7 +561,6 @@ class PlaybackService : MediaSessionService() {
         }
 
         // Initialize the stream cache (singleton — only one per directory)
-        @OptIn(UnstableApi::class)
         if (streamCache == null) {
             val cacheDir = File(cacheDir, "exo-stream-cache")
             val evictor = LeastRecentlyUsedCacheEvictor(STREAM_CACHE_MAX_BYTES)
@@ -578,9 +578,7 @@ class PlaybackService : MediaSessionService() {
         // to the local cache as they arrive and served from there on re-reads.
         // This means ExoPlayer can resume from the cache after a network blip
         // without re-requesting already-received data from the server.
-        @OptIn(UnstableApi::class)
         httpDataSourceFactory = DefaultHttpDataSource.Factory()
-        @OptIn(UnstableApi::class)
         artworkDataSourceFactory = DefaultHttpDataSource.Factory()
 
         // Chained CacheDataSource: downloaded bytes (pinned, never evicted)
@@ -892,7 +890,6 @@ class PlaybackService : MediaSessionService() {
         setMediaNotificationProvider(HighResolutionArtworkNotificationProvider())
 
         // Create media session using ForwardingPlayer for notification controls
-        @OptIn(UnstableApi::class)
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
             .setBitmapLoader(bitmapLoader)
