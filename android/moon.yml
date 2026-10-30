@@ -34,7 +34,7 @@ tasks:
       - "core/network/src/main/java/com/ferrotune/core/network/generated/**/*"
     options:
       cache: true
-      runInCI: false
+      runInCI: true
 
   # ============================================================================
   # BUILD
@@ -46,7 +46,7 @@ tasks:
     outputs: ["app/build/outputs/apk/debug"]
     options:
       cache: true
-      runInCI: false
+      runInCI: true
       # Serialize Gradle invocations: concurrent Kotlin daemons in the same
       # checkout race over the shared incremental-compilation caches.
       mutex: "gradle"
@@ -58,7 +58,7 @@ tasks:
     outputs: ["app/build/outputs/apk/release"]
     options:
       cache: true
-      runInCI: false
+      runInCI: true
       mutex: "gradle"
 
   test-unit:
