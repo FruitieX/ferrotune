@@ -48,7 +48,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "framer-motion": "^14.7.1",
+    "motion": "^14.7.1",
     "idb-keyval": "^6.3.0",
     "jotai": "^3.0.1",
     "jotai-family": "^1.1.0",
