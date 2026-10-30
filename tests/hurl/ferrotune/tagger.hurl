@@ -132,6 +132,64 @@ HTTP 200
 [Asserts]
 jsonpath "$.tags[?(@.key=='GENRE')].value" == "Test Genre"
 
+# 10. Custom (non-standard) keys: several values, kept across other edits
+PATCH {{base_url}}/api/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+    "set": [
+        { "key": "FERROTUNE_CUSTOM", "value": "first" },
+        { "key": "FERROTUNE_CUSTOM", "value": "second" }
+    ],
+    "delete": []
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.changes[0].key" == "FERROTUNE_CUSTOM"
+jsonpath "$.changes[0].newValue" == "first; second"
+
+PATCH {{base_url}}/api/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+    "set": [
+        { "key": "TITLE", "value": "Custom Keys Kept" }
+    ],
+    "delete": []
+}
+HTTP 200
+
+GET {{base_url}}/api/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.tags[?(@.key=='TITLE')].value" == "Custom Keys Kept"
+jsonpath "$.tags[?(@.key=='FERROTUNE_CUSTOM')]" count == 2
+jsonpath "$.tags[?(@.key=='FERROTUNE_CUSTOM')].value" contains "first"
+jsonpath "$.tags[?(@.key=='FERROTUNE_CUSTOM')].value" contains "second"
+jsonpath "$.tags[?(@.key=='GENRE')].value" == "Test Genre"
+
+# An empty value deletes the key, like the tagger sends
+PATCH {{base_url}}/api/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+    "set": [
+        { "key": "FERROTUNE_CUSTOM", "value": "" }
+    ],
+    "delete": []
+}
+HTTP 200
+[Asserts]
+jsonpath "$.changes[0].action" == "deleted"
+
+GET {{base_url}}/api/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.tags[?(@.key=='FERROTUNE_CUSTOM')]" not exists
+
 # Cleanup
 PATCH {{base_url}}/api/songs/{{first_song_id}}/tags
 Authorization: Basic {{auth_basic}}

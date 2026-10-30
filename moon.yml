@@ -161,7 +161,7 @@ tasks:
   test-integration:
     # Use half of available CPUs (max 8) to prevent resource exhaustion
     # Each test spawns a full ferrotune server with tokio runtime + SQLite
-    script: 'cargo test --test integration --test oidc -- --test-threads=$(( $(nproc)/2 > 8 ? 8 : $(nproc)/2 < 1 ? 1 : $(nproc)/2 ))'
+    script: 'cargo test --test integration --test oidc --test tag_editing -- --test-threads=$(( $(nproc)/2 > 8 ? 8 : $(nproc)/2 < 1 ? 1 : $(nproc)/2 ))'
     inputs:
       - '@group(sources)'
       - '@group(tests)'
