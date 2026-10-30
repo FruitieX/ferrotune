@@ -162,7 +162,7 @@ moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 
 `android:install-debug` installs through the platform-tools `adb` and honors
 `ANDROID_SERIAL` to pick a device. Phones connect over USB to the local adb
-server; on the honeydew host the `adbusers` group grants access.
+server; on NixOS hosts the `adbusers` group grants access.
 
 `android:deploy` builds the R8-minified release APK and signs it with the
 release key from `FERROTUNE_RELEASE_KEYSTORE*` when set (falling back to the
