@@ -1595,12 +1595,16 @@ test.describe.serial("Multi-Session Playback", () => {
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
 
-      await sendSessionHeartbeat(ownerPage, { isPlaying: true });
-
+      // The owner tab's own (paused) heartbeat can overwrite a single
+      // simulated playing heartbeat before the follower renders it, so keep
+      // sending it until the follower shows the playing state.
       const followerPauseBtn = followerBar
         .getByRole("button", { name: "Pause" })
         .first();
-      await expect(followerPauseBtn).toBeVisible({ timeout: 10000 });
+      await expect(async () => {
+        await sendSessionHeartbeat(ownerPage, { isPlaying: true });
+        await expect(followerPauseBtn).toBeVisible({ timeout: 2000 });
+      }).toPass({ timeout: 15000 });
 
       // Give the follower tab a user gesture so a later unexpected play()
       // call is not hidden by autoplay policy.
