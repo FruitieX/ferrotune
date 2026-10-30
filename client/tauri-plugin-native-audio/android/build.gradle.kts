@@ -48,7 +48,7 @@ dependencies {
     implementation("androidx.media3:media3-database:$media3Version")
 
     // Google Cast sender support for Android WebView/Tauri builds.
-    implementation("androidx.mediarouter:mediarouter:1.6.0")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
 
     // OkHttp for API calls + SSE for session events
