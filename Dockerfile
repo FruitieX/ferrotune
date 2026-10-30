@@ -13,7 +13,7 @@
 #     -e FERROTUNE_HOST=0.0.0.0 \
 #     ferrotune
 
-FROM gcr.io/distroless/static@sha256:87bce11be0af225e4ca761c40babb06d6d559f5767fbf7dc3c47f0f1a466b92c
+FROM gcr.io/distroless/static@sha256:15f8637509792e05b97d83451b0b6ccfa4abd548f997e406ac1e72c87fe1fa78
 
 # Copy the compiled binary
 COPY target/x86_64-unknown-linux-musl/release/ferrotune /usr/local/bin/ferrotune

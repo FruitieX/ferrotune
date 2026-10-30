@@ -26,25 +26,25 @@ jobs:
       matrix:
         database: [sqlite, postgres]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@v2
       - uses: moonrepo/setup-toolchain@v0
         with:
           auto-install: true
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
-      - uses: actions/setup-node@v4
+          version: 12
+      - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           cache: "pnpm"
           cache-dependency-path: client/pnpm-lock.yaml
       - name: Install Hurl
         run: |
-          curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/6.0.0/hurl_6.0.0_amd64.deb
-          sudo apt-get install -y ./hurl_6.0.0_amd64.deb
+          curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/8.1.0/hurl_8.1.0_amd64.deb
+          sudo apt-get install -y ./hurl_8.1.0_amd64.deb
       # One apt-get update and no recommends: GitHub's Ubuntu mirror is
       # sometimes slow enough that two updates plus ffmpeg's recommends
       # took 27 minutes.
@@ -58,17 +58,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@v2
       - uses: moonrepo/setup-toolchain@v0
         with:
           auto-install: true
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
-      - uses: actions/setup-node@v4
+          version: 12
+      - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           cache: "pnpm"
@@ -79,7 +79,7 @@ jobs:
         run: env -u FERROTUNE_DATABASE_URL moon run client:ci
       - name: Upload Playwright failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-failure-artifacts
           path: |
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: cachix/install-nix-action@v31
@@ -118,7 +118,7 @@ jobs:
     env:
       FERROTUNE_ASSET_VERSION: ${{ needs.prepare-app-release.outputs.asset_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: cachix/install-nix-action@v31
@@ -138,7 +138,7 @@ jobs:
             android/app/build/outputs/apk/release/app-release-unsigned.apk \
             "app-release/android-native/ferrotune-native-${FERROTUNE_ASSET_VERSION}.apk"
       - name: Upload Android native APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ferrotune-native-android-${{ needs.prepare-app-release.outputs.asset_version }}
           path: app-release/android-native/*.apk
@@ -153,7 +153,7 @@ jobs:
       packages: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -171,11 +171,11 @@ jobs:
         with:
           auto-install: true
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          version: 12
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           cache: "pnpm"
@@ -188,18 +188,18 @@ jobs:
         run: moon run ferrotune:build-release-musl
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -213,7 +213,7 @@ jobs:
 
       - name: Build (and push)
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           cache-from: type=gha
@@ -225,7 +225,7 @@ jobs:
 
       - name: Deploy to homelab
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.HOMELAB_DISPATCH_TOKEN }}
           repository: FruitieX/homelab
@@ -249,7 +249,7 @@ jobs:
       tag_name: ${{ steps.metadata.outputs.tag_name }}
       release_name: ${{ steps.metadata.outputs.release_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: metadata
@@ -268,7 +268,7 @@ jobs:
       FERROTUNE_ANDROID_VERSION_CODE: ${{ needs.prepare-app-release.outputs.version_code }}
       FERROTUNE_ASSET_VERSION: ${{ needs.prepare-app-release.outputs.asset_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: cachix/install-nix-action@v31
@@ -290,7 +290,7 @@ jobs:
             client/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
             "app-release/android/ferrotune-android-universal-${FERROTUNE_ASSET_VERSION}.apk"
       - name: Upload Android APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ferrotune-android-${{ needs.prepare-app-release.outputs.asset_version }}
           path: app-release/android/*.apk
@@ -319,7 +319,7 @@ jobs:
       FERROTUNE_ANDROID_VERSION_CODE: ${{ needs.prepare-app-release.outputs.version_code }}
       FERROTUNE_ASSET_VERSION: ${{ needs.prepare-app-release.outputs.asset_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@v2
@@ -330,10 +330,10 @@ jobs:
       - uses: moonrepo/setup-toolchain@v0
         with:
           auto-install: true
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
-      - uses: actions/setup-node@v4
+          version: 12
+      - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           cache: "pnpm"
@@ -392,7 +392,7 @@ jobs:
             "${{ matrix.platform }}" \
             "${FERROTUNE_ASSET_VERSION}"
       - name: Upload desktop artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ferrotune-desktop-${{ matrix.platform }}-${{ needs.prepare-app-release.outputs.asset_version }}
           path: app-release/desktop/*
@@ -419,11 +419,11 @@ jobs:
       FERROTUNE_RELEASE_TAG: ${{ needs.prepare-app-release.outputs.tag_name }}
       FERROTUNE_RELEASE_NAME: ${{ needs.prepare-app-release.outputs.release_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Download app artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: ferrotune-*-${{ needs.prepare-app-release.outputs.asset_version }}
           path: app-release/assets
