@@ -137,6 +137,8 @@
           ];
           ANDROID_HOME = "${androidSdk}/share/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";
+          # Tauri's Android build reads NDK_HOME (the moon tasks pass it through).
+          NDK_HOME = "${androidSdk}/share/android-sdk/ndk/27.2.12479018";
           JAVA_HOME = "${pkgs.jdk17}";
           LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           shellHook = ''
