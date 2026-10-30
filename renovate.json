@@ -1,17 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "github>FruitieX/renovate-config"
-  ],
+  "extends": ["github>FruitieX/renovate-config"],
   "packageRules": [
     {
       "description": "lofty >=0.23 dropped ItemKey::Unknown: the tag editor would silently delete non-standard tags (URL, UPC, SPOTIFY_*, TXXX, ...) on save. Upgrade together with per-format tag support.",
-      "matchManagers": [
-        "cargo"
-      ],
-      "matchPackageNames": [
-        "lofty"
-      ],
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["lofty"],
       "allowedVersions": "<0.23"
     }
   ]
