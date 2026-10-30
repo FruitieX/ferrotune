@@ -49,6 +49,9 @@ quick-xml = { version = "0.42", features = ["serialize"] }
 ts-rs = { version = "12", features = ["chrono-impl", "serde-compat"] }
 
 # Audio metadata
+# Held below 0.23: newer versions drop ItemKey::Unknown, and the tag editor
+# saves through the generic Tag, so non-standard tags (Tidal URL/UPC,
+# SPOTIFY_*, ID3 TXXX/PRIV, ...) would be lost on edit. See renovate.json.
 lofty = "0.21"
 
 # Audio decoding (for waveform generation and transcoding)
