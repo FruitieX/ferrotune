@@ -69,7 +69,7 @@ GET {{base_url}}/api/tagger/batch-tags?songIds={{first_song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.results[0].tags.tags[?(@.key=='COMMENT')].value" nth 0 == "Tagger Test"
+jsonpath "$.results[0].tags.tags[?(@.key=='COMMENT')].value" == "Tagger Test"
 
 # 6. Clean up - revert tag
 PATCH {{base_url}}/api/tagger/batch-tags
@@ -130,7 +130,7 @@ GET {{base_url}}/api/songs/{{first_song_id}}/tags
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.tags[?(@.key=='GENRE')].value" nth 0 == "Test Genre"
+jsonpath "$.tags[?(@.key=='GENRE')].value" == "Test Genre"
 
 # Cleanup
 PATCH {{base_url}}/api/songs/{{first_song_id}}/tags

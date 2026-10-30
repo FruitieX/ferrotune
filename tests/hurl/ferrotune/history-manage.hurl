@@ -121,15 +121,15 @@ GET {{base_url}}/api/history/entries?combine=true&limit=50
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
-pair_scrobble_id: jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].scrobbleId" nth 0
+pair_scrobble_id: jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].scrobbleId"
 [Asserts]
-jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')]" count == 1
-jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].kind" nth 0 == "session"
-jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].id" nth 0 == {{pair_session_id}}
-jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].durationSeconds" nth 0 == 120
-jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].queueSourceType" nth 0 == "history-manage-pair"
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')]" isObject
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].kind" == "session"
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].id" == {{pair_session_id}}
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].durationSeconds" == 120
+jsonpath "$.items[?(@.song.id == '{{pair_song_id}}')].queueSourceType" == "history-manage-pair"
 # The 2023 scrobble has no session of its own and stays listed
-jsonpath "$.items[?(@.queueSourceType == 'history-manage-test')].kind" nth 0 == "scrobble"
+jsonpath "$.items[?(@.queueSourceType == 'history-manage-test')].kind" == "scrobble"
 
 POST {{base_url}}/api/history/delete
 Authorization: Basic {{auth_basic}}

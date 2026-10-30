@@ -71,9 +71,9 @@ GET {{base_url}}/api/tagger/staged
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.files[?(@.id == '{{delete_candidate_id}}')]" count == 0
+jsonpath "$.files[?(@.id == '{{delete_candidate_id}}')]" not exists
 # The first file should still be there
-jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" count == 1
+jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" isObject
 
 # ============================================================================
 # GET /api/tagger/staged
@@ -86,7 +86,7 @@ HTTP 200
 [Asserts]
 jsonpath "$.files" isCollection
 # Check if our captured ID exists in the list (using filter)
-jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" count == 1
+jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" isObject
 
 # ============================================================================
 # GET /api/tagger/orphaned
@@ -207,7 +207,7 @@ GET {{base_url}}/api/tagger/staged
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" count == 0
+jsonpath "$.files[?(@.id == '{{staged_file_id}}')]" not exists
 
 # Trigger a library scan to pick up the new file
 POST {{base_url}}/api/scan

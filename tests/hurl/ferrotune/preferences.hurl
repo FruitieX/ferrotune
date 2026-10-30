@@ -136,8 +136,8 @@ GET {{base_url}}/api/preferences
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
-jsonpath "$.preferences.library-sort.field" == "name"
-jsonpath "$.preferences.library-sort.direction" == "desc"
+jsonpath "$.preferences['library-sort'].field" == "name"
+jsonpath "$.preferences['library-sort'].direction" == "desc"
 
 # Test 15: Clean up - delete remaining preferences
 DELETE {{base_url}}/api/preferences/library-sort

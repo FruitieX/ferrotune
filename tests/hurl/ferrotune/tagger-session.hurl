@@ -375,8 +375,8 @@ HTTP 200
 [Asserts]
 jsonpath "$.scripts" isCollection
 # Verify exact script details
-jsonpath "$.scripts[?(@.id == 'test-script')]" count == 1
-jsonpath "$.scripts[?(@.id == 'test-script')].name" nth 0 == "Test Script"
+jsonpath "$.scripts[?(@.id == 'test-script')]" isObject
+jsonpath "$.scripts[?(@.id == 'test-script')].name" == "Test Script"
 
 # ============================================================================
 # DELETE /api/tagger/scripts/:id

@@ -182,8 +182,8 @@ Content-Type: application/json
 HTTP 200
 [Asserts]
 jsonpath "$.playlists" isCollection
-jsonpath "$.playlists[?(@.id == '{{playlist_id}}')]" count == 1
-jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].name" nth 0 == "Test Playlist"
+jsonpath "$.playlists[?(@.id == '{{playlist_id}}')]" isObject
+jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].name" == "Test Playlist"
 jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].entries[*].songId" includes "{{song_id}}"
 jsonpath "$.playlists[?(@.id == '{{playlist_id}}')].entries[*].position" includes 0
 
