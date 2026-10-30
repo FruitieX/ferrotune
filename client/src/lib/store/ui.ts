@@ -1,5 +1,5 @@
 import { atom } from "jotai";
-import { motionValue, type MotionValue } from "framer-motion";
+import { motionValue, type MotionValue } from "motion/react";
 import { atomWithClientAccountStorage } from "./client-storage";
 import { atomWithServerStorage } from "./server-storage";
 import { oklchToRgbString } from "@/lib/utils/color";

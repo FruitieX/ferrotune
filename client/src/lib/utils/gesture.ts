@@ -4,7 +4,7 @@
 
 /**
  * Release pointer capture after a drag gesture. On Android Tauri
- * (WebView), framer-motion's drag handler doesn't always release pointer
+ * (WebView), motion's drag handler doesn't always release pointer
  * capture on fast swipes, so the browser routes the next tap to the
  * drag-capturing element (the sheet), swallowing it. Explicitly
  * releasing the capture for any pointer IDs the drag element or event
@@ -44,7 +44,7 @@ export function releaseDragPointerCapture(
     ),
   );
 
-  // Force framer-motion's drag handler to clean up its internal state.
+  // Force motion's drag handler to clean up its internal state.
   // On Android WebView the pointerup that ends a fast swipe can be missed
   // by the drag listener, leaving it (and its capture) active. Dispatch a
   // pointercancel/touchcancel *before* releasing capture so the handler sees

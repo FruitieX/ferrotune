@@ -7,7 +7,7 @@ import {
   useDragControls,
   type AnimationPlaybackControls,
   type PanInfo,
-} from "framer-motion";
+} from "motion/react";
 import {
   ChevronDown,
   SkipBack,

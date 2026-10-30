@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useRef, useEffect } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import {
   AudioLines,

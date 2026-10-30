@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LastfmCard } from "./lastfm-card";
 import { DownloadsSettingsCard } from "./downloads-card";
 import { isTauriMobile } from "@/lib/tauri";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import {
   Settings as SettingsIcon,
   Server,

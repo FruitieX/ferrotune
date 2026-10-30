@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Check, Shuffle, Ban, Music, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";

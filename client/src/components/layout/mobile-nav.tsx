@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Home, Search, Library, ListMusic, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hapticTap } from "@/lib/utils/haptic";

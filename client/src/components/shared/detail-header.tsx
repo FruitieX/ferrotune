@@ -1,5 +1,5 @@
 import { ReactNode, useState } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { ArrowLeft } from "lucide-react";
 import { useNavigateBack } from "@/lib/hooks/use-navigate-back";
 import { Button } from "@/components/ui/button";

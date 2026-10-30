@@ -2,7 +2,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { useSetAtom, useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import {
   Search as SearchIcon,
   X,

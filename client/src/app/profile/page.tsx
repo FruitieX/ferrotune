@@ -2,7 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import {
   User,
   LogOut,

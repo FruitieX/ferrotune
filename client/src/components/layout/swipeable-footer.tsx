@@ -10,7 +10,7 @@ import {
   type AnimationPlaybackControls,
   useDragControls,
   useTransform,
-} from "framer-motion";
+} from "motion/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { fullscreenPlayerOpenAtom, fullscreenOpenDragY } from "@/lib/store/ui";

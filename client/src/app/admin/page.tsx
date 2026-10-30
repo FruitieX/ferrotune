@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Shield, RefreshCw, Trash2, ChevronRight } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { useAuth } from "@/lib/hooks/use-auth";

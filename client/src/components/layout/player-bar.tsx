@@ -13,7 +13,7 @@ import {
   useTransform,
   animate,
   type AnimationPlaybackControls,
-} from "framer-motion";
+} from "motion/react";
 import {
   Play,
   Pause,

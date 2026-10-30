@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Trash2, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";

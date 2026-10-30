@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Music2, ExternalLink, Check, X, Loader2 } from "lucide-react";
 import { getClient } from "@/lib/api/client";
 import { useAuth } from "@/lib/hooks/use-auth";

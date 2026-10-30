@@ -2,7 +2,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useState, Suspense } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { toast } from "sonner";
 import {
   Folder,
