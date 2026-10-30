@@ -73,4 +73,4 @@ internal fun <T : Any> LazyListScope.pagedCardRows(
 /** Card columns for phone-width grids (web: three columns on phones). */
 @Composable
 internal fun gridColumns(): Int =
-    (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp / 128).coerceAtLeast(3)
+    (androidx.compose.ui.platform.LocalWindowInfo.current.containerDpSize.width / 128.dp).toInt().coerceAtLeast(3)

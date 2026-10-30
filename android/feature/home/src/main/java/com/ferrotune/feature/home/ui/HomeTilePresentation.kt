@@ -214,9 +214,9 @@ private fun basePresentation(
             val target = when {
                 incomplete -> null
                 tile.playlistType == HomePlaylistType.SMART_PLAYLIST ->
-                    HomeLinkTarget.SmartPlaylist(tile.playlistId!!)
+                    HomeLinkTarget.SmartPlaylist(tile.playlistId)
 
-                else -> HomeLinkTarget.Playlist(tile.playlistId!!)
+                else -> HomeLinkTarget.Playlist(tile.playlistId)
             }
             target?.let { HomeTileAction.Link(it) }
                 ?: HomeTileAction.Queue(

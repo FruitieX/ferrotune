@@ -85,7 +85,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -495,12 +495,12 @@ internal fun QueueRow(
     val density = LocalDensity.current
     val slotPx = with(density) { (QueueRowHeight + QueueRowGap).toPx() }
     val dragging = preview?.entryId == entry.entryId
-    val held = dragging && preview?.settled == false
+    val held = dragging && !preview.settled
     // While held the row follows the finger; on release it springs into the
     // target slot. When the preview ends (the reloaded rows already sit in
     // their new slots) every row snaps to its layout position.
     val translation by animateFloatAsState(
-        targetValue = if (dragging) preview?.offsetY ?: 0f
+        targetValue = if (dragging) preview.offsetY
             else (preview?.displacement(entry.position.toInt()) ?: 0) * slotPx,
         animationSpec = if (held || preview == null) snap() else spring(),
         label = "Queue insertion preview",
@@ -523,7 +523,7 @@ internal fun QueueRow(
             .onGloballyPositioned { rowCoordinates = it }
             .zIndex(if (dragging) 1f else 0f),
     ) {
-        if (held && preview != null) {
+        if (held) {
             Box(
                 modifier = Modifier
                     .matchParentSize()

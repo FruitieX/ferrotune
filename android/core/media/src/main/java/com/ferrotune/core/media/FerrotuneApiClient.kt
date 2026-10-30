@@ -760,7 +760,7 @@ class FerrotuneApiClient {
                 )
                 throw IOException("API request failed: ${response.code} ${response.message} for ${request.url}")
             }
-            val body = response.body?.string() ?: throw IOException("Empty response body")
+            val body = response.body.string()
             return parser(body)
         }
     }

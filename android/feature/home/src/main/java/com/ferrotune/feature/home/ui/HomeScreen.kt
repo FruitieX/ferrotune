@@ -56,7 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.actions.CollectionMenuSheet
 import com.ferrotune.core.actions.CollectionMenuState
@@ -546,7 +546,7 @@ internal fun ContinueListeningCard(
     }
     val target = when {
         album != null -> HomeLinkTarget.Album(album.id)
-        isSmart -> HomeLinkTarget.SmartPlaylist(playlist!!.id)
+        isSmart -> HomeLinkTarget.SmartPlaylist(playlist.id)
         playlist != null -> HomeLinkTarget.Playlist(playlist.id)
         source != null -> queueSourceLinkTarget(
             sourceType = source.sourceType,

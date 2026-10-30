@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
@@ -15,27 +14,25 @@ val firebaseConfig: Map<String, String> = run {
     val path = System.getenv("FERROTUNE_GOOGLE_SERVICES_JSON")?.takeIf { it.isNotBlank() }
     val source = path?.let(::file) ?: file("google-services.json")
     if (!source.isFile) return@run emptyMap()
-    @Suppress("UNCHECKED_CAST")
-    val json = groovy.json.JsonSlurper().parse(source) as Map<String, Any?>
-    val project = json["project_info"] as Map<String, Any?>
-    @Suppress("UNCHECKED_CAST")
-    val client = (json["client"] as List<Map<String, Any?>>).first { client ->
-        val info = client["client_info"] as Map<String, Any?>
-        (info["android_client_info"] as Map<String, Any?>)["package_name"] == "com.ferrotune.music.native"
+    fun Any?.obj(key: String): Any? = (this as Map<*, *>)[key]
+    fun Any?.list(key: String): List<*> = obj(key) as List<*>
+    val json = groovy.json.JsonSlurper().parse(source)
+    val project = json.obj("project_info")
+    val client = json.list("client").first { client ->
+        client.obj("client_info").obj("android_client_info").obj("package_name") == "com.ferrotune.music.native"
     }
-    @Suppress("UNCHECKED_CAST")
-    val apiKey = (client["api_key"] as List<Map<String, Any?>>).first()["current_key"]
+    val apiKey = client.list("api_key").first().obj("current_key")
     mapOf(
-        "FIREBASE_APP_ID" to (client["client_info"] as Map<String, Any?>)["mobilesdk_app_id"].toString(),
+        "FIREBASE_APP_ID" to client.obj("client_info").obj("mobilesdk_app_id").toString(),
         "FIREBASE_API_KEY" to apiKey.toString(),
-        "FIREBASE_PROJECT_ID" to project["project_id"].toString(),
-        "FIREBASE_SENDER_ID" to project["project_number"].toString(),
+        "FIREBASE_PROJECT_ID" to project.obj("project_id").toString(),
+        "FIREBASE_SENDER_ID" to project.obj("project_number").toString(),
     )
 }
 
 android {
     namespace = "com.ferrotune.music"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.ferrotune.music.native"
@@ -112,7 +109,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.hilt.android)

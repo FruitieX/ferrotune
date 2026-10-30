@@ -36,7 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.designsystem.components.HeartPlusIcon
 import com.ferrotune.core.designsystem.components.MediaAction
@@ -196,10 +196,10 @@ fun SongListRow(
         details = columns?.let { songColumnDetails(song, it, likeCount = flags.likes.count) },
         coverModel = coverModel(song.coverArtData, song.coverArt, CoverSize.SMALL),
         coverSeed = song.album ?: song.title,
-        onClick = { if (selecting) selection?.toggle(song.id) else onPlay() },
+        onClick = { if (selecting) selection.toggle(song.id) else onPlay() },
         onLongClick = {
             if (selecting) {
-                selection?.toggle(song.id)
+                selection.toggle(song.id)
             } else {
                 onLongPress?.invoke()
                 menu.open(song.toMenuTarget())

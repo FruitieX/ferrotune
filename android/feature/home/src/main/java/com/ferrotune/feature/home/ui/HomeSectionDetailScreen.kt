@@ -27,9 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.actions.CollectionMenuSheet
 import com.ferrotune.core.actions.CollectionSource
@@ -90,7 +90,7 @@ fun HomeSectionDetailScreen(
     val collectionMenu = rememberCollectionMenuState()
     val nowPlaying = rememberNowPlaying()
     val actions = LocalMediaActions.current
-    val columns = (LocalConfiguration.current.screenWidthDp / 128).coerceAtLeast(3)
+    val columns = (LocalWindowInfo.current.containerDpSize.width / 128.dp).toInt().coerceAtLeast(3)
     val style = sectionStyle(section?.kind ?: HomeSectionKind.CONTINUE_LISTENING)
     val itemCount = state.songs.size + state.albums.size + state.entries.size
 

@@ -1,13 +1,12 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
 
 android {
     namespace = "com.ferrotune.core.media"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 24

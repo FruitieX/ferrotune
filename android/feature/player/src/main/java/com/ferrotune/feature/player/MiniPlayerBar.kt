@@ -61,7 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrotune.core.actions.SongActionsViewModel
 import com.ferrotune.core.actions.rememberSongFlags
@@ -214,7 +214,7 @@ private fun NowPlayingRow(
     var infoWidthPx by remember { mutableIntStateOf(0) }
     val gapPx = with(LocalDensity.current) { PREVIEW_GAP.toPx() }
     val thresholdPx = with(LocalDensity.current) { SWIPE_THRESHOLD.toPx() }
-    val distancePx = (infoWidthPx + gapPx).toFloat()
+    val distancePx = infoWidthPx + gapPx
     val tapSlopPx = with(LocalDensity.current) { 20.dp.toPx() }
     var pendingTrackId by remember { mutableStateOf<String?>(null) }
 

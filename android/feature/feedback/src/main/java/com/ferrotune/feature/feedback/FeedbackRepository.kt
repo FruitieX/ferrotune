@@ -51,7 +51,7 @@ class FeedbackRepository @Inject constructor(
             .post(report.toJson().toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             val json = runCatching { FerrotuneJson.parseToJsonElement(body).jsonObject }.getOrNull()
             if (!response.isSuccessful) {
                 val error = json?.get("error")?.jsonPrimitive?.content ?: "HTTP ${response.code}"

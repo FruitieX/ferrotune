@@ -1,5 +1,6 @@
 package com.ferrotune.core.actions
 
+import android.content.ClipData
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,14 +17,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -145,7 +147,8 @@ fun SongDetailsSheet(
 ) {
     LaunchedEffect(target.id) { viewModel.load(target.id) }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     val song = state.song?.takeIf { it.id == target.id }
     MediaActionSheet(
         expanded = true,
@@ -168,8 +171,12 @@ fun SongDetailsSheet(
                                         Modifier.combinedClickable(
                                             onClick = {},
                                             onLongClick = {
-                                                clipboard.setText(AnnotatedString(row.value))
-                                                viewModel.copied(row.label)
+                                                scope.launch {
+                                                    clipboard.setClipEntry(
+                                                        ClipData.newPlainText(row.label, row.value).toClipEntry(),
+                                                    )
+                                                    viewModel.copied(row.label)
+                                                }
                                             },
                                         )
                                     } else {

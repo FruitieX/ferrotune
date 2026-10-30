@@ -54,8 +54,6 @@ fun rememberCastChooser(): CastChooser {
                 button.alpha = 0f
                 button.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 button.contentDescription = "Cast"
-                // Clickable even before routes are discovered; the chooser shows the search.
-                button.setAlwaysVisible(true)
                 CastButtonFactory.setUpMediaRouteButton(ctx, button)
                 chooser.button = button
             }

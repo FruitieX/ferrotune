@@ -207,8 +207,8 @@ class ServerPreferences(
 
     private fun nowMs(): Long = System.nanoTime() / 1_000_000
 
-    private fun Deferred<*>.isFailed(): Boolean =
-        isCancelled || (isCompleted && getCompletionExceptionOrNull() != null)
+    // A Deferred that threw is cancelled too: Job.isCancelled covers failures.
+    private fun Deferred<*>.isFailed(): Boolean = isCancelled
 
     companion object {
         val EMPTY = PreferencesResponse(accentColor = "", preferences = emptyMap())
