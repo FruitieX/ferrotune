@@ -11,6 +11,7 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  Lock,
 } from "lucide-react";
 import {
   Dialog,
@@ -94,8 +95,9 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
   const [tagsData, setTagsData] = useState<GetTagsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editedTags, setEditedTags] = useState<Map<string, string>>(new Map());
-  const [deletedTags, setDeletedTags] = useState<Set<string>>(new Set());
+  // Edits and deletions are tracked per row: a key can hold several values.
+  const [editedTags, setEditedTags] = useState<Map<number, string>>(new Map());
+  const [deletedTags, setDeletedTags] = useState<Set<number>>(new Set());
   const [newTags, setNewTags] = useState<TagEntry[]>([]);
   const [newTagKey, setNewTagKey] = useState("");
   const [newTagValue, setNewTagValue] = useState("");
@@ -143,39 +145,63 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
     }
   }, [open]);
 
+  // Keys whose values change, with all of their remaining values in order.
+  const changedKeys = (() => {
+    if (!tagsData) return new Map<string, string[]>();
+    const touched = new Set<string>();
+    tagsData.tags.forEach((tag, index) => {
+      if (
+        deletedTags.has(index) ||
+        (editedTags.has(index) && editedTags.get(index) !== tag.value)
+      ) {
+        touched.add(tag.key);
+      }
+    });
+    for (const tag of newTags) touched.add(tag.key);
+
+    const result = new Map<string, string[]>();
+    for (const key of touched) {
+      const values: string[] = [];
+      tagsData.tags.forEach((tag, index) => {
+        if (tag.key !== key || deletedTags.has(index)) return;
+        const value = editedTags.get(index) ?? tag.value;
+        if (value !== "") values.push(value);
+      });
+      for (const tag of newTags) {
+        if (tag.key === key) values.push(tag.value);
+      }
+      result.set(key, values);
+    }
+    return result;
+  })();
+
   // Compute changes for preview
   const changes = (() => {
     if (!tagsData) return [];
 
     const result: TagChange[] = [];
 
-    // Edited tags
-    for (const [key, newValue] of editedTags) {
-      const original = tagsData.tags.find((t) => t.key === key);
-      if (original && original.value !== newValue) {
+    tagsData.tags.forEach((tag, index) => {
+      if (deletedTags.has(index)) {
         result.push({
-          key,
-          action: "set",
-          oldValue: original.value,
-          newValue,
-        });
-      }
-    }
-
-    // Deleted tags
-    for (const key of deletedTags) {
-      const original = tagsData.tags.find((t) => t.key === key);
-      if (original) {
-        result.push({
-          key,
+          key: tag.key,
           action: "deleted",
-          oldValue: original.value,
+          oldValue: tag.value,
           newValue: null,
         });
+        return;
       }
-    }
+      const newValue = editedTags.get(index);
+      if (newValue !== undefined && newValue !== tag.value) {
+        result.push({
+          key: tag.key,
+          action: newValue === "" ? "deleted" : "set",
+          oldValue: tag.value,
+          newValue: newValue === "" ? null : newValue,
+        });
+      }
+    });
 
-    // New tags
     for (const tag of newTags) {
       result.push({
         key: tag.key,
@@ -207,26 +233,19 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
+      // A key's entries replace all of its values; keys left without values
+      // are deleted. Keys that are not mentioned are kept as they are.
       const request: UpdateTagsRequest = {
         set: [],
         delete: [],
       };
-
-      // Add edited tags
-      for (const [key, value] of editedTags) {
-        const original = tagsData?.tags.find((t) => t.key === key);
-        if (original && original.value !== value) {
-          request.set!.push({ key, value });
+      for (const [key, values] of changedKeys) {
+        if (values.length === 0) {
+          request.delete!.push(key);
+        } else {
+          for (const value of values) request.set!.push({ key, value });
         }
       }
-
-      // Add new tags
-      for (const tag of newTags) {
-        request.set!.push(tag);
-      }
-
-      // Add deleted tags
-      request.delete = Array.from(deletedTags);
 
       return client.updateSongTags(song.id, request);
     },
@@ -251,46 +270,44 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
     },
   });
 
-  function handleEditTag(key: string, value: string) {
+  function handleEditTag(index: number, value: string) {
     const newEdited = new Map(editedTags);
-    newEdited.set(key, value);
+    newEdited.set(index, value);
     setEditedTags(newEdited);
   }
 
-  function handleDeleteTag(key: string) {
+  function handleDeleteTag(index: number) {
     const newDeleted = new Set(deletedTags);
-    newDeleted.add(key);
+    newDeleted.add(index);
     setDeletedTags(newDeleted);
     // Remove from edited if present
     const newEdited = new Map(editedTags);
-    newEdited.delete(key);
+    newEdited.delete(index);
     setEditedTags(newEdited);
   }
 
-  function handleRestoreTag(key: string) {
+  function handleRestoreTag(index: number) {
     const newDeleted = new Set(deletedTags);
-    newDeleted.delete(key);
+    newDeleted.delete(index);
     setDeletedTags(newDeleted);
   }
 
   function handleAddTag() {
-    if (!newTagKey.trim() || !newTagValue.trim()) return;
+    const typedKey = newTagKey.trim();
+    if (!typedKey || !newTagValue.trim()) return;
 
-    // Check if key already exists
-    const keyUpper = newTagKey.toUpperCase();
-    const exists =
-      tagsData?.tags.some((t) => t.key.toUpperCase() === keyUpper) ||
-      newTags.some((t) => t.key.toUpperCase() === keyUpper);
-
-    if (exists) {
-      toast.error("Tag with this key already exists");
+    // Adding an existing key (in any letter case) adds another value to it,
+    // unless the existing entry is binary/structured data that cannot be edited.
+    const existing = tagsData?.tags.find(
+      (t) => t.key.toLowerCase() === typedKey.toLowerCase(),
+    );
+    if (existing?.readOnly) {
+      toast.error("This tag is read-only");
       return;
     }
+    const key = existing?.key ?? typedKey;
 
-    setNewTags([
-      ...newTags,
-      { key: newTagKey.toUpperCase(), value: newTagValue },
-    ]);
+    setNewTags([...newTags, { key, value: newTagValue }]);
     setNewTagKey("");
     setNewTagValue("");
   }
@@ -310,14 +327,9 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
     saveMutation.mutate();
   }
 
-  // Get current value of a tag (considering edits)
-  function getCurrentValue(key: string, originalValue: string): string {
-    return editedTags.has(key) ? editedTags.get(key)! : originalValue;
-  }
-
-  // Check if a tag is marked for deletion
-  function isDeleted(key: string): boolean {
-    return deletedTags.has(key);
+  // Get current value of a tag row (considering edits)
+  function getCurrentValue(index: number, originalValue: string): string {
+    return editedTags.get(index) ?? originalValue;
   }
 
   // Suggestions for new tag key
@@ -328,7 +340,10 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
       ...newTags.map((t) => t.key.toUpperCase()),
     ]);
     return COMMON_TAGS.filter(
-      (t) => !existingKeys.has(t) && t.includes(newTagKey.toUpperCase()),
+      (t) =>
+        t !== newTagKey &&
+        !existingKeys.has(t) &&
+        t.includes(newTagKey.toUpperCase()),
     ).slice(0, 5);
   })();
 
@@ -386,17 +401,19 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                       <TagRow
                         key={`${tag.key}-${index}`}
                         tagKey={tag.key}
-                        value={getCurrentValue(tag.key, tag.value)}
+                        nativeKey={tag.nativeKey}
+                        value={getCurrentValue(index, tag.value)}
                         originalValue={tag.value}
-                        isDeleted={isDeleted(tag.key)}
+                        isDeleted={deletedTags.has(index)}
                         isModified={
-                          editedTags.has(tag.key) &&
-                          editedTags.get(tag.key) !== tag.value
+                          editedTags.has(index) &&
+                          editedTags.get(index) !== tag.value
                         }
                         readOnly={readOnly}
-                        onValueChange={(v) => handleEditTag(tag.key, v)}
-                        onDelete={() => handleDeleteTag(tag.key)}
-                        onRestore={() => handleRestoreTag(tag.key)}
+                        lockedValue={tag.readOnly === true}
+                        onValueChange={(v) => handleEditTag(index, v)}
+                        onDelete={() => handleDeleteTag(index)}
+                        onRestore={() => handleRestoreTag(index)}
                       />
                     ))}
 
@@ -443,11 +460,10 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <Input
+                            aria-label="New tag key"
                             placeholder="Key (e.g., MOOD)"
                             value={newTagKey}
-                            onChange={(e) =>
-                              setNewTagKey(e.target.value.toUpperCase())
-                            }
+                            onChange={(e) => setNewTagKey(e.target.value)}
                             className="font-mono text-sm"
                           />
                           {tagSuggestions.length > 0 && (
@@ -465,6 +481,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                           )}
                         </div>
                         <Input
+                          aria-label="New tag value"
                           placeholder="Value"
                           value={newTagValue}
                           onChange={(e) => setNewTagValue(e.target.value)}
@@ -521,6 +538,11 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                                   >
                                     {tag.key}
                                   </Badge>
+                                  {tag.nativeKey && (
+                                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                                      {tag.nativeKey}
+                                    </span>
+                                  )}
                                   <span className="flex-1 text-sm truncate">
                                     {tag.value}
                                   </span>
@@ -643,11 +665,16 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
 
 interface TagRowProps {
   tagKey: string;
+  /** The key as stored in the file, when it differs from `tagKey` */
+  nativeKey?: string | null;
   value: string;
   originalValue: string;
   isDeleted: boolean;
   isModified: boolean;
+  /** Editing is disabled for the whole file */
   readOnly: boolean;
+  /** This entry is binary or structured data that cannot be edited */
+  lockedValue: boolean;
   onValueChange: (value: string) => void;
   onDelete: () => void;
   onRestore: () => void;
@@ -655,17 +682,20 @@ interface TagRowProps {
 
 function TagRow({
   tagKey,
+  nativeKey,
   value,
   originalValue,
   isDeleted,
   isModified,
   readOnly,
+  lockedValue,
   onValueChange,
   onDelete,
   onRestore,
 }: TagRowProps) {
   const [editing, setEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
+  const editable = !readOnly && !lockedValue;
 
   // Sync local value when value prop changes
   useEffect(() => {
@@ -693,14 +723,18 @@ function TagRow({
 
   return (
     <div
+      data-testid="tag-row"
+      data-tag-key={tagKey}
       className={`flex items-center gap-2 p-2 rounded-md border transition-colors ${
         isDeleted
           ? "border-destructive/30 bg-destructive/5 opacity-60"
           : isModified
             ? "border-yellow-500/30 bg-yellow-500/5"
-            : isReplayGain
-              ? "border-blue-500/30 bg-blue-500/5"
-              : "border-border/50 bg-muted/30"
+            : lockedValue
+              ? "border-border/30 bg-muted/20"
+              : isReplayGain
+                ? "border-blue-500/30 bg-blue-500/5"
+                : "border-border/50 bg-muted/30"
       }`}
     >
       <Badge
@@ -711,8 +745,16 @@ function TagRow({
       >
         {tagKey}
       </Badge>
+      {nativeKey && (
+        <span
+          className="shrink-0 font-mono text-xs text-muted-foreground"
+          title="Key as stored in the file"
+        >
+          {nativeKey}
+        </span>
+      )}
 
-      {editing && !readOnly && !isDeleted ? (
+      {editing && editable && !isDeleted ? (
         <Input
           value={localValue}
           onChange={(e) => setLocalValue(e.target.value)}
@@ -723,10 +765,11 @@ function TagRow({
         />
       ) : (
         <span
+          data-testid="tag-value"
           className={`flex-1 text-sm truncate ${isDeleted ? "line-through" : ""} ${
-            !readOnly && !isDeleted ? "cursor-pointer hover:text-primary" : ""
-          }`}
-          onClick={() => !readOnly && !isDeleted && setEditing(true)}
+            lockedValue ? "text-muted-foreground font-mono" : ""
+          } ${editable && !isDeleted ? "cursor-pointer hover:text-primary" : ""}`}
+          onClick={() => editable && !isDeleted && setEditing(true)}
           title={value}
         >
           {value || <span className="text-muted-foreground italic">empty</span>}
@@ -739,7 +782,16 @@ function TagRow({
         </Badge>
       )}
 
-      {!readOnly && (
+      {lockedValue && (
+        <span title="Binary or structured data, kept as is">
+          <Lock
+            aria-label="Read-only tag"
+            className="h-3 w-3 shrink-0 text-muted-foreground"
+          />
+        </span>
+      )}
+
+      {editable && (
         <>
           {isDeleted ? (
             <Button
