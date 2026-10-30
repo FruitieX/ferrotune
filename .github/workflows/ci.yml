@@ -149,6 +149,10 @@ jobs:
     name: Build & (optionally) push image
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Only publish (and deploy) an image whose backend and client checks passed.
+    needs:
+      - backend
+      - client
     permissions:
       packages: write
       contents: read
