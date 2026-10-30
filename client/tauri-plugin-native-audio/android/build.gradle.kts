@@ -52,7 +52,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
 
     // OkHttp for API calls + SSE for session events
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.1")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
 
     // Coroutines for async operations
