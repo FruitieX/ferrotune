@@ -290,6 +290,7 @@ let songs: Vec<Song> = crate::db::raw::query_all(
 | `lists.rs` | List generation; forgotten-favorites thresholds come from the user's `forgotten-favorites` preference (clients never send them; queue starts snapshot them into `filters.forgottenFavorites` so lazy queues stay stable) | `get_album_list_logic()`, `get_random_songs_logic()`, `get_songs_by_genre_logic()`, `ForgottenFavoritesSettings::for_user()` / `for_queue()` / `snapshot_into()` |
 | `search.rs` | Search operations | `search_artists()`, `search_albums()`, `search_songs()` |
 | `sorting.rs` | Server-side sorting | `filter_and_sort_songs()` |
+| `tag_io/` | Format-aware tag listing and editing through lofty's concrete tag types (Vorbis comments, ID3v2 frames, MP4 atoms, APE items), used by the tag editor, batch tag updates and the tagger. Never edit tags through lofty's generic `Tag`: it drops non-standard keys. Only the keys a request names change; binary items (ID3 `PRIV`/`UFID`/`MCDI`, opaque MP4 atoms) are listed read-only. Writes go to a temporary copy that must read back as intended before it replaces the file | `read_tags()`, `update_tags()`, `transfer_tags()`, `CoverArtAction`, `TagIoError` |
 
 ### Server Runtime and Collection Commands
 

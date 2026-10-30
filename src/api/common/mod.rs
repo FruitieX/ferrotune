@@ -10,4 +10,5 @@ pub mod search;
 pub mod search_utils;
 pub mod sorting;
 pub mod starring;
+pub mod tag_io;
 pub mod utils;

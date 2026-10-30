@@ -1688,22 +1688,22 @@ async fn extract_metadata(
         let album = tag.album().map(|s| s.to_string());
 
         let album_artist = tag
-            .get_string(&lofty::tag::ItemKey::AlbumArtist)
+            .get_string(lofty::tag::ItemKey::AlbumArtist)
             .map(|s| s.to_string());
 
         let track_number = tag.track().or_else(|| {
-            tag.get_string(&lofty::tag::ItemKey::TrackNumber)
+            tag.get_string(lofty::tag::ItemKey::TrackNumber)
                 .and_then(|s| s.parse().ok())
         });
 
         let disc_number = tag.disk().or_else(|| {
-            tag.get_string(&lofty::tag::ItemKey::DiscNumber)
+            tag.get_string(lofty::tag::ItemKey::DiscNumber)
                 .and_then(|s| s.parse().ok())
         });
 
-        let year = tag.year().map(|y| y as i32).or_else(|| {
-            tag.get_string(&lofty::tag::ItemKey::Year)
-                .and_then(|s| s.parse::<i32>().ok())
+        let year = tag.date().map(|d| i32::from(d.year)).or_else(|| {
+            tag.get_string(lofty::tag::ItemKey::Year)
+                .and_then(|s| s.trim().get(..4).and_then(|y| y.parse::<i32>().ok()))
         });
 
         let genre = tag.genre().map(|s| s.to_string());
@@ -1711,12 +1711,12 @@ async fn extract_metadata(
         // Extract original ReplayGain tags from file
         // Format is typically "-6.50 dB" or just "-6.50"
         let original_replaygain_track_gain = tag
-            .get_string(&lofty::tag::ItemKey::ReplayGainTrackGain)
+            .get_string(lofty::tag::ItemKey::ReplayGainTrackGain)
             .and_then(parse_replaygain_value);
 
         // Peak is typically stored as a linear value like "0.988831" or "1.0"
         let original_replaygain_track_peak = tag
-            .get_string(&lofty::tag::ItemKey::ReplayGainTrackPeak)
+            .get_string(lofty::tag::ItemKey::ReplayGainTrackPeak)
             .and_then(|s| s.trim().parse::<f64>().ok());
 
         (

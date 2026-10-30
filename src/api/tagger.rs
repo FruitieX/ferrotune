@@ -34,7 +34,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::server_config::is_tag_editing_enabled;
-use super::tags::{extract_tags_from_file, GetTagsResponse, TagEntry, UpdateTagsRequest};
+use super::tags::{GetTagsResponse, TagEntry, UpdateTagsRequest};
 
 /// Response for listing staged files
 #[derive(Debug, Serialize, TS)]
@@ -495,7 +495,7 @@ async fn extract_file_metadata(path: &std::path::Path) -> Result<FileMetadata, S
     tokio::task::spawn_blocking(move || {
         let tagged_file = Probe::open(&path_clone)
             .map_err(|e| format!("Failed to open file: {}", e))?
-            .options(ParseOptions::new())
+            .options(ParseOptions::new().read_tags(false))
             .read()
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -506,7 +506,13 @@ async fn extract_file_metadata(path: &std::path::Path) -> Result<FileMetadata, S
             .try_into()
             .ok();
 
-        let tags = extract_tags_from_file(&tagged_file);
+        // The tagger edits text tags; binary items (PRIV, UFID, ...) stay
+        // visible in the tag editor and are preserved on save.
+        let tags = crate::api::common::tag_io::read_tags(&path_clone)?
+            .tags
+            .into_iter()
+            .filter(|t| !t.read_only)
+            .collect();
 
         Ok(FileMetadata { duration_ms, tags })
     })
@@ -1102,30 +1108,8 @@ pub async fn batch_update_tags(
     let mut errors = Vec::new();
     let mut rescan_recommended = false;
 
-    // Keys that affect library organization
-    let rescan_keys = [
-        "ARTIST",
-        "ALBUM",
-        "ALBUMARTIST",
-        "TITLE",
-        "TRACKNUMBER",
-        "DISCNUMBER",
-        "YEAR",
-        "GENRE",
-    ];
-
     for update in &request.updates {
-        // Check if this update requires rescan
-        let needs_rescan = update
-            .changes
-            .set
-            .iter()
-            .any(|t| rescan_keys.contains(&t.key.to_uppercase().as_str()))
-            || update
-                .changes
-                .delete
-                .iter()
-                .any(|k| rescan_keys.contains(&k.to_uppercase().as_str()));
+        let needs_rescan = super::tags::needs_rescan(&update.changes);
         if needs_rescan {
             rescan_recommended = true;
         }
@@ -1223,7 +1207,7 @@ pub async fn batch_update_tags(
             Err(e) => {
                 errors.push(BatchUpdateError {
                     song_id: update.song_id.clone(),
-                    error: e,
+                    error: e.to_string(),
                 });
             }
         }

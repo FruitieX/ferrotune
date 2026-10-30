@@ -6,7 +6,9 @@ import type { TagEntry } from "./TagEntry";
  */
 export type UpdateTagsRequest = { 
 /**
- * Tags to set (will overwrite existing values for these keys)
+ * Tags to set. All values of a key are replaced by the entries given for
+ * it (repeat a key to write several values); an empty value deletes the
+ * key. Keys that are not named keep their values.
  */
 set: Array<TagEntry>, 
 /**

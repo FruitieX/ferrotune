@@ -1707,8 +1707,8 @@ pub async fn upload_replacement_audio(
                     if let Some(v) = tag.genre() {
                         tag_map.insert("GENRE".to_string(), v.to_string());
                     }
-                    if let Some(v) = tag.year() {
-                        tag_map.insert("YEAR".to_string(), v.to_string());
+                    if let Some(v) = tag.date() {
+                        tag_map.insert("YEAR".to_string(), v.year.to_string());
                     }
                     if let Some(v) = tag.track() {
                         tag_map.insert("TRACKNUMBER".to_string(), v.to_string());
@@ -1721,7 +1721,7 @@ pub async fn upload_replacement_audio(
                     }
 
                     // Also check for album artist
-                    if let Some(v) = tag.get_string(&lofty::tag::ItemKey::AlbumArtist) {
+                    if let Some(v) = tag.get_string(lofty::tag::ItemKey::AlbumArtist) {
                         tag_map.insert("ALBUMARTIST".to_string(), v.to_string());
                     }
                 }
@@ -2787,10 +2787,7 @@ async fn save_single_track(
         let update_request = super::tags::UpdateTagsRequest {
             set: edited_tags
                 .iter()
-                .map(|(k, v)| super::tags::TagEntry {
-                    key: k.clone(),
-                    value: v.clone(),
-                })
+                .map(|(k, v)| super::tags::TagEntry::new(k.clone(), v.clone()))
                 .collect(),
             delete: vec![],
         };
@@ -2804,7 +2801,8 @@ async fn save_single_track(
                 &update_request,
                 cover_art_action,
             )
-            .await?;
+            .await
+            .map_err(|e| e.to_string())?;
         }
 
         // Clean up cover art staging file
@@ -2877,9 +2875,18 @@ async fn save_single_track(
             let replacement_file_path = replacement_dir.join(replacement_filename);
 
             if replacement_file_path.exists() {
-                // Read original file's tags and cover art for transfer
+                // Keep the original file around until its tags are copied
+                // onto the replacement.
+                let original_copy = std::env::temp_dir()
+                    .join(format!("ferrotune-original-{}", uuid::Uuid::new_v4()));
+                fs::copy(&current_path, &original_copy)
+                    .await
+                    .map_err(|e| format!("Failed to keep original file: {}", e))?;
+
+                // Original front cover, for when the tag transfer cannot carry
+                // the pictures over (different formats).
                 let original_path_clone = current_path.clone();
-                let original_data = tokio::task::spawn_blocking(move || {
+                let original_cover = tokio::task::spawn_blocking(move || {
                     use lofty::prelude::*;
                     use lofty::probe::Probe;
 
@@ -2888,17 +2895,11 @@ async fn save_single_track(
                             Ok(f) => f,
                             Err(e) => {
                                 tracing::warn!("Failed to read original file tags: {}", e);
-                                return (Vec::new(), None);
+                                return None;
                             }
                         };
 
-                    let tags = if let Some(tag) = tagged_file.primary_tag() {
-                        super::tags::extract_tags_from_tag(tag)
-                    } else {
-                        Vec::new()
-                    };
-
-                    let cover = tagged_file
+                    tagged_file
                         .primary_tag()
                         .and_then(|tag| tag.pictures().first())
                         .or_else(|| {
@@ -2912,14 +2913,12 @@ async fn save_single_track(
                                 .mime_type()
                                 .map_or_else(|| "image/jpeg".to_string(), |m| m.to_string());
                             (pic.data().to_vec(), mime)
-                        });
-
-                    (tags, cover)
+                        })
                 })
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!("Failed to spawn blocking task: {}", e);
-                    (Vec::new(), None)
+                    None
                 });
 
                 let new_ext = replacement_filename
@@ -2982,26 +2981,40 @@ async fn save_single_track(
                     }
                 }
 
-                // Apply original tags to replacement file
-                if !original_data.0.is_empty() {
-                    let update_request = super::tags::UpdateTagsRequest {
-                        set: original_data.0,
+                // Copy the original tags (all of them, binary frames included
+                // when the format is the same) and cover art to the replacement.
+                let from = original_copy.clone();
+                let to = working_path.clone();
+                let pictures_copied = match tokio::task::spawn_blocking(move || {
+                    crate::api::common::tag_io::transfer_tags(&from, &to)
+                })
+                .await
+                {
+                    Ok(Ok(copied)) => copied,
+                    Ok(Err(e)) => {
+                        tracing::warn!("Failed to transfer original tags to replacement: {}", e);
+                        false
+                    }
+                    Err(e) => {
+                        tracing::warn!("Tag transfer task failed: {}", e);
+                        false
+                    }
+                };
+                let _ = fs::remove_file(&original_copy).await;
+
+                if let Some((data, mime)) = original_cover.filter(|_| !pictures_copied) {
+                    let no_tags = super::tags::UpdateTagsRequest {
+                        set: vec![],
                         delete: vec![],
                     };
-
-                    let cover_action = match original_data.1 {
-                        Some((data, mime)) => super::tags::CoverArtAction::Set(data, mime),
-                        None => super::tags::CoverArtAction::Keep,
-                    };
-
                     if let Err(e) = super::tags::update_tags_with_cover_art(
                         &working_path,
-                        &update_request,
-                        cover_action,
+                        &no_tags,
+                        super::tags::CoverArtAction::Set(data, mime),
                     )
                     .await
                     {
-                        tracing::warn!("Failed to transfer original tags to replacement: {}", e);
+                        tracing::warn!("Failed to transfer original cover art: {}", e);
                     }
                 }
 
@@ -3038,17 +3051,15 @@ async fn save_single_track(
         let update_request = super::tags::UpdateTagsRequest {
             set: edited_tags
                 .iter()
-                .map(|(k, v)| super::tags::TagEntry {
-                    key: k.clone(),
-                    value: v.clone(),
-                })
+                .map(|(k, v)| super::tags::TagEntry::new(k.clone(), v.clone()))
                 .collect(),
             delete: vec![],
         };
 
         // Apply tags and cover art
         super::tags::update_tags_with_cover_art(&working_path, &update_request, cover_art_action)
-            .await?;
+            .await
+            .map_err(|e| e.to_string())?;
 
         // Clean up cover art staging file
         if let Some(ref filename) = pending_ref.cover_art_filename {

@@ -10,4 +10,6 @@ import kotlinx.serialization.Serializable
 data class TagEntry(
     val key: String,
     val value: String,
+    val nativeKey: String? = null,
+    val readOnly: Boolean? = false,
 )

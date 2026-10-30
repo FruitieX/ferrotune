@@ -86,7 +86,7 @@ pub enum Error {
     Image(#[from] image::ImageError),
 
     #[error("Audio metadata error: {0}")]
-    Lofty(#[from] lofty::error::LoftyError),
+    Lofty(#[from] lofty::error::FileParseError),
 
     #[error("Migration error: {0}")]
     Migration(String),
