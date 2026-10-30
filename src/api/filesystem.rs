@@ -151,7 +151,7 @@ pub async fn browse_filesystem(
     }
 
     // Sort directories alphabetically (case-insensitive)
-    directories.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    directories.sort_by_key(|a| a.name.to_lowercase());
 
     // Build breadcrumbs
     let breadcrumbs = build_breadcrumbs(&path);

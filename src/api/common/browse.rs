@@ -61,7 +61,7 @@ pub async fn get_artists_logic(
     let mut indexes: Vec<ArtistIndex> = grouped
         .into_iter()
         .map(|(name, mut artists)| {
-            artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            artists.sort_by_key(|a| a.name.to_lowercase());
             ArtistIndex {
                 name,
                 artist: artists,
@@ -69,7 +69,7 @@ pub async fn get_artists_logic(
         })
         .collect();
 
-    indexes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    indexes.sort_by_key(|a| a.name.to_lowercase());
 
     Ok(ArtistsIndex { index: indexes })
 }
@@ -281,7 +281,7 @@ pub async fn get_indexes_logic(
     let mut indexes: Vec<DirectoryIndex> = grouped
         .into_iter()
         .map(|(name, mut artists)| {
-            artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            artists.sort_by_key(|a| a.name.to_lowercase());
             DirectoryIndex {
                 name,
                 artist: artists,

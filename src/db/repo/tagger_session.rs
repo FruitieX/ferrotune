@@ -8,6 +8,7 @@ use crate::db::{entity, models, Database};
 use crate::error::Result;
 use chrono::{DateTime, Utc};
 use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, FromQueryResult,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -300,12 +301,7 @@ pub async fn insert_session_track_ignore_duplicate<C: ConnectionTrait>(
             position: ActiveValue::Set(position),
             ..Default::default()
         })
-        .on_conflict(
-            OnConflict::columns([T::SessionId, T::TrackId])
-                .do_nothing()
-                .to_owned(),
-        )
-        .do_nothing()
+        .on_conflict_do_nothing_on([T::SessionId, T::TrackId])
         .exec(conn)
         .await;
 

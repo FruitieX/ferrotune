@@ -12,7 +12,7 @@ trackIds: Array<string>,
  * Optional path overrides for conflict resolution (track_id -> new path)
  * Used when user resolves rename conflicts in the save dialog
  */
-pathOverrides: { [key in string]?: string }, 
+pathOverrides: { [key in string]: string }, 
 /**
  * Target music folder ID for staged files (required if saving staged files)
  */

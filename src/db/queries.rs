@@ -6,6 +6,7 @@ use crate::db::models::*;
 use crate::db::ordering::case_insensitive_order;
 use crate::db::Database;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
+use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, EntityTrait, JoinType, Order,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationTrait,
@@ -282,7 +283,7 @@ pub async fn update_playlist_metadata(
 ) -> crate::error::Result<()> {
     use entity::playlists::Column as P;
     let mut q = entity::playlists::Entity::update_many()
-        .col_expr(P::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(P::UpdatedAt, Expr::current_timestamp())
         .filter(P::Id.eq(id));
     if let Some(n) = name {
         q = q.col_expr(P::Name, Expr::value(n.to_string()));
@@ -318,9 +319,8 @@ pub async fn add_songs_to_playlist(
         .flatten()
         .unwrap_or(-1);
 
-    let mut position = max_pos + 1;
     let now = chrono::Utc::now().fixed_offset();
-    for song_id in song_ids {
+    for (position, song_id) in (max_pos + 1..).zip(song_ids) {
         let active = entity::playlist_songs::ActiveModel {
             playlist_id: Set(playlist_id.to_string()),
             song_id: Set(Some(song_id.clone())),
@@ -331,7 +331,6 @@ pub async fn add_songs_to_playlist(
             missing_search_text: Set(None),
         };
         active.insert(database.conn()).await?;
-        position += 1;
     }
 
     update_playlist_totals(database, playlist_id).await?;
@@ -367,9 +366,8 @@ pub async fn add_entries_to_playlist(
         .flatten()
         .unwrap_or(-1);
 
-    let mut position = max_pos + 1;
     let now = chrono::Utc::now().fixed_offset();
-    for entry in entries {
+    for (position, entry) in (max_pos + 1..).zip(entries) {
         let missing_json = entry
             .missing_entry_data
             .as_ref()
@@ -384,7 +382,6 @@ pub async fn add_entries_to_playlist(
             entry_id: Set(Some(Uuid::new_v4().to_string())),
         };
         active.insert(database.conn()).await?;
-        position += 1;
     }
 
     update_playlist_totals(database, playlist_id).await?;
@@ -675,7 +672,7 @@ async fn update_playlist_totals(
     entity::playlists::Entity::update_many()
         .col_expr(P::SongCount, Expr::value(song_count))
         .col_expr(P::Duration, Expr::value(duration.unwrap_or(0)))
-        .col_expr(P::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(P::UpdatedAt, Expr::current_timestamp())
         .filter(P::Id.eq(playlist_id))
         .exec(database.conn())
         .await?;
@@ -856,7 +853,7 @@ pub async fn delete_song(database: &Database, id: &str) -> crate::error::Result<
         entity::playlists::Entity::update_many()
             .col_expr(PL::SongCount, Expr::value(song_count))
             .col_expr(PL::Duration, Expr::value(duration_sum.unwrap_or(0)))
-            .col_expr(PL::UpdatedAt, Expr::current_timestamp().into())
+            .col_expr(PL::UpdatedAt, Expr::current_timestamp())
             .filter(PL::Id.eq(playlist_id))
             .exec(&tx)
             .await?;
@@ -875,7 +872,7 @@ pub async fn update_song_path(
     use entity::songs::Column as S;
     let result = entity::songs::Entity::update_many()
         .col_expr(S::FilePath, Expr::value(new_path.to_string()))
-        .col_expr(S::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(S::UpdatedAt, Expr::current_timestamp())
         .filter(S::Id.eq(song_id))
         .exec(database.conn())
         .await?;
@@ -894,7 +891,7 @@ pub async fn update_song_path_and_format(
     let result = entity::songs::Entity::update_many()
         .col_expr(S::FilePath, Expr::value(new_path.to_string()))
         .col_expr(S::FileFormat, Expr::value(new_format.to_string()))
-        .col_expr(S::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(S::UpdatedAt, Expr::current_timestamp())
         .filter(S::Id.eq(song_id))
         .exec(database.conn())
         .await?;
@@ -1010,7 +1007,7 @@ pub async fn update_session_heartbeat_with_position(
     // A pause ends a playing stretch now. Owners report only on changes (not
     // on a timer), so the last "playing" heartbeat may be a whole track old.
     let last_playing_at_expr: SimpleExpr = if is_playing {
-        Expr::current_timestamp().into()
+        Expr::current_timestamp()
     } else {
         Expr::case(Expr::col(S::IsPlaying).eq(true), Expr::current_timestamp())
             .finally(Expr::col(S::LastPlayingAt))
@@ -1018,7 +1015,7 @@ pub async fn update_session_heartbeat_with_position(
     };
 
     let result = entity::playback_sessions::Entity::update_many()
-        .col_expr(S::LastHeartbeat, Expr::current_timestamp().into())
+        .col_expr(S::LastHeartbeat, Expr::current_timestamp())
         .col_expr(S::IsPlaying, Expr::value(is_playing))
         .col_expr(
             S::CurrentSongId,
@@ -1048,7 +1045,7 @@ pub async fn update_session_heartbeat_timestamp(
 ) -> crate::error::Result<bool> {
     use entity::playback_sessions::Column as S;
     let result = entity::playback_sessions::Entity::update_many()
-        .col_expr(S::LastHeartbeat, Expr::current_timestamp().into())
+        .col_expr(S::LastHeartbeat, Expr::current_timestamp())
         .filter(S::Id.eq(session_id))
         .exec(database.conn())
         .await?;
@@ -1062,7 +1059,7 @@ pub async fn touch_session_last_playing_at(
 ) -> crate::error::Result<bool> {
     use entity::playback_sessions::Column as S;
     let result = entity::playback_sessions::Entity::update_many()
-        .col_expr(S::LastPlayingAt, Expr::current_timestamp().into())
+        .col_expr(S::LastPlayingAt, Expr::current_timestamp())
         .filter(S::Id.eq(session_id))
         .exec(database.conn())
         .await?;
@@ -1457,7 +1454,7 @@ pub async fn update_queue_position_by_session(
     let result = entity::play_queues::Entity::update_many()
         .col_expr(Q::CurrentIndex, Expr::value(current_index))
         .col_expr(Q::PositionMs, Expr::value(position_ms))
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(database.conn())
         .await?;
@@ -1473,7 +1470,7 @@ pub async fn update_queue_position_ms_by_session(
     use entity::play_queues::Column as Q;
     let result = entity::play_queues::Entity::update_many()
         .col_expr(Q::PositionMs, Expr::value(position_ms))
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(database.conn())
         .await?;
@@ -1502,7 +1499,7 @@ pub async fn update_queue_shuffle_by_session(
         )
         .col_expr(Q::CurrentIndex, Expr::value(current_index))
         .col_expr(Q::PositionMs, Expr::value(position_ms))
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .col_expr(Q::Version, Expr::col(Q::Version).add(1i64))
         .filter(Q::SessionId.eq(session_id));
     if let Some(ver) = expected_version {
@@ -1521,7 +1518,7 @@ pub async fn update_queue_song_ids_by_session(
     use entity::play_queues::Column as Q;
     let result = entity::play_queues::Entity::update_many()
         .col_expr(Q::SongIdsJson, Expr::value(song_ids_json.map(String::from)))
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(database.conn())
         .await?;
@@ -1537,7 +1534,7 @@ pub async fn update_queue_repeat_mode_by_session(
     use entity::play_queues::Column as Q;
     let result = entity::play_queues::Entity::update_many()
         .col_expr(Q::RepeatMode, Expr::value(repeat_mode.to_string()))
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(database.conn())
         .await?;
@@ -1606,7 +1603,7 @@ pub async fn add_to_queue_by_session(
     }
 
     entity::play_queues::Entity::update_many()
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(&tx)
         .await?;
@@ -1659,7 +1656,7 @@ pub async fn remove_from_queue_by_session(
         .await?;
 
     entity::play_queues::Entity::update_many()
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(&tx)
         .await?;
@@ -1759,7 +1756,7 @@ pub async fn move_in_queue_by_session(
         .await?;
 
     entity::play_queues::Entity::update_many()
-        .col_expr(Q::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
         .filter(Q::SessionId.eq(session_id))
         .exec(&tx)
         .await?;

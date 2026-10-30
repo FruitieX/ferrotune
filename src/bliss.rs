@@ -63,7 +63,9 @@ pub fn blob_to_features(blob: &[u8]) -> Result<Vec<f32>> {
     }
 
     Ok(blob
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect())
 }
@@ -169,9 +171,9 @@ pub async fn find_similar_songs(
     let pool_size = (count * 3).min(filtered.len());
     filtered.truncate(pool_size);
 
-    let mut rng: Box<dyn rand::RngCore> = match rng_seed {
+    let mut rng: Box<dyn rand::Rng> = match rng_seed {
         Some(seed) => Box::new(rand::rngs::StdRng::seed_from_u64(seed)),
-        None => Box::new(rand::thread_rng()),
+        None => Box::new(rand::rng()),
     };
     filtered.shuffle(&mut rng);
 

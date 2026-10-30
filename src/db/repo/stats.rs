@@ -1,6 +1,7 @@
 //! Library statistics queries.
 
 use sea_orm::entity::prelude::*;
+use sea_orm::ExprTrait;
 use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, QuerySelect,
 };

@@ -195,7 +195,6 @@ pub async fn insert_thumbnail_pair(
     small: Vec<u8>,
     medium: Vec<u8>,
 ) -> Result<()> {
-    use sea_orm::sea_query::OnConflict;
     use sea_orm::ActiveValue;
     let now = chrono::Utc::now().fixed_offset();
     let model = entity::cover_art_thumbnails::ActiveModel {
@@ -205,12 +204,7 @@ pub async fn insert_thumbnail_pair(
         updated_at: ActiveValue::Set(now),
     };
     let _ = entity::cover_art_thumbnails::Entity::insert(model)
-        .on_conflict(
-            OnConflict::column(entity::cover_art_thumbnails::Column::Hash)
-                .do_nothing()
-                .to_owned(),
-        )
-        .do_nothing()
+        .on_conflict_do_nothing_on([entity::cover_art_thumbnails::Column::Hash])
         .exec(database.conn())
         .await?;
     Ok(())

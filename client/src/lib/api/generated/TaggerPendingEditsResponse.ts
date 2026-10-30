@@ -8,4 +8,4 @@ export type TaggerPendingEditsResponse = {
 /**
  * Map of track_id -> pending edit data
  */
-edits: { [key in string]?: TaggerPendingEditData }, };
+edits: { [key in string]: TaggerPendingEditData }, };

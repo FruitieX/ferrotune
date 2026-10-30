@@ -359,8 +359,8 @@ pub async fn connect_session(
 
     let session = queries::get_or_create_session(&state.database, user.user_id).await?;
 
-    let (owner_client_id, owner_client_name) = if is_new && request.client_id.is_some() {
-        let client_id = request.client_id.as_ref().unwrap();
+    let new_owner = request.client_id.as_ref().filter(|_| is_new);
+    let (owner_client_id, owner_client_name) = if let Some(client_id) = new_owner {
         queries::update_session_owner(
             &state.database,
             &session.id,
@@ -1425,12 +1425,18 @@ mod tests {
 
         // An idle phone known only by its push registration is found.
         assert_eq!(
-            diagnostics_target(None, &[web.clone()], &[device("phone-1")], None).ok(),
+            diagnostics_target(None, std::slice::from_ref(&web), &[device("phone-1")], None).ok(),
             Some("phone-1".to_string())
         );
         // Connected and registered at once is still one app.
         assert_eq!(
-            diagnostics_target(None, &[phone.clone()], &[device("phone-1")], None).ok(),
+            diagnostics_target(
+                None,
+                std::slice::from_ref(&phone),
+                &[device("phone-1")],
+                None
+            )
+            .ok(),
             Some("phone-1".to_string())
         );
         // Several apps: the owner, else the caller must choose.
@@ -1449,7 +1455,7 @@ mod tests {
         );
         // Web clients are never asked, and unknown ids are not found.
         assert!(matches!(
-            diagnostics_target(Some("web-1"), &[web.clone()], &[], None),
+            diagnostics_target(Some("web-1"), std::slice::from_ref(&web), &[], None),
             Err(Error::NotFound(_))
         ));
         assert!(matches!(

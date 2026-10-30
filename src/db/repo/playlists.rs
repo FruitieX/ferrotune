@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
+use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, Order,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, TransactionTrait,
@@ -673,7 +674,7 @@ pub async fn touch_playlist_last_played(database: &Database, playlist_id: &str) 
     entity::playlists::Entity::update_many()
         .col_expr(
             entity::playlists::Column::LastPlayedAt,
-            Expr::current_timestamp().into(),
+            Expr::current_timestamp(),
         )
         .filter(entity::playlists::Column::Id.eq(playlist_id))
         .exec(database.conn())
@@ -689,7 +690,7 @@ pub async fn touch_smart_playlist_last_played(
     entity::smart_playlists::Entity::update_many()
         .col_expr(
             entity::smart_playlists::Column::LastPlayedAt,
-            Expr::current_timestamp().into(),
+            Expr::current_timestamp(),
         )
         .filter(entity::smart_playlists::Column::Id.eq(smart_playlist_id))
         .exec(database.conn())
@@ -993,9 +994,7 @@ fn playlist_entry_select(
 fn case_insensitive_entry_order(database: &Database, expr: SimpleExpr) -> SimpleExpr {
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => Expr::cust_with_expr("$1 COLLATE NOCASE", expr),
-        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
-            SimpleExpr::FunctionCall(Func::lower(expr))
-        }
+        _ => SimpleExpr::FunctionCall(Func::lower(expr)),
     }
 }
 
@@ -1018,16 +1017,13 @@ fn order_playlist_entry_query(
     query = match options.sort {
         PlaylistEntrySort::Custom => query,
         PlaylistEntrySort::Title => query.order_by(
-            case_insensitive_entry_order(
-                database,
-                Expr::col((entity::songs::Entity, Song::Title)).into(),
-            ),
+            case_insensitive_entry_order(database, Expr::col((entity::songs::Entity, Song::Title))),
             order,
         ),
         PlaylistEntrySort::Artist => query.order_by(
             case_insensitive_entry_order(
                 database,
-                Expr::col((entity::artists::Entity, Artist::Name)).into(),
+                Expr::col((entity::artists::Entity, Artist::Name)),
             ),
             order,
         ),
@@ -1097,7 +1093,7 @@ pub async fn page_playlist_entries(
             0
         }
     } else {
-        options.offset.min(filtered_count.max(0) as u64) as i64
+        std::cmp::min(options.offset, u64::try_from(filtered_count).unwrap_or(0)) as i64
     };
 
     Ok(PlaylistEntryPage {
@@ -1275,7 +1271,7 @@ pub async fn transfer_playlist_ownership(
         )
         .col_expr(
             entity::playlists::Column::UpdatedAt,
-            Expr::current_timestamp().into(),
+            Expr::current_timestamp(),
         )
         .filter(entity::playlists::Column::Id.eq(playlist_id))
         .exec(database.conn())

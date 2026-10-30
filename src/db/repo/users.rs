@@ -11,6 +11,7 @@
 //! `repo::users::foo`.
 
 use chrono::Utc;
+use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, Order,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -540,8 +541,6 @@ pub async fn grant_user_library_access(
     user_id: i64,
     music_folder_id: i64,
 ) -> Result<()> {
-    use sea_orm::sea_query::OnConflict;
-
     let model = entity::user_library_access::ActiveModel {
         user_id: Set(user_id),
         music_folder_id: Set(music_folder_id),
@@ -549,15 +548,10 @@ pub async fn grant_user_library_access(
     };
 
     entity::user_library_access::Entity::insert(model)
-        .on_conflict(
-            OnConflict::columns([
-                entity::user_library_access::Column::UserId,
-                entity::user_library_access::Column::MusicFolderId,
-            ])
-            .do_nothing()
-            .to_owned(),
-        )
-        .do_nothing()
+        .on_conflict_do_nothing_on([
+            entity::user_library_access::Column::UserId,
+            entity::user_library_access::Column::MusicFolderId,
+        ])
         .exec(database.conn())
         .await?;
     Ok(())

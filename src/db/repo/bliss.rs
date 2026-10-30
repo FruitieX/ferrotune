@@ -1,6 +1,7 @@
 //! Bliss similarity query helpers.
 
 use sea_orm::sea_query::{Expr, IntoCondition};
+use sea_orm::ExprTrait;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
     RelationTrait,

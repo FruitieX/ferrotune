@@ -21,9 +21,9 @@ pub fn case_insensitive_order<C>(backend: DbBackend, col: C) -> SimpleExpr
 where
     C: IntoColumnRef,
 {
-    let col_expr: SimpleExpr = Expr::col(col).into();
+    let col_expr: SimpleExpr = Expr::col(col);
     match backend {
         DbBackend::Sqlite => Expr::cust_with_expr("$1 COLLATE NOCASE", col_expr),
-        DbBackend::Postgres | DbBackend::MySql => SimpleExpr::FunctionCall(Func::lower(col_expr)),
+        _ => SimpleExpr::FunctionCall(Func::lower(col_expr)),
     }
 }

@@ -59,7 +59,7 @@ pub async fn insert_submission_scrobble_if_not_recent_duplicate(
 
     let backend: DatabaseBackend = database.conn().get_database_backend();
     let stmt = backend.build(&insert);
-    let result = database.conn().execute(stmt).await?;
+    let result = database.conn().execute_raw(stmt).await?;
     Ok(result.rows_affected() > 0)
 }
 

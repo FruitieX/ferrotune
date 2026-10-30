@@ -105,9 +105,11 @@ async fn token(State(state): State<Shared>, Form(form): Form<HashMap<String, Str
 }
 
 fn rand_suffix() -> String {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut bytes = [0u8; 8];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS random number generator failed");
     hex::encode(bytes)
 }
 

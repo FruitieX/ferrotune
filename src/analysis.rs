@@ -11,21 +11,88 @@ use crate::error::{Error, Result};
 use crate::replaygain::{ReplayGainResult, REFERENCE_LOUDNESS};
 use std::path::Path;
 use std::sync::LazyLock;
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::codecs::registry::CodecRegistry;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::units::TimeBase;
 use symphonia_adapter_libopus::OpusDecoder;
 
 /// Custom codec registry that includes Opus support via libopus adapter.
 pub static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(|| {
     let mut registry = CodecRegistry::new();
-    registry.register_all::<OpusDecoder>();
+    registry.register_audio_decoder::<OpusDecoder>();
     symphonia::default::register_enabled_codecs(&mut registry);
     registry
 });
+
+/// A demuxed audio file with a decoder for its default audio track.
+pub(crate) struct AudioSource {
+    pub format: Box<dyn FormatReader>,
+    pub decoder: Box<dyn AudioDecoder>,
+    pub track_id: u32,
+    pub sample_rate: u32,
+    pub channels: usize,
+    pub time_base: Option<TimeBase>,
+}
+
+/// Why an audio file could not be opened for decoding.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AudioOpenError {
+    #[error("Could not open file: {0}")]
+    Open(#[from] std::io::Error),
+    #[error("Could not probe audio format: {0}")]
+    Probe(symphonia::core::errors::Error),
+    #[error("No audio track found")]
+    NoAudioTrack,
+    #[error("Could not create decoder: {0}")]
+    Decoder(symphonia::core::errors::Error),
+}
+
+/// Open `path`, probe its container and create a decoder for its default
+/// audio track (using [`CODEC_REGISTRY`], so Opus is supported).
+pub(crate) fn open_audio_source(path: &Path) -> std::result::Result<AudioSource, AudioOpenError> {
+    let file = std::fs::File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let format = symphonia::default::get_probe()
+        .probe(
+            &hint,
+            mss,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .map_err(AudioOpenError::Probe)?;
+
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or(AudioOpenError::NoAudioTrack)?;
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .ok_or(AudioOpenError::NoAudioTrack)?;
+
+    let decoder = CODEC_REGISTRY
+        .make_audio_decoder(params, &AudioDecoderOptions::default())
+        .map_err(AudioOpenError::Decoder)?;
+
+    Ok(AudioSource {
+        track_id: track.id,
+        sample_rate: params.sample_rate.unwrap_or(44100),
+        channels: params.channels.as_ref().map(|c| c.count()).unwrap_or(2),
+        time_base: track.time_base,
+        format,
+        decoder,
+    })
+}
 
 /// Number of waveform bars to compute during scanning.
 pub const WAVEFORM_RESOLUTION: usize = 500;
@@ -55,7 +122,9 @@ pub fn blob_to_waveform(blob: &[u8]) -> Result<Vec<f32>> {
         )));
     }
     Ok(blob
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect())
 }
@@ -76,38 +145,14 @@ pub fn analyze_track(
         });
     }
 
-    let file = std::fs::File::open(path)
-        .map_err(|e| Error::Internal(format!("Could not open file for analysis: {}", e)))?;
-
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|e| Error::Internal(format!("Could not probe audio format: {}", e)))?;
-
-    let mut format = probed.format;
-
-    let track = format
-        .default_track()
-        .ok_or_else(|| Error::Internal("No audio track found".to_string()))?;
-
-    let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
-    let channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
-
-    let mut decoder = CODEC_REGISTRY
-        .make(&track.codec_params, &DecoderOptions::default())
-        .map_err(|e| Error::Internal(format!("Could not create decoder: {}", e)))?;
+    let AudioSource {
+        mut format,
+        mut decoder,
+        track_id,
+        sample_rate,
+        channels,
+        ..
+    } = open_audio_source(path).map_err(|e| Error::Internal(format!("Audio analysis: {e}")))?;
 
     // ReplayGain state
     let mut ebur128 = if compute_replaygain {
@@ -132,15 +177,14 @@ pub fn analyze_track(
     let mut fine_sq_sum: f64 = 0.0;
     let mut fine_count: usize = 0;
 
+    // Interleaved f32 samples of the current packet, reused across packets.
+    let mut sample_buf: Vec<f32> = Vec::new();
+
     // Decode loop
     loop {
         let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(symphonia::core::errors::Error::IoError(ref e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break;
-            }
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(symphonia::core::errors::Error::ResetRequired) => {
                 decoder.reset();
                 continue;
@@ -151,7 +195,7 @@ pub fn analyze_track(
             }
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
@@ -160,13 +204,9 @@ pub fn analyze_track(
             Err(_) => continue,
         };
 
-        let spec = *decoded.spec();
-        let duration = decoded.capacity() as u64;
-        let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
-        sample_buf.copy_interleaved_ref(decoded);
-
-        let actual_channels = spec.channels.count().max(1);
-        let samples = sample_buf.samples();
+        let actual_channels = decoded.spec().channels().count().max(1);
+        decoded.copy_to_vec_interleaved(&mut sample_buf);
+        let samples = sample_buf.as_slice();
 
         // Feed to EBU R128 meter (uses interleaved samples directly)
         if let Some(ref mut meter) = ebur128 {

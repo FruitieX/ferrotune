@@ -797,8 +797,8 @@ pub async fn start_queue(
         // the user pressed "Shuffle" to start from a random position
         let effective_start =
             if request.start_song_id.is_none() && start_index == 0 && total_count > 0 {
-                use rand::Rng;
-                rand::thread_rng().gen_range(0..total_count)
+                use rand::RngExt;
+                rand::rng().random_range(0..total_count)
             } else {
                 start_index
             };
@@ -1821,8 +1821,8 @@ pub async fn update_position(
     if request.reshuffle && queue.is_shuffled {
         let seed = rand::random::<u64>() as i64;
         // Pick a random starting song for the new cycle
-        use rand::Rng;
-        let start = rand::thread_rng().gen_range(0..total_count);
+        use rand::RngExt;
+        let start = rand::rng().random_range(0..total_count);
         let indices = generate_shuffle_indices(total_count, start, seed as u64);
         let indices_json = serde_json::to_string(&indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
@@ -3437,7 +3437,7 @@ async fn build_lazy_queue_window(
             );
 
             // Generate a stable entry_id for lazy queue entries
-            let entry_id = format!("lazy-{}-{}", offset + idx, &song.id);
+            let entry_id = format!("lazy-{}-{}", offset + idx, song.id);
 
             QueueSongEntry {
                 entry_id,

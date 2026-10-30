@@ -15,27 +15,12 @@ use axum::{
     response::Response,
 };
 use ogg::writing::PacketWriter;
-use rubato::{FftFixedIn, Resampler};
+use rubato::audioadapter_buffers::direct::InterleavedSlice;
+use rubato::{Fft, FixedSync, Indexing, Resampler};
 use serde::{Deserialize, Serialize};
-
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia_adapter_libopus::OpusDecoder;
 use tokio::sync::mpsc;
 
-use std::sync::LazyLock;
-
-/// Custom codec registry that includes Opus support via libopus adapter.
-static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(|| {
-    let mut registry = CodecRegistry::new();
-    registry.register_all::<OpusDecoder>();
-    symphonia::default::register_enabled_codecs(&mut registry);
-    registry
-});
+use crate::analysis::{open_audio_source, AudioOpenError, AudioSource};
 
 /// Internal transcode parameters (encoded in transcode_params string).
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -189,51 +174,25 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     accurate_seek: bool,
     ogg_serial: u32,
 ) -> Result<()> {
-    // Open source file
-    let file = std::fs::File::open(path)
-        .map_err(|e| Error::NotFound(format!("Could not open file: {}", e)))?;
-
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|e| Error::InvalidRequest(format!("Could not probe audio format: {}", e)))?;
-
-    let mut format = probed.format;
-
-    let track = format
-        .default_track()
-        .ok_or_else(|| Error::InvalidRequest("No audio track found".to_string()))?;
-
-    let track_id = track.id;
-    let source_sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
-    let source_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
-    let time_base = track.codec_params.time_base;
-
-    let mut decoder = CODEC_REGISTRY
-        .make(&track.codec_params, &DecoderOptions::default())
-        .map_err(|e| Error::InvalidRequest(format!("Could not create decoder: {}", e)))?;
+    let AudioSource {
+        mut format,
+        mut decoder,
+        track_id,
+        sample_rate: source_sample_rate,
+        channels: source_channels,
+        time_base,
+    } = open_audio_source(path).map_err(|e| match e {
+        AudioOpenError::Open(_) => Error::NotFound(e.to_string()),
+        _ => Error::InvalidRequest(e.to_string()),
+    })?;
 
     // Decoded frames to discard before the first encoded sample.
     let mut frames_to_skip: u64 = 0;
 
     // Seek to the requested time offset if specified
     if time_offset_seconds > 0.0 {
-        use symphonia::core::formats::SeekMode;
+        use symphonia::core::formats::{SeekMode, SeekTo};
         use symphonia::core::units::Time;
-
-        // Convert seconds to TimeStamp
-        let ts = Time::from(time_offset_seconds);
 
         // Choose seek mode: Accurate is sample-precise but slower,
         // Coarse is faster but may not land exactly on the requested time
@@ -243,13 +202,21 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
             SeekMode::Coarse
         };
 
-        match format.seek(
-            seek_mode,
-            symphonia::core::formats::SeekTo::Time {
-                time: ts,
-                track_id: Some(track_id),
-            },
-        ) {
+        let seek_result = Time::try_from_secs_f64(time_offset_seconds)
+            .ok_or_else(|| "offset out of range".to_string())
+            .and_then(|time| {
+                format
+                    .seek(
+                        seek_mode,
+                        SeekTo::Time {
+                            time,
+                            track_id: Some(track_id),
+                        },
+                    )
+                    .map_err(|e| e.to_string())
+            });
+
+        match seek_result {
             Ok(seeked_to) => {
                 tracing::debug!(
                     "Seeked to timestamp {} (requested {}s, mode={:?})",
@@ -261,14 +228,18 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
                 // time; drop the decoded frames before it so the stream starts
                 // exactly there (resumes then pick up where playback stopped).
                 if accurate_seek {
-                    let delta = seeked_to.required_ts.saturating_sub(seeked_to.actual_ts);
+                    let delta = seeked_to
+                        .required_ts
+                        .duration_from(seeked_to.actual_ts)
+                        .unwrap_or_default();
                     frames_to_skip = match time_base {
-                        Some(time_base) => {
-                            let time = time_base.calc_time(delta);
-                            ((time.seconds as f64 + time.frac) * f64::from(source_sample_rate))
-                                .round() as u64
-                        }
-                        None => delta,
+                        Some(time_base) => time_base
+                            .calc_duration(delta)
+                            .map(|time| {
+                                (time.as_secs_f64() * f64::from(source_sample_rate)).round() as u64
+                            })
+                            .unwrap_or(0),
+                        None => delta.get(),
                     };
                 }
             }
@@ -287,14 +258,14 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     let target_channels = config.channels as usize;
     let need_resample = source_sample_rate as usize != target_sample_rate;
 
-    let mut resampler: Option<FftFixedIn<f32>> = if need_resample {
+    let mut resampler: Option<Fft<f32>> = if need_resample {
         Some(
-            FftFixedIn::new(
+            Fft::new(
                 source_sample_rate as usize,
                 target_sample_rate,
-                1024, // chunk size
-                2,    // sub chunks
+                1024, // chunk size (input frames per call)
                 source_channels,
+                FixedSync::Input,
             )
             .map_err(|e| Error::Internal(format!("Could not create resampler: {}", e)))?,
         )
@@ -339,11 +310,17 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     )?;
 
     // Buffers for processing
-    let mut resample_input: Vec<Vec<f32>> = vec![Vec::new(); source_channels];
+    // Interleaved source-rate samples waiting for the resampler.
+    let mut resample_input: Vec<f32> = Vec::new();
+    let mut resample_output: Vec<f32> = resampler
+        .as_ref()
+        .map(|r| vec![0.0; r.output_frames_max() * source_channels])
+        .unwrap_or_default();
+    // Interleaved samples of the current packet, reused across packets.
+    let mut decoded_samples: Vec<f32> = Vec::new();
     let mut pcm_buffer: Vec<i16> = Vec::new();
     let mut opus_output = vec![0u8; 4000]; // Max Opus packet size
     let mut granule_pos: u64 = 0;
-    let chunk_size = 1024usize;
 
     // Bound runaway decode-error loops: if the decoder keeps failing while the
     // demuxer keeps yielding packets, the loop would spin CPU-bound emitting no
@@ -354,12 +331,8 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     // Decode and encode loop
     loop {
         let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(symphonia::core::errors::Error::IoError(ref e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break;
-            }
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(symphonia::core::errors::Error::ResetRequired) => {
                 decoder.reset();
                 continue;
@@ -370,7 +343,7 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
             }
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
@@ -392,13 +365,9 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
             }
         };
 
-        let spec = *decoded.spec();
-        let duration = decoded.capacity() as u64;
-        let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
-        sample_buf.copy_interleaved_ref(decoded);
-
-        let num_channels = spec.channels.count();
-        let mut samples = sample_buf.samples();
+        let num_channels = decoded.spec().channels().count().max(1);
+        decoded.copy_to_vec_interleaved(&mut decoded_samples);
+        let mut samples = decoded_samples.as_slice();
         if frames_to_skip > 0 {
             let frames = (samples.len() / num_channels.max(1)) as u64;
             let skipped = frames_to_skip.min(frames);
@@ -406,37 +375,31 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
             frames_to_skip -= skipped;
         }
 
-        // De-interleave samples for resampler
-        if need_resample {
-            for (i, sample) in samples.iter().enumerate() {
-                let channel = i % num_channels;
-                if channel < source_channels {
-                    resample_input[channel].push(*sample);
-                }
-            }
+        if let Some(ref mut resampler) = resampler {
+            push_frames(&mut resample_input, samples, num_channels, source_channels);
 
             // Process when we have enough samples
-            while resample_input[0].len() >= chunk_size {
-                let input_chunk: Vec<Vec<f32>> = resample_input
-                    .iter()
-                    .map(|ch| ch[..chunk_size].to_vec())
-                    .collect();
-
-                for ch in &mut resample_input {
-                    ch.drain(..chunk_size);
-                }
-
-                if let Some(ref mut resampler) = resampler {
-                    match resampler.process(&input_chunk, None) {
-                        Ok(output) => {
-                            let interleaved = interleave_and_convert(&output, target_channels);
-                            pcm_buffer.extend(interleaved);
-                        }
-                        Err(e) => {
-                            tracing::warn!("Resampler error: {}", e);
-                        }
+            let chunk_len = resampler.input_frames_next() * source_channels;
+            while resample_input.len() >= chunk_len {
+                match resample_chunk(
+                    resampler,
+                    &resample_input[..chunk_len],
+                    source_channels,
+                    &mut resample_output,
+                    None,
+                ) {
+                    Ok(output) => {
+                        pcm_buffer.extend(convert_samples_direct(
+                            output,
+                            source_channels,
+                            target_channels,
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Resampler error: {}", e);
                     }
                 }
+                resample_input.drain(..chunk_len);
             }
         } else {
             // No resampling needed - convert directly
@@ -473,16 +436,22 @@ pub(crate) fn transcode_to_opus_writer<W: std::io::Write>(
     }
 
     // Process remaining samples in resampler
-    if need_resample && !resample_input[0].is_empty() {
-        if let Some(ref mut resampler) = resampler {
-            let pad_len = chunk_size.saturating_sub(resample_input[0].len());
-            for ch in &mut resample_input {
-                ch.extend(std::iter::repeat_n(0.0f32, pad_len));
-            }
-
-            if let Ok(output) = resampler.process(&resample_input, None) {
-                let interleaved = interleave_and_convert(&output, target_channels);
-                pcm_buffer.extend(interleaved);
+    if let Some(ref mut resampler) = resampler {
+        if !resample_input.is_empty() {
+            // The resampler pads the partial chunk with silence.
+            let frames = resample_input.len() / source_channels;
+            if let Ok(output) = resample_chunk(
+                resampler,
+                &resample_input,
+                source_channels,
+                &mut resample_output,
+                Some(frames),
+            ) {
+                pcm_buffer.extend(convert_samples_direct(
+                    output,
+                    source_channels,
+                    target_channels,
+                ));
             }
         }
     }
@@ -700,31 +669,42 @@ impl std::io::Write for OggStreamBuffer {
     }
 }
 
-/// Interleave resampled channels and convert to i16 for Opus encoder.
-fn interleave_and_convert(channels: &[Vec<f32>], target_channels: usize) -> Vec<i16> {
-    if channels.is_empty() || channels[0].is_empty() {
-        return vec![];
+/// Append interleaved `samples` with `channels` channels to `buffer`, which
+/// holds `buffer_channels` channels: extra channels are dropped and missing
+/// ones repeat the first channel.
+fn push_frames(buffer: &mut Vec<f32>, samples: &[f32], channels: usize, buffer_channels: usize) {
+    if channels == buffer_channels {
+        buffer.extend_from_slice(samples);
+        return;
     }
-
-    let num_frames = channels[0].len();
-    let mut output = Vec::with_capacity(num_frames * target_channels);
-
-    for frame in 0..num_frames {
-        for ch in 0..target_channels {
-            let sample = if ch < channels.len() {
-                channels[ch].get(frame).copied().unwrap_or(0.0)
-            } else if !channels.is_empty() {
-                // Duplicate first channel for missing channels
-                channels[0].get(frame).copied().unwrap_or(0.0)
-            } else {
-                0.0
-            };
-            // Convert f32 (-1.0 to 1.0) to i16
-            output.push((sample.clamp(-1.0, 1.0) * 32767.0) as i16);
-        }
+    for frame in samples.chunks_exact(channels) {
+        buffer.extend((0..buffer_channels).map(|ch| frame.get(ch).copied().unwrap_or(frame[0])));
     }
+}
 
-    output
+/// Resample one chunk of interleaved `input` into `output`, returning the
+/// written interleaved samples. `partial_len` marks a final chunk shorter
+/// than the resampler's input size.
+fn resample_chunk<'a>(
+    resampler: &mut Fft<f32>,
+    input: &[f32],
+    channels: usize,
+    output: &'a mut [f32],
+    partial_len: Option<usize>,
+) -> std::result::Result<&'a [f32], String> {
+    let input_frames = input.len() / channels;
+    let output_frames = output.len() / channels;
+    let input = InterleavedSlice::new(input, channels, input_frames).map_err(|e| e.to_string())?;
+    let mut output_adapter = InterleavedSlice::new_mut(&mut *output, channels, output_frames)
+        .map_err(|e| e.to_string())?;
+    let indexing = partial_len.map(|frames| Indexing {
+        partial_len: Some(frames),
+        ..Default::default()
+    });
+    let (_, written) = resampler
+        .process_into_buffer(&input, &mut output_adapter, indexing.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(&output[..written * channels])
 }
 
 /// Convert samples directly (no resampling), handling channel mixing.

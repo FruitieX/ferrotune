@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
@@ -275,7 +275,9 @@ pub async fn purge_expired(database: &Database) -> Result<u64> {
 
 fn generate_token(prefix: &str, bytes: usize) -> String {
     let mut value = vec![0_u8; bytes];
-    OsRng.fill_bytes(&mut value);
+    SysRng
+        .try_fill_bytes(&mut value)
+        .expect("OS random number generator failed");
     format!("{prefix}_{}", hex::encode(value))
 }
 

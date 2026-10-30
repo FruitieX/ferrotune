@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
+use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
 };

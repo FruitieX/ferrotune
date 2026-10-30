@@ -23,7 +23,7 @@ audioImported: boolean,
 /**
  * Tags imported from the file (if import_tags was true)
  */
-importedTags: { [key in string]?: string } | null, 
+importedTags: { [key in string]: string } | null, 
 /**
  * Whether cover art was imported from the file
  */

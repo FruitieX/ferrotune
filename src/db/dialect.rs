@@ -21,9 +21,7 @@ use sea_orm::DbBackend;
 pub fn extract_year(backend: DbBackend, ts: SimpleExpr) -> SimpleExpr {
     match backend {
         DbBackend::Sqlite => Expr::cust_with_expr("CAST(strftime('%Y', $1) AS INTEGER)", ts),
-        DbBackend::Postgres | DbBackend::MySql => {
-            Expr::cust_with_expr("EXTRACT(YEAR FROM $1)::INTEGER", ts)
-        }
+        _ => Expr::cust_with_expr("EXTRACT(YEAR FROM $1)::INTEGER", ts),
     }
 }
 
@@ -31,8 +29,6 @@ pub fn extract_year(backend: DbBackend, ts: SimpleExpr) -> SimpleExpr {
 pub fn extract_month(backend: DbBackend, ts: SimpleExpr) -> SimpleExpr {
     match backend {
         DbBackend::Sqlite => Expr::cust_with_expr("CAST(strftime('%m', $1) AS INTEGER)", ts),
-        DbBackend::Postgres | DbBackend::MySql => {
-            Expr::cust_with_expr("EXTRACT(MONTH FROM $1)::INTEGER", ts)
-        }
+        _ => Expr::cust_with_expr("EXTRACT(MONTH FROM $1)::INTEGER", ts),
     }
 }

@@ -25,24 +25,17 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = "0.1"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors", "trace", "decompression-gzip"] }
-hyper = { version = "1.5", features = ["full"] }
+tower-http = { version = "0.7", features = ["fs", "cors", "trace", "decompression-gzip"] }
+hyper = { version = "1.12", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto"] }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "postgres", "migrate", "chrono"] }
-sea-orm = { version = "1.1", default-features = false, features = [
-    "runtime-tokio-rustls",
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "migrate", "chrono"] }
+sea-orm = { version = "2.0", default-features = false, features = [
+    "runtime-tokio",
     "sqlx-sqlite",
     "sqlx-postgres",
     "macros",
-    "with-chrono",
-    "with-json",
-] }
-sea-orm-migration = { version = "1.1", default-features = false, features = [
-    "runtime-tokio-rustls",
-    "sqlx-sqlite",
-    "sqlx-postgres",
     "with-chrono",
     "with-json",
 ] }
@@ -50,62 +43,62 @@ sea-orm-migration = { version = "1.1", default-features = false, features = [
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.42", features = ["serialize"] }
 
 # TypeScript type generation
-ts-rs = { version = "11", features = ["chrono-impl", "serde-compat"] }
+ts-rs = { version = "12", features = ["chrono-impl", "serde-compat"] }
 
 # Audio metadata
 lofty = "0.21"
 
 # Audio decoding (for waveform generation and transcoding)
-symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "aac", "alac", "pcm", "adpcm", "isomp4", "mkv"] }
-symphonia-adapter-libopus = "0.2"
+symphonia = { version = "0.6", features = ["mp3", "flac", "ogg", "aac", "alac", "pcm", "adpcm", "isomp4", "mkv"] }
+symphonia-adapter-libopus = "0.3"
 
 # Audio encoding (for transcoding to Opus)
 audiopus = "0.3.0-rc.0"
 ogg = "0.9"
 
 # Audio resampling (for transcoding to 48kHz for Opus)
-rubato = "0.16"
+rubato = "5.0"
 
 # Audio loudness measurement (EBU R128 for ReplayGain)
 ebur128 = "0.1"
 
 # Audio analysis for song similarity (bliss)
-bliss-audio = { version = "0.11", default-features = false, features = ["symphonia-all", "serde", "update-aubio-bindings"], optional = true }
+bliss-audio = { version = "0.13", default-features = false, features = ["symphonia-all", "serde"], optional = true }
 
 # Safe sample format conversion
-bytemuck = { version = "1.21", features = ["derive"] }
+bytemuck = { version = "1.25", features = ["derive"] }
 
 # Async streams
 futures = "0.3"
 async-stream = "0.3"
 ignore = "0.4"
-dns-lookup = "2"
+dns-lookup = "4"
 
 # Image processing
 image = "0.25"
 
 # Configuration
-dirs = "5.0"
+dirs = "7.0"
 
 # Security
-argon2 = "0.5"
-md5 = "0.7"
-rand = "0.8"
+argon2 = "0.6"
+md5 = "0.8"
+rand = "0.10"
 hex = "0.4"
-base64 = "0.22"
+base64 = "0.23"
 
 # Hashing
-blake3 = "1.5"
+blake3 = "1.8"
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # CLI
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 
 # Logging
 tracing = "0.1"
@@ -118,11 +111,11 @@ chrono = { version = "0.4", features = ["serde"] }
 serde_urlencoded = "0.7"
 
 # UUID
-uuid = { version = "1.11", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 urlencoding = "2.1.3"
 
 # Parallel processing
-rayon = "1.10"
+rayon = "1.12"
 
 # String similarity
 strsim = "0.11"
@@ -130,27 +123,27 @@ strsim = "0.11"
 # Static file embedding (optional, enabled with embedded-ui feature)
 rust-embed = { version = "8", features = ["mime-guess", "include-exclude"], optional = true }
 mime_guess = { version = "2", optional = true }
-async-walkdir = "2.1.0"
+async-walkdir = "2.2.0"
 futures-lite = "2.6.1"
 
 # HTTP client (for Last.fm API)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls"] }
 
 # RS256 signing of the service-account JWT for push messages (FCM)
 ring = "0.17"
 
 # File system watching
-notify = "6"
-notify-debouncer-mini = "0.4"
+notify = "8"
+notify-debouncer-mini = "0.7"
 
 # Testing
 [dev-dependencies]
 datatest-stable = "0.3"
 flate2 = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "blocking", "rustls"] }
 testcontainers-modules = { version = "0.15.0", features = ["blocking", "postgres"] }
 tokio = { version = "1", features = ["full", "test-util"] }
-which = "7.0"
+which = "8.0"
 
 [[test]]
 name = "integration"

@@ -28,9 +28,7 @@ fn artist_sort_expr(database: &Database) -> SimpleExpr {
 
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => Expr::cust_with_expr("$1 COLLATE NOCASE", sort_expr),
-        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
-            SimpleExpr::FunctionCall(Func::lower(sort_expr))
-        }
+        _ => SimpleExpr::FunctionCall(Func::lower(sort_expr)),
     }
 }
 
@@ -148,18 +146,14 @@ fn order_artist_albums(
 fn nullable_bigint_expr(database: &Database) -> SimpleExpr {
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => Expr::value(Value::BigInt(None)),
-        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
-            Expr::value(Value::BigInt(None)).cast_as("BIGINT")
-        }
+        _ => Expr::value(Value::BigInt(None)).cast_as("BIGINT"),
     }
 }
 
 fn nullable_timestamptz_expr(database: &Database) -> SimpleExpr {
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => Expr::value(Value::ChronoDateTimeWithTimeZone(None)),
-        sea_orm::DbBackend::Postgres | sea_orm::DbBackend::MySql => {
-            Expr::value(Value::ChronoDateTimeWithTimeZone(None)).cast_as("TIMESTAMPTZ")
-        }
+        _ => Expr::value(Value::ChronoDateTimeWithTimeZone(None)).cast_as("TIMESTAMPTZ"),
     }
 }
 
@@ -1053,7 +1047,7 @@ pub async fn get_song_play_count_and_last(
         .expr_as(
             Expr::expr(Func::coalesce([
                 Expr::col(entity::scrobbles::Column::PlayCount).sum(),
-                Expr::val(0_i64).into(),
+                Expr::val(0_i64),
             ]))
             .cast_as(sea_orm::sea_query::Alias::new("BIGINT")),
             "play_count",
@@ -1092,7 +1086,7 @@ pub async fn get_music_folder_song_stats(
         .expr_as(
             Expr::expr(Func::coalesce([
                 Expr::col(entity::songs::Column::FileSize).sum(),
-                Expr::val(0_i64).into(),
+                Expr::val(0_i64),
             ]))
             .cast_as(sea_orm::sea_query::Alias::new("BIGINT")),
             "total_size",
@@ -1182,8 +1176,8 @@ pub struct DirectorySongPage {
 }
 
 fn path_has_child_separator_expr(database: &Database, prefix: &str) -> SimpleExpr {
-    let path = || Expr::col(entity::songs::Column::FilePath).into();
-    let prefix = || Expr::val(prefix.to_string()).into();
+    let path = || Expr::col(entity::songs::Column::FilePath);
+    let prefix = || Expr::val(prefix.to_string());
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => {
             Expr::cust_with_exprs("instr(substr(?, length(?) + 1), '/')", [path(), prefix()])
@@ -1192,10 +1186,10 @@ fn path_has_child_separator_expr(database: &Database, prefix: &str) -> SimpleExp
             let remainder =
                 Func::cust("substr").args([path(), Expr::expr(Func::char_length(prefix())).add(1)]);
             Func::cust("strpos")
-                .args([remainder.into(), Expr::val("/").into()])
+                .args([remainder.into(), Expr::val("/")])
                 .into()
         }
-        sea_orm::DbBackend::MySql => Expr::cust_with_exprs(
+        _ => Expr::cust_with_exprs(
             "locate('/', substr(?, char_length(?) + 1))",
             [path(), prefix()],
         ),
@@ -1203,8 +1197,8 @@ fn path_has_child_separator_expr(database: &Database, prefix: &str) -> SimpleExp
 }
 
 fn first_path_component_expr(database: &Database, prefix: &str) -> SimpleExpr {
-    let path = || Expr::col(entity::songs::Column::FilePath).into();
-    let prefix = || Expr::val(prefix.to_string()).into();
+    let path = || Expr::col(entity::songs::Column::FilePath);
+    let prefix = || Expr::val(prefix.to_string());
     match database.sea_backend() {
         sea_orm::DbBackend::Sqlite => Expr::cust_with_exprs(
             "substr(substr(?, length(?) + 1), 1, instr(substr(?, length(?) + 1), '/') - 1)",
@@ -1214,10 +1208,10 @@ fn first_path_component_expr(database: &Database, prefix: &str) -> SimpleExpr {
             let remainder =
                 Func::cust("substr").args([path(), Expr::expr(Func::char_length(prefix())).add(1)]);
             Func::cust("split_part")
-                .args([remainder.into(), Expr::val("/").into(), Expr::val(1).into()])
+                .args([remainder.into(), Expr::val("/"), Expr::val(1)])
                 .into()
         }
-        sea_orm::DbBackend::MySql => Expr::cust_with_exprs(
+        _ => Expr::cust_with_exprs(
             "substring_index(substr(?, char_length(?) + 1), '/', 1)",
             [path(), prefix()],
         ),
@@ -1251,7 +1245,7 @@ pub async fn directory_total_size(
         .expr_as(
             Expr::expr(Func::coalesce([
                 Expr::col(Song::FileSize).sum(),
-                Expr::val(0_i64).into(),
+                Expr::val(0_i64),
             ]))
             .cast_as("BIGINT"),
             "total_size",
@@ -1363,9 +1357,9 @@ pub async fn page_directory_songs(
         query = query.filter(directory_filter_condition(
             filter,
             &[
-                Expr::col((entity::songs::Entity, Song::Title)).into(),
-                Expr::col((entity::artists::Entity, Artist::Name)).into(),
-                Expr::col((entity::albums::Entity, Album::Name)).into(),
+                Expr::col((entity::songs::Entity, Song::Title)),
+                Expr::col((entity::artists::Entity, Artist::Name)),
+                Expr::col((entity::albums::Entity, Album::Name)),
             ],
         ));
     }
@@ -1377,7 +1371,7 @@ pub async fn page_directory_songs(
         .expr_as(
             Expr::expr(Func::coalesce([
                 Expr::col((entity::songs::Entity, Song::FileSize)).sum(),
-                Expr::val(0_i64).into(),
+                Expr::val(0_i64),
             ]))
             .cast_as("BIGINT"),
             "total_size",
@@ -1396,14 +1390,14 @@ pub async fn page_directory_songs(
         DirectorySort::Name => query.order_by(
             case_insensitive_directory_expr(
                 database,
-                Expr::col((entity::songs::Entity, Song::Title)).into(),
+                Expr::col((entity::songs::Entity, Song::Title)),
             ),
             order.clone(),
         ),
         DirectorySort::Artist => query.order_by(
             case_insensitive_directory_expr(
                 database,
-                Expr::col((entity::artists::Entity, Artist::Name)).into(),
+                Expr::col((entity::artists::Entity, Artist::Name)),
             ),
             order.clone(),
         ),

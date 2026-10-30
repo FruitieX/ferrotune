@@ -12,7 +12,7 @@ use axum::Router;
 use ferrotune::config::DatabaseConfig;
 use ferrotune::Config;
 use http::{Request, Response};
-use rand::Rng;
+use rand::RngExt;
 use tauri::Manager;
 use tower::ServiceExt;
 
@@ -25,10 +25,10 @@ static ROUTER: OnceLock<Router> = OnceLock::new();
 /// Generate a random password for the embedded admin user
 fn generate_random_password() -> String {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..32)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char
         })
         .collect()

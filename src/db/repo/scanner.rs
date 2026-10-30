@@ -334,7 +334,7 @@ where
     pl::Entity::update_many()
         .col_expr(pl::Column::SongCount, scalar_subquery(song_count_sub))
         .col_expr(pl::Column::Duration, scalar_subquery(duration_sub))
-        .col_expr(pl::Column::UpdatedAt, Expr::current_timestamp().into())
+        .col_expr(pl::Column::UpdatedAt, Expr::current_timestamp())
         .exec(conn)
         .await?;
     Ok(())
@@ -536,10 +536,8 @@ where
     // Build a subquery that returns the requested column for the earliest
     // track in this album (ordered by disc/track with COALESCE defaults).
     fn pick(album_id: &str, column: s::Column) -> SelectStatement {
-        let disc_order =
-            Func::coalesce([Expr::col(s::Column::DiscNumber).into(), Expr::value(1i64)]);
-        let track_order =
-            Func::coalesce([Expr::col(s::Column::TrackNumber).into(), Expr::value(1i64)]);
+        let disc_order = Func::coalesce([Expr::col(s::Column::DiscNumber), Expr::value(1i64)]);
+        let track_order = Func::coalesce([Expr::col(s::Column::TrackNumber), Expr::value(1i64)]);
         Query::select()
             .column(column)
             .from(s::Entity)

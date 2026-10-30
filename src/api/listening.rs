@@ -15,6 +15,7 @@ use axum::{
 };
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use sea_orm::sea_query::{Expr, SubQueryStatement};
+use sea_orm::ExprTrait;
 use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, JoinType, Order, QueryFilter, QueryOrder,
     QuerySelect, RelationTrait,

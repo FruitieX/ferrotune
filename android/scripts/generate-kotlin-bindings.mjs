@@ -298,7 +298,7 @@ function mapNonNullable(type, rustType, generatedNames, context) {
     )}>`;
   }
 
-  const mappedType = type.match(/^\{\s*\[key in string\]\?:?\s*([\s\S]+?)\s*\}$/);
+  const mappedType = type.match(/^\{\s*\[key in string\]\??:\s*([\s\S]+?)\s*\}$/);
   if (mappedType) {
     const valueRust = unwrapRustType(rustInner, "HashMap") ?? rustInner;
     return `Map<String, ${mapTsType(

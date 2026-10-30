@@ -24,7 +24,7 @@ async fn query_all_for_backend<T: sea_orm::FromQueryResult>(
 ) -> Result<Vec<T>, sea_orm::DbErr> {
     use sea_orm::{ConnectionTrait, Statement, Values};
     let stmt = Statement::from_sql_and_values(database.sea_backend(), sql, Values(binds));
-    let rows = database.conn().query_all(stmt).await?;
+    let rows = database.conn().query_all_raw(stmt).await?;
     rows.into_iter()
         .map(|row| T::from_query_result(&row, ""))
         .collect()
@@ -39,7 +39,7 @@ async fn query_one_for_backend<T: sea_orm::FromQueryResult>(
     let stmt = Statement::from_sql_and_values(database.sea_backend(), sql, Values(binds));
     database
         .conn()
-        .query_one(stmt)
+        .query_one_raw(stmt)
         .await?
         .map(|row| T::from_query_result(&row, ""))
         .transpose()

@@ -7,7 +7,7 @@ export type TaggerPendingEditData = {
 /**
  * Edited tags
  */
-editedTags: { [key in string]?: string }, 
+editedTags: { [key in string]: string }, 
 /**
  * Computed path from rename script
  */

@@ -54,7 +54,7 @@
             rustToolchain
             postgresqlPackage
             pkgs.openssl
-            pkgs.nodejs_24
+            pkgs.nodejs_26
             pkgs.pnpm
             pkgs.docker-compose
             # Testing tools
@@ -90,15 +90,15 @@
             pkgs.fontconfig
             pkgs.alsa-lib
             pkgs.libpulseaudio
-            pkgs.xorg.libX11
-            pkgs.xorg.libXcomposite
-            pkgs.xorg.libXdamage
-            pkgs.xorg.libXrandr
-            pkgs.xorg.libXfixes
-            pkgs.xorg.libXtst
-            pkgs.xorg.libXi
-            pkgs.xorg.libXext
-            pkgs.xorg.libXrender
+            pkgs.libx11
+            pkgs.libxcomposite
+            pkgs.libxdamage
+            pkgs.libxrandr
+            pkgs.libxfixes
+            pkgs.libxtst
+            pkgs.libxi
+            pkgs.libxext
+            pkgs.libxrender
           ];
           shellHook = ''
             export PATH="${postgresqlPackage}/bin:$PATH"
@@ -109,10 +109,10 @@
               pkgs.nss pkgs.nspr pkgs.cups pkgs.libdrm pkgs.mesa pkgs.libgbm
               pkgs.libxkbcommon pkgs.expat pkgs.dbus pkgs.freetype pkgs.fontconfig
               pkgs.alsa-lib pkgs.libpulseaudio pkgs.udev pkgs.atk
-              pkgs.at-spi2-atk pkgs.at-spi2-core pkgs.xorg.libxcb
-              pkgs.xorg.libX11 pkgs.xorg.libXcomposite pkgs.xorg.libXdamage
-              pkgs.xorg.libXrandr pkgs.xorg.libXfixes pkgs.xorg.libXtst
-              pkgs.xorg.libXi pkgs.xorg.libXext pkgs.xorg.libXrender
+              pkgs.at-spi2-atk pkgs.at-spi2-core pkgs.libxcb
+              pkgs.libx11 pkgs.libxcomposite pkgs.libxdamage
+              pkgs.libxrandr pkgs.libxfixes pkgs.libxtst
+              pkgs.libxi pkgs.libxext pkgs.libxrender
             ]}"
             echo "Loaded ferrotune dev shell (server + ui)"
             echo "Test tools: hurl, ffmpeg, moon available"
@@ -126,7 +126,7 @@
             androidSdk
             pkgs.jdk17
             pkgs.moon
-            pkgs.nodejs_24 # Kotlin DTO codegen (android:generate-bindings)
+            pkgs.nodejs_26 # Kotlin DTO codegen (android:generate-bindings)
             pkgs.pnpm # Tauri Android client build (client:tauri-android-build-ci)
             # Tauri Android builds compile the Rust app, which needs the same
             # native deps as the default shell (aubio/bindgen, Opus linking).

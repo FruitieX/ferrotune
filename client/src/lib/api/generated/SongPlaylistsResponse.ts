@@ -8,4 +8,4 @@ export type SongPlaylistsResponse = {
 /**
  * Map of song_id to list of playlists containing that song
  */
-playlistsBySong: { [key in string]?: Array<PlaylistContainingSong> }, };
+playlistsBySong: { [key in string]: Array<PlaylistContainingSong> }, };

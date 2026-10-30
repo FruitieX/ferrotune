@@ -5,6 +5,7 @@
 //! music folder is deleted.
 
 use sea_orm::sea_query::{Alias, Expr, Func, Query};
+use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, Order, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect,

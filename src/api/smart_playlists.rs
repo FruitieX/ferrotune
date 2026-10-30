@@ -771,7 +771,7 @@ async fn execute_scalar_sql(
     };
 
     let stmt = Statement::from_sql_and_values(database.sea_backend(), &sql, Values(binds.clone()));
-    let row = match database.conn().query_one(stmt).await {
+    let row = match database.conn().query_one_raw(stmt).await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("SQL Query failed:\n{}\nBinds: {:?}", sql, binds);
@@ -796,7 +796,7 @@ async fn execute_song_sql(
         SmartPlaylistSqlDialect::Postgres => postgresize_smart_playlist_sql(sqlite_query),
     };
     let stmt = Statement::from_sql_and_values(database.sea_backend(), &sql, Values(binds));
-    let rows = database.conn().query_all(stmt).await?;
+    let rows = database.conn().query_all_raw(stmt).await?;
     Ok(rows
         .into_iter()
         .map(|row| crate::db::models::Song::from_query_result(&row, ""))
@@ -1476,10 +1476,9 @@ fn build_condition(
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect()
-            } else if let Some(id) = value.as_str() {
-                vec![id.to_string()]
             } else {
-                return None;
+                let id = value.as_str()?;
+                vec![id.to_string()]
             };
 
             if playlist_ids.is_empty() {

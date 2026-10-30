@@ -17,6 +17,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use sea_orm::ExprTrait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;

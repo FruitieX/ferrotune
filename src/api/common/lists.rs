@@ -9,7 +9,7 @@ use crate::thumbnails::ThumbnailSize;
 use chrono::{DateTime, Utc};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -166,7 +166,7 @@ pub async fn get_album_list_logic(
             // can reproduce the same order for queue materialization.
             // Constrain seed to JS Number.MAX_SAFE_INTEGER to avoid precision loss during JSON round-trip
             let actual_seed =
-                seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
+                seed.unwrap_or_else(|| rand::rng().random_range(0..=9_007_199_254_740_991i64));
             result_seed = Some(actual_seed);
 
             let mut ids = lists_repo::visible_album_ids_for_user(database, user_id).await?;
@@ -432,7 +432,7 @@ pub async fn get_random_songs_logic(
         to_year,
     )
     .await?;
-    song_ids.shuffle(&mut rand::thread_rng());
+    song_ids.shuffle(&mut rand::rng());
     song_ids.truncate(size as usize);
 
     let songs =
@@ -875,7 +875,7 @@ pub async fn get_forgotten_favorites_song_models(
     let size = size.clamp(0, 500) as u64;
     let offset = offset.max(0) as u64;
     let actual_seed =
-        seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
+        seed.unwrap_or_else(|| rand::rng().random_range(0..=9_007_199_254_740_991i64));
     let cutoff = chrono::Utc::now() - chrono::Duration::days(settings.not_played_since_days);
     let sort = match view_options.sort {
         None | Some("custom" | "recommended") => {

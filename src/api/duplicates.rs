@@ -146,7 +146,7 @@ pub async fn get_duplicates(
         .collect();
 
     // Sort by wasted space descending (most impactful first)
-    duplicate_groups.sort_by(|a, b| b.wasted_bytes.cmp(&a.wasted_bytes));
+    duplicate_groups.sort_by_key(|a| std::cmp::Reverse(a.wasted_bytes));
 
     let group_count = duplicate_groups.len();
     let total_duplicates: i64 = duplicate_groups.iter().map(|g| g.count).sum();

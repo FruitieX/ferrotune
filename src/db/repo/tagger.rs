@@ -2,6 +2,7 @@
 //!
 //! Helpers for the tagger API that were previously raw SQL.
 
+use sea_orm::ExprTrait;
 use sea_orm::{
     ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };

@@ -632,7 +632,7 @@ pub async fn list_recent_albums_for_user(
         })
         .collect();
 
-    rows.sort_by(|a, b| b.last_played.cmp(&a.last_played));
+    rows.sort_by_key(|a| std::cmp::Reverse(a.last_played));
 
     let start = (offset as usize).min(rows.len());
     let end = (start + size as usize).min(rows.len());
@@ -1031,7 +1031,6 @@ pub async fn list_continue_listening_sources(
     offset: i64,
 ) -> Result<Vec<ContinueListeningSource>> {
     use sea_orm::sea_query::{Alias, Order as SqOrder};
-    use sea_orm::ConnectionTrait;
 
     #[derive(FromQueryResult)]
     struct Row {
@@ -1067,7 +1066,6 @@ pub async fn list_continue_listening_sources(
 /// Count of distinct continue-listening sources for the user.
 pub async fn count_continue_listening_sources(database: &Database, user_id: i64) -> Result<i64> {
     use sea_orm::sea_query::{Alias, Asterisk, Query as SqQuery};
-    use sea_orm::ConnectionTrait;
 
     #[derive(FromQueryResult)]
     struct Row {

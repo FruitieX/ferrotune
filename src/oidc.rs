@@ -20,7 +20,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
@@ -235,7 +235,9 @@ impl Audience {
 
 pub fn random_token() -> String {
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS random number generator failed");
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use sea_orm::entity::prelude::*;
+use sea_orm::ExprTrait;
 use sea_orm::{ActiveValue::Set, FromQueryResult, QueryOrder, QuerySelect};
 
 use crate::db::entity;
@@ -203,8 +204,8 @@ pub async fn list_most_liked(
         .group_by(entity::song_likes::Column::SongId)
         .order_by_desc(Expr::cust("like_count"))
         .order_by_desc(Expr::cust("last_liked"))
-        .limit(limit.max(0) as u64)
-        .offset(offset.max(0) as u64)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
         .into_model::<SongLikeStats>()
         .all(database.conn())
         .await?)
@@ -240,7 +241,7 @@ pub async fn top_liked_between(
         .group_by(entity::song_likes::Column::SongId)
         .order_by_desc(Expr::cust("like_count"))
         .order_by_desc(Expr::cust("last_liked"))
-        .limit(limit.max(0) as u64)
+        .limit(u64::try_from(limit).unwrap_or(0))
         .into_model::<SongLikeStats>()
         .all(database.conn())
         .await?)

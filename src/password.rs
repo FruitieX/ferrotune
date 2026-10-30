@@ -4,8 +4,8 @@
 //! We use Argon2id which is the recommended variant for password hashing.
 //!
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
+    password_hash::{PasswordHasher, PasswordVerifier},
+    Argon2, PasswordHash,
 };
 
 /// Hash a password using Argon2id.
@@ -13,9 +13,8 @@ use argon2::{
 /// Returns the PHC-formatted hash string which includes the algorithm,
 /// parameters, salt, and hash.
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let hash = argon2.hash_password(password.as_bytes(), &salt)?;
+    // Generates a random salt from the OS RNG.
+    let hash = Argon2::default().hash_password(password.as_bytes())?;
     Ok(hash.to_string())
 }
 
