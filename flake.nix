@@ -105,6 +105,10 @@
           shellHook = ''
             export PATH="${postgresqlPackage}/bin:$PATH"
             export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
+            # Playwright's downloaded Chromium runs through nix-ld. Use this
+            # shell's glibc loader so it matches the libraries below instead
+            # of the host's (possibly older) glibc.
+            export NIX_LD="$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)"
             # Playwright Chromium needs these at runtime
             export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
               pkgs.glib pkgs.cairo pkgs.pango pkgs.gdk-pixbuf pkgs.gtk3
