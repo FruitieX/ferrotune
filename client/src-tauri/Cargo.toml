@@ -15,22 +15,22 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.7.4", features = [] }
+tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
-tauri = { version = "2.12", features = [] }
-tauri-plugin-log = "2"
+serde_json = "=1.0.154"
+serde = { version = "=1.0.229", features = ["derive"] }
+log = "=0.4.35"
+tauri = { version = "=2.12.5", features = [] }
+tauri-plugin-log = "=2.10.1"
 tauri-plugin-native-audio = { path = "../tauri-plugin-native-audio" }
 
 # Embedded server dependencies (desktop only)
 [target.'cfg(not(target_os = "android"))'.dependencies]
 ferrotune = { path = "../.." }
-tokio = { version = "1", features = ["full"] }
-dirs = "7.0"
-rand = "0.10"
-tower = "0.5"
-http = "1.5"
-axum = { version = "0.8", default-features = false }
+tokio = { version = "=1.54.1", features = ["full"] }
+dirs = "=7.0.0"
+rand = "=0.10.3"
+tower = "=0.5.3"
+http = "=1.5.0"
+axum = { version = "=0.8.9", default-features = false }

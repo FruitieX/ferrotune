@@ -20,18 +20,18 @@ bliss = ["dep:bliss-audio"]
 
 [dependencies]
 # Web framework
-axum = { version = "0.8", features = ["multipart"] }
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io"] }
-tokio-stream = "0.1"
-tower = "0.5"
-tower-http = { version = "0.7", features = ["fs", "cors", "trace", "decompression-gzip"] }
-hyper = { version = "1.12", features = ["full"] }
-hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto"] }
+axum = { version = "=0.8.9", features = ["multipart"] }
+tokio = { version = "=1.54.1", features = ["full"] }
+tokio-util = { version = "=0.7.20", features = ["io"] }
+tokio-stream = "=0.1.19"
+tower = "=0.5.3"
+tower-http = { version = "=0.7.1", features = ["fs", "cors", "trace", "decompression-gzip"] }
+hyper = { version = "=1.12.0", features = ["full"] }
+hyper-util = { version = "=0.1.21", features = ["tokio", "server", "server-auto"] }
 
 # Database
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "migrate", "chrono"] }
-sea-orm = { version = "2.0", default-features = false, features = [
+sqlx = { version = "=0.9.0", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "migrate", "chrono"] }
+sea-orm = { version = "=2.0.4", default-features = false, features = [
     "runtime-tokio",
     "sqlx-sqlite",
     "sqlx-postgres",
@@ -41,109 +41,109 @@ sea-orm = { version = "2.0", default-features = false, features = [
 ] }
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-quick-xml = { version = "0.42", features = ["serialize"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+quick-xml = { version = "=0.42.0", features = ["serialize"] }
 
 # TypeScript type generation
-ts-rs = { version = "12", features = ["chrono-impl", "serde-compat"] }
+ts-rs = { version = "=12.0.1", features = ["chrono-impl", "serde-compat"] }
 
 # Audio metadata
-lofty = "0.25"
+lofty = "=0.25.5"
 
 # Audio decoding (for waveform generation and transcoding)
-symphonia = { version = "0.6", features = ["mp3", "flac", "ogg", "aac", "alac", "pcm", "adpcm", "isomp4", "mkv"] }
-symphonia-adapter-libopus = "0.3"
+symphonia = { version = "=0.6.1", features = ["mp3", "flac", "ogg", "aac", "alac", "pcm", "adpcm", "isomp4", "mkv"] }
+symphonia-adapter-libopus = "=0.3.0"
 
 # Audio encoding (for transcoding to Opus)
-audiopus = "0.3.0-rc.0"
-ogg = "0.9"
+audiopus = "=0.3.0-rc.0"
+ogg = "=0.9.2"
 
 # Audio resampling (for transcoding to 48kHz for Opus)
-rubato = "5.0"
+rubato = "=5.0.1"
 
 # Audio loudness measurement (EBU R128 for ReplayGain)
-ebur128 = "0.1"
+ebur128 = "=0.1.11"
 
 # Audio analysis for song similarity (bliss)
-bliss-audio = { version = "0.13", default-features = false, features = ["symphonia-all", "serde"], optional = true }
+bliss-audio = { version = "=0.13.0", default-features = false, features = ["symphonia-all", "serde"], optional = true }
 
 # Safe sample format conversion
-bytemuck = { version = "1.25", features = ["derive"] }
+bytemuck = { version = "=1.25.2", features = ["derive"] }
 
 # Async streams
-futures = "0.3"
-async-stream = "0.3"
-ignore = "0.4"
-dns-lookup = "4"
+futures = "=0.3.34"
+async-stream = "=0.3.6"
+ignore = "=0.4.34"
+dns-lookup = "=4.0.2"
 
 # Image processing
-image = "0.25"
+image = "=0.25.10"
 
 # Configuration
-dirs = "7.0"
+dirs = "=7.0.0"
 
 # Security
-argon2 = "0.6"
-md5 = "0.8"
-rand = "0.10"
-hex = "0.4"
-base64 = "0.23"
+argon2 = "=0.6.0"
+md5 = "=0.8.1"
+rand = "=0.10.3"
+hex = "=0.4.3"
+base64 = "=0.23.1"
 
 # Hashing
-blake3 = "1.8"
+blake3 = "=1.8.7"
 
 # Error handling
-anyhow = "1.0"
-thiserror = "2.0"
+anyhow = "=1.0.104"
+thiserror = "=2.0.21"
 
 # CLI
-clap = { version = "4.6", features = ["derive", "env"] }
+clap = { version = "=4.6.7", features = ["derive", "env"] }
 
 # Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 
 # Date/Time
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "=0.4.45", features = ["serde"] }
 
 # URL encoding
-serde_urlencoded = "0.7"
+serde_urlencoded = "=0.7.1"
 
 # UUID
-uuid = { version = "1.29", features = ["v4", "serde"] }
-urlencoding = "2.1.3"
+uuid = { version = "=1.29.0", features = ["v4", "serde"] }
+urlencoding = "=2.1.3"
 
 # Parallel processing
-rayon = "1.12"
+rayon = "=1.12.0"
 
 # String similarity
-strsim = "0.11"
+strsim = "=0.11.1"
 
 # Static file embedding (optional, enabled with embedded-ui feature)
-rust-embed = { version = "8", features = ["mime-guess", "include-exclude"], optional = true }
-mime_guess = { version = "2", optional = true }
-async-walkdir = "2.2.0"
-futures-lite = "2.6.1"
+rust-embed = { version = "=8.13.0", features = ["mime-guess", "include-exclude"], optional = true }
+mime_guess = { version = "=2.0.5", optional = true }
+async-walkdir = "=2.2.0"
+futures-lite = "=2.6.1"
 
 # HTTP client (for Last.fm API)
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "form", "query", "rustls"] }
 
 # RS256 signing of the service-account JWT for push messages (FCM)
-ring = "0.17"
+ring = "=0.17.14"
 
 # File system watching
-notify = "8"
-notify-debouncer-mini = "0.7"
+notify = "=8.2.1"
+notify-debouncer-mini = "=0.7.0"
 
 # Testing
 [dev-dependencies]
-datatest-stable = "0.3"
-flate2 = "1"
-reqwest = { version = "0.13", default-features = false, features = ["json", "blocking", "multipart", "rustls"] }
-testcontainers-modules = { version = "0.15.0", features = ["blocking", "postgres"] }
-tokio = { version = "1", features = ["full", "test-util"] }
-which = "8.0"
+datatest-stable = "=0.3.3"
+flate2 = "=1.1.10"
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "blocking", "multipart", "rustls"] }
+testcontainers-modules = { version = "=0.15.0", features = ["blocking", "postgres"] }
+tokio = { version = "=1.54.1", features = ["full", "test-util"] }
+which = "=8.0.6"
 
 [[test]]
 name = "integration"
