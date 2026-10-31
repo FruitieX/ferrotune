@@ -555,7 +555,7 @@ class PlaybackService : MediaSessionService() {
                         DefaultAudioSink.DefaultAudioProcessorChain(replayGainProcessor)
                     )
                     .setEnableFloatOutput(enableFloatOutput)
-                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
                     .build()
             }
         }
@@ -905,7 +905,7 @@ class PlaybackService : MediaSessionService() {
                     val sessionCommands = SessionCommands.Builder()
                         .add(starCommand)
                         .build()
-                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
                         .setAvailablePlayerCommands(
                             MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
                         )
@@ -4301,6 +4301,13 @@ class PlaybackService : MediaSessionService() {
         ): Boolean {
             return false
         }
+
+        override fun getNotificationChannelInfo(): MediaNotification.Provider.NotificationChannelInfo {
+            return MediaNotification.Provider.NotificationChannelInfo(
+                MEDIA_NOTIFICATION_CHANNEL_ID,
+                mediaNotificationChannelName(),
+            )
+        }
     }
 
     private inner class NotificationActionDelegate : DefaultMediaNotificationProvider(this@PlaybackService) {
@@ -4333,17 +4340,19 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun mediaNotificationChannelName(): String =
+        getString(androidx.media3.session.R.string.default_notification_channel_name)
+
     private fun ensureMediaNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (notificationManager.getNotificationChannel(MEDIA_NOTIFICATION_CHANNEL_ID) != null) return
 
-        val channelName = getString(androidx.media3.session.R.string.default_notification_channel_name)
         notificationManager.createNotificationChannel(
             NotificationChannel(
                 MEDIA_NOTIFICATION_CHANNEL_ID,
-                channelName,
+                mediaNotificationChannelName(),
                 NotificationManager.IMPORTANCE_LOW,
             )
         )

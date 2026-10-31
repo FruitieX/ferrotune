@@ -148,11 +148,11 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
         super.onQueueEndOfStream()
     }
 
-    override fun onFlush() {
+    override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         // Called on format changes between tracks. Serves as a backup activation
         // point for transitions where onQueueEndOfStream() may not fire.
         activatePendingGain()
-        super.onFlush()
+        super.onFlush(streamMetadata)
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {

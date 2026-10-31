@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.ferrotune.audio"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 24
@@ -37,10 +37,10 @@ dependencies {
     implementation(project(":tauri-android"))
 
     // AndroidX Core (for ViewCompat, WindowInsetsCompat)
-    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.core:core-ktx:1.19.1")
 
     // AndroidX Media3 (ExoPlayer) for audio playback
-    val media3Version = "1.9.2"
+    val media3Version = "1.11.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
@@ -48,15 +48,15 @@ dependencies {
     implementation("androidx.media3:media3-database:$media3Version")
 
     // Google Cast sender support for Android WebView/Tauri builds.
-    implementation("androidx.mediarouter:mediarouter:1.6.0")
-    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
+    implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
 
     // OkHttp for API calls + SSE for session events
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("com.squareup.okhttp3:okhttp-sse:5.5.1")
 
     // Coroutines for async operations
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
 }
