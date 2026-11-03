@@ -27,7 +27,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -43,6 +42,7 @@ data class QueueSheetUiState(
     val sourceName: String? = null,
     val sourceType: String? = null,
     val sourceId: String? = null,
+    val upNextCount: Int = 0,
 )
 
 /** What forces a fresh page load: a different session, queue shape, or an explicit refresh. */
@@ -73,17 +73,20 @@ class QueueSheetViewModel @Inject constructor(
      */
     val pageRefreshes: SharedFlow<Unit> = _pageRefreshes.asSharedFlow()
 
-    val uiState: StateFlow<QueueSheetUiState> = playbackStarter.state
-        .map {
-            QueueSheetUiState(
-                sessionId = it.sessionId,
-                currentIndex = it.queueIndex,
-                isPlaying = it.status == PlaybackStatus.PLAYING || it.status == PlaybackStatus.BUFFERING,
-                sourceName = it.sourceName,
-                sourceType = it.sourceType,
-                sourceId = it.sourceId,
-            )
-        }
+    val uiState: StateFlow<QueueSheetUiState> = combine(
+        playbackStarter.state,
+        queueRepository.upNextCount,
+    ) { state, upNextCount ->
+        QueueSheetUiState(
+            sessionId = state.sessionId,
+            currentIndex = state.queueIndex,
+            isPlaying = state.status == PlaybackStatus.PLAYING || state.status == PlaybackStatus.BUFFERING,
+            sourceName = state.sourceName,
+            sourceType = state.sourceType,
+            sourceId = state.sourceId,
+            upNextCount = upNextCount,
+        )
+    }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QueueSheetUiState())
 
@@ -135,6 +138,13 @@ class QueueSheetViewModel @Inject constructor(
     fun clear() {
         mutate("Couldn't clear the queue", success = "Cleared the queue") { session ->
             queueRepository.clear(session)
+        }
+    }
+
+    /** Removes only the explicitly queued songs; the playlist keeps playing. */
+    fun clearUpNext() {
+        mutate("Couldn't clear up next", success = "Cleared up next") { session ->
+            queueRepository.clearUpNext(session)
         }
     }
 

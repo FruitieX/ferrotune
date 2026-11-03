@@ -7,13 +7,17 @@ import type { QueueWindow } from "./QueueWindow";
  */
 export type StartQueueResponse = { 
 /**
- * Total number of songs in the queue
+ * Total number of songs in the queue (context + up next)
  */
 totalCount: number, 
 /**
- * Current index in the queue (shuffle-adjusted if shuffled)
+ * Current index in the queue (display order, shuffle-aware)
  */
 currentIndex: number, 
+/**
+ * Number of upcoming "up next" songs
+ */
+upNextCount: number, 
 /**
  * Whether shuffle is enabled
  */

@@ -38,12 +38,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.VerticalAlignCenter
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -264,10 +267,12 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
             ) {
                 QueueHeader(
                     hasEntries = entries.itemCount > 0,
+                    upNextCount = state.upNextCount,
                     onJumpToCurrent = {
                         scope.launch { listState.animateScrollToItem((state.currentIndex - 2).coerceAtLeast(0)) }
                     },
-                    onClear = { confirmClear = true },
+                    onClearUpNext = viewModel::clearUpNext,
+                    onClearAll = { confirmClear = true },
                     onClose = ::close,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -329,11 +334,18 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                 )
                             } else {
                                 val isCurrent = index == state.currentIndex
+                                val previousEntry = if (index > 0) entries.peek(index - 1) else null
+                                val isPlayed = index < state.currentIndex
+                                val showUpNextLabel = entry.origin == "upNext" &&
+                                    entry.position > state.currentIndex &&
+                                    (index == state.currentIndex + 1 || previousEntry?.origin != "upNext")
                                 QueueRow(
                                     entry = entry,
                                     reorderState = reorder,
                                     preview = preview,
                                     queueSize = entries.itemCount,
+                                    isPlayed = isPlayed,
+                                    showUpNextLabel = showUpNextLabel,
                                     // Reorders draw their own motion; a placement animation would
                                     // replay the move from the old slot when the reloaded rows land.
                                     modifier = Modifier.animateItem(placementSpec = null),
@@ -425,10 +437,13 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
 @Composable
 private fun QueueHeader(
     hasEntries: Boolean,
+    upNextCount: Int,
     onJumpToCurrent: () -> Unit,
-    onClear: () -> Unit,
+    onClearUpNext: () -> Unit,
+    onClearAll: () -> Unit,
     onClose: () -> Unit,
 ) {
+    var clearMenuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -444,6 +459,13 @@ private fun QueueHeader(
                 .weight(1f)
                 .padding(start = 8.dp),
         )
+        if (upNextCount > 0) {
+            Text(
+                text = "$upNextCount up next",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         if (hasEntries) {
             IconButton(onClick = onJumpToCurrent) {
                 Icon(
@@ -453,18 +475,43 @@ private fun QueueHeader(
                     modifier = Modifier.size(20.dp),
                 )
             }
-            TextButton(onClick = onClear) {
-                Icon(
-                    Icons.Filled.DeleteSweep,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    "Clear",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
+            Box {
+                TextButton(onClick = { clearMenuOpen = true }) {
+                    Icon(
+                        Icons.Filled.DeleteSweep,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        "Clear",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                    Icon(
+                        Icons.Filled.ArrowDropDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                DropdownMenu(expanded = clearMenuOpen, onDismissRequest = { clearMenuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (upNextCount > 0) "Clear up next ($upNextCount)" else "Clear up next") },
+                        enabled = upNextCount > 0,
+                        onClick = {
+                            clearMenuOpen = false
+                            onClearUpNext()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Clear all") },
+                        onClick = {
+                            clearMenuOpen = false
+                            onClearAll()
+                        },
+                    )
+                }
             }
         }
         IconButton(onClick = onClose) {
@@ -480,6 +527,8 @@ internal fun QueueRow(
     entry: QueueEntry,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    isPlayed: Boolean = false,
+    showUpNextLabel: Boolean = false,
     onPlay: () -> Unit,
     onLongPress: () -> Unit,
     onMove: (Int) -> Unit,
@@ -539,7 +588,11 @@ internal fun QueueRow(
                     translationY = translation
                     shadowElevation = if (floating) 8.dp.toPx() else 0f
                     // The panel draws the held row floating under the finger.
-                    alpha = if (held) 0f else 1f
+                    alpha = when {
+                        held -> 0f
+                        isPlayed -> 0.55f
+                        else -> 1f
+                    }
                 }
                 .background(
                     when {
@@ -575,6 +628,15 @@ internal fun QueueRow(
                     modifier = Modifier.size(40.dp),
                 )
                 Column(modifier = Modifier.weight(1f)) {
+                    if (showUpNextLabel) {
+                        Text(
+                            text = "UP NEXT",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
                         text = song.title,
                         style = MaterialTheme.typography.bodyMedium,

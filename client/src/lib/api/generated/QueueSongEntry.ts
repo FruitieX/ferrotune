@@ -17,6 +17,11 @@ sourceEntryId: string | null,
  */
 position: number, 
 /**
+ * Where this entry came from: `context` (the playlist/album/library the
+ * queue was started from) or `upNext` (explicitly queued by the user).
+ */
+origin: string, 
+/**
  * The song data
  */
 song: import('../types').Song, };

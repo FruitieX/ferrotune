@@ -216,6 +216,9 @@ open class FakeFerrotuneApi(
     override suspend fun clearQueue(params: Map<String, String>): QueueSuccessResponse =
         error("unused")
 
+    override suspend fun clearUpNext(params: Map<String, String>): QueueSuccessResponse =
+        error("unused")
+
     override suspend fun removeFromQueue(
         position: Long,
         params: Map<String, String>,

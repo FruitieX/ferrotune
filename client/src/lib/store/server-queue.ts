@@ -108,6 +108,8 @@ export type RepeatMode = "off" | "all" | "one";
 // Queue state from server
 export interface ServerQueueState {
   totalCount: number;
+  /** Number of still-upcoming "up next" entries. */
+  upNextCount: number;
   currentIndex: number;
   positionMs: number;
   isShuffled: boolean;
@@ -489,6 +491,7 @@ export const startQueueAtom = atom(
         // playback position and don't trigger a track reload.
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
+          upNextCount: response.upNextCount,
           currentIndex: response.currentIndex,
           positionMs: currentQueueState.positionMs,
           isShuffled: response.isShuffled,
@@ -502,6 +505,7 @@ export const startQueueAtom = atom(
       } else {
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
+          upNextCount: response.upNextCount,
           currentIndex: response.currentIndex,
           positionMs: 0,
           isShuffled: response.isShuffled,
@@ -591,6 +595,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       const remotePositionMs = getRemoteTimelinePositionMs(get);
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
+        upNextCount: response.upNextCount,
         currentIndex: response.currentIndex,
         positionMs: remotePositionMs ?? Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -650,6 +655,7 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
     } else {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
+        upNextCount: response.upNextCount,
         currentIndex: response.currentIndex,
         positionMs: Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -705,6 +711,7 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
     } else {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
+        upNextCount: response.upNextCount,
         currentIndex: response.currentIndex,
         positionMs: Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -798,6 +805,7 @@ export const syncQueueFromNativeResumeAtom = atom(
 
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
+        upNextCount: response.upNextCount,
         currentIndex,
         positionMs,
         isShuffled: response.isShuffled,
@@ -854,6 +862,7 @@ export const fetchQueueAndPlayAtom = atom(
 
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
+          upNextCount: response.upNextCount,
           currentIndex: response.currentIndex,
           positionMs: canKeepPlayback
             ? (currentQueueState?.positionMs ?? Number(response.positionMs))
@@ -1008,6 +1017,7 @@ export const goToNextAtom = atom(null, async (get, set) => {
     set(serverQueueStateAtom, {
       ...state,
       currentIndex: newIndex,
+      upNextCount: response.upNextCount ?? state.upNextCount,
       positionMs: 0,
     });
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
@@ -1084,7 +1094,7 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
   set(isQueueOperationPendingAtom, true);
 
   try {
-    await client.updateServerQueuePosition(
+    const positionResponse = await client.updateServerQueuePosition(
       prevIndex,
       0,
       false,
@@ -1099,6 +1109,7 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
     set(serverQueueStateAtom, {
       ...state,
       currentIndex: prevIndex,
+      upNextCount: positionResponse.upNextCount ?? state.upNextCount,
       positionMs: 0,
     });
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
@@ -1223,7 +1234,7 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
       : null;
     if (!sessionId || !clientId) return;
 
-    await client.updateServerQueuePosition(
+    const positionResponse = await client.updateServerQueuePosition(
       index,
       0,
       false,
@@ -1235,7 +1246,12 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
       return;
     }
 
-    set(serverQueueStateAtom, { ...state, currentIndex: index, positionMs: 0 });
+    set(serverQueueStateAtom, {
+      ...state,
+      currentIndex: index,
+      upNextCount: positionResponse.upNextCount ?? state.upNextCount,
+      positionMs: 0,
+    });
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
 
     // Fetch new window centered on the new position
@@ -1285,6 +1301,7 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
           isShuffled: queueResponse.isShuffled,
           currentIndex: queueResponse.currentIndex,
           totalCount: queueResponse.totalCount,
+          upNextCount: queueResponse.upNextCount,
           repeatMode: queueResponse.repeatMode as "off" | "all" | "one",
         });
         set(queueWindowAtom, queueResponse.window);
@@ -1439,6 +1456,7 @@ export const addToQueueAtom = atom(
 
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
+          upNextCount: response.upNextCount,
           currentIndex: response.currentIndex,
           positionMs: 0,
           isShuffled: response.isShuffled,
@@ -1475,6 +1493,7 @@ export const addToQueueAtom = atom(
         set(serverQueueStateAtom, {
           ...state,
           totalCount: response.totalCount,
+          upNextCount: response.upNextCount ?? state.upNextCount,
         });
       }
 
@@ -1504,6 +1523,7 @@ export const addToQueueAtom = atom(
       // state stays aligned with the server after queue mutations.
       set(serverQueueStateAtom, {
         totalCount: queueResponse.totalCount,
+        upNextCount: queueResponse.upNextCount,
         currentIndex: queueResponse.currentIndex,
         positionMs: Number(queueResponse.positionMs ?? 0),
         isShuffled: queueResponse.isShuffled,
@@ -1562,6 +1582,7 @@ export const removeFromQueueAtom = atom(
           ...state,
           currentIndex: response.newIndex ?? state.currentIndex,
           totalCount: response.totalCount ?? state.totalCount,
+          upNextCount: response.upNextCount ?? state.upNextCount,
         });
       }
 
@@ -1758,6 +1779,47 @@ export const clearQueueAtom = atom(null, async (get, set) => {
   }
 });
 
+// Clear only the explicitly queued songs, keeping the playlist playing.
+export const clearUpNextAtom = atom(null, async (get, set) => {
+  const client = getClient();
+  if (!client) return;
+
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
+  set(isQueueOperationPendingAtom, true);
+
+  try {
+    const response = await client.clearServerUpNext(sessionId);
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
+
+    const state = get(serverQueueStateAtom);
+    if (state) {
+      set(serverQueueStateAtom, {
+        ...state,
+        upNextCount: 0,
+        totalCount: response.totalCount ?? state.totalCount,
+        currentIndex: response.newIndex ?? state.currentIndex,
+      });
+    }
+
+    const queueResponse = await client.getQueueCurrentWindow(
+      20,
+      "small",
+      sessionId,
+    );
+    if (!isCurrentSession(get, sessionId)) {
+      return;
+    }
+    set(queueWindowAtom, queueResponse.window);
+  } catch (error) {
+    console.error("Failed to clear up next:", error);
+  } finally {
+    set(isQueueOperationPendingAtom, false);
+  }
+});
+
 // Stop playback and clear queue
 export const stopPlaybackAtom = atom(null, async (get, set) => {
   const client = getClient();
@@ -1814,6 +1876,7 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
 
     set(serverQueueStateAtom, {
       totalCount: response.totalCount,
+      upNextCount: response.upNextCount,
       currentIndex: response.currentIndex,
       // Start at 30% of the song duration
       positionMs: Math.floor((song.duration || 0) * 1000 * 0.3),

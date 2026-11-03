@@ -296,6 +296,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/queue", get(queue::get_queue).delete(queue::clear_queue))
         .route("/queue/current-window", get(queue::get_current_window))
         .route("/queue/add", post(queue::add_to_queue))
+        .route("/queue/up-next", delete(queue::clear_up_next))
         .route("/queue/{position}", delete(queue::remove_from_queue))
         .route("/queue/move", post(queue::move_in_queue))
         .route("/queue/shuffle", post(queue::toggle_shuffle))

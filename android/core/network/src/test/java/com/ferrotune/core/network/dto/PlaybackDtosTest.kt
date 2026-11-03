@@ -39,6 +39,7 @@ class PlaybackDtosTest {
         val body = """
             {
               "totalCount": 120,
+              "upNextCount": 0,
               "currentIndex": 3,
               "isShuffled": true,
               "repeatMode": "all",
@@ -52,7 +53,7 @@ class PlaybackDtosTest {
               },
               "window": {
                 "offset": 0,
-                "songs": [{"entryId": "entry-1", "position": 0, "song": {"id": "1"}}]
+                "songs": [{"entryId": "entry-1", "position": 0, "origin": "context", "song": {"id": "1"}}]
               }
             }
         """.trimIndent()

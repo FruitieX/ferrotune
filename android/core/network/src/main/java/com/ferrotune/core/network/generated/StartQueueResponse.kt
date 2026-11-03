@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
 data class StartQueueResponse(
     val totalCount: Long,
     val currentIndex: Long,
+    val upNextCount: Long,
     val isShuffled: Boolean,
     val repeatMode: String,
     val source: QueueSourceInfo,

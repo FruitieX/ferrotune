@@ -7,4 +7,8 @@ export type QueueSuccessResponse = { success: boolean, newIndex: number | null, 
 /**
  * Number of songs added (only for add operations)
  */
-addedCount: number | null, };
+addedCount: number | null, 
+/**
+ * Number of upcoming "up next" songs after the operation
+ */
+upNextCount: number | null, };

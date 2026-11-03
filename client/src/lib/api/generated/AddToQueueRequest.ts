@@ -18,8 +18,8 @@ songIds: Array<string>,
  */
 position: "next" | "end" | number, 
 /**
- * Client-provided current index in display order (shuffled space if shuffled)
- * to avoid stale DB values from delayed heartbeats.
+ * Legacy client-provided current index. Kept for wire compatibility;
+ * up-next insertion no longer needs it.
  */
 currentIndex: number | null, 
 /**

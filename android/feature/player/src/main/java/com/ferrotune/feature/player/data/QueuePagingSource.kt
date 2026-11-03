@@ -17,6 +17,7 @@ class QueuePagingSource(
     private val apiProvider: FerrotuneApiProvider,
     private val sessionId: String,
     private val pageSize: Int = QUEUE_PAGE_SIZE,
+    private val onSnapshot: (QueueSnapshot) -> Unit = {},
 ) : PagingSource<Int, QueueEntry>() {
 
     override val jumpingSupported: Boolean = true
@@ -40,6 +41,7 @@ class QueuePagingSource(
                 )
             }
             val snapshot = response.toSnapshot()
+            onSnapshot(snapshot)
             val total = snapshot.totalCount
             val end = offset + snapshot.entries.size
             LoadResult.Page(

@@ -29,7 +29,7 @@ class QueueInsertionPreviewTest {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     repeat(3) { position ->
                         QueueRow(
-                            entry = QueueEntry(position.toLong(), "entry-$position", SongResponse(
+                            entry = QueueEntry(position.toLong(), "entry-$position", "context", SongResponse(
                                 id = "song-$position", title = "Song $position", artist = "Artist",
                                 artistId = "artist", size = 1024, contentType = "audio/flac", suffix = "flac",
                                 duration = 120, path = "song.flac", created = "2026-01-01T00:00:00Z", type = "music",

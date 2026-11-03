@@ -12,4 +12,5 @@ data class QueueSuccessResponse(
     val newIndex: Long? = null,
     val totalCount: Long? = null,
     val addedCount: Long? = null,
+    val upNextCount: Long? = null,
 )

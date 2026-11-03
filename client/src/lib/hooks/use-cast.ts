@@ -78,6 +78,7 @@ function toRepeatMode(mode: string): RepeatMode {
 function queueStateFromResponse(response: GetQueueResponse): ServerQueueState {
   return {
     totalCount: response.totalCount,
+    upNextCount: response.upNextCount,
     currentIndex: response.currentIndex,
     positionMs: Number(response.positionMs),
     isShuffled: response.isShuffled,

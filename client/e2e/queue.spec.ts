@@ -85,14 +85,17 @@ test.describe.serial("Queue Management", () => {
     const queuePanel = await openQueuePanel(page);
 
     // Clear queue if needed
-    const clearButton = queuePanel.getByRole("button", { name: "Clear" });
+    const clearButton = queuePanel.getByRole("button", { name: /^Clear/ });
     if (await clearButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await clearButton.click({ force: true });
       const clearResponse = page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === "/api/queue" &&
           response.request().method() === "DELETE",
       );
-      await clearButton.click({ force: true });
+      await page
+        .getByRole("menuitem", { name: /clear all/i })
+        .click({ force: true });
       expect((await clearResponse).ok()).toBe(true);
     }
 
@@ -113,6 +116,72 @@ test.describe.serial("Queue Management", () => {
     await expect(queuePanel.getByText("First Song")).toBeVisible();
     await expect(queuePanel.getByText("Second Song")).toBeVisible();
     await expect(queuePanel.getByText("Third Song")).toBeVisible();
+  });
+
+  test("play next prepends and clear up next keeps the album playing", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await expect(page.locator("footer")).toContainText("First Song");
+
+    await page.goto("/library/songs");
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+
+    async function queueFromContextMenu(title: string, action: RegExp) {
+      const row = page
+        .locator('[data-testid="song-row"]')
+        .filter({ hasText: title })
+        .first();
+      await expect(row).toBeVisible({ timeout: 10000 });
+      await row.click({ button: "right" });
+      const menu = page.locator(
+        '[data-slot="context-menu-content"][data-state="open"]',
+      );
+      await expect(menu).toBeVisible({ timeout: 5000 });
+      const response = page.waitForResponse(
+        (candidate) =>
+          candidate.url().includes("/api/queue/add") &&
+          candidate.request().method() === "POST" &&
+          candidate.status() === 200,
+      );
+      await menu.getByRole("menuitem", { name: action }).click();
+      return response;
+    }
+
+    await queueFromContextMenu("FLAC Track One", /play next/i);
+    await queueFromContextMenu("FLAC Track Two", /add to queue/i);
+
+    const queuePanel = await openQueuePanel(page);
+    const rows = queuePanel.locator('[data-testid="queue-item"]');
+    await expect(rows.first()).toContainText("First Song");
+    await expect(rows.nth(1)).toContainText("FLAC Track One");
+    await expect(rows.nth(1)).toHaveAttribute("data-origin", "upNext");
+    await expect(rows.nth(1)).toContainText("Up next");
+    await expect(rows.nth(2)).toContainText("FLAC Track Two");
+    await expect(rows.nth(2)).toHaveAttribute("data-origin", "upNext");
+    await expect(rows.nth(3)).toContainText("Second Song");
+    await expect(rows.nth(3)).toHaveAttribute("data-origin", "context");
+    await expect(queuePanel.getByText("2 up next")).toBeVisible();
+
+    await queuePanel.getByRole("button", { name: /^Clear/ }).click();
+    const clearUpNextResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/queue/up-next" &&
+        response.request().method() === "DELETE",
+    );
+    await page
+      .getByRole("menuitem", { name: /clear up next/i })
+      .click({ force: true });
+    expect((await clearUpNextResponse).ok()).toBe(true);
+
+    await expect(rows.first()).toContainText("First Song");
+    await expect(rows.nth(1)).toContainText("Second Song");
+    await expect(queuePanel.getByText("FLAC Track One")).toHaveCount(0);
+    await expect(page.locator("footer")).toContainText("First Song");
   });
 
   test("queue item play button changes current track", async ({

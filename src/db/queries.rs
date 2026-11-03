@@ -1317,6 +1317,10 @@ pub async fn create_queue_for_session(
         .filter(entity::play_queue_entries::Column::SessionId.eq(session_id))
         .exec(&tx)
         .await?;
+    entity::play_queue_up_next::Entity::delete_many()
+        .filter(entity::play_queue_up_next::Column::SessionId.eq(session_id))
+        .exec(&tx)
+        .await?;
     entity::play_queues::Entity::delete_many()
         .filter(entity::play_queues::Column::SessionId.eq(session_id))
         .exec(&tx)
@@ -1357,6 +1361,7 @@ pub async fn create_queue_for_session(
         source_id: Set(source_id.map(String::from)),
         source_name: Set(source_name.map(String::from)),
         current_index: Set(current_index),
+        current_manual_entry_id: Set(None),
         position_ms: Set(0),
         is_shuffled: Set(is_shuffled),
         shuffle_seed: Set(shuffle_seed),
@@ -1407,6 +1412,10 @@ pub async fn create_lazy_queue_for_session(
         .filter(entity::play_queue_entries::Column::SessionId.eq(session_id))
         .exec(&tx)
         .await?;
+    entity::play_queue_up_next::Entity::delete_many()
+        .filter(entity::play_queue_up_next::Column::SessionId.eq(session_id))
+        .exec(&tx)
+        .await?;
     entity::play_queues::Entity::delete_many()
         .filter(entity::play_queues::Column::SessionId.eq(session_id))
         .exec(&tx)
@@ -1420,6 +1429,7 @@ pub async fn create_lazy_queue_for_session(
         source_id: Set(source_id.map(String::from)),
         source_name: Set(source_name.map(String::from)),
         current_index: Set(current_index),
+        current_manual_entry_id: Set(None),
         position_ms: Set(0),
         is_shuffled: Set(is_shuffled),
         shuffle_seed: Set(shuffle_seed),
@@ -1776,6 +1786,10 @@ pub async fn clear_queue_by_session(
         .filter(entity::play_queue_entries::Column::SessionId.eq(session_id))
         .exec(&tx)
         .await?;
+    entity::play_queue_up_next::Entity::delete_many()
+        .filter(entity::play_queue_up_next::Column::SessionId.eq(session_id))
+        .exec(&tx)
+        .await?;
     entity::play_queues::Entity::delete_many()
         .filter(entity::play_queues::Column::SessionId.eq(session_id))
         .exec(&tx)
@@ -1783,6 +1797,342 @@ pub async fn clear_queue_by_session(
 
     tx.commit().await?;
     Ok(())
+}
+
+/// List the session's "up next" queue in play order.
+pub async fn list_up_next_by_session(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<Vec<PlayQueueUpNext>> {
+    use entity::play_queue_up_next::Column as U;
+    Ok(entity::play_queue_up_next::Entity::find()
+        .select_only()
+        .column(U::EntryId)
+        .column(U::SongId)
+        .column(U::Sequence)
+        .column(U::AnchorContextIndex)
+        .filter(U::SessionId.eq(session_id))
+        .order_by_asc(U::Sequence)
+        .order_by_asc(U::EntryId)
+        .into_model::<PlayQueueUpNext>()
+        .all(database.conn())
+        .await?)
+}
+
+/// Number of rows in the session's whole up-next list (played + upcoming).
+pub async fn count_up_next_by_session(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<i64> {
+    use entity::play_queue_up_next::Column as U;
+    let count: i64 = entity::play_queue_up_next::Entity::find()
+        .select_only()
+        .expr_as(U::SessionId.count(), "c")
+        .filter(U::SessionId.eq(session_id))
+        .into_tuple()
+        .one(database.conn())
+        .await?
+        .unwrap_or(0);
+    Ok(count)
+}
+
+/// Number of up-next rows that have not started playing yet.
+pub async fn count_up_next_upcoming_by_session(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<i64> {
+    use entity::play_queue_up_next::Column as U;
+    let count: i64 = entity::play_queue_up_next::Entity::find()
+        .select_only()
+        .expr_as(U::SessionId.count(), "c")
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_null())
+        .into_tuple()
+        .one(database.conn())
+        .await?
+        .unwrap_or(0);
+    Ok(count)
+}
+
+/// Smallest sequence among upcoming rows, if any.
+pub async fn min_up_next_sequence(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<Option<i64>> {
+    use entity::play_queue_up_next::Column as U;
+    Ok(entity::play_queue_up_next::Entity::find()
+        .select_only()
+        .column(U::Sequence)
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_null())
+        .order_by_asc(U::Sequence)
+        .into_tuple::<i64>()
+        .one(database.conn())
+        .await?)
+}
+
+/// Largest sequence among upcoming rows, if any.
+pub async fn max_up_next_sequence(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<Option<i64>> {
+    use entity::play_queue_up_next::Column as U;
+    Ok(entity::play_queue_up_next::Entity::find()
+        .select_only()
+        .column(U::Sequence)
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_null())
+        .order_by_desc(U::Sequence)
+        .into_tuple::<i64>()
+        .one(database.conn())
+        .await?)
+}
+
+/// Insert upcoming rows `(entry_id, song_id, sequence)` in one transaction.
+pub async fn insert_up_next_entries(
+    database: &Database,
+    user_id: i64,
+    session_id: &str,
+    rows: &[(String, String, i64)],
+) -> crate::error::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let tx = database.conn().begin().await?;
+    for (entry_id, song_id, sequence) in rows {
+        let model = entity::play_queue_up_next::ActiveModel {
+            session_id: Set(session_id.to_string()),
+            entry_id: Set(entry_id.clone()),
+            user_id: Set(user_id),
+            song_id: Set(song_id.clone()),
+            sequence: Set(*sequence),
+            anchor_context_index: Set(None),
+        };
+        model.insert(&tx).await?;
+    }
+    entity::play_queues::Entity::update_many()
+        .col_expr(
+            entity::play_queues::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(entity::play_queues::Column::SessionId.eq(session_id))
+        .exec(&tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Delete every upcoming row, keeping played history.
+pub async fn delete_up_next_upcoming_by_session(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<u64> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::delete_many()
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_null())
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected)
+}
+
+/// Delete the whole up-next list.
+pub async fn delete_up_next_by_session(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<u64> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::delete_many()
+        .filter(U::SessionId.eq(session_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected)
+}
+
+/// Delete one up-next row.
+pub async fn delete_up_next_entry_by_session(
+    database: &Database,
+    session_id: &str,
+    entry_id: &str,
+) -> crate::error::Result<bool> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::delete_many()
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::EntryId.eq(entry_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+/// Mark an up-next row as playing under a context index.
+pub async fn anchor_up_next_entry(
+    database: &Database,
+    session_id: &str,
+    entry_id: &str,
+    anchor_context_index: i64,
+) -> crate::error::Result<bool> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::update_many()
+        .col_expr(U::AnchorContextIndex, Expr::value(anchor_context_index))
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::EntryId.eq(entry_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+/// Mark every upcoming row up to and including `sequence` as playing under a
+/// context index (used when jumping into the up-next list).
+pub async fn anchor_upcoming_through_sequence(
+    database: &Database,
+    session_id: &str,
+    anchor_context_index: i64,
+    sequence: i64,
+) -> crate::error::Result<u64> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::update_many()
+        .col_expr(U::AnchorContextIndex, Expr::value(anchor_context_index))
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_null())
+        .filter(U::Sequence.lte(sequence))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected)
+}
+
+/// Rewrite the order of upcoming rows.
+pub async fn update_up_next_sequences(
+    database: &Database,
+    session_id: &str,
+    rows: &[(String, i64)],
+) -> crate::error::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let tx = database.conn().begin().await?;
+    for (entry_id, sequence) in rows {
+        entity::play_queue_up_next::Entity::update_many()
+            .col_expr(
+                entity::play_queue_up_next::Column::Sequence,
+                Expr::value(*sequence),
+            )
+            .filter(entity::play_queue_up_next::Column::SessionId.eq(session_id))
+            .filter(entity::play_queue_up_next::Column::EntryId.eq(entry_id))
+            .exec(&tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Set (or clear) the current up-next entry id without touching the version.
+pub async fn set_queue_current_manual_entry(
+    database: &Database,
+    session_id: &str,
+    entry_id: Option<&str>,
+) -> crate::error::Result<bool> {
+    use entity::play_queues::Column as Q;
+    let result = entity::play_queues::Entity::update_many()
+        .col_expr(
+            Q::CurrentManualEntryId,
+            Expr::value(entry_id.map(String::from)),
+        )
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
+        .filter(Q::SessionId.eq(session_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+/// Shift played up-next anchors after a context row is removed.
+pub async fn shift_up_next_anchors_after_removal(
+    database: &Database,
+    session_id: &str,
+    removed_context_index: i64,
+) -> crate::error::Result<u64> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::update_many()
+        .col_expr(
+            U::AnchorContextIndex,
+            Expr::col(U::AnchorContextIndex).sub(1i64),
+        )
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.gt(removed_context_index))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected)
+}
+
+/// Shift played up-next anchors after a context row is moved.
+pub async fn shift_up_next_anchors_for_move(
+    database: &Database,
+    session_id: &str,
+    from_position: i64,
+    to_position: i64,
+) -> crate::error::Result<()> {
+    use entity::play_queue_up_next::Column as U;
+    if from_position < to_position {
+        entity::play_queue_up_next::Entity::update_many()
+            .col_expr(
+                U::AnchorContextIndex,
+                Expr::col(U::AnchorContextIndex).sub(1i64),
+            )
+            .filter(U::SessionId.eq(session_id))
+            .filter(U::AnchorContextIndex.gt(from_position))
+            .filter(U::AnchorContextIndex.lte(to_position))
+            .exec(database.conn())
+            .await?;
+    } else {
+        entity::play_queue_up_next::Entity::update_many()
+            .col_expr(
+                U::AnchorContextIndex,
+                Expr::col(U::AnchorContextIndex).add(1i64),
+            )
+            .filter(U::SessionId.eq(session_id))
+            .filter(U::AnchorContextIndex.gte(to_position))
+            .filter(U::AnchorContextIndex.lt(from_position))
+            .exec(database.conn())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Delete played up-next history (used when the context order is reshuffled).
+pub async fn delete_up_next_anchored_by_session(
+    database: &Database,
+    session_id: &str,
+) -> crate::error::Result<u64> {
+    use entity::play_queue_up_next::Column as U;
+    let result = entity::play_queue_up_next::Entity::delete_many()
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_not_null())
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected)
+}
+
+/// Update the playback cursor, including an optional up-next entry id.
+pub async fn update_queue_cursor_by_session(
+    database: &Database,
+    session_id: &str,
+    current_index: i64,
+    current_manual_entry_id: Option<&str>,
+    position_ms: i64,
+) -> crate::error::Result<bool> {
+    use entity::play_queues::Column as Q;
+    let result = entity::play_queues::Entity::update_many()
+        .col_expr(Q::CurrentIndex, Expr::value(current_index))
+        .col_expr(
+            Q::CurrentManualEntryId,
+            Expr::value(current_manual_entry_id.map(String::from)),
+        )
+        .col_expr(Q::PositionMs, Expr::value(position_ms))
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
+        .col_expr(Q::Version, Expr::col(Q::Version).add(1i64))
+        .filter(Q::SessionId.eq(session_id))
+        .exec(database.conn())
+        .await?;
+    Ok(result.rows_affected > 0)
 }
 
 pub async fn get_disabled_song_ids_for_user(

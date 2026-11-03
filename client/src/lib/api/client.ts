@@ -1977,6 +1977,18 @@ export class FerrotuneClient {
     });
   }
 
+  /**
+   * Clear only the explicitly queued "up next" entries.
+   */
+  async clearServerUpNext(sessionId?: string): Promise<QueueSuccessResponse> {
+    const query = sessionId
+      ? `?sessionId=${encodeURIComponent(sessionId)}`
+      : "";
+    return this.request(`/api/queue/up-next${query}`, {
+      method: "DELETE",
+    });
+  }
+
   // ============================================================================
   // Server Features API
   // ============================================================================

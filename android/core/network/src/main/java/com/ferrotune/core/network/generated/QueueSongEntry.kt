@@ -12,5 +12,6 @@ data class QueueSongEntry(
     val entryId: String,
     val sourceEntryId: String? = null,
     val position: Long,
+    val origin: String,
     val song: JsonElement,
 )

@@ -38,6 +38,7 @@ internal fun testQueueResponse(
     offset: Int = 0,
 ): GetQueueResponse = GetQueueResponse(
     totalCount = totalCount.toLong(),
+    upNextCount = 0,
     currentIndex = currentIndex.toLong(),
     positionMs = 0,
     isShuffled = false,
@@ -49,6 +50,7 @@ internal fun testQueueResponse(
             QueueSongEntry(
                 entryId = "entry-$position",
                 position = position.toLong(),
+                origin = "context",
                 song = FerrotuneJson.encodeToJsonElement(testSong("song-$position")),
             )
         },

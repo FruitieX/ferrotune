@@ -10,7 +10,7 @@
 # ============================================================================
 
 # Get some songs for the queue
-GET {{base_url}}/api/songs/random?size=5
+GET {{base_url}}/api/songs/random?size=7
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Captures]
@@ -19,6 +19,8 @@ song_2: jsonpath "$.song[1].id"
 song_3: jsonpath "$.song[2].id"
 song_4: jsonpath "$.song[3].id"
 song_5: jsonpath "$.song[4].id"
+song_6: jsonpath "$.song[5].id"
+song_7: jsonpath "$.song[6].id"
 
 # Get an album for source testing
 GET {{base_url}}/api/albums?type=newest&size=1
@@ -623,6 +625,228 @@ jsonpath "$.currentIndex" == 0
 jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
 jsonpath "$.window.songs[1].song.id" == "{{song_5}}"
 jsonpath "$.window.songs[2].song.id" == "{{song_4}}"
+
+# ============================================================================
+# UP NEXT - Separate explicit queue, playlist continues after it
+# ============================================================================
+
+# Start a fresh context with four songs
+POST {{base_url}}/api/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}", "{{song_4}}"],
+  "startIndex": 0,
+  "shuffle": false
+}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 4
+jsonpath "$.currentIndex" == 0
+jsonpath "$.upNextCount" == 0
+jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[0].origin" == "context"
+
+# Play next prepends to the up-next queue
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_5}}"],
+  "position": "next"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.totalCount" == 5
+jsonpath "$.newIndex" == 0
+jsonpath "$.upNextCount" == 1
+
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_6}}"],
+  "position": "next"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 6
+jsonpath "$.upNextCount" == 2
+
+# Add to queue appends after the existing up-next rows
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_7}}"],
+  "position": "end"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 7
+jsonpath "$.upNextCount" == 3
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 0
+jsonpath "$.upNextCount" == 3
+jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[1].song.id" == "{{song_6}}"
+jsonpath "$.window.songs[1].origin" == "upNext"
+jsonpath "$.window.songs[2].song.id" == "{{song_5}}"
+jsonpath "$.window.songs[2].origin" == "upNext"
+jsonpath "$.window.songs[3].song.id" == "{{song_7}}"
+jsonpath "$.window.songs[3].origin" == "upNext"
+jsonpath "$.window.songs[4].song.id" == "{{song_2}}"
+jsonpath "$.window.songs[4].origin" == "context"
+
+# Playing an up-next song anchors it in history and keeps consuming the queue
+POST {{base_url}}/api/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 1,
+  "positionMs": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 1
+jsonpath "$.upNextCount" == 2
+
+POST {{base_url}}/api/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 2,
+  "positionMs": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 1
+
+POST {{base_url}}/api/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 3,
+  "positionMs": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 0
+
+# The playlist resumes after the up-next rows are exhausted
+POST {{base_url}}/api/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 4,
+  "positionMs": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 4
+jsonpath "$.upNextCount" == 0
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 4
+jsonpath "$.window.songs[4].song.id" == "{{song_2}}"
+jsonpath "$.window.songs[4].origin" == "context"
+
+# Clear up next keeps the playlist playing and leaves played history alone
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_5}}"],
+  "position": "next"
+}
+HTTP 200
+
+DELETE {{base_url}}/api/queue/up-next?sessionId={{test_session_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.upNextCount" == 0
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 0
+jsonpath "$.totalCount" == 7
+jsonpath "$.currentIndex" == 4
+jsonpath "$.window.songs[4].song.id" == "{{song_2}}"
+
+# Removing an upcoming row shrinks the display and shifts the rest up
+POST {{base_url}}/api/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}", "{{song_4}}"],
+  "startIndex": 0,
+  "shuffle": false
+}
+HTTP 200
+
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_5}}"],
+  "position": "next"
+}
+HTTP 200
+
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_6}}"],
+  "position": "end"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 6
+jsonpath "$.upNextCount" == 2
+
+DELETE {{base_url}}/api/queue/1?sessionId={{test_session_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 5
+jsonpath "$.upNextCount" == 1
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.window.songs[1].song.id" == "{{song_6}}"
 
 # ============================================================================
 # CLEAR QUEUE - Delete entire queue

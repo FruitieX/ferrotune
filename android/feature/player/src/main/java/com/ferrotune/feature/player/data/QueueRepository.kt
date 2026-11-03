@@ -10,6 +10,9 @@ import com.ferrotune.core.network.dto.ShuffleRequest
 import com.ferrotune.core.network.generated.GetQueueResponse
 import com.ferrotune.core.network.generated.SongResponse
 import com.ferrotune.core.network.toQueryMap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.decodeFromJsonElement
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,11 +20,14 @@ import javax.inject.Singleton
 data class QueueEntry(
     val position: Long,
     val entryId: String,
+    /** `context` or `upNext` (server `QueueSongEntry.origin`). */
+    val origin: String,
     val song: SongResponse,
 )
 
 data class QueueSnapshot(
     val totalCount: Int,
+    val upNextCount: Int,
     val currentIndex: Int,
     val isShuffled: Boolean,
     val repeatMode: String,
@@ -38,8 +44,16 @@ data class QueueSnapshot(
 class QueueRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
 ) {
+    private val _upNextCount = MutableStateFlow(0)
+
+    /** Number of still-upcoming up-next rows, updated from every queue page load. */
+    val upNextCount: StateFlow<Int> = _upNextCount.asStateFlow()
+
     /** Paged view of the whole queue for the queue sheet. */
-    fun queuePages(sessionId: String): QueuePagingSource = QueuePagingSource(apiProvider, sessionId)
+    fun queuePages(sessionId: String): QueuePagingSource =
+        QueuePagingSource(apiProvider, sessionId) { snapshot ->
+            _upNextCount.value = snapshot.upNextCount
+        }
 
     suspend fun removeEntry(sessionId: String, position: Long) {
         apiProvider.requireApi().removeFromQueue(
@@ -50,6 +64,10 @@ class QueueRepository @Inject constructor(
 
     suspend fun clear(sessionId: String) {
         apiProvider.requireApi().clearQueue(SessionParams(sessionId = sessionId).toQueryMap())
+    }
+
+    suspend fun clearUpNext(sessionId: String) {
+        apiProvider.requireApi().clearUpNext(SessionParams(sessionId = sessionId).toQueryMap())
     }
 
     suspend fun moveEntry(sessionId: String, fromPosition: Long, toPosition: Long) {
@@ -77,6 +95,7 @@ class QueueRepository @Inject constructor(
 
 fun GetQueueResponse.toSnapshot(): QueueSnapshot = QueueSnapshot(
     totalCount = totalCount.toInt(),
+    upNextCount = upNextCount.toInt(),
     currentIndex = currentIndex.toInt(),
     isShuffled = isShuffled,
     repeatMode = repeatMode,
@@ -86,6 +105,7 @@ fun GetQueueResponse.toSnapshot(): QueueSnapshot = QueueSnapshot(
         QueueEntry(
             position = entry.position,
             entryId = entry.entryId,
+            origin = entry.origin,
             song = FerrotuneJson.decodeFromJsonElement<SongResponse>(entry.song),
         )
     },

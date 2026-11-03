@@ -11,6 +11,13 @@ Non-obvious behaviour that has caused bugs before. Read the relevant section bef
 - **Idle disown:** the server disowns an owner whose playback has been idle for `FERROTUNE_SESSION_IDLE_DISOWN_SECS` (default 600 s; the sweep runs at most every 30 s). Do not exempt owners with a fresh heartbeat: a paused but open tab would then hold the session forever.
 - `get_or_create_session` must stay safe under concurrent first requests (unique index on `user_id`); a check-then-insert made `GET /api/sessions` return 500.
 
+## Queue: context vs up next
+
+- The queue has two parts. The **context** is what `queue/start` materialized (playlist, album, library, …) and can stay lazy. **Up next** is the small `play_queue_up_next` table written by "Play next"/"Add to queue". Queue actions never rewrite the context, so a lazy library queue accepts up-next songs without materializing thousands of entries.
+- Up-next display order is `context`, then rows already played under that context position, then the still-upcoming rows, then the next context track. Played rows get `anchor_context_index` set; upcoming rows have it `NULL` and therefore always follow the current track. `current_index` remains the context position and `current_manual_entry_id` names the current up-next row when there is one. The API exposes the merged display index as `currentIndex`, so clients keep using `index + 1` for next.
+- `next` prepends the batch to the up-next list (so separate clicks are LIFO), `end` appends. "Clear up next" deletes only `anchor_context_index IS NULL` rows and leaves the context playing; the full clear deletes the queue.
+- Changing shuffle deletes played up-next history because its anchors refer to the old order; unplayed rows survive and follow the new current.
+
 ## Library scanning and tagging
 
 - **Albums are keyed by (album name, `ALBUMARTIST`)**, read in `src/scanner.rs`. Without `ALBUMARTIST` the scanner falls back to the per-track artist, so compilations and soundtracks split into one album per track artist. Fix the tags; do not special-case the scanner.

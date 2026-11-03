@@ -196,6 +196,9 @@ interface FerrotuneApi {
     @DELETE("api/queue")
     suspend fun clearQueue(@QueryMap params: Map<String, String>): QueueSuccessResponse
 
+    @DELETE("api/queue/up-next")
+    suspend fun clearUpNext(@QueryMap params: Map<String, String>): QueueSuccessResponse
+
     @DELETE("api/queue/{position}")
     suspend fun removeFromQueue(
         @Path("position") position: Long,

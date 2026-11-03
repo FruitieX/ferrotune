@@ -177,6 +177,7 @@ export async function materializeOfflineQueueIfPossible(
       entryId: `${song.id}-${i}`,
       sourceEntryId: null,
       position: i,
+      origin: "context",
       song,
     })),
   };
@@ -198,6 +199,7 @@ export async function materializeOfflineQueueIfPossible(
   try {
     set(serverQueueStateAtom, {
       totalCount: ordered.length,
+      upNextCount: 0,
       currentIndex: startIndex,
       positionMs: 0,
       isShuffled,

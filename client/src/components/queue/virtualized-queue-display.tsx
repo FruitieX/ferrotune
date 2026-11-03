@@ -104,6 +104,10 @@ interface VirtualQueueItemProps {
   entry: QueueSongEntry;
   isCurrent: boolean;
   isPlaying: boolean;
+  /** Already played; rendered dimmed above the current track. */
+  isPlayed: boolean;
+  /** Section heading rendered inside the first row of a section. */
+  sectionLabel?: string | null;
   totalCount: number;
   onPlay: () => void;
   onRemove: () => void;
@@ -148,6 +152,8 @@ function VirtualQueueItem({
   entry,
   isCurrent,
   isPlaying,
+  isPlayed,
+  sectionLabel,
   totalCount: _totalCount,
   onPlay,
   onRemove,
@@ -158,6 +164,7 @@ function VirtualQueueItem({
   isDragging = false,
 }: VirtualQueueItemProps) {
   const song = entry.song;
+  const isUpNext = entry.origin === "upNext";
   const coverButtonLabel =
     isCurrent && isPlaying ? `Pause ${song.title}` : `Play ${song.title}`;
 
@@ -176,12 +183,15 @@ function VirtualQueueItem({
       <div
         data-testid="queue-item"
         data-queue-position={entry.position}
+        data-origin={entry.origin}
         data-current={isCurrent ? "true" : undefined}
         className={cn(
           "flex items-center gap-2 p-2 rounded-lg group touch-manipulation transition-[background-color,scale] active:scale-[0.995]",
           isCurrent
             ? "bg-primary/10 border border-primary/20 active:bg-primary/15"
             : "bg-card hover:bg-muted/50 active:bg-muted/70",
+          isUpNext && !isCurrent && "border-l-2 border-l-primary/50",
+          isPlayed && "opacity-55",
           isDragging && "opacity-40",
         )}
         style={{ height: ITEM_HEIGHT }}
@@ -252,6 +262,11 @@ function VirtualQueueItem({
 
         {/* Track info */}
         <div className="flex-1 min-w-0">
+          {sectionLabel && (
+            <p className="text-[9px] font-semibold uppercase tracking-wider leading-none mb-1 text-primary/80">
+              {sectionLabel}
+            </p>
+          )}
           <p
             className={cn(
               "text-sm font-medium truncate",
@@ -384,6 +399,9 @@ export const VirtualizedQueueDisplay = forwardRef<
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
+  const nextFromLabel = queueState?.source?.name
+    ? `Next from ${queueState.source.name}`
+    : "Next from playlist";
   const queueInstanceId = queueState?.source?.instanceId ?? null;
 
   // Reset the initial scroll offset whenever the queue instance changes so
@@ -858,7 +876,25 @@ export const VirtualizedQueueDisplay = forwardRef<
         >
           {virtualItems.map((virtualItem) => {
             const entry = songsByPosition.get(virtualItem.index);
+            const previousEntry = songsByPosition.get(virtualItem.index - 1);
             const isCurrent = virtualItem.index === currentIndex;
+            const isUpcoming = virtualItem.index > currentIndex;
+            const isUpNext = entry?.origin === "upNext";
+            const isPlayed = virtualItem.index < currentIndex;
+            const startsUpNext =
+              isUpNext &&
+              isUpcoming &&
+              (virtualItem.index === currentIndex + 1 ||
+                previousEntry?.origin !== "upNext");
+            const startsContext =
+              entry?.origin === "context" &&
+              isUpcoming &&
+              previousEntry?.origin === "upNext";
+            const sectionLabel = startsUpNext
+              ? "Up next"
+              : startsContext
+                ? nextFromLabel
+                : null;
             // Use entry_id as key for stable React reconciliation (allows same song multiple times)
             const itemKey = entry
               ? entry.entryId
@@ -880,6 +916,8 @@ export const VirtualizedQueueDisplay = forwardRef<
                     entry={entry}
                     isCurrent={isCurrent && playbackState !== "ended"}
                     isPlaying={isCurrent && playbackState === "playing"}
+                    isPlayed={isPlayed}
+                    sectionLabel={sectionLabel}
                     totalCount={totalCount}
                     onPlay={() => playAtIndex(virtualItem.index)}
                     onRemove={() => {

@@ -12,6 +12,7 @@ pub mod listening_sessions;
 pub mod match_dictionary;
 pub mod music_folders;
 pub mod play_queue_entries;
+pub mod play_queue_up_next;
 pub mod play_queues;
 pub mod playback_sessions;
 pub mod playback_starts;

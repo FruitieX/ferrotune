@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class GetQueueResponse(
     val totalCount: Long,
+    val upNextCount: Long,
     val currentIndex: Long,
     val positionMs: Long,
     val isShuffled: Boolean,

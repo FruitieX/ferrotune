@@ -244,3 +244,146 @@ fn test_diagnostics_pull_reaches_the_app_over_its_session_stream() {
     assert_eq!(later["status"], "complete");
     assert_eq!(later["bundle"]["requestId"], request_id);
 }
+
+/// A lazy (unmaterialized) library queue accepts up-next songs without
+/// materializing the playback context, and still advances through both lists.
+#[test]
+fn test_lazy_library_queue_accepts_up_next_without_materializing() {
+    if !fixtures_exist() {
+        eprintln!("Skipping test: fixtures not found");
+        return;
+    }
+
+    let server = TestServer::new().expect("Failed to start test server");
+    server.scan_library().expect("Initial scan failed");
+
+    let client = reqwest::blocking::Client::new();
+    let session: Value = client
+        .post(server.api_url("sessions"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({ "clientName": "lazy-queue-test", "clientId": "lazy-owner" }))
+        .send()
+        .expect("session request")
+        .json()
+        .expect("session json");
+    let session_id = session["id"].as_str().expect("session id").to_string();
+
+    let start: Value = client
+        .post(server.api_url("queue/start"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "sourceType": "library",
+            "startIndex": 0,
+        }))
+        .send()
+        .expect("start queue request")
+        .json()
+        .expect("start queue json");
+    let total = start["totalCount"].as_u64().expect("library size");
+    let current_song_id = start["window"]["songs"][0]["song"]["id"]
+        .as_str()
+        .expect("current song id")
+        .to_string();
+
+    // Turn the eager queue into a lazy one directly, the way a large library
+    // queue is stored (no play_queue_entries rows).
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+    runtime.block_on(async {
+        let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", server.db_path.display()))
+            .await
+            .expect("test database connection");
+        sqlx::query("UPDATE play_queues SET is_lazy = 1, total_count = ? WHERE session_id = ?")
+            .bind(total as i64)
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .expect("mark queue lazy");
+        sqlx::query("DELETE FROM play_queue_entries WHERE session_id = ?")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .expect("clear context entries");
+        pool.close().await;
+    });
+
+    let up_next_song_id = client
+        .get(server.api_url("songs/random?size=1"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .send()
+        .expect("random song request")
+        .json::<Value>()
+        .expect("random song json")["song"][0]["id"]
+        .as_str()
+        .expect("random song id")
+        .to_string();
+
+    let added: Value = client
+        .post(server.api_url("queue/add"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "songIds": [up_next_song_id],
+            "position": "next",
+        }))
+        .send()
+        .expect("add request")
+        .json()
+        .expect("add json");
+    assert_eq!(added["upNextCount"], 1, "up-next row should be added");
+    assert_eq!(added["totalCount"], total + 1);
+
+    let window: Value = client
+        .get(server.api_url(&format!(
+            "queue/current-window?sessionId={session_id}&radius=5"
+        )))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .send()
+        .expect("window request")
+        .json()
+        .expect("window json");
+    let songs = window["window"]["songs"]
+        .as_array()
+        .expect("window songs array");
+    assert_eq!(window["currentIndex"], 0);
+    assert_eq!(songs[0]["song"]["id"], current_song_id);
+    assert_eq!(songs[0]["origin"], "context");
+    assert_eq!(songs[1]["song"]["id"], up_next_song_id);
+    assert_eq!(songs[1]["origin"], "upNext");
+
+    // Play the up-next row, then advance back into the lazy context.
+    let played: Value = client
+        .post(server.api_url("queue/position"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "clientId": "lazy-owner",
+            "currentIndex": 1,
+            "positionMs": 0,
+        }))
+        .send()
+        .expect("position request")
+        .json()
+        .expect("position json");
+    assert_eq!(played["newIndex"], 1);
+    assert_eq!(played["upNextCount"], 0);
+
+    let resumed: Value = client
+        .post(server.api_url("queue/position"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "clientId": "lazy-owner",
+            "currentIndex": 2,
+            "positionMs": 0,
+        }))
+        .send()
+        .expect("resume request")
+        .json()
+        .expect("resume json");
+    assert_eq!(resumed["newIndex"], 2, "playlist resumes after up-next");
+    assert_eq!(resumed["upNextCount"], 0);
+}

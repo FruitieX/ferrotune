@@ -1,12 +1,10 @@
 import { Link } from "react-router-dom";
 import { useRef, useEffect } from "react";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { motion, AnimatePresence } from "motion/react";
-import { toast } from "sonner";
 import {
   AudioLines,
   ListMusic,
-  Trash2,
   PanelRightClose,
   Disc3,
   Radio,
@@ -20,13 +18,12 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { hapticDestructive, hapticTap } from "@/lib/utils/haptic";
+import { hapticTap } from "@/lib/utils/haptic";
 import { getQueueSourceHref } from "@/lib/utils/source-links";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
-  clearQueueAtom,
 } from "@/lib/store/server-queue";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { Button } from "@/components/ui/button";
@@ -39,6 +36,7 @@ import {
   VirtualizedQueueDisplay,
   type VirtualizedQueueDisplayHandle,
 } from "@/components/queue/virtualized-queue-display";
+import { QueueClearMenu } from "@/components/queue/queue-clear-menu";
 
 const QUEUE_SIDEBAR_WIDTH = 360;
 
@@ -139,7 +137,6 @@ function QueuePanelBody({
 }: QueuePanelBodyProps) {
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
-  const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
   // Track if we've already scrolled for this open state
@@ -171,13 +168,6 @@ function QueuePanelBody({
     }
   }, [isOpen, isQueueLoading, queueState]);
 
-  const handleClearQueue = () => {
-    const trackCount = queueState?.totalCount ?? 0;
-    hapticDestructive();
-    clearQueue();
-    toast.success(`Cleared ${trackCount} tracks from queue`);
-  };
-
   const handleJumpToNowPlaying = () => {
     hapticTap();
     queueDisplayRef.current?.scrollToNowPlaying("smooth");
@@ -195,9 +185,17 @@ function QueuePanelBody({
           borderClass,
         )}
       >
-        <h2 className="font-semibold flex items-center gap-2 text-sm">
+        <h2
+          aria-label="Queue"
+          className="font-semibold flex items-center gap-2 text-sm"
+        >
           <ListMusic className="w-4 h-4" />
           Queue
+          {queueState && queueState.upNextCount > 0 && (
+            <span className="text-[10px] font-medium text-primary/80 bg-primary/10 rounded-full px-2 py-0.5">
+              {queueState.upNextCount} up next
+            </span>
+          )}
         </h2>
         <div className="flex items-center gap-1">
           {queueState && queueState.totalCount > 0 && !isQueueLoading && (
@@ -216,15 +214,7 @@ function QueuePanelBody({
                 </TooltipTrigger>
                 <TooltipContent>Jump to now playing</TooltipContent>
               </Tooltip>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearQueue}
-                className="text-muted-foreground hover:text-destructive h-8 px-2 text-xs"
-              >
-                <Trash2 className="w-4 h-4 mr-1" />
-                Clear
-              </Button>
+              <QueueClearMenu />
             </>
           )}
           <Button

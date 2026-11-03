@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useRef, useEffect, useLayoutEffect, useState } from "react";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
   motion,
   AnimatePresence,
@@ -9,10 +9,8 @@ import {
   animate,
   type PanInfo,
 } from "motion/react";
-import { toast } from "sonner";
 import {
   ListMusic,
-  Trash2,
   X,
   Disc3,
   Radio,
@@ -43,13 +41,13 @@ import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
-  clearQueueAtom,
 } from "@/lib/store/server-queue";
 import { Button } from "@/components/ui/button";
 import {
   VirtualizedQueueDisplay,
   type VirtualizedQueueDisplayHandle,
 } from "@/components/queue/virtualized-queue-display";
+import { QueueClearMenu } from "@/components/queue/queue-clear-menu";
 
 const SHEET_WIDTH = 400; // px
 
@@ -141,7 +139,6 @@ export function MobileQueueSheet() {
   const connection = useAtomValue(serverConnectionAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
-  const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
   const currentAccountKey = connection ? accountKey(connection) : null;
   const isDesktop = useIsDesktop();
@@ -287,12 +284,6 @@ export function MobileQueueSheet() {
       pushedHistoryRef.current = false;
     };
   }, [isOpen, setIsOpen]);
-
-  const handleClearQueue = () => {
-    const trackCount = queueState?.totalCount ?? 0;
-    clearQueue();
-    toast.success(`Cleared ${trackCount} tracks from queue`);
-  };
 
   const handleJumpToNowPlaying = () => {
     queueDisplayRef.current?.scrollToNowPlaying("smooth");
@@ -487,9 +478,17 @@ export function MobileQueueSheet() {
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-              <h2 className="font-semibold flex items-center gap-2">
+              <h2
+                aria-label="Queue"
+                className="font-semibold flex items-center gap-2"
+              >
                 <ListMusic className="w-5 h-5" />
                 Queue
+                {queueState && queueState.upNextCount > 0 && (
+                  <span className="text-[10px] font-medium text-primary/80 bg-primary/10 rounded-full px-2 py-0.5">
+                    {queueState.upNextCount} up next
+                  </span>
+                )}
               </h2>
               <div className="flex items-center gap-1">
                 {queueState && queueState.totalCount > 0 && !isQueueLoading && (
@@ -503,15 +502,7 @@ export function MobileQueueSheet() {
                     >
                       <ListStart className="w-4 h-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearQueue}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Clear
-                    </Button>
+                    <QueueClearMenu />
                   </>
                 )}
                 <Button

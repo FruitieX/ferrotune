@@ -63,6 +63,7 @@ class QueueSheetViewModelTest {
     private fun entry(position: Long) = QueueEntry(
         position = position,
         entryId = "entry-$position",
+        origin = "context",
         song = testSong("song-$position"),
     )
 
