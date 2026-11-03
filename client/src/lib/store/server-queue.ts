@@ -110,6 +110,8 @@ export interface ServerQueueState {
   totalCount: number;
   /** Number of still-upcoming "up next" entries. */
   upNextCount: number;
+  /** Lazily materialized context; cross-section reorders are disabled. */
+  isLazy: boolean;
   currentIndex: number;
   positionMs: number;
   isShuffled: boolean;
@@ -185,6 +187,7 @@ function queueStateFromResponse(
   return {
     totalCount: response.totalCount,
     upNextCount: response.upNextCount,
+    isLazy: response.isLazy,
     currentIndex: response.currentIndex,
     positionMs: base?.positionMs ?? Number(response.positionMs),
     isShuffled: response.isShuffled,
@@ -512,6 +515,7 @@ export const startQueueAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
+          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: currentQueueState.positionMs,
           isShuffled: response.isShuffled,
@@ -526,6 +530,7 @@ export const startQueueAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
+          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: 0,
           isShuffled: response.isShuffled,
@@ -616,6 +621,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
+        isLazy: response.isLazy,
         currentIndex: response.currentIndex,
         positionMs: remotePositionMs ?? Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -676,6 +682,7 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
+        isLazy: response.isLazy,
         currentIndex: response.currentIndex,
         positionMs: Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -732,6 +739,7 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
+        isLazy: response.isLazy,
         currentIndex: response.currentIndex,
         positionMs: Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -826,6 +834,7 @@ export const syncQueueFromNativeResumeAtom = atom(
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
+        isLazy: response.isLazy,
         currentIndex,
         positionMs,
         isShuffled: response.isShuffled,
@@ -883,6 +892,7 @@ export const fetchQueueAndPlayAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
+          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: canKeepPlayback
             ? (currentQueueState?.positionMs ?? Number(response.positionMs))
@@ -1477,6 +1487,7 @@ export const addToQueueAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
+          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: 0,
           isShuffled: response.isShuffled,
@@ -1544,6 +1555,7 @@ export const addToQueueAtom = atom(
       set(serverQueueStateAtom, {
         totalCount: queueResponse.totalCount,
         upNextCount: queueResponse.upNextCount,
+        isLazy: queueResponse.isLazy,
         currentIndex: queueResponse.currentIndex,
         positionMs: Number(queueResponse.positionMs ?? 0),
         isShuffled: queueResponse.isShuffled,
@@ -1913,6 +1925,7 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
     set(serverQueueStateAtom, {
       totalCount: response.totalCount,
       upNextCount: response.upNextCount,
+      isLazy: response.isLazy,
       currentIndex: response.currentIndex,
       // Start at 30% of the song duration
       positionMs: Math.floor((song.duration || 0) * 1000 * 0.3),

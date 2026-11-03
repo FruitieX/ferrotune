@@ -130,6 +130,9 @@ pub struct StartQueueResponse {
     pub source: QueueSourceInfo,
     /// Initial window of songs around the current position
     pub window: QueueWindow,
+    /// Whether the playback context is lazily materialized. Cross-section
+    /// reorders need real context rows and are disabled for lazy queues.
+    pub is_lazy: bool,
 }
 
 /// A window of songs in the queue
@@ -190,6 +193,9 @@ pub struct GetQueueResponse {
     /// and explicit invalidation arrive for the same version.
     #[ts(type = "number")]
     pub version: i64,
+    /// Whether the playback context is lazily materialized. Cross-section
+    /// reorders need real context rows and are disabled for lazy queues.
+    pub is_lazy: bool,
 }
 
 /// Queue source information
@@ -1465,6 +1471,7 @@ pub async fn start_queue(
         repeat_mode: repeat_mode.to_string(),
         source: QueueSourceInfo::from_queue(&queue),
         window,
+        is_lazy: queue.is_lazy,
     }))
 }
 
@@ -1493,6 +1500,7 @@ pub async fn get_queue(
                     songs: vec![],
                 },
                 version: 0,
+                is_lazy: false,
             }));
         }
     };
@@ -1534,6 +1542,7 @@ pub async fn get_queue(
         source: QueueSourceInfo::from_queue(&queue),
         window,
         version: queue.version,
+        is_lazy: queue.is_lazy,
     }))
 }
 
@@ -1562,6 +1571,7 @@ pub async fn get_current_window(
                     songs: vec![],
                 },
                 version: 0,
+                is_lazy: false,
             }));
         }
     };
@@ -1605,6 +1615,7 @@ pub async fn get_current_window(
         source: QueueSourceInfo::from_queue(&queue),
         window,
         version: queue.version,
+        is_lazy: queue.is_lazy,
     }))
 }
 
@@ -2125,13 +2136,133 @@ pub async fn move_in_queue(
             )
             .await?;
         }
+        (
+            QueueDisplayItem::Context(from_context),
+            QueueDisplayItem::Upcoming { index: to_index },
+        ) => {
+            if queue.is_lazy {
+                return Err(FerrotuneApiError(Error::InvalidRequest(
+                    "Moving tracks out of a lazily loaded queue isn't supported yet".to_string(),
+                )));
+            }
+            if from_context <= current_context_index {
+                return Err(FerrotuneApiError(Error::InvalidRequest(
+                    "Only tracks after the current one can move into the queue".to_string(),
+                )));
+            }
+
+            let from_original = resolve_original_queue_position(&queue, from_context)?;
+            let entries = queries::get_queue_entries_at_positions_by_session(
+                &state.database,
+                session_id,
+                &[from_original],
+            )
+            .await?;
+            let entry = entries.into_iter().next().ok_or_else(|| {
+                FerrotuneApiError(Error::NotFound("Position not found in queue".to_string()))
+            })?;
+
+            let shuffle_json = if queue.is_shuffled {
+                let mut indices = queue.shuffle_indices().unwrap_or_default();
+                indices.retain(|&index| index != from_original);
+                for index in indices.iter_mut() {
+                    if *index > from_original {
+                        *index -= 1;
+                    }
+                }
+                Some(
+                    serde_json::to_string(&indices)
+                        .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?,
+                )
+            } else {
+                None
+            };
+
+            queries::move_context_row_to_up_next(
+                &state.database,
+                user.user_id,
+                session_id,
+                from_original as i64,
+                from_context as i64,
+                current_context_index as i64,
+                shuffle_json.as_deref(),
+                &entry.entry_id,
+                &entry.id,
+                to_index,
+            )
+            .await?;
+
+            if queue.is_shuffled {
+                invalidate_shuffle_cache(&state, user.user_id).await;
+            }
+            new_context_index = current_context_index;
+        }
+        (
+            QueueDisplayItem::Upcoming { index: from_index },
+            QueueDisplayItem::Context(to_context),
+        ) => {
+            if queue.is_lazy {
+                return Err(FerrotuneApiError(Error::InvalidRequest(
+                    "Moving tracks into a lazily loaded queue isn't supported yet".to_string(),
+                )));
+            }
+            if to_context <= current_context_index {
+                return Err(FerrotuneApiError(Error::InvalidRequest(
+                    "Only tracks after the current one can move out of the queue".to_string(),
+                )));
+            }
+
+            let row = layout
+                .upcoming_row(from_index)
+                .ok_or_else(|| FerrotuneApiError(Error::NotFound("Row not found".to_string())))?;
+            let manual_entry_id = row.entry_id.clone();
+            let song_id = row.song_id.clone();
+
+            let (insert_position, shift_entries, shuffle_json) =
+                if queue.is_shuffled {
+                    let mut indices = queue.shuffle_indices().unwrap_or_default();
+                    let new_original = context_total;
+                    let insert_at = to_context.min(indices.len());
+                    indices.insert(insert_at, new_original);
+                    (
+                        new_original as i64,
+                        false,
+                        Some(serde_json::to_string(&indices).map_err(|e| {
+                            Error::Internal(format!("Failed to serialize JSON: {e}"))
+                        })?),
+                    )
+                } else {
+                    (to_context as i64, true, None)
+                };
+
+            queries::move_up_next_row_to_context(
+                &state.database,
+                user.user_id,
+                session_id,
+                &manual_entry_id,
+                &song_id,
+                insert_position,
+                shift_entries,
+                to_context as i64,
+                current_context_index as i64,
+                shuffle_json.as_deref(),
+            )
+            .await?;
+
+            if queue.is_shuffled {
+                invalidate_shuffle_cache(&state, user.user_id).await;
+            }
+            new_context_index = current_context_index;
+        }
         _ => {
             return Err(FerrotuneApiError(Error::InvalidRequest(
-                "Can't move between the queue and the playlist".to_string(),
+                "Played tracks stay in place; move upcoming tracks instead".to_string(),
             )));
         }
     }
 
+    let updated_context_total =
+        get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
     let new_index =
@@ -2142,7 +2273,7 @@ pub async fn move_in_queue(
     Ok(Json(QueueSuccessResponse {
         success: true,
         new_index: Some(new_index),
-        total_count: Some(layout.total(context_total)),
+        total_count: Some(layout.total(updated_context_total)),
         added_count: None,
         up_next_count: Some(layout.upcoming_count()),
     }))

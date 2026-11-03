@@ -200,6 +200,7 @@ export async function materializeOfflineQueueIfPossible(
     set(serverQueueStateAtom, {
       totalCount: ordered.length,
       upNextCount: 0,
+      isLazy: false,
       currentIndex: startIndex,
       positionMs: 0,
       isShuffled,

@@ -40,6 +40,7 @@ class PlaybackDtosTest {
             {
               "totalCount": 120,
               "upNextCount": 0,
+              "isLazy": false,
               "currentIndex": 3,
               "isShuffled": true,
               "repeatMode": "all",

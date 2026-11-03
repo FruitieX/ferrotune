@@ -116,6 +116,17 @@ class QueueSheetViewModelTest {
     }
 
     @Test
+    fun `cross-section moves are allowed for materialized queues`() {
+        val api = FakeQueueApi()
+        val viewModel = viewModel(api)
+
+        viewModel.moveTo(entry(2).copy(origin = "upNext"), 3)
+
+        assertEquals(2L, api.moveRequest?.fromPosition)
+        assertEquals(3L, api.moveRequest?.toPosition)
+    }
+
+    @Test
     fun `a move makes the player reload its upcoming tracks`() {
         val starter = starter()
         val viewModel = viewModel(starter = starter)

@@ -39,6 +39,7 @@ internal fun testQueueResponse(
 ): GetQueueResponse = GetQueueResponse(
     totalCount = totalCount.toLong(),
     upNextCount = 0,
+    isLazy = false,
     currentIndex = currentIndex.toLong(),
     positionMs = 0,
     isShuffled = false,

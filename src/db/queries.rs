@@ -2111,6 +2111,202 @@ pub async fn delete_up_next_anchored_by_session(
     Ok(result.rows_affected)
 }
 
+/// Atomically move a materialized context row into the up-next queue.
+///
+/// The context entry is removed (and entries after it shift down), then the
+/// same song/entry id is inserted into the up-next list at `upcoming_index`.
+#[allow(clippy::too_many_arguments)]
+pub async fn move_context_row_to_up_next(
+    database: &Database,
+    user_id: i64,
+    session_id: &str,
+    original_position: i64,
+    context_display_index: i64,
+    new_current_index: i64,
+    shuffle_indices_json: Option<&str>,
+    manual_entry_id: &str,
+    song_id: &str,
+    upcoming_index: usize,
+) -> crate::error::Result<()> {
+    use entity::play_queue_entries::Column as PE;
+    use entity::play_queue_up_next::Column as U;
+    use entity::play_queues::Column as Q;
+
+    let tx = database.conn().begin().await?;
+
+    entity::play_queue_entries::Entity::delete_many()
+        .filter(PE::SessionId.eq(session_id))
+        .filter(PE::QueuePosition.eq(original_position))
+        .exec(&tx)
+        .await?;
+
+    // Shift remaining context rows down (two-phase to respect the unique
+    // (session_id, queue_position) constraint).
+    const TEMP_OFFSET: i64 = 1_000_000_000;
+    entity::play_queue_entries::Entity::update_many()
+        .col_expr(
+            PE::QueuePosition,
+            Expr::col(PE::QueuePosition).add(TEMP_OFFSET - 1),
+        )
+        .filter(PE::SessionId.eq(session_id))
+        .filter(PE::QueuePosition.gt(original_position))
+        .exec(&tx)
+        .await?;
+    entity::play_queue_entries::Entity::update_many()
+        .col_expr(
+            PE::QueuePosition,
+            Expr::col(PE::QueuePosition).sub(TEMP_OFFSET),
+        )
+        .filter(PE::SessionId.eq(session_id))
+        .filter(PE::QueuePosition.gte(original_position + TEMP_OFFSET))
+        .exec(&tx)
+        .await?;
+
+    // Played up-next rows after the removed context position move up with it.
+    entity::play_queue_up_next::Entity::update_many()
+        .col_expr(
+            U::AnchorContextIndex,
+            Expr::col(U::AnchorContextIndex).sub(1i64),
+        )
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.gt(context_display_index))
+        .exec(&tx)
+        .await?;
+
+    let mut upcoming: Vec<String> = entity::play_queue_up_next::Entity::find()
+        .select_only()
+        .column(U::EntryId)
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.is_null())
+        .order_by_asc(U::Sequence)
+        .order_by_asc(U::EntryId)
+        .into_tuple::<String>()
+        .all(&tx)
+        .await?;
+    let insert_at = upcoming_index.min(upcoming.len());
+    upcoming.insert(insert_at, manual_entry_id.to_string());
+
+    entity::play_queue_up_next::ActiveModel {
+        session_id: Set(session_id.to_string()),
+        entry_id: Set(manual_entry_id.to_string()),
+        user_id: Set(user_id),
+        song_id: Set(song_id.to_string()),
+        sequence: Set(insert_at as i64),
+        anchor_context_index: Set(None),
+    }
+    .insert(&tx)
+    .await?;
+
+    for (index, entry_id) in upcoming.iter().enumerate() {
+        entity::play_queue_up_next::Entity::update_many()
+            .col_expr(U::Sequence, Expr::value(index as i64))
+            .filter(U::SessionId.eq(session_id))
+            .filter(U::EntryId.eq(entry_id))
+            .exec(&tx)
+            .await?;
+    }
+
+    let mut queue_update = entity::play_queues::Entity::update_many()
+        .col_expr(Q::CurrentIndex, Expr::value(new_current_index))
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
+        .col_expr(Q::Version, Expr::col(Q::Version).add(1i64))
+        .filter(Q::SessionId.eq(session_id));
+    if let Some(json) = shuffle_indices_json {
+        queue_update = queue_update.col_expr(Q::ShuffleIndicesJson, Expr::value(json.to_string()));
+    }
+    queue_update.exec(&tx).await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Atomically move an unused up-next row into the materialized context at
+/// `insert_position`. `shift_entries` is true for the unshuffled case; for
+/// shuffled queues the entry is appended at `insert_position` and the caller
+/// inserts its original index into the shuffle order.
+#[allow(clippy::too_many_arguments)]
+pub async fn move_up_next_row_to_context(
+    database: &Database,
+    user_id: i64,
+    session_id: &str,
+    manual_entry_id: &str,
+    song_id: &str,
+    insert_position: i64,
+    shift_entries: bool,
+    context_display_index: i64,
+    new_current_index: i64,
+    shuffle_indices_json: Option<&str>,
+) -> crate::error::Result<()> {
+    use entity::play_queue_entries::Column as PE;
+    use entity::play_queue_up_next::Column as U;
+    use entity::play_queues::Column as Q;
+
+    let tx = database.conn().begin().await?;
+
+    entity::play_queue_up_next::Entity::delete_many()
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::EntryId.eq(manual_entry_id))
+        .exec(&tx)
+        .await?;
+
+    if shift_entries {
+        const TEMP_OFFSET: i64 = 1_000_000_000;
+        entity::play_queue_entries::Entity::update_many()
+            .col_expr(
+                PE::QueuePosition,
+                Expr::col(PE::QueuePosition).add(TEMP_OFFSET + 1),
+            )
+            .filter(PE::SessionId.eq(session_id))
+            .filter(PE::QueuePosition.gte(insert_position))
+            .exec(&tx)
+            .await?;
+        entity::play_queue_entries::Entity::update_many()
+            .col_expr(
+                PE::QueuePosition,
+                Expr::col(PE::QueuePosition).sub(TEMP_OFFSET),
+            )
+            .filter(PE::SessionId.eq(session_id))
+            .filter(PE::QueuePosition.gte(insert_position + TEMP_OFFSET + 1))
+            .exec(&tx)
+            .await?;
+    }
+
+    entity::play_queue_entries::ActiveModel {
+        user_id: Set(user_id),
+        song_id: Set(song_id.to_string()),
+        queue_position: Set(insert_position),
+        entry_id: Set(manual_entry_id.to_string()),
+        source_entry_id: Set(None),
+        session_id: Set(session_id.to_string()),
+    }
+    .insert(&tx)
+    .await?;
+
+    // Played up-next rows after the insertion point move along with the context.
+    entity::play_queue_up_next::Entity::update_many()
+        .col_expr(
+            U::AnchorContextIndex,
+            Expr::col(U::AnchorContextIndex).add(1i64),
+        )
+        .filter(U::SessionId.eq(session_id))
+        .filter(U::AnchorContextIndex.gte(context_display_index))
+        .exec(&tx)
+        .await?;
+
+    let mut queue_update = entity::play_queues::Entity::update_many()
+        .col_expr(Q::CurrentIndex, Expr::value(new_current_index))
+        .col_expr(Q::UpdatedAt, Expr::current_timestamp())
+        .col_expr(Q::Version, Expr::col(Q::Version).add(1i64))
+        .filter(Q::SessionId.eq(session_id));
+    if let Some(json) = shuffle_indices_json {
+        queue_update = queue_update.col_expr(Q::ShuffleIndicesJson, Expr::value(json.to_string()));
+    }
+    queue_update.exec(&tx).await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Update the playback cursor, including an optional up-next entry id.
 pub async fn update_queue_cursor_by_session(
     database: &Database,

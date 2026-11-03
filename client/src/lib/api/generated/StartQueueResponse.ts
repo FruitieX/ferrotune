@@ -33,4 +33,9 @@ source: QueueSourceInfo,
 /**
  * Initial window of songs around the current position
  */
-window: QueueWindow, };
+window: QueueWindow, 
+/**
+ * Whether the playback context is lazily materialized. Cross-section
+ * reorders need real context rows and are disabled for lazy queues.
+ */
+isLazy: boolean, };

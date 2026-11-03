@@ -242,6 +242,86 @@ test.describe.serial("Queue Management", () => {
     await expect(page.locator("footer")).toContainText("First Song");
   });
 
+  test("drag moves songs between the playlist and up next", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await expect(page.locator("footer")).toContainText("First Song");
+
+    await page.goto("/library/songs");
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    await queueFromContextMenu(page, "FLAC Track One", /play next/i);
+
+    const queuePanel = await openQueuePanel(page);
+    const rows = queuePanel.locator('[data-testid="queue-item"]');
+    await expect(rows.first()).toContainText("First Song");
+    await expect(rows.nth(1)).toContainText("FLAC Track One");
+
+    async function dragRowOnto(sourceTitle: string, targetTitle: string) {
+      const source = rows.filter({ hasText: sourceTitle }).first();
+      const target = rows.filter({ hasText: targetTitle }).first();
+      await source.hover();
+      const handle = source.getByRole("button", {
+        name: new RegExp(`Reorder ${sourceTitle}`, "i"),
+      });
+      const handleBox = await handle.boundingBox();
+      const targetBox = await target.boundingBox();
+      if (!handleBox || !targetBox) throw new Error("queue rows not laid out");
+
+      const moveResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/queue/move") &&
+          response.request().method() === "POST" &&
+          response.status() === 200,
+      );
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        targetBox.y + targetBox.height / 2,
+        { steps: 12 },
+      );
+      await expect(page.getByTestId("reorder-drop-line")).toBeVisible();
+      await page.mouse.up();
+      await moveResponse;
+    }
+
+    // Playlist -> up next: Third Song moves before FLAC Track One.
+    await dragRowOnto("Third Song", "FLAC Track One");
+    await expect(
+      rows.filter({ hasText: "Third Song" }).first(),
+    ).toHaveAttribute("data-origin", "upNext");
+    await expect(
+      rows.filter({ hasText: "Third Song" }).first(),
+    ).toHaveAttribute("data-queue-position", "1");
+    await expect(
+      rows.filter({ hasText: "FLAC Track One" }).first(),
+    ).toHaveAttribute("data-queue-position", "2");
+
+    // Up next -> playlist: FLAC Track One moves before Second Song.
+    await dragRowOnto("FLAC Track One", "Second Song");
+    await expect(
+      rows.filter({ hasText: "FLAC Track One" }).first(),
+    ).toHaveAttribute("data-origin", "context");
+    await expect(
+      rows.filter({ hasText: "FLAC Track One" }).first(),
+    ).toHaveAttribute("data-queue-position", "2");
+    await expect(
+      rows.filter({ hasText: "Second Song" }).first(),
+    ).toHaveAttribute("data-queue-position", "3");
+    await expect(
+      rows.filter({ hasText: "Third Song" }).first(),
+    ).toHaveAttribute("data-origin", "upNext");
+    await expect(page.locator("footer")).toContainText("First Song");
+  });
+
   test("queue item play button changes current track", async ({
     authenticatedPage: page,
   }) => {

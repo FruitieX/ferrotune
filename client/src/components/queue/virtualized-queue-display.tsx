@@ -474,12 +474,17 @@ export const VirtualizedQueueDisplay = forwardRef<
     position > currentIndex && position <= currentIndex + upNextCount;
   const sectionKindAt = (position: number): "upNext" | "context" => {
     if (isUpcomingPosition(position)) return "upNext";
-    const entry = songsByPosition.get(position);
-    if (position < currentIndex && entry?.origin === "upNext") return "upNext";
-    return "context";
+    return songsByPosition.get(position)?.origin === "upNext"
+      ? "upNext"
+      : "context";
   };
-  const isValidReorderTarget = (from: number, to: number) =>
-    sectionKindAt(from) === sectionKindAt(to);
+  const canCrossSections = !(queueState?.isLazy ?? true);
+  const isValidReorderTarget = (from: number, to: number) => {
+    if (sectionKindAt(from) === sectionKindAt(to)) return true;
+    // Cross-section moves are real table moves on the server and only work on
+    // materialized contexts. Played/current rows stay in place.
+    return canCrossSections && from > currentIndex && to > currentIndex;
+  };
 
   // Virtualizer setup
   const virtualizer = useVirtualizer({

@@ -386,4 +386,43 @@ fn test_lazy_library_queue_accepts_up_next_without_materializing() {
         .expect("resume json");
     assert_eq!(resumed["newIndex"], 2, "playlist resumes after up-next");
     assert_eq!(resumed["upNextCount"], 0);
+
+    // Cross-section moves need a materialized context; lazy queues reject
+    // them while still accepting plain up-next additions.
+    let another_song = client
+        .get(server.api_url("songs/random?size=1"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .send()
+        .expect("random song request")
+        .json::<Value>()
+        .expect("random song json")["song"][0]["id"]
+        .as_str()
+        .expect("random song id")
+        .to_string();
+    let _ = client
+        .post(server.api_url("queue/add"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "songIds": [another_song],
+            "position": "next",
+        }))
+        .send()
+        .expect("add request");
+
+    let rejected = client
+        .post(server.api_url("queue/move"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "fromPosition": 4,
+            "toPosition": 3,
+        }))
+        .send()
+        .expect("cross-section move request");
+    assert_eq!(
+        rejected.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "lazy contexts reject cross-section moves"
+    );
 }

@@ -15,4 +15,5 @@ data class StartQueueResponse(
     val repeatMode: String,
     val source: QueueSourceInfo,
     val window: QueueWindow,
+    val isLazy: Boolean,
 )

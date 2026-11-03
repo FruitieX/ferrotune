@@ -43,6 +43,7 @@ data class QueueSheetUiState(
     val sourceType: String? = null,
     val sourceId: String? = null,
     val upNextCount: Int = 0,
+    val isLazy: Boolean = false,
 )
 
 /** What forces a fresh page load: a different session, queue shape, or an explicit refresh. */
@@ -76,7 +77,8 @@ class QueueSheetViewModel @Inject constructor(
     val uiState: StateFlow<QueueSheetUiState> = combine(
         playbackStarter.state,
         queueRepository.upNextCount,
-    ) { state, upNextCount ->
+        queueRepository.isLazy,
+    ) { state, upNextCount, isLazy ->
         QueueSheetUiState(
             sessionId = state.sessionId,
             currentIndex = state.queueIndex,
@@ -85,6 +87,7 @@ class QueueSheetViewModel @Inject constructor(
             sourceType = state.sourceType,
             sourceId = state.sourceId,
             upNextCount = upNextCount,
+            isLazy = isLazy,
         )
     }
         .distinctUntilChanged()
@@ -159,9 +162,21 @@ class QueueSheetViewModel @Inject constructor(
         val current = uiState.value.currentIndex
         val upcomingEnd = current + uiState.value.upNextCount
         val targetIsUpcoming = target > current && target <= upcomingEnd
-        if ((entry.origin == "upNext") != targetIsUpcoming) {
-            messages.show("Move songs within the queue or the playlist, not between them")
-            return
+        val sameSection = (entry.origin == "upNext") == targetIsUpcoming
+        if (!sameSection) {
+            val canCross = !uiState.value.isLazy &&
+                entry.position > current &&
+                target > current
+            if (!canCross) {
+                messages.show(
+                    if (uiState.value.isLazy) {
+                        "Moving between the queue and this source isn't supported"
+                    } else {
+                        "Played tracks stay in place; move upcoming tracks instead"
+                    },
+                )
+                return
+            }
         }
 
         mutate("Couldn't move the track", refreshInPlace = true) { session ->
