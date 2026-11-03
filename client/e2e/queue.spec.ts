@@ -160,7 +160,9 @@ test.describe.serial("Queue Management", () => {
     await expect(rows.first()).toContainText("First Song");
     await expect(rows.nth(1)).toContainText("FLAC Track One");
     await expect(rows.nth(1)).toHaveAttribute("data-origin", "upNext");
-    await expect(rows.nth(1)).toContainText("Up next");
+    await expect(
+      queuePanel.getByText("Up next", { exact: true }),
+    ).toBeVisible();
     await expect(rows.nth(2)).toContainText("FLAC Track Two");
     await expect(rows.nth(2)).toHaveAttribute("data-origin", "upNext");
     await expect(rows.nth(3)).toContainText("Second Song");

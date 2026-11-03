@@ -17,6 +17,7 @@ Non-obvious behaviour that has caused bugs before. Read the relevant section bef
 - Up-next display order is `context`, then rows already played under that context position, then the still-upcoming rows, then the next context track. Played rows get `anchor_context_index` set; upcoming rows have it `NULL` and therefore always follow the current track. `current_index` remains the context position and `current_manual_entry_id` names the current up-next row when there is one. The API exposes the merged display index as `currentIndex`, so clients keep using `index + 1` for next.
 - `next` prepends the batch to the up-next list (so separate clicks are LIFO), `end` appends. "Clear up next" deletes only `anchor_context_index IS NULL` rows and leaves the context playing; the full clear deletes the queue.
 - Changing shuffle deletes played up-next history because its anchors refer to the old order; unplayed rows survive and follow the new current.
+- Drag and drop stays inside one section: the up-next block and the materialized context are different lists, and a cross-section move would mean rewriting the context (or materializing a lazy source). The web row guard and the Android view model refuse the move before it reaches the server.
 
 ## Library scanning and tagging
 

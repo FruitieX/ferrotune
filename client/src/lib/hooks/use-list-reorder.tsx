@@ -71,6 +71,11 @@ export interface ListReorderOptions {
   onReorder: (from: number, to: number) => void;
   /** Content of the floating row that follows the pointer. */
   renderGhost: (index: number) => ReactNode;
+  /**
+   * Optional guard for cross-section drops. While dragging, the drop line
+   * stays on the last valid row; keyboard moves skip invalid targets.
+   */
+  isValidTarget?: (from: number, to: number) => boolean;
 }
 
 export interface ListReorder {
@@ -103,6 +108,7 @@ export function useListReorder({
   getScrollElement,
   onReorder,
   renderGhost,
+  isValidTarget,
 }: ListReorderOptions): ListReorder {
   const [dragging, setDragging] = useState<{
     index: number;
@@ -115,9 +121,9 @@ export function useListReorder({
   const lineRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<number | null>(null);
   // Latest options for the window listeners, which outlive a render.
-  const optionsRef = useRef({ getScrollElement, onReorder });
+  const optionsRef = useRef({ getScrollElement, onReorder, isValidTarget });
   useEffect(() => {
-    optionsRef.current = { getScrollElement, onReorder };
+    optionsRef.current = { getScrollElement, onReorder, isValidTarget };
   });
 
   const paint = () => {
@@ -136,11 +142,17 @@ export function useListReorder({
           bottom: rect.bottom,
         });
       });
-    session.target = reorderTargetIndex(
+    const proposed = reorderTargetIndex(
       ghostTop + session.rowHeight / 2,
       rows,
       session.target,
     );
+    if (
+      !optionsRef.current.isValidTarget ||
+      optionsRef.current.isValidTarget(session.from, proposed)
+    ) {
+      session.target = proposed;
+    }
 
     const ghost = ghostRef.current;
     if (ghost) ghost.style.transform = `translateY(${ghostTop}px)`;
@@ -273,7 +285,9 @@ export function useListReorder({
       if (step === 0) return;
       event.preventDefault();
       const to = index + step;
-      if (to >= 0 && to < count) onReorder(index, to);
+      if (to < 0 || to >= count) return;
+      if (isValidTarget && !isValidTarget(index, to)) return;
+      onReorder(index, to);
     },
   });
 

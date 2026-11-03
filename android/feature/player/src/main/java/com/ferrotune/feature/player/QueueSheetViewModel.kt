@@ -152,6 +152,18 @@ class QueueSheetViewModel @Inject constructor(
     fun moveTo(entry: QueueEntry, toPosition: Long) {
         val target = toPosition.coerceAtLeast(0)
         if (target == entry.position) return
+
+        // The up-next block and the playlist are different lists on the server.
+        // Keep drags inside one section instead of sending a move that the
+        // server would reject.
+        val current = uiState.value.currentIndex
+        val upcomingEnd = current + uiState.value.upNextCount
+        val targetIsUpcoming = target > current && target <= upcomingEnd
+        if ((entry.origin == "upNext") != targetIsUpcoming) {
+            messages.show("Move songs within the queue or the playlist, not between them")
+            return
+        }
+
         mutate("Couldn't move the track", refreshInPlace = true) { session ->
             queueRepository.moveEntry(session, entry.position, target)
         }

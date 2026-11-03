@@ -106,6 +106,16 @@ class QueueSheetViewModelTest {
     }
 
     @Test
+    fun `cross-section moves are refused before hitting the API`() {
+        val api = FakeQueueApi()
+        val viewModel = viewModel(api)
+
+        viewModel.moveTo(entry(2).copy(origin = "upNext"), 1)
+
+        assertNull(api.moveRequest)
+    }
+
+    @Test
     fun `a move makes the player reload its upcoming tracks`() {
         val starter = starter()
         val viewModel = viewModel(starter = starter)

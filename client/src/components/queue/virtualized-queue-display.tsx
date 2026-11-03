@@ -57,6 +57,9 @@ function debugLog(message: string, ...args: unknown[]) {
 
 // Item height for virtualization (px)
 const ITEM_HEIGHT = 56;
+// Section header (label + breathing room) rendered above the first row of a
+// section, e.g. "Up next" and "Next from <playlist>".
+const SECTION_HEADER_HEIGHT = 34;
 // How many items before/after viewport to render
 const OVERSCAN = 5;
 // Buffer threshold - fetch more when within N items of edge
@@ -79,6 +82,20 @@ function QueueItemPlaceholder() {
         <Skeleton className="h-3 w-24" />
       </div>
       <Skeleton className="w-10 h-4 shrink-0" />
+    </div>
+  );
+}
+
+/** Section heading above the first row of the up-next or playlist block. */
+function QueueSectionHeader({ label }: { label: string }) {
+  return (
+    <div
+      className="flex min-w-0 items-end border-t border-border/50 px-3 pb-1 pt-2"
+      style={{ height: SECTION_HEADER_HEIGHT }}
+    >
+      <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
     </div>
   );
 }
@@ -106,8 +123,6 @@ interface VirtualQueueItemProps {
   isPlaying: boolean;
   /** Already played; rendered dimmed above the current track. */
   isPlayed: boolean;
-  /** Section heading rendered inside the first row of a section. */
-  sectionLabel?: string | null;
   totalCount: number;
   onPlay: () => void;
   onRemove: () => void;
@@ -153,7 +168,6 @@ function VirtualQueueItem({
   isCurrent,
   isPlaying,
   isPlayed,
-  sectionLabel,
   totalCount: _totalCount,
   onPlay,
   onRemove,
@@ -184,6 +198,8 @@ function VirtualQueueItem({
         data-testid="queue-item"
         data-queue-position={entry.position}
         data-origin={entry.origin}
+        data-reorder-row
+        data-reorder-index={entry.position}
         data-current={isCurrent ? "true" : undefined}
         className={cn(
           "flex items-center gap-2 p-2 rounded-lg group touch-manipulation transition-[background-color,scale] active:scale-[0.995]",
@@ -262,11 +278,6 @@ function VirtualQueueItem({
 
         {/* Track info */}
         <div className="flex-1 min-w-0">
-          {sectionLabel && (
-            <p className="text-[9px] font-semibold uppercase tracking-wider leading-none mb-1 text-primary/80">
-              {sectionLabel}
-            </p>
-          )}
           <p
             className={cn(
               "text-sm font-medium truncate",
@@ -445,14 +456,46 @@ export const VirtualizedQueueDisplay = forwardRef<
     return map;
   })();
 
+  // Section boundaries in display order. Upcoming rows always follow the
+  // current track; "Next from" starts after them (or right after a current
+  // up-next row). Played rows above the current track are history.
+  const upNextCount = queueState?.upNextCount ?? 0;
+  const currentIsManual =
+    songsByPosition.get(currentIndex)?.origin === "upNext";
+  const upNextStart = upNextCount > 0 ? currentIndex + 1 : null;
+  const contextStart =
+    upNextCount > 0 || currentIsManual ? currentIndex + 1 + upNextCount : null;
+  const sectionLabelAtPosition = (position: number): string | null => {
+    if (upNextStart === position) return "Up next";
+    if (contextStart === position) return nextFromLabel;
+    return null;
+  };
+  const isUpcomingPosition = (position: number) =>
+    position > currentIndex && position <= currentIndex + upNextCount;
+  const sectionKindAt = (position: number): "upNext" | "context" => {
+    if (isUpcomingPosition(position)) return "upNext";
+    const entry = songsByPosition.get(position);
+    if (position < currentIndex && entry?.origin === "upNext") return "upNext";
+    return "context";
+  };
+  const isValidReorderTarget = (from: number, to: number) =>
+    sectionKindAt(from) === sectionKindAt(to);
+
   // Virtualizer setup
   const virtualizer = useVirtualizer({
     count: totalCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ITEM_HEIGHT,
+    estimateSize: (index) =>
+      ITEM_HEIGHT + (sectionLabelAtPosition(index) ? SECTION_HEADER_HEIGHT : 0),
     initialOffset: initialScrollOffsetRef.current,
     overscan: OVERSCAN,
   });
+
+  // Section boundaries change the measured heights, so re-measure when they
+  // move (e.g. after an add or when the current track changes).
+  useEffect(() => {
+    virtualizer.measure();
+  }, [upNextStart, contextStart, virtualizer]);
 
   // Observe scroll container size changes and force the virtualizer to
   // re-measure. This is critical because the queue is rendered inside
@@ -523,17 +566,14 @@ export const VirtualizedQueueDisplay = forwardRef<
     if (prevCurrentIndexRef.current !== currentIndex) {
       prevCurrentIndexRef.current = currentIndex;
 
-      // Get scroll container dimensions to calculate visibility
-      const scrollElement = parentRef.current;
-      if (!scrollElement) return;
+      // Use the virtualizer's visible range so section headers (variable
+      // heights) do not skew the visibility math.
+      const visibleItems = virtualizer.getVirtualItems();
+      if (visibleItems.length === 0) return;
 
-      const containerHeight = scrollElement.clientHeight;
-      const scrollTop = scrollElement.scrollTop;
-
-      // Calculate which item indices are visible based on scroll position
-      const firstVisibleIndex = Math.floor(scrollTop / ITEM_HEIGHT);
-      const visibleItemCount = Math.ceil(containerHeight / ITEM_HEIGHT);
-      const lastVisibleIndex = firstVisibleIndex + visibleItemCount - 1;
+      const firstVisibleIndex = visibleItems[0].index;
+      const lastVisibleIndex = visibleItems[visibleItems.length - 1].index;
+      const visibleItemCount = lastVisibleIndex - firstVisibleIndex + 1;
 
       // Check if now playing is currently visible
       const isVisible =
@@ -548,24 +588,16 @@ export const VirtualizedQueueDisplay = forwardRef<
       const isInBottomQuarter = currentIndex > thresholdIndex;
 
       // Only scroll if now playing is visible
-      if (isVisible) {
-        if (isInBottomQuarter) {
-          // Scroll to bring now playing to the middle of the viewport
-          const middleOffset = Math.floor(visibleItemCount * threshold);
-          const targetScrollTop = Math.max(
-            0,
-            (currentIndex - middleOffset) * ITEM_HEIGHT,
-          );
-          scrollElement.scrollTo({
-            top: targetScrollTop,
-            behavior: "auto",
-          });
-        }
-        // If in top 75% (0-75%), don't scroll at all
+      if (isVisible && isInBottomQuarter) {
+        // Scroll to bring now playing to the middle of the viewport
+        virtualizer.scrollToIndex(currentIndex, {
+          align: "center",
+          behavior: "auto",
+        });
       }
       // If not visible, don't scroll (user scrolled elsewhere)
     }
-  }, [currentIndex, isRestoring, suspendWork]);
+  }, [currentIndex, isRestoring, suspendWork, virtualizer, upNextCount]);
 
   // When a new queue starts (detected by instanceId changing), reset state
   // The instanceId field uniquely identifies each queue instance on the server (UUID)
@@ -838,6 +870,7 @@ export const VirtualizedQueueDisplay = forwardRef<
       hapticTap();
       void moveInQueue({ fromPosition, toPosition });
     },
+    isValidTarget: isValidReorderTarget,
     renderGhost: (index) => {
       const entry = songsByPosition.get(index);
       return entry ? <QueueGhostRow entry={entry} /> : null;
@@ -876,25 +909,9 @@ export const VirtualizedQueueDisplay = forwardRef<
         >
           {virtualItems.map((virtualItem) => {
             const entry = songsByPosition.get(virtualItem.index);
-            const previousEntry = songsByPosition.get(virtualItem.index - 1);
             const isCurrent = virtualItem.index === currentIndex;
-            const isUpcoming = virtualItem.index > currentIndex;
-            const isUpNext = entry?.origin === "upNext";
             const isPlayed = virtualItem.index < currentIndex;
-            const startsUpNext =
-              isUpNext &&
-              isUpcoming &&
-              (virtualItem.index === currentIndex + 1 ||
-                previousEntry?.origin !== "upNext");
-            const startsContext =
-              entry?.origin === "context" &&
-              isUpcoming &&
-              previousEntry?.origin === "upNext";
-            const sectionLabel = startsUpNext
-              ? "Up next"
-              : startsContext
-                ? nextFromLabel
-                : null;
+            const sectionLabel = sectionLabelAtPosition(virtualItem.index);
             // Use entry_id as key for stable React reconciliation (allows same song multiple times)
             const itemKey = entry
               ? entry.entryId
@@ -903,21 +920,19 @@ export const VirtualizedQueueDisplay = forwardRef<
             return (
               <div
                 key={itemKey}
-                data-reorder-row
-                data-reorder-index={virtualItem.index}
                 className="absolute left-0 right-0 px-2"
                 style={{
                   height: virtualItem.size,
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
+                {sectionLabel && <QueueSectionHeader label={sectionLabel} />}
                 {entry ? (
                   <VirtualQueueItem
                     entry={entry}
                     isCurrent={isCurrent && playbackState !== "ended"}
                     isPlaying={isCurrent && playbackState === "playing"}
                     isPlayed={isPlayed}
-                    sectionLabel={sectionLabel}
                     totalCount={totalCount}
                     onPlay={() => playAtIndex(virtualItem.index)}
                     onRemove={() => {
