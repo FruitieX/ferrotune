@@ -173,6 +173,26 @@ function canRefreshQueueWithoutRestart(
   );
 }
 
+/**
+ * Authoritative queue metadata from a queue-window response. Keeping this in
+ * one place matters after optimistic edits: a rejected move must restore
+ * `currentIndex`, or the app resolves a different song (and ReplayGain).
+ */
+function queueStateFromResponse(
+  response: GetQueueResponse,
+  base: ServerQueueState | null,
+): ServerQueueState {
+  return {
+    totalCount: response.totalCount,
+    upNextCount: response.upNextCount,
+    currentIndex: response.currentIndex,
+    positionMs: base?.positionMs ?? Number(response.positionMs),
+    isShuffled: response.isShuffled,
+    repeatMode: response.repeatMode as RepeatMode,
+    source: response.source,
+  };
+}
+
 const currentWindowRequests = new Map<string, Promise<GetQueueResponse>>();
 
 function getCurrentWindowRequestKey(sessionId: string): string {
@@ -1553,6 +1573,8 @@ export const removeFromQueueAtom = atom(
     if (!client) return;
 
     const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+    const previousState = get(serverQueueStateAtom);
+    const previousWindow = get(queueWindowAtom);
 
     set(isQueueOperationPendingAtom, true);
 
@@ -1596,6 +1618,7 @@ export const removeFromQueueAtom = atom(
         return;
       }
       set(queueWindowAtom, queueResponse.window);
+      set(serverQueueStateAtom, queueStateFromResponse(queueResponse, state));
 
       // Invalidate the native queue as a backstop in case the SSE
       // QueueUpdated event was missed or processed incorrectly.
@@ -1611,6 +1634,24 @@ export const removeFromQueueAtom = atom(
       }
     } catch (error) {
       console.error("Failed to remove from queue:", error);
+      try {
+        const queueResponse = await client.getQueueCurrentWindow(
+          20,
+          "small",
+          sessionId,
+        );
+        if (!isCurrentSession(get, sessionId)) {
+          return;
+        }
+        set(queueWindowAtom, queueResponse.window);
+        set(
+          serverQueueStateAtom,
+          queueStateFromResponse(queueResponse, previousState),
+        );
+      } catch {
+        if (previousState) set(serverQueueStateAtom, previousState);
+        if (previousWindow) set(queueWindowAtom, previousWindow);
+      }
     } finally {
       set(isQueueOperationPendingAtom, false);
     }
@@ -1692,29 +1733,15 @@ export const moveInQueueAtom = atom(
     set(isQueueOperationPendingAtom, true);
 
     try {
-      const response = await client.moveInServerQueue(
-        fromPosition,
-        toPosition,
-        sessionId,
-      );
+      await client.moveInServerQueue(fromPosition, toPosition, sessionId);
 
       if (!isCurrentSession(get, sessionId)) {
         return;
       }
 
-      // Update current index from server response (authoritative)
-      if (
-        currentState &&
-        response.newIndex !== undefined &&
-        response.newIndex !== null
-      ) {
-        set(serverQueueStateAtom, {
-          ...currentState,
-          currentIndex: response.newIndex,
-        });
-      }
-
-      // Refresh window to get authoritative state
+      // Refresh window and metadata together. The refetch is authoritative:
+      // the optimistic currentIndex above can be off by one when up-next rows
+      // sit between the old and new positions.
       const queueResponse = await client.getQueueCurrentWindow(
         20,
         "small",
@@ -1724,6 +1751,10 @@ export const moveInQueueAtom = atom(
         return;
       }
       set(queueWindowAtom, queueResponse.window);
+      set(
+        serverQueueStateAtom,
+        queueStateFromResponse(queueResponse, currentState),
+      );
 
       // Invalidate the native queue as a backstop in case the SSE
       // QueueUpdated event was missed or processed incorrectly.
@@ -1736,7 +1767,7 @@ export const moveInQueueAtom = atom(
       }
     } catch (error) {
       console.error("Failed to move in queue:", error);
-      // On error, refetch to restore correct state
+      // A rejected move must roll the optimistic row/currentIndex back.
       try {
         const queueResponse = await client.getQueueCurrentWindow(
           20,
@@ -1747,8 +1778,13 @@ export const moveInQueueAtom = atom(
           return;
         }
         set(queueWindowAtom, queueResponse.window);
+        set(
+          serverQueueStateAtom,
+          queueStateFromResponse(queueResponse, currentState),
+        );
       } catch {
-        // Ignore refetch errors
+        if (currentState) set(serverQueueStateAtom, currentState);
+        if (currentWindow) set(queueWindowAtom, currentWindow);
       }
     } finally {
       set(isQueueOperationPendingAtom, false);

@@ -848,6 +848,65 @@ HTTP 200
 [Asserts]
 jsonpath "$.window.songs[1].song.id" == "{{song_6}}"
 
+# Moving a playlist row above the current track keeps the same song playing,
+# even when an up-next row sits between the current track and the playlist.
+POST {{base_url}}/api/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}", "{{song_4}}", "{{song_5}}"],
+  "startIndex": 0,
+  "shuffle": false
+}
+HTTP 200
+
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_6}}"],
+  "position": "next"
+}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 1
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 0
+jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[1].song.id" == "{{song_6}}"
+jsonpath "$.window.songs[4].song.id" == "{{song_4}}"
+
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 4,
+  "toPosition": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.newIndex" == 1
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 1
+jsonpath "$.upNextCount" == 1
+jsonpath "$.window.songs[0].song.id" == "{{song_4}}"
+jsonpath "$.window.songs[1].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[2].song.id" == "{{song_6}}"
+jsonpath "$.window.songs[3].song.id" == "{{song_2}}"
+
 # ============================================================================
 # CLEAR QUEUE - Delete entire queue
 # ============================================================================

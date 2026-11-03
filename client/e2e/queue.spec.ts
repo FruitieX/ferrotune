@@ -70,6 +70,27 @@ async function playFilteredFlacTrack(page: Page, trackName = "FLAC Track One") {
   });
 }
 
+async function queueFromContextMenu(page: Page, title: string, action: RegExp) {
+  const row = page
+    .locator('[data-testid="song-row"]')
+    .filter({ hasText: title })
+    .first();
+  await expect(row).toBeVisible({ timeout: 10000 });
+  await row.click({ button: "right" });
+  const menu = page.locator(
+    '[data-slot="context-menu-content"][data-state="open"]',
+  );
+  await expect(menu).toBeVisible({ timeout: 5000 });
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.url().includes("/api/queue/add") &&
+      candidate.request().method() === "POST" &&
+      candidate.status() === 200,
+  );
+  await menu.getByRole("menuitem", { name: action }).click();
+  return response;
+}
+
 test.describe.serial("Queue Management", () => {
   // Reset all server state before each test for isolation
   test.beforeEach(async ({ authenticatedPage: page, server }) => {
@@ -131,29 +152,8 @@ test.describe.serial("Queue Management", () => {
     await listViewButton.click();
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
-    async function queueFromContextMenu(title: string, action: RegExp) {
-      const row = page
-        .locator('[data-testid="song-row"]')
-        .filter({ hasText: title })
-        .first();
-      await expect(row).toBeVisible({ timeout: 10000 });
-      await row.click({ button: "right" });
-      const menu = page.locator(
-        '[data-slot="context-menu-content"][data-state="open"]',
-      );
-      await expect(menu).toBeVisible({ timeout: 5000 });
-      const response = page.waitForResponse(
-        (candidate) =>
-          candidate.url().includes("/api/queue/add") &&
-          candidate.request().method() === "POST" &&
-          candidate.status() === 200,
-      );
-      await menu.getByRole("menuitem", { name: action }).click();
-      return response;
-    }
-
-    await queueFromContextMenu("FLAC Track One", /play next/i);
-    await queueFromContextMenu("FLAC Track Two", /add to queue/i);
+    await queueFromContextMenu(page, "FLAC Track One", /play next/i);
+    await queueFromContextMenu(page, "FLAC Track Two", /add to queue/i);
 
     const queuePanel = await openQueuePanel(page);
     const rows = queuePanel.locator('[data-testid="queue-item"]');
@@ -183,6 +183,62 @@ test.describe.serial("Queue Management", () => {
     await expect(rows.first()).toContainText("First Song");
     await expect(rows.nth(1)).toContainText("Second Song");
     await expect(queuePanel.getByText("FLAC Track One")).toHaveCount(0);
+    await expect(page.locator("footer")).toContainText("First Song");
+  });
+
+  test("moving a playlist row above the current keeps the same song playing", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await expect(page.locator("footer")).toContainText("First Song");
+
+    await page.goto("/library/songs");
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    await queueFromContextMenu(page, "FLAC Track One", /play next/i);
+
+    const queuePanel = await openQueuePanel(page);
+    const rows = queuePanel.locator('[data-testid="queue-item"]');
+    await expect(rows.first()).toContainText("First Song");
+    await expect(rows.nth(1)).toContainText("FLAC Track One");
+
+    const third = rows.filter({ hasText: "Third Song" }).first();
+    const first = rows.filter({ hasText: "First Song" }).first();
+    await third.hover();
+    const handle = third.getByRole("button", { name: /reorder Third Song/i });
+    const handleBox = await handle.boundingBox();
+    const firstBox = await first.boundingBox();
+    if (!handleBox || !firstBox) throw new Error("queue rows not laid out");
+
+    const moveResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/queue/move") &&
+        response.request().method() === "POST" &&
+        response.status() === 200,
+    );
+    await page.mouse.move(
+      handleBox.x + handleBox.width / 2,
+      handleBox.y + handleBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      handleBox.x + handleBox.width / 2,
+      firstBox.y + firstBox.height / 2,
+      { steps: 12 },
+    );
+    await expect(page.getByTestId("reorder-drop-line")).toBeVisible();
+    await page.mouse.up();
+    await moveResponse;
+
+    const currentRow = rows.filter({ hasText: "First Song" }).first();
+    await expect(currentRow).toHaveAttribute("data-queue-position", "1");
+    await expect(currentRow).toHaveAttribute("data-current", "true");
+    await expect(
+      rows.filter({ hasText: "Third Song" }).first(),
+    ).toHaveAttribute("data-queue-position", "0");
     await expect(page.locator("footer")).toContainText("First Song");
   });
 
