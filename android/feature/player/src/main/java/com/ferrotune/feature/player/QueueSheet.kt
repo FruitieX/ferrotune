@@ -186,6 +186,16 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
     // follows the content by the scrolled distance so it stays under the finger.
     var listTop by remember { mutableFloatStateOf(0f) }
     var listBottom by remember { mutableFloatStateOf(0f) }
+
+    // Section headers make row heights variable, so drag targets come from the
+    // rows actually laid out under the finger rather than uniform slot math.
+    fun queueIndexAtPointer(pointerRootY: Float): Int? {
+        val items = listState.layoutInfo.visibleItemsInfo
+        if (items.isEmpty()) return null
+        val localY = pointerRootY - listTop
+        return items.firstOrNull { localY < it.offset + it.size }?.index ?: items.last().index
+    }
+
     val holding = reorder.preview?.settled == false
     LaunchedEffect(holding) {
         if (!holding) return@LaunchedEffect
@@ -197,7 +207,14 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
             val speed = queueAutoScrollSpeed(reorder.pointerY, listTop, listBottom, edgePx, maxSpeed)
             if (speed != 0f) {
                 val scrolled = listState.scrollBy(speed)
-                if (scrolled != 0f) reorder.dragBy(scrolled, slotPx, entries.itemCount)
+                if (scrolled != 0f) {
+                    reorder.dragBy(
+                        scrolled,
+                        slotPx,
+                        entries.itemCount,
+                        queueIndexAtPointer(reorder.pointerY),
+                    )
+                }
             }
         }
     }
@@ -334,18 +351,30 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                 )
                             } else {
                                 val isCurrent = index == state.currentIndex
-                                val previousEntry = if (index > 0) entries.peek(index - 1) else null
                                 val isPlayed = index < state.currentIndex
-                                val showUpNextLabel = entry.origin == "upNext" &&
-                                    entry.position > state.currentIndex &&
-                                    (index == state.currentIndex + 1 || previousEntry?.origin != "upNext")
+                                val currentIsManual =
+                                    entries.peek(state.currentIndex)?.origin == "upNext"
+                                val upNextStart =
+                                    if (state.upNextCount > 0) state.currentIndex + 1 else null
+                                val contextStart =
+                                    if (state.upNextCount > 0 || currentIsManual) {
+                                        state.currentIndex + 1 + state.upNextCount
+                                    } else {
+                                        null
+                                    }
+                                val sectionLabel = when (index) {
+                                    upNextStart -> "Up next"
+                                    contextStart -> "Next from ${state.sourceName ?: "playlist"}"
+                                    else -> null
+                                }
                                 QueueRow(
                                     entry = entry,
                                     reorderState = reorder,
                                     preview = preview,
                                     queueSize = entries.itemCount,
                                     isPlayed = isPlayed,
-                                    showUpNextLabel = showUpNextLabel,
+                                    sectionLabel = sectionLabel,
+                                    targetIndexAtPointer = ::queueIndexAtPointer,
                                     // Reorders draw their own motion; a placement animation would
                                     // replay the move from the old slot when the reloaded rows land.
                                     modifier = Modifier.animateItem(placementSpec = null),
@@ -520,6 +549,26 @@ private fun QueueHeader(
     }
 }
 
+/** Section heading above the first row of the up-next or playlist block. */
+@Composable
+private fun QueueSectionHeader(label: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, top = 8.dp, bottom = 2.dp),
+    ) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Text(
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** Web queue row: card tile, now-playing bars, cover, title + "artist · album", duration, drag handle. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -528,7 +577,8 @@ internal fun QueueRow(
     isCurrent: Boolean,
     isPlaying: Boolean,
     isPlayed: Boolean = false,
-    showUpNextLabel: Boolean = false,
+    sectionLabel: String? = null,
+    targetIndexAtPointer: ((Float) -> Int?)? = null,
     onPlay: () -> Unit,
     onLongPress: () -> Unit,
     onMove: (Int) -> Unit,
@@ -565,13 +615,28 @@ internal fun QueueRow(
     var handleCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var rowCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val song = entry.song
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .height(QueueRowHeight)
-            .onGloballyPositioned { rowCoordinates = it }
-            .zIndex(if (dragging) 1f else 0f),
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer {
+                translationY = translation
+                alpha = when {
+                    held -> 0f
+                    isPlayed -> 0.55f
+                    else -> 1f
+                }
+            },
     ) {
+        if (sectionLabel != null) {
+            QueueSectionHeader(sectionLabel)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(QueueRowHeight)
+                .onGloballyPositioned { rowCoordinates = it },
+        ) {
         if (held) {
             Box(
                 modifier = Modifier
@@ -585,14 +650,7 @@ internal fun QueueRow(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = translation
                     shadowElevation = if (floating) 8.dp.toPx() else 0f
-                    // The panel draws the held row floating under the finger.
-                    alpha = when {
-                        held -> 0f
-                        isPlayed -> 0.55f
-                        else -> 1f
-                    }
                 }
                 .background(
                     when {
@@ -628,15 +686,6 @@ internal fun QueueRow(
                     modifier = Modifier.size(40.dp),
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                    if (showUpNextLabel) {
-                        Text(
-                            text = "UP NEXT",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
                     Text(
                         text = song.title,
                         style = MaterialTheme.typography.bodyMedium,
@@ -678,10 +727,16 @@ internal fun QueueRow(
                             },
                             onDrag = { change, amount ->
                                 change.consume()
-                                reorder.dragBy(amount.y, slotPx, queueSize)
-                                handleCoordinates?.takeIf { it.isAttached }?.let {
-                                    reorder.pointerY = it.localToRoot(change.position).y
+                                val pointerY = handleCoordinates
+                                    ?.takeIf { it.isAttached }
+                                    ?.localToRoot(change.position)?.y
+                                val target = if (pointerY != null && !pointerY.isNaN()) {
+                                    reorder.pointerY = pointerY
+                                    targetIndexAtPointer?.invoke(pointerY)
+                                } else {
+                                    null
                                 }
+                                reorder.dragBy(amount.y, slotPx, queueSize, target)
                             },
                             onDragEnd = {
                                 val slots = reorder.finish(slotPx)
@@ -695,6 +750,7 @@ internal fun QueueRow(
                     .padding(10.dp),
             )
         }
+    }
     }
 }
 

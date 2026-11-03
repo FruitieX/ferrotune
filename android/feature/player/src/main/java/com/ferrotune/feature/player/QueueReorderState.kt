@@ -55,13 +55,24 @@ class QueueReorderState {
         preview = QueueReorderPreview(entryId, position, position)
     }
 
-    fun dragBy(deltaY: Float, slotPx: Float, queueSize: Int) {
+    fun dragBy(
+        deltaY: Float,
+        slotPx: Float,
+        queueSize: Int,
+        targetIndex: Int? = null,
+    ) {
         val drag = preview ?: return
         if (slotPx <= 0f || queueSize <= 0) return
         val offset = drag.offsetY + deltaY
-        val target = (drag.from.toLong() + (offset / slotPx).roundToInt())
-            .coerceIn(0, (queueSize - 1).toLong()).toInt()
-        preview = drag.copy(offsetY = offset, target = target)
+        // Variable-height section headers make the uniform slot estimate
+        // drift, so the list can supply the row actually under the pointer.
+        val target = targetIndex
+            ?: (drag.from.toLong() + (offset / slotPx).roundToInt())
+                .coerceIn(0, (queueSize - 1).toLong()).toInt()
+        preview = drag.copy(
+            offsetY = offset,
+            target = target.coerceIn(0, queueSize - 1),
+        )
     }
 
     /** Ends the drag, keeping the row at its target slot; returns the slots moved. */
