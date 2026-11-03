@@ -480,10 +480,17 @@ export const VirtualizedQueueDisplay = forwardRef<
   };
   const canCrossSections = !(queueState?.isLazy ?? true);
   const isValidReorderTarget = (from: number, to: number) => {
-    if (sectionKindAt(from) === sectionKindAt(to)) return true;
+    const fromKind = sectionKindAt(from);
+    const toKind = sectionKindAt(to);
+    if (fromKind === toKind) return true;
     // Cross-section moves are real table moves on the server and only work on
     // materialized contexts. Played/current rows stay in place.
-    return canCrossSections && from > currentIndex && to > currentIndex;
+    if (!canCrossSections || from <= currentIndex) return false;
+    // An upcoming row can be placed back into the playlist anywhere,
+    // including the played section (it becomes history and won't play again).
+    if (fromKind === "upNext" && toKind === "context") return true;
+    // Playlist -> up next only from future playlist rows.
+    return to > currentIndex;
   };
 
   // Virtualizer setup

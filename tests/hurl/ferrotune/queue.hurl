@@ -986,9 +986,10 @@ jsonpath "$.window.songs[1].song.id" == "{{song_3}}"
 jsonpath "$.window.songs[1].origin" == "upNext"
 jsonpath "$.window.songs[2].song.id" == "{{song_2}}"
 jsonpath "$.window.songs[2].origin" == "context"
-jsonpath "$.window.songs[3].song.id" == "{{song_6}}"
+jsonpath "$.window.songs[3].song.id" == "{{song_4}}"
 jsonpath "$.window.songs[3].origin" == "context"
-jsonpath "$.window.songs[4].song.id" == "{{song_4}}"
+jsonpath "$.window.songs[4].song.id" == "{{song_6}}"
+jsonpath "$.window.songs[4].origin" == "context"
 
 # Cross-section moves also work in a shuffled context.
 POST {{base_url}}/api/queue/start
@@ -1065,8 +1066,8 @@ HTTP 200
 jsonpath "$.currentIndex" == 0
 jsonpath "$.upNextCount" == 1
 jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
-jsonpath "$.window.songs[2].song.id" == "{{shuffled_future_song}}"
-jsonpath "$.window.songs[2].origin" == "context"
+jsonpath "$.window.songs[3].song.id" == "{{shuffled_future_song}}"
+jsonpath "$.window.songs[3].origin" == "context"
 
 # ============================================================================
 # CLEAR QUEUE - Delete entire queue

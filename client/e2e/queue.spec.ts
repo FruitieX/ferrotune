@@ -312,14 +312,54 @@ test.describe.serial("Queue Management", () => {
     ).toHaveAttribute("data-origin", "context");
     await expect(
       rows.filter({ hasText: "FLAC Track One" }).first(),
-    ).toHaveAttribute("data-queue-position", "2");
+    ).toHaveAttribute("data-queue-position", "3");
     await expect(
       rows.filter({ hasText: "Second Song" }).first(),
-    ).toHaveAttribute("data-queue-position", "3");
+    ).toHaveAttribute("data-queue-position", "2");
     await expect(
       rows.filter({ hasText: "Third Song" }).first(),
     ).toHaveAttribute("data-origin", "upNext");
     await expect(page.locator("footer")).toContainText("First Song");
+  });
+
+  test("playing a playlist row past up next highlights the right song", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    await expect(page.locator("footer")).toContainText("First Song");
+
+    await page.goto("/library/songs");
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    await queueFromContextMenu(page, "FLAC Track One", /play next/i);
+    await queueFromContextMenu(page, "FLAC Track Two", /add to queue/i);
+
+    const queuePanel = await openQueuePanel(page);
+    const rows = queuePanel.locator('[data-testid="queue-item"]');
+    const second = rows.filter({ hasText: "Second Song" }).first();
+    await expect(second).toHaveAttribute("data-queue-position", "3");
+
+    const positionResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/queue/position") &&
+        response.request().method() === "POST" &&
+        response.status() === 200,
+    );
+    await second.hover();
+    await second.getByRole("button", { name: "Play Second Song" }).click();
+    await positionResponse;
+
+    // Jumping past the up-next block reflows it below the new current track.
+    const currentRow = rows.filter({ hasText: "Second Song" }).first();
+    await expect(currentRow).toHaveAttribute("data-queue-position", "1");
+    await expect(currentRow).toHaveAttribute("data-current", "true");
+    await expect(
+      rows.filter({ hasText: "FLAC Track One" }).first(),
+    ).toHaveAttribute("data-queue-position", "2");
+    await expect(page.locator("footer")).toContainText("Second Song");
   });
 
   test("queue item play button changes current track", async ({

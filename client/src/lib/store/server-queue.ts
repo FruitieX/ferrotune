@@ -1276,20 +1276,36 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
       return;
     }
 
-    set(serverQueueStateAtom, {
-      ...state,
-      currentIndex: index,
-      upNextCount: positionResponse.upNextCount ?? state.upNextCount,
-      positionMs: 0,
-    });
-    set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+    // Jumping over the up-next block reflows the display: the up-next rows
+    // move below the new current track. Use the server's returned index and
+    // reconcile the whole state from the refetched window, never the clicked
+    // display index.
+    const newIndex = positionResponse.newIndex ?? index;
 
-    // Fetch new window centered on the new position
-    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
-    if (!isCurrentSession(get, sessionId)) {
-      return;
+    try {
+      const response = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sessionId,
+      );
+      if (!isCurrentSession(get, sessionId)) {
+        return;
+      }
+      set(serverQueueStateAtom, {
+        ...queueStateFromResponse(response, state),
+        positionMs: 0,
+      });
+      set(queueWindowAtom, response.window);
+    } catch (fetchError) {
+      console.error("Failed to refetch queue after playAtIndex:", fetchError);
+      set(serverQueueStateAtom, {
+        ...state,
+        currentIndex: newIndex,
+        upNextCount: positionResponse.upNextCount ?? state.upNextCount,
+        positionMs: 0,
+      });
     }
-    set(queueWindowAtom, response.window);
+    set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
   } catch (error) {
     console.error("Failed to play at index:", error);
   } finally {

@@ -166,7 +166,7 @@ class QueueSheetViewModel @Inject constructor(
         if (!sameSection) {
             val canCross = !uiState.value.isLazy &&
                 entry.position > current &&
-                target > current
+                (entry.origin == "upNext" || target > current)
             if (!canCross) {
                 messages.show(
                     if (uiState.value.isLazy) {

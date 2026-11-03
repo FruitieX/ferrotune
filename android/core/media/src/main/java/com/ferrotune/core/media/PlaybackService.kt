@@ -3956,10 +3956,22 @@ class PlaybackService : MediaSessionService() {
                 player.prepare()
             }
             invalidateSessionExport()
-            // Sync position to server in the background
+            // Sync position to server in the background. Jumping past the
+            // up-next rows reflows them below the new current track, so the
+            // server's returned index can differ from the clicked one; reload
+            // the window in that case instead of leaving the UI on the old
+            // display position.
             apiExecutor.execute {
                 try {
-                    apiClient.updatePosition(index, 0)
+                    val position = apiClient.updatePosition(index, 0)
+                    val serverIndex = position.newIndex ?: index
+                    if (serverIndex != index) {
+                        val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
+                        handler.post {
+                            if (!isQueueLoadGenerationCurrent(generation, "playAtIndex")) return@post
+                            handleQueueWindowResponse(response, response.currentIndex, 0, true)
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to sync position for playAtIndex", e)
                 }

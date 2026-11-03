@@ -110,7 +110,7 @@ class QueueSheetViewModelTest {
         val api = FakeQueueApi()
         val viewModel = viewModel(api)
 
-        viewModel.moveTo(entry(2).copy(origin = "upNext"), 1)
+        viewModel.moveTo(entry(0).copy(origin = "upNext"), 1)
 
         assertNull(api.moveRequest)
     }
@@ -120,10 +120,10 @@ class QueueSheetViewModelTest {
         val api = FakeQueueApi()
         val viewModel = viewModel(api)
 
-        viewModel.moveTo(entry(2).copy(origin = "upNext"), 3)
+        viewModel.moveTo(entry(2).copy(origin = "upNext"), 0)
 
         assertEquals(2L, api.moveRequest?.fromPosition)
-        assertEquals(3L, api.moveRequest?.toPosition)
+        assertEquals(0L, api.moveRequest?.toPosition)
     }
 
     @Test

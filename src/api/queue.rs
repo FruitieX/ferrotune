@@ -2206,11 +2206,6 @@ pub async fn move_in_queue(
                     "Moving tracks into a lazily loaded queue isn't supported yet".to_string(),
                 )));
             }
-            if to_context <= current_context_index {
-                return Err(FerrotuneApiError(Error::InvalidRequest(
-                    "Only tracks after the current one can move out of the queue".to_string(),
-                )));
-            }
 
             let row = layout
                 .upcoming_row(from_index)
@@ -2218,11 +2213,26 @@ pub async fn move_in_queue(
             let manual_entry_id = row.entry_id.clone();
             let song_id = row.song_id.clone();
 
+            // Match the drop line: a downward drag (up next -> later playlist
+            // row) inserts after the target; an upward drag (into the played
+            // section) inserts before it.
+            let insert_context_index = if request.from_position < request.to_position {
+                to_context + 1
+            } else {
+                to_context
+            };
+
+            // Inserting at or before the current track pushes it forward one
+            // slot; the same song stays current. Targeting the played section
+            // is allowed and places the moved song in history.
+            let moved_context_index =
+                current_context_index + usize::from(insert_context_index <= current_context_index);
+
             let (insert_position, shift_entries, shuffle_json) =
                 if queue.is_shuffled {
                     let mut indices = queue.shuffle_indices().unwrap_or_default();
                     let new_original = context_total;
-                    let insert_at = to_context.min(indices.len());
+                    let insert_at = insert_context_index.min(indices.len());
                     indices.insert(insert_at, new_original);
                     (
                         new_original as i64,
@@ -2232,7 +2242,7 @@ pub async fn move_in_queue(
                         })?),
                     )
                 } else {
-                    (to_context as i64, true, None)
+                    (insert_context_index as i64, true, None)
                 };
 
             queries::move_up_next_row_to_context(
@@ -2243,8 +2253,8 @@ pub async fn move_in_queue(
                 &song_id,
                 insert_position,
                 shift_entries,
-                to_context as i64,
-                current_context_index as i64,
+                insert_context_index as i64,
+                moved_context_index as i64,
                 shuffle_json.as_deref(),
             )
             .await?;
@@ -2252,7 +2262,7 @@ pub async fn move_in_queue(
             if queue.is_shuffled {
                 invalidate_shuffle_cache(&state, user.user_id).await;
             }
-            new_context_index = current_context_index;
+            new_context_index = moved_context_index;
         }
         _ => {
             return Err(FerrotuneApiError(Error::InvalidRequest(
