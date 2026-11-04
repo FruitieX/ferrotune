@@ -19,6 +19,7 @@ import {
 import {
   gotoAppPath,
   pausePlayback,
+  seedSavedAccountsForNextLoad,
   setStoredConnection,
   waitForAuthenticatedHome,
   type StoredConnection,
@@ -202,50 +203,54 @@ async function sendTakeoverCommand(
   }, options ?? {});
 }
 
+/**
+ * Send a heartbeat as this page's client. It goes through `page.request`, so
+ * `page.route()` handlers that silence the app's own heartbeats don't apply.
+ */
 async function sendSessionHeartbeat(
   page: Page,
   options: { isPlaying: boolean; currentIndex?: number; positionMs?: number },
 ): Promise<void> {
-  await page.evaluate(async ({ isPlaying, currentIndex, positionMs }) => {
-    const connection = JSON.parse(
-      localStorage.getItem("ferrotune-connection") || "null",
-    );
-    const sessionId = JSON.parse(
-      sessionStorage.getItem("ferrotune-session-id") || "null",
-    );
-    const clientId = JSON.parse(
-      sessionStorage.getItem("ferrotune-client-id") || "null",
-    );
+  const { serverUrl, sessionToken, sessionId, clientId } = await page.evaluate(
+    () => {
+      const connection = JSON.parse(
+        localStorage.getItem("ferrotune-connection") || "null",
+      );
+      return {
+        serverUrl: (connection?.serverUrl ?? null) as string | null,
+        sessionToken: (connection?.sessionToken ?? null) as string | null,
+        sessionId: JSON.parse(
+          sessionStorage.getItem("ferrotune-session-id") || "null",
+        ) as string | null,
+        clientId: JSON.parse(
+          sessionStorage.getItem("ferrotune-client-id") || "null",
+        ) as string | null,
+      };
+    },
+  );
 
-    if (!connection?.serverUrl || !connection.sessionToken) {
-      throw new Error("Missing authenticated connection in localStorage");
-    }
+  if (!serverUrl || !sessionToken) {
+    throw new Error("Missing authenticated connection in localStorage");
+  }
+  if (!sessionId || !clientId) {
+    throw new Error("Missing session or client id in sessionStorage");
+  }
 
-    if (!sessionId || !clientId) {
-      throw new Error("Missing session or client id in sessionStorage");
-    }
-
-    const response = await fetch(
-      `${connection.serverUrl.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${connection.sessionToken}`,
-        },
-        body: JSON.stringify({
-          clientId,
-          isPlaying,
-          currentIndex: currentIndex ?? 0,
-          positionMs: positionMs ?? 0,
-        }),
+  const response = await page.request.post(
+    `${serverUrl.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+    {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+      data: {
+        clientId,
+        isPlaying: options.isPlaying,
+        currentIndex: options.currentIndex ?? 0,
+        positionMs: options.positionMs ?? 0,
       },
-    );
-
-    if (!response.ok) {
-      throw new Error(`Heartbeat failed: ${response.status}`);
-    }
-  }, options);
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(`Heartbeat failed: ${response.status()}`);
+  }
 }
 
 async function getStoredAudioOwnership(page: Page): Promise<boolean> {
@@ -801,26 +806,10 @@ async function addSecondarySavedAccount(
     urlTokenExpiresAt: secondaryLogin.urlTokenExpiresAt,
   };
 
-  await page.evaluate(
-    ({ secondaryAccount, label }) => {
-      const currentConnection = JSON.parse(
-        localStorage.getItem("ferrotune-connection") || "null",
-      );
-
-      if (!currentConnection) {
-        throw new Error("Missing active connection in localStorage");
-      }
-
-      localStorage.setItem(
-        "ferrotune-saved-accounts",
-        JSON.stringify([currentConnection, { ...secondaryAccount, label }]),
-      );
-    },
-    {
-      secondaryAccount: secondaryConnection,
-      label: secondary.label,
-    },
-  );
+  await seedSavedAccountsForNextLoad(page, () => [
+    { ...secondaryConnection, label: secondary.label },
+  ]);
+  await page.reload();
 }
 
 async function switchToSavedAccount(
@@ -853,21 +842,7 @@ test.describe.serial("Multi-Session Playback", () => {
   test.beforeEach(async ({ authenticatedPage: page, server }) => {
     await resetState(page, server);
     // Ensure saved accounts are set so the session dropdown renders
-    await page.evaluate(() => {
-      const existing = localStorage.getItem("ferrotune-saved-accounts");
-      if (!existing || existing === "[]") {
-        const connection = JSON.parse(
-          localStorage.getItem("ferrotune-connection") || "null",
-        );
-        if (!connection) {
-          throw new Error("Missing active connection in localStorage");
-        }
-        localStorage.setItem(
-          "ferrotune-saved-accounts",
-          JSON.stringify([connection]),
-        );
-      }
-    });
+    await seedSavedAccountsForNextLoad(page);
     await page.reload();
   });
 
@@ -1250,12 +1225,18 @@ test.describe.serial("Multi-Session Playback", () => {
       isIdle: true,
     };
     await page.route("**/api/sessions/clients", async (route) => {
-      const response = await route.fetch();
-      const body = await response.json();
-      await route.fulfill({
-        response,
-        json: { ...body, clients: [...body.clients, idlePhone] },
-      });
+      try {
+        const response = await route.fetch();
+        const body = await response.json();
+        await route.fulfill({
+          response,
+          json: { ...body, clients: [...body.clients, idlePhone] },
+        });
+      } catch {
+        // The reload below disposes requests the previous page left in
+        // flight; nothing reads their responses.
+        await route.abort().catch(() => {});
+      }
     });
     await page.reload();
     await waitForAuthenticatedHome(page);
@@ -1297,17 +1278,17 @@ test.describe.serial("Multi-Session Playback", () => {
     // Model the autonomous Android service's authoritative heartbeat. The
     // canonical queue position is deliberately not written by heartbeats, so
     // a newly opened SSE stream must receive this in-memory live snapshot.
+    // This web owner keeps heartbeating its own (few seconds long) playback
+    // position, which would overwrite the modelled live position. Stop its
+    // heartbeats first, so none can land after the modelled one.
+    await ownerPage.route("**/api/sessions/*/heartbeat", (route) =>
+      route.abort(),
+    );
     await sendSessionHeartbeat(ownerPage, {
       isPlaying: true,
       currentIndex: 0,
       positionMs: 42_000,
     });
-    // This web owner keeps heartbeating its own (few seconds long) playback
-    // position, which would immediately overwrite the modelled live position.
-    // Stop its heartbeats so the modelled snapshot is what the follower sees.
-    await ownerPage.route("**/api/sessions/*/heartbeat", (route) =>
-      route.abort(),
-    );
 
     const waveformRequests: string[] = [];
     const waveformHeights = Array.from({ length: 128 }, (_, index) =>
@@ -1431,7 +1412,6 @@ test.describe.serial("Multi-Session Playback", () => {
   }) => {
     const secondary = await createSecondaryUser(page, server);
     await addSecondarySavedAccount(page, server, secondary);
-    await page.reload();
     await waitForAuthenticatedHome(page);
 
     await playAlbumTrackAndPause(page, "Test Album", "First Song");

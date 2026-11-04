@@ -517,7 +517,9 @@ test.describe("Authentication", () => {
       .toBe(0);
 
     await page.getByRole("link", { name: /^library$/i }).click();
-    await expect(page).toHaveURL(/\/library/);
+    // /library lazily loads a redirect to /library/albums; clicking Home
+    // before it lands lets the redirect win and the test never gets home.
+    await expect(page).toHaveURL(/\/library\/albums/);
 
     await page.getByRole("link", { name: /^home$/i }).click();
     await expect(page).toHaveURL("/");

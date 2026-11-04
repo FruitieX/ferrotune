@@ -24,6 +24,41 @@ export async function setStoredConnection(
   }, connection);
 }
 
+export type SavedAccount = StoredConnection & { label?: string };
+
+/**
+ * Make the next page load start with `ferrotune-saved-accounts` set to the
+ * current connection plus `extraAccounts(connection)`. Writing localStorage
+ * directly is not enough: the running app keeps the list in memory and writes
+ * it back whole (its startup auth refresh does), which can undo the write
+ * before the reload. An init script seeds the list before the app boots, once.
+ */
+export async function seedSavedAccountsForNextLoad(
+  page: Page,
+  extraAccounts: (connection: StoredConnection) => SavedAccount[] = () => [],
+): Promise<void> {
+  const connection: StoredConnection | null = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("ferrotune-connection") || "null"),
+  );
+  if (!connection) {
+    throw new Error("Missing active connection in localStorage");
+  }
+
+  const seedKey = `e2e-saved-accounts-seeded-${Date.now()}-${Math.random()}`;
+  await page.addInitScript(
+    ({ accounts, seedKey }) => {
+      // Seed once: later loads in the test must see the app's own writes.
+      if (sessionStorage.getItem(seedKey)) return;
+      sessionStorage.setItem(seedKey, "1");
+      localStorage.setItem(
+        "ferrotune-saved-accounts",
+        JSON.stringify(accounts),
+      );
+    },
+    { accounts: [connection, ...extraAccounts(connection)], seedKey },
+  );
+}
+
 export async function waitForAuthenticatedHome(
   page: Page,
   timeout = 15000,

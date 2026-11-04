@@ -678,17 +678,26 @@ test.describe("Home continue listening", () => {
     expect(sectionUrl.searchParams.get("excludeRecentDays")).toBe("7");
     expect(sectionUrl.searchParams.get("seedSongId")).toBe("similar-seed-song");
 
+    // Home can refetch its own (unparameterized) discovery section after the
+    // click, so the newest request is not necessarily the detail view's.
+    // Wait for the request the detail view makes from its URL.
+    const requestsBeforeNavigation = discoveryRequests.length;
     await sectionLink.click();
     await expect(page).toHaveURL(/\/home\/similar-tracks\?/, {
       timeout: 30000,
     });
-    await expect.poll(() => discoveryRequests.length).toBeGreaterThan(1);
-    expect(discoveryRequests.at(-1)).toMatchObject({
-      seed: String(requestBody.filters.seed),
-      count: "30",
-      excludeRecentDays: "7",
-      seedSongId: "similar-seed-song",
-    });
+    await expect
+      .poll(() =>
+        discoveryRequests
+          .slice(requestsBeforeNavigation)
+          .find((request) => request.seedSongId !== ""),
+      )
+      .toEqual({
+        seed: String(requestBody.filters.seed),
+        count: "30",
+        excludeRecentDays: "7",
+        seedSongId: "similar-seed-song",
+      });
   });
 
   test("section list views expose filter sort and column controls", async ({

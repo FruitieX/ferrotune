@@ -17,7 +17,10 @@ import {
   waitForPlayerReady,
   playFirstSong,
 } from "./fixtures";
-import { setServerPreference } from "./app-helpers";
+import {
+  seedSavedAccountsForNextLoad,
+  setServerPreference,
+} from "./app-helpers";
 import type { Locator, Page } from "@playwright/test";
 
 async function setQueuePanelPreference(page: Page, value: boolean) {
@@ -111,28 +114,15 @@ async function expectPressedFeedback(
   }
 }
 
+/** Saved accounts take effect on the next page load. */
 async function addSecondarySavedAccount(page: Page) {
-  await page.evaluate(() => {
-    const connection = JSON.parse(
-      localStorage.getItem("ferrotune-connection") || "null",
-    );
-
-    if (!connection) {
-      throw new Error("Missing active connection in localStorage");
-    }
-
-    localStorage.setItem(
-      "ferrotune-saved-accounts",
-      JSON.stringify([
-        connection,
-        {
-          ...connection,
-          serverUrl: `${connection.serverUrl}/`,
-          label: "Secondary account",
-        },
-      ]),
-    );
-  });
+  await seedSavedAccountsForNextLoad(page, (connection) => [
+    {
+      ...connection,
+      serverUrl: `${connection.serverUrl}/`,
+      label: "Secondary account",
+    },
+  ]);
 }
 
 async function mockCastSdkAvailable(page: Page) {
