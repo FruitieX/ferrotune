@@ -498,13 +498,6 @@ private fun QueueHeader(
                 .weight(1f)
                 .padding(start = 8.dp),
         )
-        if (upNextCount > 0) {
-            Text(
-                text = "$upNextCount up next",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
         if (hasEntries) {
             IconButton(onClick = onJumpToCurrent) {
                 Icon(

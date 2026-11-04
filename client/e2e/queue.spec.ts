@@ -167,7 +167,7 @@ test.describe.serial("Queue Management", () => {
     await expect(rows.nth(2)).toHaveAttribute("data-origin", "upNext");
     await expect(rows.nth(3)).toContainText("Second Song");
     await expect(rows.nth(3)).toHaveAttribute("data-origin", "source");
-    await expect(queuePanel.getByText("2 up next")).toBeVisible();
+    await expect(queuePanel.getByText("2 up next")).toHaveCount(0);
 
     await queuePanel.getByRole("button", { name: /^Clear/ }).click();
     const clearUpNextResponse = page.waitForResponse(

@@ -191,11 +191,6 @@ function QueuePanelBody({
         >
           <ListMusic className="w-4 h-4" />
           Queue
-          {queueState && queueState.upNextCount > 0 && (
-            <span className="text-[10px] font-medium text-primary/80 bg-primary/10 rounded-full px-2 py-0.5">
-              {queueState.upNextCount} up next
-            </span>
-          )}
         </h2>
         <div className="flex items-center gap-1">
           {queueState && queueState.totalCount > 0 && !isQueueLoading && (
