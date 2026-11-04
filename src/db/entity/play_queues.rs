@@ -16,7 +16,6 @@ pub struct Model {
     pub source_name: Option<String>,
     pub current_index: i64,
     #[sea_orm(column_type = "Text", nullable)]
-    pub current_manual_entry_id: Option<String>,
     pub position_ms: i64,
     pub is_shuffled: bool,
     pub shuffle_seed: Option<i64>,

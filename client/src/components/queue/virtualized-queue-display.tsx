@@ -117,6 +117,9 @@ function QueueEmptyState() {
   );
 }
 
+/** Where an up-next row sits in its block; the block is drawn as one card. */
+type UpNextGroupPosition = "only" | "first" | "middle" | "last";
+
 interface VirtualQueueItemProps {
   entry: QueueSongEntry;
   isCurrent: boolean;
@@ -129,6 +132,8 @@ interface VirtualQueueItemProps {
   onTogglePlayPause: () => void;
   onMoveToPosition: (song: QueueSongEntry["song"], index: number) => void;
   onNavigate?: () => void;
+  /** Set for rows in up next. */
+  upNextGroup?: UpNextGroupPosition | null;
   /** Drag handle props; omitted for rows that can't be moved. */
   dragHandleProps?: ReturnType<ListReorder["handleProps"]>;
   isDragging?: boolean;
@@ -174,11 +179,11 @@ function VirtualQueueItem({
   onTogglePlayPause,
   onMoveToPosition,
   onNavigate,
+  upNextGroup,
   dragHandleProps,
   isDragging = false,
 }: VirtualQueueItemProps) {
   const song = entry.song;
-  const isUpNext = entry.origin === "upNext";
   const coverButtonLabel =
     isCurrent && isPlaying ? `Pause ${song.title}` : `Play ${song.title}`;
 
@@ -197,16 +202,20 @@ function VirtualQueueItem({
       <div
         data-testid="queue-item"
         data-queue-position={entry.position}
-        data-origin={entry.origin}
+        data-origin={upNextGroup ? "upNext" : "source"}
         data-reorder-row
         data-reorder-index={entry.position}
         data-current={isCurrent ? "true" : undefined}
         className={cn(
-          "flex items-center gap-2 p-2 rounded-lg group touch-manipulation transition-[background-color,scale] active:scale-[0.995]",
+          "flex items-center gap-2 p-2 group touch-manipulation transition-[background-color,scale] active:scale-[0.995]",
           isCurrent
-            ? "bg-primary/10 border border-primary/20 active:bg-primary/15"
-            : "bg-card hover:bg-muted/50 active:bg-muted/70",
-          isUpNext && !isCurrent && "border-l-2 border-l-primary/50",
+            ? "rounded-lg bg-primary/10 border border-primary/20 active:bg-primary/15"
+            : upNextGroup
+              ? "bg-primary/5 hover:bg-primary/10 active:bg-primary/15"
+              : "rounded-lg bg-card hover:bg-muted/50 active:bg-muted/70",
+          // Up-next rows share one card: only its outer corners are rounded.
+          (upNextGroup === "only" || upNextGroup === "first") && "rounded-t-lg",
+          (upNextGroup === "only" || upNextGroup === "last") && "rounded-b-lg",
           isPlayed && "opacity-55",
           isDragging && "opacity-40",
         )}
@@ -412,7 +421,7 @@ export const VirtualizedQueueDisplay = forwardRef<
   const currentIndex = queueState?.currentIndex ?? 0;
   const nextFromLabel = queueState?.source?.name
     ? `Next from ${queueState.source.name}`
-    : "Next from playlist";
+    : "Next from queue";
   const queueInstanceId = queueState?.source?.instanceId ?? null;
 
   // Reset the initial scroll offset whenever the queue instance changes so
@@ -456,43 +465,29 @@ export const VirtualizedQueueDisplay = forwardRef<
     return map;
   })();
 
-  // Section boundaries in display order. Upcoming rows always follow the
-  // current track; "Next from" starts after them (or right after a current
-  // up-next row). Played rows above the current track are history.
+  // Section boundaries in display order. Up next is always the block right
+  // after the current track (the server moves an up-next song into the
+  // source list once it plays), so sections follow from positions alone.
+  // Rows above the current track are history.
   const upNextCount = queueState?.upNextCount ?? 0;
-  const currentIsManual =
-    songsByPosition.get(currentIndex)?.origin === "upNext";
   const upNextStart = upNextCount > 0 ? currentIndex + 1 : null;
-  const contextStart =
-    upNextCount > 0 || currentIsManual ? currentIndex + 1 + upNextCount : null;
+  const sourceStart = upNextCount > 0 ? currentIndex + 1 + upNextCount : null;
   const sectionLabelAtPosition = (position: number): string | null => {
     if (upNextStart === position) return "Up next";
-    if (contextStart === position) return nextFromLabel;
+    if (sourceStart === position) return nextFromLabel;
     return null;
   };
-  const isUpcomingPosition = (position: number) =>
-    position > currentIndex && position <= currentIndex + upNextCount;
-  const sectionKindAt = (position: number): "upNext" | "context" => {
-    if (isUpcomingPosition(position)) return "upNext";
-    return songsByPosition.get(position)?.origin === "upNext"
-      ? "upNext"
-      : "context";
+  const upNextGroupAt = (position: number): UpNextGroupPosition | null => {
+    if (position <= currentIndex || position > currentIndex + upNextCount) {
+      return null;
+    }
+    const first = position === currentIndex + 1;
+    const last = position === currentIndex + upNextCount;
+    if (first && last) return "only";
+    if (first) return "first";
+    if (last) return "last";
+    return "middle";
   };
-  const canCrossSections = !(queueState?.isLazy ?? true);
-  const isValidReorderTarget = (from: number, to: number) => {
-    const fromKind = sectionKindAt(from);
-    const toKind = sectionKindAt(to);
-    if (fromKind === toKind) return true;
-    // Cross-section moves are real table moves on the server and only work on
-    // materialized contexts. Played/current rows stay in place.
-    if (!canCrossSections || from <= currentIndex) return false;
-    // An upcoming row can be placed back into the playlist anywhere,
-    // including the played section (it becomes history and won't play again).
-    if (fromKind === "upNext" && toKind === "context") return true;
-    // Playlist -> up next only from future playlist rows.
-    return to > currentIndex;
-  };
-
   // Virtualizer setup
   const virtualizer = useVirtualizer({
     count: totalCount,
@@ -507,7 +502,7 @@ export const VirtualizedQueueDisplay = forwardRef<
   // move (e.g. after an add or when the current track changes).
   useEffect(() => {
     virtualizer.measure();
-  }, [upNextStart, contextStart, virtualizer]);
+  }, [upNextStart, sourceStart, virtualizer]);
 
   // Observe scroll container size changes and force the virtualizer to
   // re-measure. This is critical because the queue is rendered inside
@@ -882,7 +877,6 @@ export const VirtualizedQueueDisplay = forwardRef<
       hapticTap();
       void moveInQueue({ fromPosition, toPosition });
     },
-    isValidTarget: isValidReorderTarget,
     renderGhost: (index) => {
       const entry = songsByPosition.get(index);
       return entry ? <QueueGhostRow entry={entry} /> : null;
@@ -954,6 +948,7 @@ export const VirtualizedQueueDisplay = forwardRef<
                     onTogglePlayPause={togglePlayPause}
                     onMoveToPosition={handleMoveToPosition}
                     onNavigate={onNavigate}
+                    upNextGroup={upNextGroupAt(virtualItem.index)}
                     dragHandleProps={
                       isPending
                         ? undefined

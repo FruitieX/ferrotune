@@ -647,7 +647,7 @@ jsonpath "$.totalCount" == 4
 jsonpath "$.currentIndex" == 0
 jsonpath "$.upNextCount" == 0
 jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
-jsonpath "$.window.songs[0].origin" == "context"
+jsonpath "$.window.songs[0].origin" == "source"
 
 # Play next prepends to the up-next queue
 POST {{base_url}}/api/queue/add
@@ -706,9 +706,10 @@ jsonpath "$.window.songs[2].origin" == "upNext"
 jsonpath "$.window.songs[3].song.id" == "{{song_7}}"
 jsonpath "$.window.songs[3].origin" == "upNext"
 jsonpath "$.window.songs[4].song.id" == "{{song_2}}"
-jsonpath "$.window.songs[4].origin" == "context"
+jsonpath "$.window.songs[4].origin" == "source"
 
-# Playing an up-next song anchors it in history and keeps consuming the queue
+# Playing an up-next song moves it into the source list: it is ordinary
+# history from then on, and display positions don't change
 POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
@@ -722,6 +723,17 @@ HTTP 200
 [Asserts]
 jsonpath "$.newIndex" == 1
 jsonpath "$.upNextCount" == 2
+jsonpath "$.totalCount" == 7
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 1
+jsonpath "$.window.songs[1].song.id" == "{{song_6}}"
+jsonpath "$.window.songs[1].origin" == "source"
+jsonpath "$.window.songs[2].song.id" == "{{song_5}}"
+jsonpath "$.window.songs[2].origin" == "upNext"
 
 POST {{base_url}}/api/queue/position
 Authorization: Basic {{auth_basic}}
@@ -770,7 +782,7 @@ HTTP 200
 [Asserts]
 jsonpath "$.currentIndex" == 4
 jsonpath "$.window.songs[4].song.id" == "{{song_2}}"
-jsonpath "$.window.songs[4].origin" == "context"
+jsonpath "$.window.songs[4].origin" == "source"
 
 # Clear up next keeps the playlist playing and leaves played history alone
 POST {{base_url}}/api/queue/add
@@ -920,8 +932,6 @@ Content-Type: application/json
   "shuffle": false
 }
 HTTP 200
-[Asserts]
-jsonpath "$.isLazy" == false
 
 POST {{base_url}}/api/queue/add
 Authorization: Basic {{auth_basic}}
@@ -959,7 +969,7 @@ jsonpath "$.window.songs[1].origin" == "upNext"
 jsonpath "$.window.songs[2].song.id" == "{{song_6}}"
 jsonpath "$.window.songs[2].origin" == "upNext"
 jsonpath "$.window.songs[3].song.id" == "{{song_2}}"
-jsonpath "$.window.songs[3].origin" == "context"
+jsonpath "$.window.songs[3].origin" == "source"
 
 # Move the upcoming s6 (2) into the playlist before s4 (4).
 POST {{base_url}}/api/queue/move
@@ -985,11 +995,11 @@ jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
 jsonpath "$.window.songs[1].song.id" == "{{song_3}}"
 jsonpath "$.window.songs[1].origin" == "upNext"
 jsonpath "$.window.songs[2].song.id" == "{{song_2}}"
-jsonpath "$.window.songs[2].origin" == "context"
+jsonpath "$.window.songs[2].origin" == "source"
 jsonpath "$.window.songs[3].song.id" == "{{song_4}}"
-jsonpath "$.window.songs[3].origin" == "context"
+jsonpath "$.window.songs[3].origin" == "source"
 jsonpath "$.window.songs[4].song.id" == "{{song_6}}"
-jsonpath "$.window.songs[4].origin" == "context"
+jsonpath "$.window.songs[4].origin" == "source"
 
 # Cross-section moves also work in a shuffled context.
 POST {{base_url}}/api/queue/start
@@ -1067,7 +1077,228 @@ jsonpath "$.currentIndex" == 0
 jsonpath "$.upNextCount" == 1
 jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
 jsonpath "$.window.songs[3].song.id" == "{{shuffled_future_song}}"
-jsonpath "$.window.songs[3].origin" == "context"
+jsonpath "$.window.songs[3].origin" == "source"
+
+# Where a moved row lands decides whether it's in up next: dropping right
+# below the current track (or right below the last up-next song) queues it;
+# anywhere else it's a source row.
+POST {{base_url}}/api/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}", "{{song_4}}", "{{song_5}}"],
+  "startIndex": 0,
+  "shuffle": false
+}
+HTTP 200
+
+# s1 | s2 s3 s4 s5: drop s4 right below the current track.
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 3,
+  "toPosition": 1
+}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 1
+jsonpath "$.newIndex" == 0
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.window.songs[1].song.id" == "{{song_4}}"
+jsonpath "$.window.songs[1].origin" == "upNext"
+jsonpath "$.window.songs[2].song.id" == "{{song_2}}"
+jsonpath "$.window.songs[2].origin" == "source"
+
+# s1 | s4 | s2 s3 s5: drop s3 right below the last up-next song.
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 3,
+  "toPosition": 2
+}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 2
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.window.songs[2].song.id" == "{{song_3}}"
+jsonpath "$.window.songs[2].origin" == "upNext"
+jsonpath "$.window.songs[3].song.id" == "{{song_2}}"
+jsonpath "$.window.songs[3].origin" == "source"
+
+# s1 | s4 s3 | s2 s5: move s4 below s2; it leaves up next.
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 1,
+  "toPosition": 3
+}
+HTTP 200
+[Asserts]
+jsonpath "$.upNextCount" == 1
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.window.songs[1].song.id" == "{{song_3}}"
+jsonpath "$.window.songs[1].origin" == "upNext"
+jsonpath "$.window.songs[2].song.id" == "{{song_2}}"
+jsonpath "$.window.songs[3].song.id" == "{{song_4}}"
+jsonpath "$.window.songs[3].origin" == "source"
+
+# s1 | s3 | s2 s4 s5: jumping to s4 keeps up next right after the new
+# current track (s1 s2 s4 | s3 | s5).
+POST {{base_url}}/api/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 3,
+  "positionMs": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 2
+jsonpath "$.upNextCount" == 1
+
+# Played rows move freely too: drop s1 right below the last up-next song.
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 0,
+  "toPosition": 3
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 1
+jsonpath "$.upNextCount" == 2
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 1
+jsonpath "$.window.songs[0].song.id" == "{{song_2}}"
+jsonpath "$.window.songs[1].song.id" == "{{song_4}}"
+jsonpath "$.window.songs[2].song.id" == "{{song_3}}"
+jsonpath "$.window.songs[3].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[3].origin" == "upNext"
+jsonpath "$.window.songs[4].song.id" == "{{song_5}}"
+
+# Played up-next songs stay in the queue when shuffle is toggled.
+POST {{base_url}}/api/queue/position
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "clientId": "hurl-owner",
+  "currentIndex": 2,
+  "positionMs": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 2
+jsonpath "$.upNextCount" == 1
+
+POST {{base_url}}/api/queue/shuffle
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "enabled": true
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 0
+jsonpath "$.totalCount" == 5
+jsonpath "$.upNextCount" == 1
+
+POST {{base_url}}/api/queue/shuffle
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "enabled": false
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 2
+jsonpath "$.totalCount" == 5
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.window.songs[2].song.id" == "{{song_3}}"
+jsonpath "$.window.songs[2].origin" == "source"
+jsonpath "$.window.songs[3].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[3].origin" == "upNext"
+
+# Moving the playing track takes up next along: it stays right after it.
+POST {{base_url}}/api/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}", "{{song_4}}"],
+  "startIndex": 0,
+  "shuffle": false
+}
+HTTP 200
+
+POST {{base_url}}/api/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_5}}"],
+  "position": "end"
+}
+HTTP 200
+
+# s1 | s5 | s2 s3 s4: drag s1 to the bottom.
+POST {{base_url}}/api/queue/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "fromPosition": 0,
+  "toPosition": 4
+}
+HTTP 200
+[Asserts]
+jsonpath "$.newIndex" == 3
+jsonpath "$.upNextCount" == 1
+
+GET {{base_url}}/api/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.currentIndex" == 3
+jsonpath "$.window.songs[2].song.id" == "{{song_4}}"
+jsonpath "$.window.songs[3].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[4].song.id" == "{{song_5}}"
+jsonpath "$.window.songs[4].origin" == "upNext"
 
 # ============================================================================
 # CLEAR QUEUE - Delete entire queue

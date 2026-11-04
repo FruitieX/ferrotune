@@ -42,7 +42,7 @@ class QueueRowGestureTest {
                 Box(Modifier.fillMaxSize()) {
                     val rowPosition = position.longValue
                     QueueRow(
-                        entry = QueueEntry(rowPosition, "entry-1", "context", song),
+                        entry = QueueEntry(rowPosition, "entry-1", "source", song),
                         isCurrent = false,
                         isPlaying = false,
                         onPlay = { plays++ },

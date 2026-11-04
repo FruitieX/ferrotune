@@ -7,7 +7,7 @@ import type { QueueWindow } from "./QueueWindow";
  */
 export type GetQueueResponse = { 
 /**
- * Total number of songs in the queue (context + up next)
+ * Total number of songs in the queue (source list + up next)
  */
 totalCount: number, 
 /**
@@ -43,9 +43,4 @@ window: QueueWindow,
  * Used by native clients to skip redundant invalidations when both SSE
  * and explicit invalidation arrive for the same version.
  */
-version: number, 
-/**
- * Whether the playback context is lazily materialized. Cross-section
- * reorders need real context rows and are disabled for lazy queues.
- */
-isLazy: boolean, };
+version: number, };

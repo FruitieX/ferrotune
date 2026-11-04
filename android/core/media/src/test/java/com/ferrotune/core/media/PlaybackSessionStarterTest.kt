@@ -159,7 +159,6 @@ class PlaybackSessionStarterTest {
     private fun queueResponse(total: Long, index: Long, positionMs: Long) = GetQueueResponse(
         totalCount = total,
         upNextCount = 0,
-        isLazy = false,
         currentIndex = index,
         positionMs = positionMs,
         isShuffled = false,

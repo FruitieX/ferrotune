@@ -17,8 +17,9 @@ sourceEntryId: string | null,
  */
 position: number, 
 /**
- * Where this entry came from: `context` (the playlist/album/library the
- * queue was started from) or `upNext` (explicitly queued by the user).
+ * `upNext` for songs in up next (queued by the user, not played yet),
+ * `source` for rows of the source list. Up-next songs that start playing
+ * become `source` rows.
  */
 origin: string, 
 /**

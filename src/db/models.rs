@@ -576,10 +576,6 @@ pub struct PlayQueue {
     pub source_name: Option<String>,
     /// Canonical: current track index (in shuffled space if is_shuffled)
     pub current_index: i64,
-    /// When the current track is an "up next" entry, its `play_queue_up_next`
-    /// entry id. `current_index` still names the context position the entry is
-    /// anchored at. NULL when the current track comes from the context.
-    pub current_manual_entry_id: Option<String>,
     pub position_ms: i64,
     pub is_shuffled: bool,
     pub shuffle_seed: Option<i64>,
@@ -644,14 +640,12 @@ pub struct PlayQueueEntry {
     pub source_entry_id: Option<String>,
 }
 
-/// A song in the user's "up next" queue.
+/// A song in the user's "up next" queue that hasn't played yet.
 #[derive(Debug, Clone, Serialize, Deserialize, sea_orm::FromQueryResult)]
 pub struct PlayQueueUpNext {
     pub entry_id: String,
     pub song_id: String,
     pub sequence: i64,
-    /// Context index the entry played under; NULL while still upcoming.
-    pub anchor_context_index: Option<i64>,
 }
 
 /// Queue entry with full song data - for API responses

@@ -43,7 +43,6 @@ data class QueueSheetUiState(
     val sourceType: String? = null,
     val sourceId: String? = null,
     val upNextCount: Int = 0,
-    val isLazy: Boolean = false,
 )
 
 /** What forces a fresh page load: a different session, queue shape, or an explicit refresh. */
@@ -77,8 +76,7 @@ class QueueSheetViewModel @Inject constructor(
     val uiState: StateFlow<QueueSheetUiState> = combine(
         playbackStarter.state,
         queueRepository.upNextCount,
-        queueRepository.isLazy,
-    ) { state, upNextCount, isLazy ->
+    ) { state, upNextCount ->
         QueueSheetUiState(
             sessionId = state.sessionId,
             currentIndex = state.queueIndex,
@@ -87,7 +85,6 @@ class QueueSheetViewModel @Inject constructor(
             sourceType = state.sourceType,
             sourceId = state.sourceId,
             upNextCount = upNextCount,
-            isLazy = isLazy,
         )
     }
         .distinctUntilChanged()
@@ -151,34 +148,16 @@ class QueueSheetViewModel @Inject constructor(
         }
     }
 
-    /** Moves [entry] to queue position [toPosition] (drag & drop or "Move to position"). */
+    /**
+     * Moves [entry] to queue position [toPosition] (drag & drop or "Move to
+     * position"); [toPosition] is its index after the move.
+     */
     fun moveTo(entry: QueueEntry, toPosition: Long) {
         val target = toPosition.coerceAtLeast(0)
         if (target == entry.position) return
 
-        // The up-next block and the playlist are different lists on the server.
-        // Keep drags inside one section instead of sending a move that the
-        // server would reject.
-        val current = uiState.value.currentIndex
-        val upcomingEnd = current + uiState.value.upNextCount
-        val targetIsUpcoming = target > current && target <= upcomingEnd
-        val sameSection = (entry.origin == "upNext") == targetIsUpcoming
-        if (!sameSection) {
-            val canCross = !uiState.value.isLazy &&
-                entry.position > current &&
-                (entry.origin == "upNext" || target > current)
-            if (!canCross) {
-                messages.show(
-                    if (uiState.value.isLazy) {
-                        "Moving between the queue and this source isn't supported"
-                    } else {
-                        "Played tracks stay in place; move upcoming tracks instead"
-                    },
-                )
-                return
-            }
-        }
-
+        // Any row can go anywhere: the server puts it in up next when it lands
+        // right below the playing track or the last up-next song.
         mutate("Couldn't move the track", refreshInPlace = true) { session ->
             queueRepository.moveEntry(session, entry.position, target)
         }

@@ -17,5 +17,4 @@ data class GetQueueResponse(
     val source: QueueSourceInfo,
     val window: QueueWindow,
     val version: Long,
-    val isLazy: Boolean,
 )

@@ -20,7 +20,7 @@ import javax.inject.Singleton
 data class QueueEntry(
     val position: Long,
     val entryId: String,
-    /** `context` or `upNext` (server `QueueSongEntry.origin`). */
+    /** `source` or `upNext` (server `QueueSongEntry.origin`). */
     val origin: String,
     val song: SongResponse,
 )
@@ -28,7 +28,6 @@ data class QueueEntry(
 data class QueueSnapshot(
     val totalCount: Int,
     val upNextCount: Int,
-    val isLazy: Boolean,
     val currentIndex: Int,
     val isShuffled: Boolean,
     val repeatMode: String,
@@ -46,19 +45,14 @@ class QueueRepository @Inject constructor(
     private val apiProvider: FerrotuneApiProvider,
 ) {
     private val _upNextCount = MutableStateFlow(0)
-    private val _isLazy = MutableStateFlow(false)
 
-    /** Number of still-upcoming up-next rows, updated from every queue page load. */
+    /** Number of up-next songs (the rows right after the current track), updated from every queue page load. */
     val upNextCount: StateFlow<Int> = _upNextCount.asStateFlow()
-
-    /** Whether the context is lazily materialized (cross-section moves disabled). */
-    val isLazy: StateFlow<Boolean> = _isLazy.asStateFlow()
 
     /** Paged view of the whole queue for the queue sheet. */
     fun queuePages(sessionId: String): QueuePagingSource =
         QueuePagingSource(apiProvider, sessionId) { snapshot ->
             _upNextCount.value = snapshot.upNextCount
-            _isLazy.value = snapshot.isLazy
         }
 
     suspend fun removeEntry(sessionId: String, position: Long) {
@@ -102,7 +96,6 @@ class QueueRepository @Inject constructor(
 fun GetQueueResponse.toSnapshot(): QueueSnapshot = QueueSnapshot(
     totalCount = totalCount.toInt(),
     upNextCount = upNextCount.toInt(),
-    isLazy = isLazy,
     currentIndex = currentIndex.toInt(),
     isShuffled = isShuffled,
     repeatMode = repeatMode,

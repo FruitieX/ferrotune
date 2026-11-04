@@ -116,7 +116,7 @@ pub struct QueueSourceRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct StartQueueResponse {
-    /// Total number of songs in the queue (context + up next)
+    /// Total number of songs in the queue (source list + up next)
     pub total_count: usize,
     /// Current index in the queue (display order, shuffle-aware)
     pub current_index: usize,
@@ -130,9 +130,6 @@ pub struct StartQueueResponse {
     pub source: QueueSourceInfo,
     /// Initial window of songs around the current position
     pub window: QueueWindow,
-    /// Whether the playback context is lazily materialized. Cross-section
-    /// reorders need real context rows and are disabled for lazy queues.
-    pub is_lazy: bool,
 }
 
 /// A window of songs in the queue
@@ -158,8 +155,9 @@ pub struct QueueSongEntry {
     pub source_entry_id: Option<String>,
     /// Position in the queue (display order, accounts for shuffle)
     pub position: usize,
-    /// Where this entry came from: `context` (the playlist/album/library the
-    /// queue was started from) or `upNext` (explicitly queued by the user).
+    /// `upNext` for songs in up next (queued by the user, not played yet),
+    /// `source` for rows of the source list. Up-next songs that start playing
+    /// become `source` rows.
     pub origin: String,
     /// The song data
     #[ts(type = "import('../types').Song")]
@@ -171,7 +169,7 @@ pub struct QueueSongEntry {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct GetQueueResponse {
-    /// Total number of songs in the queue (context + up next)
+    /// Total number of songs in the queue (source list + up next)
     pub total_count: usize,
     /// Number of upcoming "up next" songs
     pub up_next_count: usize,
@@ -193,9 +191,6 @@ pub struct GetQueueResponse {
     /// and explicit invalidation arrive for the same version.
     #[ts(type = "number")]
     pub version: i64,
-    /// Whether the playback context is lazily materialized. Cross-section
-    /// reorders need real context rows and are disabled for lazy queues.
-    pub is_lazy: bool,
 }
 
 /// Queue source information
@@ -405,20 +400,6 @@ fn require_session_id(session_id: Option<&str>) -> FerrotuneApiResult<&str> {
     Ok(session_id.ok_or_else(|| Error::InvalidRequest("session_id is required".to_string()))?)
 }
 
-fn resolve_original_queue_position(
-    queue: &PlayQueue,
-    display_position: usize,
-) -> FerrotuneApiResult<usize> {
-    if !queue.is_shuffled {
-        return Ok(display_position);
-    }
-
-    let indices = queue.shuffle_indices().unwrap_or_default();
-    indices.get(display_position).copied().ok_or_else(|| {
-        FerrotuneApiError(Error::InvalidRequest("Position out of range".to_string()))
-    })
-}
-
 fn shifted_current_index_after_remove(
     current_display_index: usize,
     removed_display_position: usize,
@@ -440,171 +421,195 @@ fn shifted_current_index_after_remove(
 // ============================================================================
 
 /// Cap on the explicitly queued "up next" list. It is separate from the
-/// playback context, so it can stay small while the context is huge.
+/// source list, so it can stay small while the source list is huge.
 const MAX_UP_NEXT_SIZE: usize = 10_000;
 
-/// One item in the merged playback view (context + up-next).
+/// One item in the queue as clients see it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueueDisplayItem {
-    /// A track from the playback context at this context index.
-    Context(usize),
-    /// An up-next row that already played, anchored under this context index.
-    Anchored { anchor: usize, index: usize },
-    /// An up-next row that is still upcoming.
-    Upcoming { index: usize },
+    /// A row of the source list (the snapshot `queue/start` made of the
+    /// album, playlist, library, …) at this source index (shuffled space).
+    Source(usize),
+    /// A song in up next at this index.
+    UpNext(usize),
 }
 
-/// The up-next list, indexed for display-position math.
+/// The up-next list and the display-position math around it.
 ///
-/// Display order is:
-/// `C0, anchored(0), C1, anchored(1), ..., C[current], anchored(current),
-///  upcoming, C[current + 1], ...`
-///
-/// Upcoming rows always follow the current track, so they never need to know
-/// which context position they were queued from. When one starts playing it
-/// is anchored to the current context index and becomes history.
+/// Display order is `S[0..=current], U[0..n], S[current + 1..]`: up next
+/// always sits right after the current track and holds only songs that
+/// haven't played. When one starts playing it moves into the source list
+/// (see `update_position`), so history is plain source rows and the current
+/// track is always a source row: its display index equals `current_index`.
 #[derive(Debug, Default, Clone)]
 struct UpNextLayout {
     rows: Vec<PlayQueueUpNext>,
-    anchored: std::collections::BTreeMap<usize, Vec<usize>>,
-    upcoming: Vec<usize>,
 }
 
 impl UpNextLayout {
     fn new(rows: Vec<PlayQueueUpNext>) -> Self {
-        let mut anchored: std::collections::BTreeMap<usize, Vec<usize>> =
-            std::collections::BTreeMap::new();
-        let mut upcoming = Vec::new();
-        for (index, row) in rows.iter().enumerate() {
-            match row.anchor_context_index {
-                Some(anchor) if anchor >= 0 => {
-                    anchored.entry(anchor as usize).or_default().push(index);
-                }
-                _ => upcoming.push(index),
-            }
-        }
-        Self {
-            rows,
-            anchored,
-            upcoming,
-        }
+        Self { rows }
     }
 
-    fn anchored_count(&self, anchor: usize) -> usize {
-        self.anchored.get(&anchor).map_or(0, Vec::len)
+    fn len(&self) -> usize {
+        self.rows.len()
     }
 
-    fn anchored_before(&self, anchor: usize) -> usize {
-        self.anchored
-            .range(..anchor)
-            .map(|(_, indices)| indices.len())
-            .sum()
-    }
-
-    fn upcoming_count(&self) -> usize {
-        self.upcoming.len()
-    }
-
-    fn total(&self, context_total: usize) -> usize {
-        context_total + self.rows.len()
-    }
-
-    /// Number of display items before `C[context_index]`.
-    fn context_prefix(&self, context_index: usize, current_index: usize) -> usize {
-        context_index
-            + self.anchored_before(context_index)
-            + if context_index > current_index {
-                self.upcoming_count()
-            } else {
-                0
-            }
+    fn total(&self, source_total: usize) -> usize {
+        source_total + self.rows.len()
     }
 
     fn display_item_at(
         &self,
         display_index: usize,
-        context_total: usize,
+        source_total: usize,
         current_index: usize,
     ) -> Option<QueueDisplayItem> {
-        if context_total == 0 || display_index >= self.total(context_total) {
+        if source_total == 0 || display_index >= self.total(source_total) {
             return None;
         }
-
-        // Last context index whose block starts at or before `display_index`.
-        let mut lo = 0usize;
-        let mut hi = context_total;
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            if self.context_prefix(mid, current_index) <= display_index {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        let context_index = lo.saturating_sub(1);
-        if context_index >= context_total {
-            return None;
-        }
-
-        let local = display_index - self.context_prefix(context_index, current_index);
-        if local == 0 {
-            return Some(QueueDisplayItem::Context(context_index));
-        }
-        let anchored = self.anchored_count(context_index);
-        if local <= anchored {
-            return Some(QueueDisplayItem::Anchored {
-                anchor: context_index,
-                index: local - 1,
-            });
-        }
-        if context_index == current_index {
-            let upcoming_index = local - 1 - anchored;
-            if upcoming_index < self.upcoming_count() {
-                return Some(QueueDisplayItem::Upcoming {
-                    index: upcoming_index,
-                });
-            }
-        }
-        None
+        Some(display_item(display_index, current_index, self.len()))
     }
 
-    fn current_display_index(
-        &self,
-        current_index: usize,
-        current_manual_entry_id: Option<&str>,
-    ) -> usize {
-        let base = self.context_prefix(current_index, current_index);
-        let Some(entry_id) = current_manual_entry_id else {
-            return base;
-        };
-        let Some(indices) = self.anchored.get(&current_index) else {
-            return base;
-        };
-        for (index, row_index) in indices.iter().enumerate() {
-            if self.rows[*row_index].entry_id == entry_id {
-                return base + 1 + index;
-            }
-        }
-        base
+    fn row(&self, index: usize) -> Option<&PlayQueueUpNext> {
+        self.rows.get(index)
     }
 
-    fn anchored_row(&self, anchor: usize, index: usize) -> Option<&PlayQueueUpNext> {
-        self.anchored
-            .get(&anchor)
-            .and_then(|rows| rows.get(index))
-            .and_then(|row_index| self.rows.get(*row_index))
-    }
-
-    fn upcoming_row(&self, index: usize) -> Option<&PlayQueueUpNext> {
-        self.upcoming
-            .get(index)
-            .and_then(|row_index| self.rows.get(*row_index))
+    fn entry_ids(&self) -> Vec<String> {
+        self.rows.iter().map(|row| row.entry_id.clone()).collect()
     }
 }
 
-/// A context track materialized for one queue window.
-struct ContextWindowItem {
-    context_index: usize,
+/// Maps a display index to a source row or an up-next row.
+fn display_item(
+    display_index: usize,
+    current_index: usize,
+    up_next_len: usize,
+) -> QueueDisplayItem {
+    if display_index <= current_index {
+        QueueDisplayItem::Source(display_index)
+    } else if display_index <= current_index + up_next_len {
+        QueueDisplayItem::UpNext(display_index - current_index - 1)
+    } else {
+        QueueDisplayItem::Source(display_index - up_next_len)
+    }
+}
+
+/// Where a moved row lands. `final_index` is the row's display index after
+/// the move; `current_index` and `up_next_len` describe the queue with the
+/// row taken out. Landing anywhere from right after the current track to
+/// right after the last up-next song puts the row in up next, so dropping a
+/// song just below the current track (or below up next) queues it. Anywhere
+/// else it becomes a source row. Returns the insertion index in that list.
+fn drop_target(final_index: usize, current_index: usize, up_next_len: usize) -> QueueDisplayItem {
+    if final_index <= current_index {
+        QueueDisplayItem::Source(final_index)
+    } else if final_index <= current_index + 1 + up_next_len {
+        QueueDisplayItem::UpNext(final_index - current_index - 1)
+    } else {
+        QueueDisplayItem::Source(final_index - up_next_len)
+    }
+}
+
+/// Removes the row at `source_index` from a shuffle order and returns its
+/// stored position; stored positions after it shift down.
+fn shuffle_remove(indices: &mut Vec<usize>, source_index: usize) -> Option<usize> {
+    if source_index >= indices.len() {
+        return None;
+    }
+    let stored = indices.remove(source_index);
+    for index in indices.iter_mut() {
+        if *index > stored {
+            *index -= 1;
+        }
+    }
+    Some(stored)
+}
+
+/// Makes room for `count` rows inserted at `source_index` in shuffled order
+/// and returns their first stored position. They are stored right after the
+/// row they follow, so turning shuffle off keeps them in the same place.
+fn shuffle_insert(indices: &mut Vec<usize>, source_index: usize, count: usize) -> usize {
+    let source_index = source_index.min(indices.len());
+    let stored = if source_index == 0 {
+        0
+    } else {
+        indices[source_index - 1] + 1
+    };
+    for index in indices.iter_mut() {
+        if *index >= stored {
+            *index += count;
+        }
+    }
+    for offset in 0..count {
+        indices.insert(source_index + offset, stored + offset);
+    }
+    stored
+}
+
+fn shuffle_json(indices: &[usize]) -> FerrotuneApiResult<String> {
+    serde_json::to_string(indices)
+        .map_err(|e| FerrotuneApiError(Error::Internal(format!("Failed to serialize JSON: {e}"))))
+}
+
+/// Lazy queues (big library/search/genre sources) only compute pages on
+/// demand and have no stored rows, so anything that edits the source list
+/// stores it first. Returns the queue as it is afterwards.
+async fn ensure_materialized(
+    state: &AppState,
+    user_id: i64,
+    session_id: &str,
+    queue: PlayQueue,
+) -> FerrotuneApiResult<PlayQueue> {
+    if !queue.is_lazy {
+        return Ok(queue);
+    }
+    let song_ids = match queue.parse_song_ids() {
+        Some(ids) => ids,
+        None => {
+            let source_type: QueueSourceType = queue.source_type.parse().unwrap_or_default();
+            let filters: Option<serde_json::Value> = queue
+                .filters_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
+            let sort: Option<serde_json::Value> = queue
+                .sort_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
+            materialize_queue_songs(
+                &state.database,
+                user_id,
+                source_type,
+                queue.source_id.as_deref(),
+                filters.as_ref(),
+                sort.as_ref(),
+            )
+            .await?
+            .into_iter()
+            .map(|song| song.id)
+            .collect()
+        }
+    };
+    queries::materialize_lazy_queue_entries(&state.database, user_id, session_id, &song_ids)
+        .await?;
+    invalidate_shuffle_cache(state, user_id).await;
+    Ok(
+        queries::get_play_queue_by_session(&state.database, session_id, user_id)
+            .await?
+            .ok_or_else(|| Error::NotFound("No queue found".to_string()))?,
+    )
+}
+
+/// The stored shuffle order of a shuffled queue.
+fn queue_shuffle_indices(queue: &PlayQueue, source_total: usize) -> Vec<usize> {
+    queue
+        .shuffle_indices()
+        .unwrap_or_else(|| (0..source_total).collect())
+}
+
+/// A source-list row loaded for one queue window.
+struct SourceWindowItem {
+    source_index: usize,
     entry_id: String,
     source_entry_id: Option<String>,
     song: Song,
@@ -645,29 +650,29 @@ fn song_from_queue_entry(entry: &QueueEntryWithSong) -> Song {
     }
 }
 
-fn context_item_from_entry(entry: QueueEntryWithSong) -> ContextWindowItem {
-    let context_index = entry.queue_position.max(0) as usize;
-    ContextWindowItem {
-        context_index,
+fn source_item_from_entry(entry: QueueEntryWithSong) -> SourceWindowItem {
+    let source_index = entry.queue_position.max(0) as usize;
+    SourceWindowItem {
+        source_index,
         entry_id: entry.entry_id.clone(),
         source_entry_id: entry.source_entry_id.clone(),
         song: song_from_queue_entry(&entry),
     }
 }
 
-/// Load context tracks for a contiguous context-index range.
+/// Load source rows for a contiguous source-index range.
 #[allow(clippy::too_many_arguments)]
-async fn load_context_items(
+async fn load_source_items(
     database: &crate::db::Database,
     state: &AppState,
     user_id: i64,
     session_id: &str,
     queue: &PlayQueue,
-    context_total: usize,
+    source_total: usize,
     start: usize,
     count: usize,
-) -> FerrotuneApiResult<Vec<ContextWindowItem>> {
-    let end = (start + count).min(context_total);
+) -> FerrotuneApiResult<Vec<SourceWindowItem>> {
+    let end = (start + count).min(source_total);
     if start >= end {
         return Ok(vec![]);
     }
@@ -679,10 +684,10 @@ async fn load_context_items(
             .into_iter()
             .enumerate()
             .map(|(offset, song)| {
-                let context_index = start + offset;
-                ContextWindowItem {
-                    context_index,
-                    entry_id: format!("lazy-{}-{}", context_index, song.id),
+                let source_index = start + offset;
+                SourceWindowItem {
+                    source_index,
+                    entry_id: format!("lazy-{}-{}", source_index, song.id),
                     source_entry_id: None,
                     song,
                 }
@@ -696,15 +701,15 @@ async fn load_context_items(
             user_id,
             queue.shuffle_seed,
             queue.shuffle_indices_json.as_deref(),
-            context_total,
+            source_total,
         )
         .await;
 
         let mapping: Vec<(usize, usize)> = (start..end)
-            .filter_map(|context_index| {
+            .filter_map(|source_index| {
                 indices
-                    .get(context_index)
-                    .map(|&original| (context_index, original))
+                    .get(source_index)
+                    .map(|&original| (source_index, original))
             })
             .collect();
         let original_positions: Vec<usize> =
@@ -722,10 +727,10 @@ async fn load_context_items(
             .collect();
 
         let mut items = Vec::with_capacity(mapping.len());
-        for (context_index, original) in mapping {
+        for (source_index, original) in mapping {
             if let Some(entry) = by_position.remove(&(original as i64)) {
-                let mut item = context_item_from_entry(entry);
-                item.context_index = context_index;
+                let mut item = source_item_from_entry(entry);
+                item.source_index = source_index;
                 items.push(item);
             }
         }
@@ -734,11 +739,11 @@ async fn load_context_items(
         let entries =
             queries::get_queue_entries_range_by_session(database, session_id, start, end - start)
                 .await?;
-        Ok(entries.into_iter().map(context_item_from_entry).collect())
+        Ok(entries.into_iter().map(source_item_from_entry).collect())
     }
 }
 
-/// Build a window of the merged context + up-next display.
+/// Build a window of the queue as clients see it (source list + up next).
 #[allow(clippy::too_many_arguments)]
 async fn build_queue_window(
     database: &crate::db::Database,
@@ -747,12 +752,12 @@ async fn build_queue_window(
     session_id: &str,
     queue: &PlayQueue,
     layout: &UpNextLayout,
-    context_total: usize,
+    source_total: usize,
     offset: usize,
     limit: usize,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> FerrotuneApiResult<QueueWindow> {
-    let total = layout.total(context_total);
+    let total = layout.total(source_total);
     let end = (offset + limit).min(total);
     if offset >= end {
         return Ok(QueueWindow {
@@ -765,58 +770,53 @@ async fn build_queue_window(
     let display_items: Vec<(usize, QueueDisplayItem)> = (offset..end)
         .filter_map(|display_index| {
             layout
-                .display_item_at(display_index, context_total, current_index)
+                .display_item_at(display_index, source_total, current_index)
                 .map(|item| (display_index, item))
         })
         .collect();
 
-    let mut min_context = usize::MAX;
-    let mut max_context = 0usize;
+    let mut min_source = usize::MAX;
+    let mut max_source = 0usize;
     for (_, item) in &display_items {
-        if let QueueDisplayItem::Context(context_index) = item {
-            min_context = min_context.min(*context_index);
-            max_context = max_context.max(*context_index);
+        if let QueueDisplayItem::Source(source_index) = item {
+            min_source = min_source.min(*source_index);
+            max_source = max_source.max(*source_index);
         }
     }
 
-    let context_items = if min_context == usize::MAX {
+    let source_items = if min_source == usize::MAX {
         vec![]
     } else {
-        load_context_items(
+        load_source_items(
             database,
             state,
             user_id,
             session_id,
             queue,
-            context_total,
-            min_context,
-            max_context - min_context + 1,
+            source_total,
+            min_source,
+            max_source - min_source + 1,
         )
         .await?
     };
-    let context_by_index: std::collections::HashMap<usize, ContextWindowItem> = context_items
+    let source_by_index: std::collections::HashMap<usize, SourceWindowItem> = source_items
         .into_iter()
-        .map(|item| (item.context_index, item))
+        .map(|item| (item.source_index, item))
         .collect();
 
-    let manual_song_ids: Vec<String> = display_items
+    let up_next_song_ids: Vec<String> = display_items
         .iter()
         .filter_map(|(_, item)| match item {
-            QueueDisplayItem::Anchored { anchor, index } => layout
-                .anchored_row(*anchor, *index)
-                .map(|row| row.song_id.clone()),
-            QueueDisplayItem::Upcoming { index } => {
-                layout.upcoming_row(*index).map(|row| row.song_id.clone())
-            }
-            QueueDisplayItem::Context(_) => None,
+            QueueDisplayItem::UpNext(index) => layout.row(*index).map(|row| row.song_id.clone()),
+            QueueDisplayItem::Source(_) => None,
         })
         .collect();
-    let manual_songs = if manual_song_ids.is_empty() {
+    let up_next_songs = if up_next_song_ids.is_empty() {
         vec![]
     } else {
-        repo::browse::get_songs_by_ids_for_user(database, &manual_song_ids, user_id).await?
+        repo::browse::get_songs_by_ids_for_user(database, &up_next_song_ids, user_id).await?
     };
-    let manual_song_map: std::collections::HashMap<String, Song> = manual_songs
+    let up_next_song_map: std::collections::HashMap<String, Song> = up_next_songs
         .into_iter()
         .map(|song| (song.id.clone(), song))
         .collect();
@@ -825,33 +825,20 @@ async fn build_queue_window(
         Vec::with_capacity(display_items.len());
     for (display_index, item) in display_items {
         match item {
-            QueueDisplayItem::Context(context_index) => {
-                if let Some(context) = context_by_index.get(&context_index) {
+            QueueDisplayItem::Source(source_index) => {
+                if let Some(source) = source_by_index.get(&source_index) {
                     items.push((
                         display_index,
-                        context.entry_id.clone(),
-                        context.source_entry_id.clone(),
-                        "context",
-                        context.song.clone(),
+                        source.entry_id.clone(),
+                        source.source_entry_id.clone(),
+                        "source",
+                        source.song.clone(),
                     ));
                 }
             }
-            QueueDisplayItem::Anchored { anchor, index } => {
-                if let Some(row) = layout.anchored_row(anchor, index) {
-                    if let Some(song) = manual_song_map.get(&row.song_id) {
-                        items.push((
-                            display_index,
-                            row.entry_id.clone(),
-                            None,
-                            "upNext",
-                            song.clone(),
-                        ));
-                    }
-                }
-            }
-            QueueDisplayItem::Upcoming { index } => {
-                if let Some(row) = layout.upcoming_row(index) {
-                    if let Some(song) = manual_song_map.get(&row.song_id) {
+            QueueDisplayItem::UpNext(index) => {
+                if let Some(row) = layout.row(index) {
+                    if let Some(song) = up_next_song_map.get(&row.song_id) {
                         items.push((
                             display_index,
                             row.entry_id.clone(),
@@ -1471,7 +1458,6 @@ pub async fn start_queue(
         repeat_mode: repeat_mode.to_string(),
         source: QueueSourceInfo::from_queue(&queue),
         window,
-        is_lazy: queue.is_lazy,
     }))
 }
 
@@ -1500,7 +1486,6 @@ pub async fn get_queue(
                     songs: vec![],
                 },
                 version: 0,
-                is_lazy: false,
             }));
         }
     };
@@ -1509,15 +1494,12 @@ pub async fn get_queue(
     let limit = params.limit.unwrap_or(50).min(200);
     let inline_size = params.inline_images.get_size();
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let total_count = layout.total(context_total);
-    let current_index = layout.current_display_index(
-        queue.current_index.max(0) as usize,
-        queue.current_manual_entry_id.as_deref(),
-    );
+    let total_count = layout.total(source_total);
+    let current_index = queue.current_index.max(0) as usize;
     let window = build_queue_window(
         &state.database,
         &state,
@@ -1525,7 +1507,7 @@ pub async fn get_queue(
         session_id,
         &queue,
         &layout,
-        context_total,
+        source_total,
         offset,
         limit,
         inline_size,
@@ -1534,7 +1516,7 @@ pub async fn get_queue(
 
     Ok(Json(GetQueueResponse {
         total_count,
-        up_next_count: layout.upcoming_count(),
+        up_next_count: layout.len(),
         current_index,
         position_ms: queue.position_ms,
         is_shuffled: queue.is_shuffled,
@@ -1542,7 +1524,6 @@ pub async fn get_queue(
         source: QueueSourceInfo::from_queue(&queue),
         window,
         version: queue.version,
-        is_lazy: queue.is_lazy,
     }))
 }
 
@@ -1571,7 +1552,6 @@ pub async fn get_current_window(
                     songs: vec![],
                 },
                 version: 0,
-                is_lazy: false,
             }));
         }
     };
@@ -1579,15 +1559,12 @@ pub async fn get_current_window(
     let radius = params.radius.unwrap_or(20);
     let inline_size = params.inline_images.get_size();
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let total_count = layout.total(context_total);
-    let current_index = layout.current_display_index(
-        queue.current_index.max(0) as usize,
-        queue.current_manual_entry_id.as_deref(),
-    );
+    let total_count = layout.total(source_total);
+    let current_index = queue.current_index.max(0) as usize;
 
     let start = current_index.saturating_sub(radius);
     let end = (current_index + radius + 1).min(total_count);
@@ -1598,7 +1575,7 @@ pub async fn get_current_window(
         session_id,
         &queue,
         &layout,
-        context_total,
+        source_total,
         start,
         end - start,
         inline_size,
@@ -1607,7 +1584,7 @@ pub async fn get_current_window(
 
     Ok(Json(GetQueueResponse {
         total_count,
-        up_next_count: layout.upcoming_count(),
+        up_next_count: layout.len(),
         current_index,
         position_ms: queue.position_ms,
         is_shuffled: queue.is_shuffled,
@@ -1615,14 +1592,13 @@ pub async fn get_current_window(
         source: QueueSourceInfo::from_queue(&queue),
         window,
         version: queue.version,
-        is_lazy: queue.is_lazy,
     }))
 }
 
 /// POST /api/queue/add - Add songs to the up-next queue
 ///
 /// `next` prepends the batch to the up-next list, `end` appends it. The
-/// playback context is never touched, so a lazy queue can accept up-next songs
+/// source list is never touched, so a lazy queue can accept up-next songs
 /// without materializing.
 pub async fn add_to_queue(
     user: FerrotuneAuthenticatedUser,
@@ -1634,7 +1610,7 @@ pub async fn add_to_queue(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let manual_total =
         queries::count_up_next_by_session(&state.database, session_id).await? as usize;
@@ -1675,13 +1651,10 @@ pub async fn add_to_queue(
             UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
         return Ok(Json(QueueSuccessResponse {
             success: true,
-            new_index: Some(layout.current_display_index(
-                queue.current_index.max(0) as usize,
-                queue.current_manual_entry_id.as_deref(),
-            )),
-            total_count: Some(layout.total(context_total)),
+            new_index: Some(queue.current_index.max(0) as usize),
+            total_count: Some(layout.total(source_total)),
             added_count: Some(0),
-            up_next_count: Some(layout.upcoming_count()),
+            up_next_count: Some(layout.len()),
         }));
     }
 
@@ -1692,7 +1665,7 @@ pub async fn add_to_queue(
             MAX_UP_NEXT_SIZE
         ))));
     }
-    if context_total + manual_total + song_ids.len() > MAX_QUEUE_SIZE {
+    if source_total + manual_total + song_ids.len() > MAX_QUEUE_SIZE {
         return Err(FerrotuneApiError(Error::InvalidRequest(format!(
             "Adding {} songs would exceed maximum queue size of {}",
             song_ids.len(),
@@ -1737,7 +1710,6 @@ pub async fn add_to_queue(
             let existing = queries::list_up_next_by_session(&state.database, session_id).await?;
             let mut upcoming: Vec<(String, String, i64)> = existing
                 .into_iter()
-                .filter(|row| row.anchor_context_index.is_none())
                 .map(|row| (row.entry_id, row.song_id, row.sequence))
                 .collect();
             let insert_at = (*index).min(upcoming.len());
@@ -1767,11 +1739,8 @@ pub async fn add_to_queue(
 
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let total_count = layout.total(context_total);
-    let new_current_index = layout.current_display_index(
-        queue.current_index.max(0) as usize,
-        queue.current_manual_entry_id.as_deref(),
-    );
+    let total_count = layout.total(source_total);
+    let new_current_index = queue.current_index.max(0) as usize;
 
     broadcast_queue_updated(&state, session_id).await;
 
@@ -1780,7 +1749,7 @@ pub async fn add_to_queue(
         new_index: Some(new_current_index),
         total_count: Some(total_count),
         added_count: Some(added_count),
-        up_next_count: Some(layout.upcoming_count()),
+        up_next_count: Some(layout.len()),
     }))
 }
 
@@ -1796,116 +1765,57 @@ pub async fn remove_from_queue(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let current_context_index = queue.current_index.max(0) as usize;
+    let current_source_index = queue.current_index.max(0) as usize;
     let item = layout
-        .display_item_at(position, context_total, current_context_index)
+        .display_item_at(position, source_total, current_source_index)
         .ok_or_else(|| Error::NotFound("Position not found in queue".to_string()))?;
 
-    let mut new_context_total = context_total;
-    let mut new_context_index = current_context_index;
-    let mut new_manual_entry_id = queue.current_manual_entry_id.clone();
+    let mut new_source_total = source_total;
+    let mut new_source_index = current_source_index;
 
     match item {
-        QueueDisplayItem::Context(context_index) => {
-            // In shuffled mode the context index must be mapped back to the
-            // stored entry position before deleting it.
-            let original_position = resolve_original_queue_position(&queue, context_index)?;
-            let removed = queries::remove_from_queue_by_session(
-                &state.database,
-                session_id,
-                original_position as i64,
-            )
-            .await?;
-            if !removed {
-                return Err(FerrotuneApiError(Error::NotFound(
-                    "Position not found in queue".to_string(),
-                )));
-            }
+        QueueDisplayItem::Source(source_index) => {
+            let queue = ensure_materialized(&state, user.user_id, session_id, queue).await?;
+            let (stored, shuffle) = if queue.is_shuffled {
+                let mut indices = queue_shuffle_indices(&queue, source_total);
+                let stored = shuffle_remove(&mut indices, source_index).ok_or_else(|| {
+                    FerrotuneApiError(Error::NotFound("Position not found in queue".to_string()))
+                })?;
+                (stored, Some(shuffle_json(&indices)?))
+            } else {
+                (source_index, None)
+            };
 
-            new_context_total = context_total.saturating_sub(1);
-            new_context_index = shifted_current_index_after_remove(
-                current_context_index,
-                context_index,
-                new_context_total,
+            new_source_total = source_total.saturating_sub(1);
+            new_source_index = shifted_current_index_after_remove(
+                current_source_index,
+                source_index,
+                new_source_total,
             );
 
-            queries::shift_up_next_anchors_after_removal(
+            queries::apply_queue_edit(
                 &state.database,
+                user.user_id,
                 session_id,
-                context_index as i64,
+                queries::QueueEdit {
+                    remove_entry_at: Some(stored as i64),
+                    current_index: new_source_index as i64,
+                    shuffle_indices_json: shuffle,
+                    ..Default::default()
+                },
             )
             .await?;
-
             if queue.is_shuffled {
-                let mut indices = queue.shuffle_indices().unwrap_or_default();
-                indices.retain(|&idx| idx != original_position);
-                for idx in indices.iter_mut() {
-                    if *idx > original_position {
-                        *idx -= 1;
-                    }
-                }
-                let indices_json = serde_json::to_string(&indices)
-                    .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
-                let updated = queries::update_queue_shuffle_by_session(
-                    &state.database,
-                    session_id,
-                    true,
-                    queue.shuffle_seed,
-                    Some(&indices_json),
-                    new_context_index as i64,
-                    queue.position_ms,
-                    Some(queue.version),
-                )
-                .await?;
-                if !updated {
-                    return Err(FerrotuneApiError(Error::InvalidRequest(
-                        "Queue was modified concurrently, please retry".to_string(),
-                    )));
-                }
-                queries::set_queue_current_manual_entry(
-                    &state.database,
-                    session_id,
-                    new_manual_entry_id.as_deref(),
-                )
-                .await?;
                 invalidate_shuffle_cache(&state, user.user_id).await;
-            } else {
-                queries::update_queue_cursor_by_session(
-                    &state.database,
-                    session_id,
-                    new_context_index as i64,
-                    new_manual_entry_id.as_deref(),
-                    queue.position_ms,
-                )
-                .await?;
             }
         }
-        QueueDisplayItem::Anchored { anchor, index } => {
+        QueueDisplayItem::UpNext(index) => {
             let entry_id = layout
-                .anchored_row(anchor, index)
-                .map(|row| row.entry_id.clone())
-                .ok_or_else(|| Error::NotFound("Position not found in queue".to_string()))?;
-            queries::delete_up_next_entry_by_session(&state.database, session_id, &entry_id)
-                .await?;
-            if queue.current_manual_entry_id.as_deref() == Some(entry_id.as_str()) {
-                new_manual_entry_id = None;
-                queries::update_queue_cursor_by_session(
-                    &state.database,
-                    session_id,
-                    new_context_index as i64,
-                    None,
-                    queue.position_ms,
-                )
-                .await?;
-            }
-        }
-        QueueDisplayItem::Upcoming { index } => {
-            let entry_id = layout
-                .upcoming_row(index)
+                .row(index)
                 .map(|row| row.entry_id.clone())
                 .ok_or_else(|| Error::NotFound("Position not found in queue".to_string()))?;
             queries::delete_up_next_entry_by_session(&state.database, session_id, &entry_id)
@@ -1915,17 +1825,15 @@ pub async fn remove_from_queue(
 
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let total_count = layout.total(new_context_total);
-    let new_index = layout.current_display_index(new_context_index, new_manual_entry_id.as_deref());
 
     broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
-        new_index: Some(new_index),
-        total_count: Some(total_count),
+        new_index: Some(new_source_index),
+        total_count: Some(layout.total(new_source_total)),
         added_count: None,
-        up_next_count: Some(layout.upcoming_count()),
+        up_next_count: Some(layout.len()),
     }))
 }
 
@@ -1940,86 +1848,108 @@ pub async fn move_in_queue(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let current_context_index = queue.current_index.max(0) as usize;
+    let current_index = queue.current_index.max(0) as usize;
+    let display_total = layout.total(source_total);
     let from_item = layout
-        .display_item_at(request.from_position, context_total, current_context_index)
+        .display_item_at(request.from_position, source_total, current_index)
         .ok_or_else(|| Error::InvalidRequest("From position out of range".to_string()))?;
-    let to_item = layout
-        .display_item_at(request.to_position, context_total, current_context_index)
-        .ok_or_else(|| Error::InvalidRequest("To position out of range".to_string()))?;
-
-    if request.from_position == request.to_position {
-        return Ok(Json(QueueSuccessResponse {
-            success: true,
-            new_index: Some(layout.current_display_index(
-                current_context_index,
-                queue.current_manual_entry_id.as_deref(),
-            )),
-            total_count: Some(layout.total(context_total)),
-            added_count: None,
-            up_next_count: Some(layout.upcoming_count()),
-        }));
+    if request.to_position >= display_total {
+        return Err(FerrotuneApiError(Error::InvalidRequest(
+            "To position out of range".to_string(),
+        )));
     }
 
-    let mut new_context_index = current_context_index;
-    match (from_item, to_item) {
-        (QueueDisplayItem::Context(from_context), QueueDisplayItem::Context(to_context)) => {
-            let from_original = resolve_original_queue_position(&queue, from_context)?;
-            let to_original = resolve_original_queue_position(&queue, to_context)?;
+    let unchanged = |new_index| {
+        Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: Some(new_index),
+            total_count: Some(display_total),
+            added_count: None,
+            up_next_count: Some(layout.len()),
+        }))
+    };
+    if request.from_position == request.to_position {
+        return unchanged(current_index);
+    }
 
+    // Describe the queue without the moved row, then place it by where it
+    // lands (`to_position` is its display index after the move). The playing
+    // track moves within the source list and up next stays right after it.
+    let (current_without, target) = if request.from_position == current_index {
+        let to = if request.to_position <= current_index {
+            request.to_position
+        } else {
+            request
+                .to_position
+                .saturating_sub(layout.len())
+                .max(current_index)
+        };
+        if to == current_index {
+            return unchanged(current_index);
+        }
+        (current_index, QueueDisplayItem::Source(to))
+    } else {
+        let current_without = current_index - usize::from(request.from_position < current_index);
+        let up_next_without =
+            layout.len() - usize::from(matches!(from_item, QueueDisplayItem::UpNext(_)));
+        (
+            current_without,
+            drop_target(request.to_position, current_without, up_next_without),
+        )
+    };
+    let moving_current = request.from_position == current_index;
+
+    let new_current_index = match (from_item, target) {
+        (QueueDisplayItem::UpNext(from), QueueDisplayItem::UpNext(to)) => {
+            let mut order = layout.entry_ids();
+            let moved = order.remove(from);
+            order.insert(to.min(order.len()), moved);
+            let sequence_rows: Vec<(String, i64)> = order
+                .into_iter()
+                .enumerate()
+                .map(|(sequence, entry_id)| (entry_id, sequence as i64))
+                .collect();
+            queries::update_up_next_sequences(&state.database, session_id, &sequence_rows).await?;
+            current_index
+        }
+        (QueueDisplayItem::Source(from), QueueDisplayItem::Source(to)) => {
+            let queue = ensure_materialized(&state, user.user_id, session_id, queue).await?;
+            let new_current = if moving_current {
+                to
+            } else {
+                current_without + usize::from(to <= current_without)
+            };
             if queue.is_shuffled {
-                let mut indices = queue.shuffle_indices().unwrap_or_default();
-                if from_context >= indices.len() || to_context >= indices.len() {
+                let mut indices = queue_shuffle_indices(&queue, source_total);
+                if from >= indices.len() {
                     return Err(FerrotuneApiError(Error::InvalidRequest(
                         "Position out of range".to_string(),
                     )));
                 }
-                let moved = indices.remove(from_context);
-                indices.insert(to_context, moved);
-
-                new_context_index = if from_context == current_context_index {
-                    to_context
-                } else if from_context < current_context_index
-                    && to_context >= current_context_index
-                {
-                    current_context_index - 1
-                } else if from_context > current_context_index
-                    && to_context <= current_context_index
-                {
-                    current_context_index + 1
-                } else {
-                    current_context_index
-                };
-
-                let indices_json = serde_json::to_string(&indices)
-                    .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
-                let updated = queries::update_queue_shuffle_by_session(
+                let moved = indices.remove(from);
+                indices.insert(to.min(indices.len()), moved);
+                queries::apply_queue_edit(
                     &state.database,
+                    user.user_id,
                     session_id,
-                    true,
-                    queue.shuffle_seed,
-                    Some(&indices_json),
-                    new_context_index as i64,
-                    queue.position_ms,
-                    Some(queue.version),
+                    queries::QueueEdit {
+                        current_index: new_current as i64,
+                        shuffle_indices_json: Some(shuffle_json(&indices)?),
+                        ..Default::default()
+                    },
                 )
                 .await?;
-                if !updated {
-                    return Err(FerrotuneApiError(Error::InvalidRequest(
-                        "Queue was modified concurrently, please retry".to_string(),
-                    )));
-                }
                 invalidate_shuffle_cache(&state, user.user_id).await;
             } else {
                 let moved = queries::move_in_queue_by_session(
                     &state.database,
                     session_id,
-                    from_original as i64,
-                    to_original as i64,
+                    from as i64,
+                    to as i64,
                 )
                 .await?;
                 if !moved {
@@ -2027,265 +1957,105 @@ pub async fn move_in_queue(
                         "Position not found in queue".to_string(),
                     )));
                 }
-
-                new_context_index = if from_context == current_context_index {
-                    to_context
-                } else if from_context < current_context_index
-                    && to_context >= current_context_index
-                {
-                    current_context_index - 1
-                } else if from_context > current_context_index
-                    && to_context <= current_context_index
-                {
-                    current_context_index + 1
-                } else {
-                    current_context_index
-                };
-
                 queries::update_queue_cursor_by_session(
                     &state.database,
                     session_id,
-                    new_context_index as i64,
-                    queue.current_manual_entry_id.as_deref(),
+                    new_current as i64,
                     queue.position_ms,
                 )
                 .await?;
             }
-
-            queries::shift_up_next_anchors_for_move(
-                &state.database,
-                session_id,
-                from_context as i64,
-                to_context as i64,
-            )
-            .await?;
-            queries::set_queue_current_manual_entry(
-                &state.database,
-                session_id,
-                queue.current_manual_entry_id.as_deref(),
-            )
-            .await?;
+            new_current
         }
-        (
-            QueueDisplayItem::Upcoming { index: from_index },
-            QueueDisplayItem::Upcoming { index: to_index },
-        ) => {
-            let mut entry_ids: Vec<String> = layout
-                .upcoming
-                .iter()
-                .filter_map(|row_index| layout.rows.get(*row_index))
-                .map(|row| row.entry_id.clone())
-                .collect();
-            if from_index >= entry_ids.len() || to_index >= entry_ids.len() {
-                return Err(FerrotuneApiError(Error::InvalidRequest(
-                    "Position out of range".to_string(),
-                )));
-            }
-            let moved = entry_ids.remove(from_index);
-            entry_ids.insert(to_index, moved);
-            let sequence_rows: Vec<(String, i64)> = entry_ids
-                .iter()
-                .enumerate()
-                .map(|(offset, entry_id)| (entry_id.clone(), offset as i64))
-                .collect();
-            queries::update_up_next_sequences(&state.database, session_id, &sequence_rows).await?;
-            queries::set_queue_current_manual_entry(
+        (QueueDisplayItem::Source(from), QueueDisplayItem::UpNext(to)) => {
+            let queue = ensure_materialized(&state, user.user_id, session_id, queue).await?;
+            let (stored, shuffle) = if queue.is_shuffled {
+                let mut indices = queue_shuffle_indices(&queue, source_total);
+                let stored = shuffle_remove(&mut indices, from).ok_or_else(|| {
+                    FerrotuneApiError(Error::NotFound("Position not found in queue".to_string()))
+                })?;
+                (stored, Some(shuffle_json(&indices)?))
+            } else {
+                (from, None)
+            };
+            let entry = queries::get_queue_entries_at_positions_by_session(
                 &state.database,
                 session_id,
-                queue.current_manual_entry_id.as_deref(),
+                &[stored],
             )
-            .await?;
-        }
-        (
-            QueueDisplayItem::Anchored {
-                anchor: from_anchor,
-                index: from_index,
-            },
-            QueueDisplayItem::Anchored {
-                anchor: to_anchor,
-                index: to_index,
-            },
-        ) if from_anchor == to_anchor => {
-            let mut entry_ids: Vec<String> = layout
-                .anchored
-                .get(&from_anchor)
-                .map(|rows| {
-                    rows.iter()
-                        .filter_map(|row_index| layout.rows.get(*row_index))
-                        .map(|row| row.entry_id.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            if from_index >= entry_ids.len() || to_index >= entry_ids.len() {
-                return Err(FerrotuneApiError(Error::InvalidRequest(
-                    "Position out of range".to_string(),
-                )));
-            }
-            let moved = entry_ids.remove(from_index);
-            entry_ids.insert(to_index, moved);
-            let sequence_rows: Vec<(String, i64)> = entry_ids
-                .iter()
-                .enumerate()
-                .map(|(offset, entry_id)| (entry_id.clone(), offset as i64))
-                .collect();
-            queries::update_up_next_sequences(&state.database, session_id, &sequence_rows).await?;
-            queries::set_queue_current_manual_entry(
-                &state.database,
-                session_id,
-                queue.current_manual_entry_id.as_deref(),
-            )
-            .await?;
-        }
-        (
-            QueueDisplayItem::Context(from_context),
-            QueueDisplayItem::Upcoming { index: to_index },
-        ) => {
-            if queue.is_lazy {
-                return Err(FerrotuneApiError(Error::InvalidRequest(
-                    "Moving tracks out of a lazily loaded queue isn't supported yet".to_string(),
-                )));
-            }
-            if from_context <= current_context_index {
-                return Err(FerrotuneApiError(Error::InvalidRequest(
-                    "Only tracks after the current one can move into the queue".to_string(),
-                )));
-            }
-
-            let from_original = resolve_original_queue_position(&queue, from_context)?;
-            let entries = queries::get_queue_entries_at_positions_by_session(
-                &state.database,
-                session_id,
-                &[from_original],
-            )
-            .await?;
-            let entry = entries.into_iter().next().ok_or_else(|| {
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
                 FerrotuneApiError(Error::NotFound("Position not found in queue".to_string()))
             })?;
 
-            let shuffle_json = if queue.is_shuffled {
-                let mut indices = queue.shuffle_indices().unwrap_or_default();
-                indices.retain(|&index| index != from_original);
-                for index in indices.iter_mut() {
-                    if *index > from_original {
-                        *index -= 1;
-                    }
-                }
-                Some(
-                    serde_json::to_string(&indices)
-                        .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?,
-                )
-            } else {
-                None
-            };
-
-            queries::move_context_row_to_up_next(
+            let mut order = layout.entry_ids();
+            order.insert(to.min(order.len()), entry.entry_id.clone());
+            queries::apply_queue_edit(
                 &state.database,
                 user.user_id,
                 session_id,
-                from_original as i64,
-                from_context as i64,
-                current_context_index as i64,
-                shuffle_json.as_deref(),
-                &entry.entry_id,
-                &entry.id,
-                to_index,
+                queries::QueueEdit {
+                    remove_entry_at: Some(stored as i64),
+                    insert_up_next: vec![(entry.entry_id.clone(), entry.id.clone())],
+                    up_next_order: Some(order),
+                    current_index: current_without as i64,
+                    shuffle_indices_json: shuffle,
+                    ..Default::default()
+                },
             )
             .await?;
-
             if queue.is_shuffled {
                 invalidate_shuffle_cache(&state, user.user_id).await;
             }
-            new_context_index = current_context_index;
+            current_without
         }
-        (
-            QueueDisplayItem::Upcoming { index: from_index },
-            QueueDisplayItem::Context(to_context),
-        ) => {
-            if queue.is_lazy {
-                return Err(FerrotuneApiError(Error::InvalidRequest(
-                    "Moving tracks into a lazily loaded queue isn't supported yet".to_string(),
-                )));
-            }
-
+        (QueueDisplayItem::UpNext(from), QueueDisplayItem::Source(to)) => {
+            let queue = ensure_materialized(&state, user.user_id, session_id, queue).await?;
             let row = layout
-                .upcoming_row(from_index)
-                .ok_or_else(|| FerrotuneApiError(Error::NotFound("Row not found".to_string())))?;
-            let manual_entry_id = row.entry_id.clone();
-            let song_id = row.song_id.clone();
-
-            // Match the drop line: a downward drag (up next -> later playlist
-            // row) inserts after the target; an upward drag (into the played
-            // section) inserts before it.
-            let insert_context_index = if request.from_position < request.to_position {
-                to_context + 1
+                .row(from)
+                .ok_or_else(|| FerrotuneApiError(Error::NotFound("Row not found".to_string())))?
+                .clone();
+            let (stored, shuffle) = if queue.is_shuffled {
+                let mut indices = queue_shuffle_indices(&queue, source_total);
+                let stored = shuffle_insert(&mut indices, to, 1);
+                (stored, Some(shuffle_json(&indices)?))
             } else {
-                to_context
+                (to, None)
             };
-
-            // Inserting at or before the current track pushes it forward one
-            // slot; the same song stays current. Targeting the played section
-            // is allowed and places the moved song in history.
-            let moved_context_index =
-                current_context_index + usize::from(insert_context_index <= current_context_index);
-
-            let (insert_position, shift_entries, shuffle_json) =
-                if queue.is_shuffled {
-                    let mut indices = queue.shuffle_indices().unwrap_or_default();
-                    let new_original = context_total;
-                    let insert_at = insert_context_index.min(indices.len());
-                    indices.insert(insert_at, new_original);
-                    (
-                        new_original as i64,
-                        false,
-                        Some(serde_json::to_string(&indices).map_err(|e| {
-                            Error::Internal(format!("Failed to serialize JSON: {e}"))
-                        })?),
-                    )
-                } else {
-                    (insert_context_index as i64, true, None)
-                };
-
-            queries::move_up_next_row_to_context(
+            let new_current = current_without + usize::from(to <= current_without);
+            queries::apply_queue_edit(
                 &state.database,
                 user.user_id,
                 session_id,
-                &manual_entry_id,
-                &song_id,
-                insert_position,
-                shift_entries,
-                insert_context_index as i64,
-                moved_context_index as i64,
-                shuffle_json.as_deref(),
+                queries::QueueEdit {
+                    remove_up_next: vec![row.entry_id.clone()],
+                    insert_entries: Some((stored as i64, vec![(row.entry_id, row.song_id)])),
+                    current_index: new_current as i64,
+                    shuffle_indices_json: shuffle,
+                    ..Default::default()
+                },
             )
             .await?;
-
             if queue.is_shuffled {
                 invalidate_shuffle_cache(&state, user.user_id).await;
             }
-            new_context_index = moved_context_index;
+            new_current
         }
-        _ => {
-            return Err(FerrotuneApiError(Error::InvalidRequest(
-                "Played tracks stay in place; move upcoming tracks instead".to_string(),
-            )));
-        }
-    }
+    };
 
-    let updated_context_total =
-        get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let new_index =
-        layout.current_display_index(new_context_index, queue.current_manual_entry_id.as_deref());
 
     broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
-        new_index: Some(new_index),
-        total_count: Some(layout.total(updated_context_total)),
+        new_index: Some(new_current_index),
+        total_count: Some(layout.total(source_total)),
         added_count: None,
-        up_next_count: Some(layout.upcoming_count()),
+        up_next_count: Some(layout.len()),
     }))
 }
 
@@ -2388,11 +2158,6 @@ pub async fn toggle_shuffle(
         // Invalidate old cache and prime the new one
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        // Up-next rows survive; their played history no longer has a stable
-        // context position in the new order.
-        queries::delete_up_next_anchored_by_session(&state.database, session_id).await?;
-        queries::set_queue_current_manual_entry(&state.database, session_id, None).await?;
-
         let layout =
             UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
 
@@ -2400,10 +2165,10 @@ pub async fn toggle_shuffle(
 
         Ok(Json(QueueSuccessResponse {
             success: true,
-            new_index: Some(layout.current_display_index(0, None)),
+            new_index: Some(0),
             total_count: Some(layout.total(total_count)),
             added_count: None,
-            up_next_count: Some(layout.upcoming_count()),
+            up_next_count: Some(layout.len()),
         }))
     } else {
         // Disable shuffle - restore original order
@@ -2439,9 +2204,6 @@ pub async fn toggle_shuffle(
         // Invalidate shuffle cache
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        queries::delete_up_next_anchored_by_session(&state.database, session_id).await?;
-        queries::set_queue_current_manual_entry(&state.database, session_id, None).await?;
-
         let layout =
             UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
 
@@ -2449,10 +2211,10 @@ pub async fn toggle_shuffle(
 
         Ok(Json(QueueSuccessResponse {
             success: true,
-            new_index: Some(layout.current_display_index(original_index, None)),
+            new_index: Some(original_index),
             total_count: Some(layout.total(total_count)),
             added_count: None,
-            up_next_count: Some(layout.upcoming_count()),
+            up_next_count: Some(layout.len()),
         }))
     }
 }
@@ -2530,12 +2292,12 @@ pub async fn update_position(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let display_total = layout.total(context_total);
-    let current_context_index = queue.current_index.max(0) as usize;
+    let display_total = layout.total(source_total);
+    let current_source_index = queue.current_index.max(0) as usize;
 
     if request.current_index >= display_total {
         return Err(FerrotuneApiError(Error::InvalidRequest(
@@ -2547,8 +2309,8 @@ pub async fn update_position(
     if request.reshuffle && queue.is_shuffled {
         let seed = rand::random::<u64>() as i64;
         use rand::RngExt;
-        let start = rand::rng().random_range(0..context_total);
-        let indices = generate_shuffle_indices(context_total, start, seed as u64);
+        let start = rand::rng().random_range(0..source_total);
+        let indices = generate_shuffle_indices(source_total, start, seed as u64);
         let indices_json = serde_json::to_string(&indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
 
@@ -2564,11 +2326,6 @@ pub async fn update_position(
         )
         .await?;
 
-        // A new cycle starts clean: unplayed up-next rows follow the new
-        // current, played history has no stable anchors in the new order.
-        queries::delete_up_next_anchored_by_session(&state.database, session_id).await?;
-        queries::set_queue_current_manual_entry(&state.database, session_id, None).await?;
-
         invalidate_shuffle_cache(&state, user.user_id).await;
 
         let layout =
@@ -2578,89 +2335,84 @@ pub async fn update_position(
 
         return Ok(Json(QueueSuccessResponse {
             success: true,
-            new_index: Some(layout.current_display_index(0, None)),
-            total_count: Some(layout.total(context_total)),
+            new_index: Some(0),
+            total_count: Some(layout.total(source_total)),
             added_count: None,
-            up_next_count: Some(layout.upcoming_count()),
+            up_next_count: Some(layout.len()),
         }));
     }
 
     let item = layout
-        .display_item_at(request.current_index, context_total, current_context_index)
+        .display_item_at(request.current_index, source_total, current_source_index)
         .ok_or_else(|| {
             FerrotuneApiError(Error::InvalidRequest("Position out of range".to_string()))
         })?;
 
-    let new_context_index: usize;
-    let mut new_manual_entry_id: Option<String> = None;
-    match item {
-        QueueDisplayItem::Context(context_index) => {
-            new_context_index = context_index;
-        }
-        QueueDisplayItem::Anchored { anchor, index } => {
-            new_context_index = anchor;
-            new_manual_entry_id = layout
-                .anchored_row(anchor, index)
-                .map(|row| row.entry_id.clone());
-        }
-        QueueDisplayItem::Upcoming { index } => {
-            let row = layout
-                .upcoming_row(index)
-                .ok_or_else(|| FerrotuneApiError(Error::NotFound("Row not found".to_string())))?;
-            new_context_index = current_context_index;
-            new_manual_entry_id = Some(row.entry_id.clone());
-            queries::anchor_upcoming_through_sequence(
+    let (new_index, display_total) = match item {
+        QueueDisplayItem::Source(source_index) => {
+            queries::update_queue_cursor_by_session(
                 &state.database,
                 session_id,
-                current_context_index as i64,
-                row.sequence,
+                source_index as i64,
+                request.position_ms,
             )
             .await?;
+            (source_index, display_total)
         }
-    }
+        QueueDisplayItem::UpNext(index) => {
+            // The up-next song starts playing: it and any up-next songs
+            // jumped over move into the source list right after the current
+            // track, in order. They are ordinary history from now on. Display
+            // positions don't change.
+            let queue = ensure_materialized(&state, user.user_id, session_id, queue).await?;
+            let played: Vec<(String, String)> = layout.rows[..=index]
+                .iter()
+                .map(|row| (row.entry_id.clone(), row.song_id.clone()))
+                .collect();
+            let insert_at = current_source_index + 1;
+            let (stored, shuffle) = if queue.is_shuffled {
+                let mut indices = queue_shuffle_indices(&queue, source_total);
+                let stored = shuffle_insert(&mut indices, insert_at, played.len());
+                (stored, Some(shuffle_json(&indices)?))
+            } else {
+                (insert_at, None)
+            };
+            let new_index = current_source_index + played.len();
+            queries::apply_queue_edit(
+                &state.database,
+                user.user_id,
+                session_id,
+                queries::QueueEdit {
+                    remove_up_next: played
+                        .iter()
+                        .map(|(entry_id, _)| entry_id.clone())
+                        .collect(),
+                    insert_entries: Some((stored as i64, played)),
+                    current_index: new_index as i64,
+                    shuffle_indices_json: shuffle,
+                    position_ms: Some(request.position_ms),
+                    ..Default::default()
+                },
+            )
+            .await?;
+            if queue.is_shuffled {
+                invalidate_shuffle_cache(&state, user.user_id).await;
+            }
+            (new_index, display_total)
+        }
+    };
 
-    if queue.is_shuffled {
-        queries::update_queue_shuffle_by_session(
-            &state.database,
-            session_id,
-            true,
-            queue.shuffle_seed,
-            queue.shuffle_indices_json.as_deref(),
-            new_context_index as i64,
-            request.position_ms,
-            None,
-        )
-        .await?;
-        queries::set_queue_current_manual_entry(
-            &state.database,
-            session_id,
-            new_manual_entry_id.as_deref(),
-        )
-        .await?;
-    } else {
-        queries::update_queue_cursor_by_session(
-            &state.database,
-            session_id,
-            new_context_index as i64,
-            new_manual_entry_id.as_deref(),
-            request.position_ms,
-        )
-        .await?;
-    }
-
-    let layout =
-        UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let new_display_index =
-        layout.current_display_index(new_context_index, new_manual_entry_id.as_deref());
+    let up_next_count =
+        queries::count_up_next_by_session(&state.database, session_id).await? as usize;
 
     broadcast_position_updated(&state, session_id, request_client_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
-        new_index: Some(new_display_index),
-        total_count: Some(layout.total(context_total)),
+        new_index: Some(new_index),
+        total_count: Some(display_total),
         added_count: None,
-        up_next_count: Some(layout.upcoming_count()),
+        up_next_count: Some(up_next_count),
     }))
 }
 
@@ -2721,8 +2473,8 @@ pub async fn clear_queue(
 
 /// DELETE /api/queue/up-next - Clear the explicitly queued songs
 ///
-/// Removes every still-upcoming up-next row. Played up-next history and the
-/// playback context stay untouched, so the playlist keeps playing.
+/// Removes every up-next song. The source list stays untouched, so playback
+/// continues with it.
 pub async fn clear_up_next(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
@@ -2733,23 +2485,20 @@ pub async fn clear_up_next(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let context_total =
+    let source_total =
         get_queue_total_count(&state.database, &queue, user.user_id, session_id).await?;
-    queries::delete_up_next_upcoming_by_session(&state.database, session_id).await?;
+    queries::delete_up_next_by_session(&state.database, session_id).await?;
 
     let layout =
         UpNextLayout::new(queries::list_up_next_by_session(&state.database, session_id).await?);
-    let new_index = layout.current_display_index(
-        queue.current_index.max(0) as usize,
-        queue.current_manual_entry_id.as_deref(),
-    );
+    let new_index = queue.current_index.max(0) as usize;
 
     broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
         new_index: Some(new_index),
-        total_count: Some(layout.total(context_total)),
+        total_count: Some(layout.total(source_total)),
         added_count: None,
         up_next_count: Some(0),
     }))
@@ -4028,103 +3777,93 @@ async fn invalidate_shuffle_cache(state: &AppState, user_id: i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{shifted_current_index_after_remove, QueueDisplayItem, UpNextLayout};
+    use super::{
+        drop_target, shifted_current_index_after_remove, shuffle_insert, shuffle_remove,
+        QueueDisplayItem, UpNextLayout,
+    };
     use crate::db::models::PlayQueueUpNext;
 
-    fn up_next(entry_id: &str, anchor: Option<usize>) -> PlayQueueUpNext {
+    fn up_next(entry_id: &str) -> PlayQueueUpNext {
         PlayQueueUpNext {
             entry_id: entry_id.to_string(),
             song_id: format!("song-{entry_id}"),
             sequence: 0,
-            anchor_context_index: anchor.map(|a| a as i64),
         }
     }
 
     #[test]
-    fn empty_up_next_keeps_context_positions() {
-        let layout = UpNextLayout::new(vec![]);
+    fn empty_up_next_keeps_source_positions() {
+        let layout = UpNextLayout::default();
         assert_eq!(layout.total(5), 5);
-        assert_eq!(layout.current_display_index(2, None), 2);
-        assert_eq!(
-            layout.display_item_at(2, 5, 2),
-            Some(QueueDisplayItem::Context(2))
-        );
-        assert_eq!(layout.upcoming_count(), 0);
+        for index in 0..5 {
+            assert_eq!(
+                layout.display_item_at(index, 5, 2),
+                Some(QueueDisplayItem::Source(index))
+            );
+        }
+        assert_eq!(layout.display_item_at(5, 5, 2), None);
     }
 
     #[test]
-    fn upcoming_rows_sit_after_current_before_next_context() {
-        let layout = UpNextLayout::new(vec![up_next("a", None), up_next("b", None)]);
-        assert_eq!(layout.total(3), 5);
-        assert_eq!(layout.current_display_index(1, None), 1);
-        assert_eq!(layout.upcoming_count(), 2);
+    fn up_next_sits_between_current_and_next_source_row() {
+        let layout = UpNextLayout::new(vec![up_next("a"), up_next("b")]);
+        assert_eq!(layout.total(4), 6);
+        let items: Vec<_> = (0..6)
+            .map(|index| layout.display_item_at(index, 4, 1).unwrap())
+            .collect();
         assert_eq!(
-            layout.display_item_at(2, 3, 1),
-            Some(QueueDisplayItem::Upcoming { index: 0 })
-        );
-        assert_eq!(
-            layout.display_item_at(3, 3, 1),
-            Some(QueueDisplayItem::Upcoming { index: 1 })
-        );
-        assert_eq!(
-            layout.display_item_at(4, 3, 1),
-            Some(QueueDisplayItem::Context(2))
+            items,
+            vec![
+                QueueDisplayItem::Source(0),
+                QueueDisplayItem::Source(1),
+                QueueDisplayItem::UpNext(0),
+                QueueDisplayItem::UpNext(1),
+                QueueDisplayItem::Source(2),
+                QueueDisplayItem::Source(3),
+            ]
         );
     }
 
+    // Queue without the moved row: S0 S1(current) U0 U1 S2 S3.
     #[test]
-    fn played_up_next_rows_are_anchored_in_history() {
-        let layout = UpNextLayout::new(vec![
-            up_next("a0", Some(0)),
-            up_next("b0", Some(0)),
-            up_next("a1", Some(1)),
-            up_next("next", None),
-        ]);
-        assert_eq!(layout.total(3), 7);
-        assert_eq!(layout.current_display_index(1, None), 3);
-        assert_eq!(layout.current_display_index(1, Some("a1")), 4);
-        assert_eq!(
-            layout.display_item_at(3, 3, 1),
-            Some(QueueDisplayItem::Context(1))
-        );
-        assert_eq!(
-            layout.display_item_at(4, 3, 1),
-            Some(QueueDisplayItem::Anchored {
-                anchor: 1,
-                index: 0
-            })
-        );
-        assert_eq!(
-            layout.display_item_at(5, 3, 1),
-            Some(QueueDisplayItem::Upcoming { index: 0 })
-        );
-        assert_eq!(
-            layout.display_item_at(6, 3, 1),
-            Some(QueueDisplayItem::Context(2))
-        );
-        assert_eq!(layout.upcoming_count(), 1);
+    fn drop_right_after_current_or_up_next_joins_up_next() {
+        assert_eq!(drop_target(2, 1, 2), QueueDisplayItem::UpNext(0));
+        assert_eq!(drop_target(3, 1, 2), QueueDisplayItem::UpNext(1));
+        // Just after the last up-next song.
+        assert_eq!(drop_target(4, 1, 2), QueueDisplayItem::UpNext(2));
+        // Empty up next: right below the current track starts it.
+        assert_eq!(drop_target(2, 1, 0), QueueDisplayItem::UpNext(0));
     }
 
     #[test]
-    fn current_manual_row_anchor_matches_its_display_position() {
-        let layout = UpNextLayout::new(vec![up_next("a", Some(2)), up_next("b", None)]);
-        // C0, C1, C2, A, B, C3
-        assert_eq!(layout.current_display_index(2, Some("a")), 3);
-        assert_eq!(
-            layout.display_item_at(3, 4, 2),
-            Some(QueueDisplayItem::Anchored {
-                anchor: 2,
-                index: 0
-            })
-        );
-        assert_eq!(
-            layout.display_item_at(4, 4, 2),
-            Some(QueueDisplayItem::Upcoming { index: 0 })
-        );
-        assert_eq!(
-            layout.display_item_at(5, 4, 2),
-            Some(QueueDisplayItem::Context(3))
-        );
+    fn drop_elsewhere_becomes_a_source_row() {
+        assert_eq!(drop_target(0, 1, 2), QueueDisplayItem::Source(0));
+        assert_eq!(drop_target(1, 1, 2), QueueDisplayItem::Source(1));
+        assert_eq!(drop_target(5, 1, 2), QueueDisplayItem::Source(3));
+        assert_eq!(drop_target(6, 1, 2), QueueDisplayItem::Source(4));
+        assert_eq!(drop_target(3, 1, 0), QueueDisplayItem::Source(3));
+    }
+
+    #[test]
+    fn shuffle_insert_stores_rows_after_the_row_they_follow() {
+        // Shuffled order of stored rows 0..4.
+        let mut indices = vec![2, 0, 3, 1];
+        let stored = shuffle_insert(&mut indices, 2, 2);
+        // Inserted after stored row 0, so they get stored positions 1 and 2.
+        assert_eq!(stored, 1);
+        assert_eq!(indices, vec![4, 0, 1, 2, 5, 3]);
+
+        let mut indices = vec![1, 0];
+        assert_eq!(shuffle_insert(&mut indices, 0, 1), 0);
+        assert_eq!(indices, vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn shuffle_remove_returns_stored_position_and_compacts() {
+        let mut indices = vec![4, 0, 1, 2, 5, 3];
+        assert_eq!(shuffle_remove(&mut indices, 2), Some(1));
+        assert_eq!(indices, vec![3, 0, 1, 4, 2]);
+        assert_eq!(shuffle_remove(&mut indices, 9), None);
     }
 
     #[test]

@@ -110,6 +110,11 @@ import com.ferrotune.feature.player.data.QueueEntry
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 
 private val QueueRowHeight = 60.dp
 private val QueueRowGap = 4.dp
@@ -352,19 +357,19 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                             } else {
                                 val isCurrent = index == state.currentIndex
                                 val isPlayed = index < state.currentIndex
-                                val currentIsManual =
-                                    entries.peek(state.currentIndex)?.origin == "upNext"
+                                // Up next is always the block right after the
+                                // current track; a song leaves it once it plays.
                                 val upNextStart =
                                     if (state.upNextCount > 0) state.currentIndex + 1 else null
-                                val contextStart =
-                                    if (state.upNextCount > 0 || currentIsManual) {
+                                val sourceStart =
+                                    if (state.upNextCount > 0) {
                                         state.currentIndex + 1 + state.upNextCount
                                     } else {
                                         null
                                     }
                                 val sectionLabel = when (index) {
                                     upNextStart -> "Up next"
-                                    contextStart -> "Next from ${state.sourceName ?: "playlist"}"
+                                    sourceStart -> "Next from ${state.sourceName ?: "queue"}"
                                     else -> null
                                 }
                                 QueueRow(
@@ -373,6 +378,11 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
                                     preview = preview,
                                     queueSize = entries.itemCount,
                                     isPlayed = isPlayed,
+                                    upNextGroup = upNextGroupAt(
+                                        index,
+                                        state.currentIndex,
+                                        state.upNextCount,
+                                    ),
                                     sectionLabel = sectionLabel,
                                     targetIndexAtPointer = ::queueIndexAtPointer,
                                     // Reorders draw their own motion; a placement animation would
@@ -569,6 +579,31 @@ private fun QueueSectionHeader(label: String) {
     }
 }
 
+/** Where an up-next row sits in its block. */
+internal enum class UpNextGroup { ONLY, FIRST, MIDDLE, LAST }
+
+internal fun upNextGroupAt(index: Int, currentIndex: Int, upNextCount: Int): UpNextGroup? {
+    if (index <= currentIndex || index > currentIndex + upNextCount) return null
+    val first = index == currentIndex + 1
+    val last = index == currentIndex + upNextCount
+    return when {
+        first && last -> UpNextGroup.ONLY
+        first -> UpNextGroup.FIRST
+        last -> UpNextGroup.LAST
+        else -> UpNextGroup.MIDDLE
+    }
+}
+
+private fun UpNextGroup.shape(): Shape = when (this) {
+    UpNextGroup.ONLY -> RoundedCornerShape(8.dp)
+    UpNextGroup.FIRST -> RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+    UpNextGroup.MIDDLE -> RectangleShape
+    UpNextGroup.LAST -> RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
+}
+
+private fun UpNextGroup.bridgesGapBelow(): Boolean =
+    this == UpNextGroup.FIRST || this == UpNextGroup.MIDDLE
+
 /** Web queue row: card tile, now-playing bars, cover, title + "artist · album", duration, drag handle. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -577,6 +612,7 @@ internal fun QueueRow(
     isCurrent: Boolean,
     isPlaying: Boolean,
     isPlayed: Boolean = false,
+    upNextGroup: UpNextGroup? = null,
     sectionLabel: String? = null,
     targetIndexAtPointer: ((Float) -> Int?)? = null,
     onPlay: () -> Unit,
@@ -593,7 +629,13 @@ internal fun QueueRow(
     val shape = RoundedCornerShape(8.dp)
     val density = LocalDensity.current
     val slotPx = with(density) { (QueueRowHeight + QueueRowGap).toPx() }
+    val gapPx = with(density) { QueueRowGap.toPx() }
     val dragging = preview?.entryId == entry.entryId
+    // Up-next rows share one card: only its outer corners are rounded, and the
+    // tint also fills the gap below every row but the last.
+    val inUpNext = upNextGroup != null && !isCurrent && !floating
+    val rowShape = if (inUpNext) upNextGroup.shape() else shape
+    val upNextTint = colors.primary.copy(alpha = 0.07f)
     val held = dragging && !preview.settled
     // While held the row follows the finger; on release it springs into the
     // target slot. When the preview ends (the reloaded rows already sit in
@@ -652,13 +694,23 @@ internal fun QueueRow(
                 .graphicsLayer {
                     shadowElevation = if (floating) 8.dp.toPx() else 0f
                 }
+                .drawBehind {
+                    if (inUpNext && upNextGroup.bridgesGapBelow()) {
+                        drawRect(
+                            color = upNextTint,
+                            topLeft = Offset(0f, size.height),
+                            size = Size(size.width, gapPx),
+                        )
+                    }
+                }
                 .background(
                     when {
                         floating -> colors.surfaceContainerHigh
                         isCurrent -> colors.primary.copy(alpha = 0.1f)
+                        inUpNext -> upNextTint
                         else -> colors.surfaceContainerLow
                     },
-                    shape,
+                    rowShape,
                 )
                 .then(if (isCurrent) Modifier.border(1.dp, colors.primary.copy(alpha = 0.2f), shape) else Modifier)
                 .padding(start = 8.dp),

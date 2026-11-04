@@ -15,7 +15,6 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub song_id: String,
     pub sequence: i64,
-    pub anchor_context_index: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

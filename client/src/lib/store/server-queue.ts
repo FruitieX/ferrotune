@@ -26,6 +26,7 @@ import {
   type FerrotuneClient,
 } from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
+import { queueMoveResult } from "@/lib/queue/queue-move";
 import { materializeOfflineQueueIfPossible } from "@/lib/offline/queue-materializer";
 import {
   nativeNextTrack,
@@ -108,10 +109,8 @@ export type RepeatMode = "off" | "all" | "one";
 // Queue state from server
 export interface ServerQueueState {
   totalCount: number;
-  /** Number of still-upcoming "up next" entries. */
+  /** Number of songs in up next: the rows right after the current track. */
   upNextCount: number;
-  /** Lazily materialized context; cross-section reorders are disabled. */
-  isLazy: boolean;
   currentIndex: number;
   positionMs: number;
   isShuffled: boolean;
@@ -187,7 +186,6 @@ function queueStateFromResponse(
   return {
     totalCount: response.totalCount,
     upNextCount: response.upNextCount,
-    isLazy: response.isLazy,
     currentIndex: response.currentIndex,
     positionMs: base?.positionMs ?? Number(response.positionMs),
     isShuffled: response.isShuffled,
@@ -515,7 +513,6 @@ export const startQueueAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
-          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: currentQueueState.positionMs,
           isShuffled: response.isShuffled,
@@ -530,7 +527,6 @@ export const startQueueAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
-          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: 0,
           isShuffled: response.isShuffled,
@@ -621,7 +617,6 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
-        isLazy: response.isLazy,
         currentIndex: response.currentIndex,
         positionMs: remotePositionMs ?? Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -682,7 +677,6 @@ export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
-        isLazy: response.isLazy,
         currentIndex: response.currentIndex,
         positionMs: Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -739,7 +733,6 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
-        isLazy: response.isLazy,
         currentIndex: response.currentIndex,
         positionMs: Number(response.positionMs),
         isShuffled: response.isShuffled,
@@ -834,7 +827,6 @@ export const syncQueueFromNativeResumeAtom = atom(
       set(serverQueueStateAtom, {
         totalCount: response.totalCount,
         upNextCount: response.upNextCount,
-        isLazy: response.isLazy,
         currentIndex,
         positionMs,
         isShuffled: response.isShuffled,
@@ -892,7 +884,6 @@ export const fetchQueueAndPlayAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
-          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: canKeepPlayback
             ? (currentQueueState?.positionMs ?? Number(response.positionMs))
@@ -1503,7 +1494,6 @@ export const addToQueueAtom = atom(
         set(serverQueueStateAtom, {
           totalCount: response.totalCount,
           upNextCount: response.upNextCount,
-          isLazy: response.isLazy,
           currentIndex: response.currentIndex,
           positionMs: 0,
           isShuffled: response.isShuffled,
@@ -1571,7 +1561,6 @@ export const addToQueueAtom = atom(
       set(serverQueueStateAtom, {
         totalCount: queueResponse.totalCount,
         upNextCount: queueResponse.upNextCount,
-        isLazy: queueResponse.isLazy,
         currentIndex: queueResponse.currentIndex,
         positionMs: Number(queueResponse.positionMs ?? 0),
         isShuffled: queueResponse.isShuffled,
@@ -1702,7 +1691,14 @@ export const moveInQueueAtom = atom(
     const currentWindow = get(queueWindowAtom);
     const currentState = get(serverQueueStateAtom);
 
-    if (currentWindow?.songs) {
+    // Any row can go anywhere; where it lands decides whether it's in up next
+    // (`queueMoveResult`). Moving the playing track takes up next along,
+    // which a plain row move can't show, so that case waits for the refetch.
+    const movesUpNextAlong =
+      currentState !== null &&
+      fromPosition === currentState.currentIndex &&
+      currentState.upNextCount > 0;
+    if (currentWindow?.songs && !movesUpNextAlong) {
       const songs = [...currentWindow.songs];
       const movedEntry = songs.find((s) => s.position === fromPosition);
 
@@ -1728,32 +1724,20 @@ export const moveInQueueAtom = atom(
 
         set(queueWindowAtom, { ...currentWindow, songs: newSongs });
 
-        // Also update current index optimistically if needed
+        // Where the row lands decides whether it's in up next, which can
+        // shift the current track by one.
         if (currentState) {
-          let newCurrentIndex = currentState.currentIndex;
-          const currentIdx = currentState.currentIndex;
-
-          if (fromPosition === currentIdx) {
-            // Moving the current track
-            newCurrentIndex = toPosition;
-          } else if (fromPosition < toPosition) {
-            // Moving down: current shifts up if it was in the range
-            if (currentIdx > fromPosition && currentIdx <= toPosition) {
-              newCurrentIndex = currentIdx - 1;
-            }
-          } else {
-            // Moving up: current shifts down if it was in the range
-            if (currentIdx >= toPosition && currentIdx < fromPosition) {
-              newCurrentIndex = currentIdx + 1;
-            }
-          }
-
-          if (newCurrentIndex !== currentState.currentIndex) {
-            set(serverQueueStateAtom, {
-              ...currentState,
-              currentIndex: newCurrentIndex,
-            });
-          }
+          const result = queueMoveResult(
+            fromPosition,
+            toPosition,
+            currentState.currentIndex,
+            currentState.upNextCount,
+          );
+          set(serverQueueStateAtom, {
+            ...currentState,
+            currentIndex: result.currentIndex,
+            upNextCount: result.upNextCount,
+          });
         }
       }
     }
@@ -1767,9 +1751,7 @@ export const moveInQueueAtom = atom(
         return;
       }
 
-      // Refresh window and metadata together. The refetch is authoritative:
-      // the optimistic currentIndex above can be off by one when up-next rows
-      // sit between the old and new positions.
+      // Refresh window and metadata together; the refetch is authoritative.
       const queueResponse = await client.getQueueCurrentWindow(
         20,
         "small",
@@ -1941,7 +1923,6 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
     set(serverQueueStateAtom, {
       totalCount: response.totalCount,
       upNextCount: response.upNextCount,
-      isLazy: response.isLazy,
       currentIndex: response.currentIndex,
       // Start at 30% of the song duration
       positionMs: Math.floor((song.duration || 0) * 1000 * 0.3),

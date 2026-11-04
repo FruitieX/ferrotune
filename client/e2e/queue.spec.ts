@@ -166,7 +166,7 @@ test.describe.serial("Queue Management", () => {
     await expect(rows.nth(2)).toContainText("FLAC Track Two");
     await expect(rows.nth(2)).toHaveAttribute("data-origin", "upNext");
     await expect(rows.nth(3)).toContainText("Second Song");
-    await expect(rows.nth(3)).toHaveAttribute("data-origin", "context");
+    await expect(rows.nth(3)).toHaveAttribute("data-origin", "source");
     await expect(queuePanel.getByText("2 up next")).toBeVisible();
 
     await queuePanel.getByRole("button", { name: /^Clear/ }).click();
@@ -309,7 +309,7 @@ test.describe.serial("Queue Management", () => {
     await dragRowOnto("FLAC Track One", "Second Song");
     await expect(
       rows.filter({ hasText: "FLAC Track One" }).first(),
-    ).toHaveAttribute("data-origin", "context");
+    ).toHaveAttribute("data-origin", "source");
     await expect(
       rows.filter({ hasText: "FLAC Track One" }).first(),
     ).toHaveAttribute("data-queue-position", "3");
@@ -614,11 +614,26 @@ test.describe.serial("Queue Management", () => {
     await expect(queuePanel.locator('[data-queue-position="2"]')).toContainText(
       "Second Song",
     );
+    // Dropped right below the playing track, so it's queued in up next.
+    await expect(
+      queuePanel.locator('[data-queue-position="1"]'),
+    ).toHaveAttribute("data-origin", "upNext");
+    await expect(
+      queuePanel.getByText("Up next", { exact: true }),
+    ).toBeVisible();
 
-    // The player follows the new order.
+    // The player follows the new order; once played, the song is ordinary
+    // history and up next is empty again.
     const playerBar = page.getByTestId("player-bar");
     await playerBar.getByRole("button", { name: /next/i }).click();
     await expect(playerBar).toContainText("Third Song");
+    await expect(queuePanel.locator('[data-current="true"]')).toHaveAttribute(
+      "data-origin",
+      "source",
+    );
+    await expect(queuePanel.getByText("Up next", { exact: true })).toHaveCount(
+      0,
+    );
   });
 
   test("queue handles reorder with the keyboard", async ({

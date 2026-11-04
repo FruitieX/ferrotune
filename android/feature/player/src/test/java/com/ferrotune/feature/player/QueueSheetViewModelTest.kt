@@ -63,7 +63,7 @@ class QueueSheetViewModelTest {
     private fun entry(position: Long) = QueueEntry(
         position = position,
         entryId = "entry-$position",
-        origin = "context",
+        origin = "source",
         song = testSong("song-$position"),
     )
 
@@ -106,24 +106,17 @@ class QueueSheetViewModelTest {
     }
 
     @Test
-    fun `cross-section moves are refused before hitting the API`() {
-        val api = FakeQueueApi()
-        val viewModel = viewModel(api)
-
-        viewModel.moveTo(entry(0).copy(origin = "upNext"), 1)
-
-        assertNull(api.moveRequest)
-    }
-
-    @Test
-    fun `cross-section moves are allowed for materialized queues`() {
+    fun `moves between up next and the source list go to the server`() {
         val api = FakeQueueApi()
         val viewModel = viewModel(api)
 
         viewModel.moveTo(entry(2).copy(origin = "upNext"), 0)
-
         assertEquals(2L, api.moveRequest?.fromPosition)
         assertEquals(0L, api.moveRequest?.toPosition)
+
+        viewModel.moveTo(entry(0), 1)
+        assertEquals(0L, api.moveRequest?.fromPosition)
+        assertEquals(1L, api.moveRequest?.toPosition)
     }
 
     @Test

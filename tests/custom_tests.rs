@@ -245,10 +245,11 @@ fn test_diagnostics_pull_reaches_the_app_over_its_session_stream() {
     assert_eq!(later["bundle"]["requestId"], request_id);
 }
 
-/// A lazy (unmaterialized) library queue accepts up-next songs without
-/// materializing the playback context, and still advances through both lists.
+/// A lazy library queue (pages computed on demand, no stored rows) accepts
+/// up-next songs as is. Editing its source list stores the list first, so
+/// moves far down the queue and playing up-next songs work like on any queue.
 #[test]
-fn test_lazy_library_queue_accepts_up_next_without_materializing() {
+fn test_lazy_library_queue_supports_up_next_and_edits() {
     if !fixtures_exist() {
         eprintln!("Skipping test: fixtures not found");
         return;
@@ -350,11 +351,50 @@ fn test_lazy_library_queue_accepts_up_next_without_materializing() {
         .expect("window songs array");
     assert_eq!(window["currentIndex"], 0);
     assert_eq!(songs[0]["song"]["id"], current_song_id);
-    assert_eq!(songs[0]["origin"], "context");
+    assert_eq!(songs[0]["origin"], "source");
     assert_eq!(songs[1]["song"]["id"], up_next_song_id);
     assert_eq!(songs[1]["origin"], "upNext");
+    let song_at = |index: usize| songs[index]["song"]["id"].as_str().unwrap().to_string();
+    let (s1, s2, s4) = (song_at(2), song_at(3), song_at(5));
 
-    // Play the up-next row, then advance back into the lazy context.
+    // Display: S0 | U | S1 S2 S3 S4 … Move S4 up to display position 3.
+    let moved = client
+        .post(server.api_url("queue/move"))
+        .basic_auth(&server.admin_user, Some(&server.admin_password))
+        .json(&json!({
+            "sessionId": session_id,
+            "fromPosition": 5,
+            "toPosition": 3,
+        }))
+        .send()
+        .expect("move request");
+    assert_eq!(
+        moved.status(),
+        reqwest::StatusCode::OK,
+        "lazy queues accept moves"
+    );
+
+    let window_after_move = |client: &reqwest::blocking::Client| -> Value {
+        client
+            .get(server.api_url(&format!(
+                "queue/current-window?sessionId={session_id}&radius=5"
+            )))
+            .basic_auth(&server.admin_user, Some(&server.admin_password))
+            .send()
+            .expect("window request")
+            .json()
+            .expect("window json")
+    };
+    let window = window_after_move(&client);
+    let songs = window["window"]["songs"].as_array().expect("songs");
+    assert_eq!(window["totalCount"], total + 1);
+    assert_eq!(songs[1]["song"]["id"], up_next_song_id);
+    assert_eq!(songs[2]["song"]["id"], s1);
+    assert_eq!(songs[3]["song"]["id"], s4);
+    assert_eq!(songs[3]["origin"], "source");
+    assert_eq!(songs[4]["song"]["id"], s2);
+
+    // Playing the up-next song makes it ordinary history.
     let played: Value = client
         .post(server.api_url("queue/position"))
         .basic_auth(&server.admin_user, Some(&server.admin_password))
@@ -370,59 +410,11 @@ fn test_lazy_library_queue_accepts_up_next_without_materializing() {
         .expect("position json");
     assert_eq!(played["newIndex"], 1);
     assert_eq!(played["upNextCount"], 0);
+    assert_eq!(played["totalCount"], total + 1);
 
-    let resumed: Value = client
-        .post(server.api_url("queue/position"))
-        .basic_auth(&server.admin_user, Some(&server.admin_password))
-        .json(&json!({
-            "sessionId": session_id,
-            "clientId": "lazy-owner",
-            "currentIndex": 2,
-            "positionMs": 0,
-        }))
-        .send()
-        .expect("resume request")
-        .json()
-        .expect("resume json");
-    assert_eq!(resumed["newIndex"], 2, "playlist resumes after up-next");
-    assert_eq!(resumed["upNextCount"], 0);
-
-    // Cross-section moves need a materialized context; lazy queues reject
-    // them while still accepting plain up-next additions.
-    let another_song = client
-        .get(server.api_url("songs/random?size=1"))
-        .basic_auth(&server.admin_user, Some(&server.admin_password))
-        .send()
-        .expect("random song request")
-        .json::<Value>()
-        .expect("random song json")["song"][0]["id"]
-        .as_str()
-        .expect("random song id")
-        .to_string();
-    let _ = client
-        .post(server.api_url("queue/add"))
-        .basic_auth(&server.admin_user, Some(&server.admin_password))
-        .json(&json!({
-            "sessionId": session_id,
-            "songIds": [another_song],
-            "position": "next",
-        }))
-        .send()
-        .expect("add request");
-
-    let rejected = client
-        .post(server.api_url("queue/move"))
-        .basic_auth(&server.admin_user, Some(&server.admin_password))
-        .json(&json!({
-            "sessionId": session_id,
-            "fromPosition": 4,
-            "toPosition": 3,
-        }))
-        .send()
-        .expect("cross-section move request");
-    assert_eq!(
-        rejected.status(),
-        reqwest::StatusCode::BAD_REQUEST,
-        "lazy contexts reject cross-section moves"
-    );
+    let window = window_after_move(&client);
+    let songs = window["window"]["songs"].as_array().expect("songs");
+    assert_eq!(songs[1]["song"]["id"], up_next_song_id);
+    assert_eq!(songs[1]["origin"], "source");
+    assert_eq!(songs[3]["song"]["id"], s4);
 }
