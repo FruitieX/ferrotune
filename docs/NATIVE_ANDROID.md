@@ -27,7 +27,8 @@ The plan below is historical; this section is the current state.
 - Intentionally desktop-only for now: tag editing, play-count/favorite
   imports, raw history management, and admin screens.
 - Use `moon run android:deploy` (inside `nix develop .#android`) for real
-  use: it installs the R8-minified release build.
+  use: it installs the R8-minified release build, signed and versioned like a
+  CI build so the two update each other.
 
 ---
 

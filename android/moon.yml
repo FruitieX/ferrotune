@@ -112,12 +112,13 @@ tasks:
   # Minified release build signed with the local debug key (or the release key
   # via FERROTUNE_RELEASE_KEYSTORE*). Use this for real-world use and
   # performance checks; debug builds run Compose without R8 and feel slower.
+  # Builds the release APK itself: the version code depends on the newest CI run.
   deploy:
     command: "bash scripts/deploy-release.sh"
-    deps: ["assemble-release"]
     options:
       cache: false
       runInCI: false
+      mutex: "gradle"
 
   clean:
     command: "./gradlew clean"

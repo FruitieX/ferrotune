@@ -164,12 +164,16 @@ moon run android:generate-bindings # regenerate Kotlin DTOs from ts-rs TS output
 `ANDROID_SERIAL` to pick a device. Phones connect over USB to the local adb
 server; on NixOS hosts the `adbusers` group grants access.
 
-`android:deploy` builds the R8-minified release APK and signs it with the
-release key from `FERROTUNE_RELEASE_KEYSTORE*` when set (falling back to the
-local debug keystore), then installs and launches it. Use it for real-world
-use and performance checks: debug builds run Compose without R8 and are
-noticeably slower. A release-signed install cannot be updated in place by a
-debug-signed APK (and vice versa); uninstall once when switching.
+`android:deploy` builds the R8-minified release APK like CI does and installs
+and launches it (`android/scripts/deploy-release.sh`), so it updates a CI
+install and later CI builds update it. It signs with the release key
+(`FERROTUNE_RELEASE_KEYSTORE*`, else 1Password through `op-agent`; the debug
+keystore only when neither is there), takes the newest CI run's version code
+(1000 + run number, via `gh`; never below the installed build), and bakes in
+the push config from 1Password. Use it for real-world use and performance
+checks: debug builds run Compose without R8 and are noticeably slower. A
+release-signed install cannot be updated in place by a debug-signed APK (and
+vice versa); uninstall once when switching.
 
 The native app intentionally installs side by side with the legacy Tauri
 Android app during the transition: it uses `applicationId
