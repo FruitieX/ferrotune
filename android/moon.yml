@@ -53,8 +53,8 @@ tasks:
 
   assemble-release:
     command: "./gradlew :app:assembleRelease"
-    # The Firebase config (push wake-ups) is baked in at build time.
-    inputs: ["@group(sources)", "$FERROTUNE_GOOGLE_SERVICES_JSON", "app/google-services.json"]
+    # The Firebase config (push wake-ups) and the version are baked in at build time.
+    inputs: ["@group(sources)", "$FERROTUNE_GOOGLE_SERVICES_JSON", "$FERROTUNE_ANDROID_VERSION_CODE", "$FERROTUNE_APP_VERSION_NAME", "app/google-services.json"]
     outputs: ["app/build/outputs/apk/release"]
     options:
       cache: true

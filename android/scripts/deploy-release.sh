@@ -44,4 +44,4 @@ fi
 
 adb="${ANDROID_HOME}/platform-tools/adb"
 "$adb" "${adb_args[@]}" install -r "$signed"
-"$adb" "${adb_args[@]}" shell am start -S -n com.ferrotune.music.native/com.ferrotune.music.MainActivity
+"$adb" "${adb_args[@]}" shell am start -S -n org.fruitiex.ferrotune/com.ferrotune.music.MainActivity

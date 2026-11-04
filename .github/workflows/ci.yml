@@ -116,6 +116,8 @@ jobs:
     needs:
       - prepare-app-release
     env:
+      FERROTUNE_APP_VERSION_NAME: ${{ needs.prepare-app-release.outputs.version_name }}
+      FERROTUNE_ANDROID_VERSION_CODE: ${{ needs.prepare-app-release.outputs.version_code }}
       FERROTUNE_ASSET_VERSION: ${{ needs.prepare-app-release.outputs.asset_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -124,6 +126,17 @@ jobs:
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Write Firebase config
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.FERROTUNE_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [[ -z "$GOOGLE_SERVICES_JSON" ]]; then
+            echo "FERROTUNE_GOOGLE_SERVICES_JSON is not set; the release APK would ship without push" >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$GOOGLE_SERVICES_JSON" > "$RUNNER_TEMP/google-services.json"
+          echo "FERROTUNE_GOOGLE_SERVICES_JSON=$RUNNER_TEMP/google-services.json" >> "$GITHUB_ENV"
       - name: Build release APK
         run: nix develop .#android -c moon run android:assemble-release
       - name: Sign release APK

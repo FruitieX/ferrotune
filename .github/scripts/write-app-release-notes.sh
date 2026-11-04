@@ -22,7 +22,7 @@ Automated Ferrotune app build from main.
 
 Artifacts:
 
-- The Android universal APK is signed with the Ferrotune Android release key and is intended for Obtainium.
+- The native Android APK (`ferrotune-native-*`, package `org.fruitiex.ferrotune`) and the legacy Tauri APK (`ferrotune-android-universal-*`, package `com.ferrotune.music`) are signed with the Ferrotune Android release key and are intended for Obtainium.
 - Desktop bundles are unsigned and not notarized.
 
 Android update note:

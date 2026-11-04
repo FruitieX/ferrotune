@@ -19,7 +19,7 @@ val firebaseConfig: Map<String, String> = run {
     val json = groovy.json.JsonSlurper().parse(source)
     val project = json.obj("project_info")
     val client = json.list("client").first { client ->
-        client.obj("client_info").obj("android_client_info").obj("package_name") == "com.ferrotune.music.native"
+        client.obj("client_info").obj("android_client_info").obj("package_name") == "org.fruitiex.ferrotune"
     }
     val apiKey = client.list("api_key").first().obj("current_key")
     mapOf(
@@ -35,12 +35,14 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.ferrotune.music.native"
+        applicationId = "org.fruitiex.ferrotune"
         minSdk = 24
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes the run-derived version (see .github/scripts/prepare-app-release-metadata.sh)
+        // so every release APK has a higher versionCode than the last; local builds stay at 1.
+        versionCode = System.getenv("FERROTUNE_ANDROID_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("FERROTUNE_APP_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
         for (key in listOf("FIREBASE_APP_ID", "FIREBASE_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_SENDER_ID")) {
             buildConfigField("String", key, "\"${firebaseConfig[key].orEmpty()}\"")
         }

@@ -173,7 +173,7 @@ debug-signed APK (and vice versa); uninstall once when switching.
 
 The native app intentionally installs side by side with the legacy Tauri
 Android app during the transition: it uses `applicationId
-com.ferrotune.music.native` and label "Ferrotune Native", and any
+org.fruitiex.ferrotune` and label "Ferrotune Native", and any
 `ContentProvider` authority must be derived from the application id (see
 `ArtworkContentProvider.authority(context)`) instead of a hardcoded package
 name. The Tauri Android path stays until the native app has been verified on a

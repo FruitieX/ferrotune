@@ -1,10 +1,10 @@
 # App Distribution
 
-Ferrotune publishes app builds from the `main` branch through GitHub Actions. Each successful main-branch run creates a GitHub prerelease with a signed Android APK and unsigned desktop Tauri bundles.
+Ferrotune publishes app builds from the `main` branch through GitHub Actions. Each successful main-branch run creates a GitHub prerelease with signed Android APKs (the native app and the legacy Tauri app) and unsigned desktop Tauri bundles.
 
 ## Android Release Signing
 
-Android updates require every APK for `com.ferrotune.music` to be signed with the same key. Generate the release keystore outside the repository and keep an offline backup.
+Android updates require every APK for a package (`org.fruitiex.ferrotune` for the native app, `com.ferrotune.music` for the legacy Tauri app) to be signed with the same key. Generate the release keystore outside the repository and keep an offline backup.
 
 ```bash
 keytool -genkeypair \
@@ -33,6 +33,8 @@ base64 -w0 ferrotune-release.jks
 
 If a device currently has an APK installed from `moon run client:tauri-android-deploy`, that build is signed with the Android debug keystore. Android will not update it in place with the release-signed APK. Uninstall the debug build once, then install the release-signed APK.
 
+The native build reads its Firebase config (push wake-ups) from the `FERROTUNE_GOOGLE_SERVICES_JSON` repository secret, which holds the contents of a `google-services.json` that has a client for `org.fruitiex.ferrotune`. The release job fails when it is missing, so a published APK never silently lacks push.
+
 ## GitHub Release Builds
 
 The `CI` workflow publishes app builds only for successful `main` branch runs. Pull requests run tests and Docker build checks, but do not publish app release assets.
@@ -47,17 +49,18 @@ The app release jobs:
 6. Create a prerelease tagged as `app-main-<versionCode>-<shortSha>`.
 7. Keep only the latest app prereleases to avoid release clutter.
 
-The Android asset is named like:
+The Android assets are named like:
 
 ```text
-ferrotune-android-universal-main-<versionCode>-<shortSha>.apk
+ferrotune-native-main-<versionCode>-<shortSha>.apk             # native app, org.fruitiex.ferrotune
+ferrotune-android-universal-main-<versionCode>-<shortSha>.apk  # legacy Tauri app, com.ferrotune.music
 ```
 
 Desktop artifacts are intentionally unsigned and not notarized in this first distribution path. Expect normal operating-system warnings on Windows and macOS.
 
 ## Obtainium Setup
 
-Install Obtainium on each Android device, then add Ferrotune as a GitHub source:
+Install Obtainium on each Android device, then add Ferrotune as a GitHub source (or open `obtainium://add/https://github.com/FruitieX/ferrotune` on the phone):
 
 ```text
 https://github.com/FruitieX/ferrotune
@@ -66,8 +69,10 @@ https://github.com/FruitieX/ferrotune
 Use these settings:
 
 - Enable prereleases.
-- Use an APK asset filter matching `ferrotune-android-universal-main-.*\.apk`.
+- Use an APK asset filter matching `ferrotune-native-main-.*\.apk` (the native app; use `ferrotune-android-universal-main-.*\.apk` for the legacy Tauri app).
 - Enable background update checks and notifications.
+
+Release tags look like `app-main-<versionCode>-<shortSha>`, which Obtainium cannot compare with the installed `versionName`, so it treats any new tag as an update. Silent background installs need Android 12+ and an app that Obtainium installed itself.
 
 Obtainium removes the manual download step. Stock Android may still show an install confirmation prompt for sideloaded APK updates, depending on device settings and Android version.
 
