@@ -1108,16 +1108,28 @@ pub async fn get_sessions_with_inactive_owners(
     database: &Database,
     inactivity_seconds: i64,
 ) -> crate::error::Result<Vec<PlaybackSession>> {
-    // Cutoff computed in Rust so we don't need dialect-specific date math.
     let cutoff = chrono::Utc::now() - chrono::Duration::seconds(inactivity_seconds);
     use entity::playback_sessions::Column as S;
+    // SQLite stores `last_playing_at` as text written by CURRENT_TIMESTAMP
+    // ("2026-01-01 12:00:00"), while a bound chrono value is RFC 3339
+    // ("2026-01-01T11:50:00+00:00"). Compared as text, any timestamp from the
+    // same day sorts before the cutoff (' ' < 'T'), which disowned paused
+    // owners on the first sweep instead of after `inactivity_seconds`.
+    // `datetime()` normalizes both sides.
+    let idle_since_cutoff: SimpleExpr = match database.sea_backend() {
+        sea_orm::DbBackend::Sqlite => Expr::cust_with_values(
+            "datetime(\"last_playing_at\") < datetime(?)",
+            [sea_orm::Value::from(cutoff.to_rfc3339())],
+        ),
+        _ => S::LastPlayingAt.lt(cutoff),
+    };
     Ok(entity::playback_sessions::Entity::find()
         .filter(S::OwnerClientId.is_not_null())
         .filter(S::IsPlaying.eq(false))
         .filter(
             sea_orm::Condition::any()
                 .add(S::LastPlayingAt.is_null())
-                .add(S::LastPlayingAt.lt(cutoff)),
+                .add(idle_since_cutoff),
         )
         .into_model::<PlaybackSession>()
         .all(database.conn())
@@ -2739,4 +2751,64 @@ pub async fn cleanup_orphaned_queues(
         .await?;
 
     Ok(entries_deleted.rows_affected + queues_deleted.rows_affected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::repo::users;
+
+    #[tokio::test]
+    async fn sqlite_inactive_owner_lookup_keeps_recently_paused_owners() {
+        let database = Database::new_sqlite_in_memory()
+            .await
+            .expect("in-memory database should migrate");
+        let user_id = users::create_user(&database, "owner", "hash", None, false)
+            .await
+            .expect("user should be created");
+        let session = get_or_create_session(&database, user_id)
+            .await
+            .expect("session should be created");
+        update_session_owner(&database, &session.id, Some("tab"), "ferrotune-web")
+            .await
+            .expect("owner should be set");
+
+        // Play, then pause: last_playing_at is now (CURRENT_TIMESTAMP).
+        for is_playing in [true, false] {
+            update_session_heartbeat_with_position(
+                &database,
+                &session.id,
+                is_playing,
+                None,
+                None,
+                None,
+                Some(0),
+                Some(1_000),
+            )
+            .await
+            .expect("heartbeat should update");
+        }
+
+        let inactive = get_sessions_with_inactive_owners(&database, 600)
+            .await
+            .expect("inactive owner lookup should succeed");
+        assert!(
+            inactive.iter().all(|candidate| candidate.id != session.id),
+            "an owner paused just now is not idle for 10 minutes"
+        );
+
+        entity::playback_sessions::Entity::update_many()
+            .col_expr(
+                entity::playback_sessions::Column::LastPlayingAt,
+                Expr::cust("datetime('now', '-11 minutes')"),
+            )
+            .filter(entity::playback_sessions::Column::Id.eq(session.id.clone()))
+            .exec(database.conn())
+            .await
+            .expect("session should age");
+        let inactive = get_sessions_with_inactive_owners(&database, 600)
+            .await
+            .expect("inactive owner lookup should succeed");
+        assert!(inactive.iter().any(|candidate| candidate.id == session.id));
+    }
 }
