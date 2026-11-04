@@ -284,16 +284,63 @@ jobs:
         name: Prepare metadata
         run: bash .github/scripts/prepare-app-release-metadata.sh
 
+  # Decides whether a pull request touches anything the Tauri Android APK
+  # build depends on. Pushes to main always build the APK.
+  tauri-android-changes:
+    name: Detect Tauri Android changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - id: diff
+        name: Diff against the base branch
+        # The pull_request checkout is the merge commit, so HEAD^1 is the base.
+        run: |
+          changed=false
+          while IFS= read -r file; do
+            case "$file" in
+              client/src-tauri/* | client/tauri-plugin-native-audio/* | \
+              client/tauri*.json | client/package.json | client/pnpm-lock.yaml | \
+              client/pnpm-workspace.yaml | client/moon.yml | client/scripts/sync-android-icons.sh | \
+              Cargo.toml | Cargo.lock | rust-toolchain.toml | flake.nix | flake.lock | \
+              *.gradle | *.gradle.kts | gradle.properties | */gradle.properties | \
+              */gradle/libs.versions.toml | */gradle/wrapper/* | \
+              .github/workflows/ci.yml | .github/scripts/write-tauri-ci-config.sh | \
+              .github/scripts/free-runner-disk.sh)
+                echo "Tauri Android input changed: $file"
+                changed=true
+                ;;
+            esac
+          done < <(git diff --name-only HEAD^1 HEAD)
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  # Builds the Tauri Android APK on main (signed and published) and on pull
+  # requests that touch its inputs (unsigned, no secrets, so Renovate and fork
+  # PRs work): `tauri android init` regenerates the Gradle project from the
+  # Tauri CLI template, so dependency bumps can break it without any other job
+  # noticing.
   android-app:
     name: Android APK
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      !cancelled() &&
+      ((github.event_name == 'pull_request' &&
+        needs.tauri-android-changes.outputs.changed == 'true') ||
+       (github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+        needs.prepare-app-release.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs:
+      - tauri-android-changes
       - prepare-app-release
     env:
-      FERROTUNE_APP_VERSION_NAME: ${{ needs.prepare-app-release.outputs.version_name }}
-      FERROTUNE_ANDROID_VERSION_CODE: ${{ needs.prepare-app-release.outputs.version_code }}
+      # Pull request builds are never published; any valid version will do.
+      FERROTUNE_APP_VERSION_NAME: ${{ needs.prepare-app-release.outputs.version_name || '0.0.0' }}
+      FERROTUNE_ANDROID_VERSION_CODE: ${{ needs.prepare-app-release.outputs.version_code || '1' }}
       FERROTUNE_ASSET_VERSION: ${{ needs.prepare-app-release.outputs.asset_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -309,6 +356,7 @@ jobs:
       - name: Build Android APK
         run: nix develop .#android -c moon run client:tauri-android-build-ci
       - name: Sign Android APK
+        if: github.event_name != 'pull_request'
         env:
           ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
@@ -320,6 +368,7 @@ jobs:
             client/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
             "app-release/android/ferrotune-android-universal-${FERROTUNE_ASSET_VERSION}.apk"
       - name: Upload Android APK artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ferrotune-android-${{ needs.prepare-app-release.outputs.asset_version }}
