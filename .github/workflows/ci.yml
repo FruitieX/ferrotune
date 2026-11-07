@@ -308,6 +308,7 @@ jobs:
               client/src-tauri/* | client/tauri-plugin-native-audio/* | \
               client/tauri*.json | client/package.json | client/pnpm-lock.yaml | \
               client/pnpm-workspace.yaml | client/moon.yml | client/scripts/sync-android-icons.sh | \
+              client/scripts/align-android-kotlin.sh | \
               Cargo.toml | Cargo.lock | rust-toolchain.toml | flake.nix | flake.lock | \
               *.gradle | *.gradle.kts | gradle.properties | */gradle.properties | \
               */gradle/libs.versions.toml | */gradle/wrapper/* | \

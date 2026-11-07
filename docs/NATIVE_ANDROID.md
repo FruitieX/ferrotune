@@ -486,6 +486,7 @@ enforcing early.
   branches in stores and components. **Playback orchestration JS that the engine
   supersedes is deleted, not ported.**
 - `client/moon.yml` `tauri-android-*` tasks; `scripts/sync-android-icons.sh`,
+  `scripts/align-android-kotlin.sh`,
   `clean-android-daemons.sh` (replace as needed); Playwright
   `client/e2e/android-emulator.spec.ts` (1,229 LOC) and the `test-android-emulator`
   task.

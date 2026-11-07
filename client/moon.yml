@@ -458,9 +458,11 @@ tasks:
   # ============================================================================
 
   tauri-android-sync-icons:
-    command: "bash scripts/sync-android-icons.sh"
+    script: "bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh"
     inputs:
       - "scripts/sync-android-icons.sh"
+      - "scripts/align-android-kotlin.sh"
+      - "/android/gradle/libs.versions.toml"
       - "src-tauri/icons/**/*"
       - "src-tauri/android-icons/**/*"
     deps:
@@ -471,7 +473,7 @@ tasks:
       runInCI: true
 
   tauri-android-init:
-    script: "pnpm exec tauri android init && bash scripts/sync-android-icons.sh"
+    script: "pnpm exec tauri android init && bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh"
     deps:
       - "install"
     options:
@@ -479,7 +481,7 @@ tasks:
       runInCI: true
 
   tauri-android-dev:
-    command: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android dev'"
+    command: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh && pnpm exec tauri android dev'"
     deps:
       - "install"
       - "build-native-audio-api"
@@ -489,7 +491,7 @@ tasks:
       runInCI: false
 
   tauri-android-build:
-    command: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build'"
+    command: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh && pnpm exec tauri android build'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -523,7 +525,7 @@ tasks:
       cache: false
 
   tauri-android-build-debug:
-    command: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --debug'"
+    command: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh && pnpm exec tauri android build --debug'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -537,7 +539,7 @@ tasks:
       runInCI: false
 
   tauri-android-deploy:
-    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json && APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) && $APKSIGNER sign --ks $HOME/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb shell am start -S -n com.ferrotune.music/.MainActivity'"
+    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh && pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json && APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) && $APKSIGNER sign --ks $HOME/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb shell am start -S -n com.ferrotune.music/.MainActivity'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -560,6 +562,7 @@ tasks:
     script: >
       pnpm exec tauri android init &&
       bash scripts/sync-android-icons.sh &&
+      bash scripts/align-android-kotlin.sh &&
       pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json &&
       APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) &&
       "$APKSIGNER" sign --ks "${FERROTUNE_RELEASE_KEYSTORE:?Set FERROTUNE_RELEASE_KEYSTORE to the keystore file path}" --ks-pass "pass:${FERROTUNE_RELEASE_KEYSTORE_PASSWORD:?Set FERROTUNE_RELEASE_KEYSTORE_PASSWORD}" --ks-key-alias "${FERROTUNE_RELEASE_KEY_ALIAS:?Set FERROTUNE_RELEASE_KEY_ALIAS}" --key-pass "pass:${FERROTUNE_RELEASE_KEY_PASSWORD:?Set FERROTUNE_RELEASE_KEY_PASSWORD}" src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk &&
@@ -588,7 +591,7 @@ tasks:
       cache: false
 
   tauri-android-deploy-debug:
-    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && pnpm exec tauri android build --debug --target aarch64 --config tauri.android-deploy.conf.json && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb shell am start -S -n com.ferrotune.music/.MainActivity'"
+    script: "bash -c 'pnpm exec tauri android init && bash scripts/sync-android-icons.sh && bash scripts/align-android-kotlin.sh && pnpm exec tauri android build --debug --target aarch64 --config tauri.android-deploy.conf.json && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb shell am start -S -n com.ferrotune.music/.MainActivity'"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
