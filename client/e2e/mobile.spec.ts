@@ -237,14 +237,35 @@ async function swipeToastAway(page: Page) {
   await expect(toast).not.toBeVisible({ timeout: 10000 });
 }
 
+async function waitForDrawerSettled(drawer: Locator) {
+  // vaul slides the drawer in with a transform; measuring mid-animation puts
+  // the swipe start point over the menu items once the drawer settles, and
+  // the drag then releases on (and clicks) the first action.
+  let previousY: number | null = null;
+  await expect
+    .poll(
+      async () => {
+        const y = (await drawer.boundingBox())?.y ?? null;
+        const settled = y !== null && previousY !== null && y === previousY;
+        previousY = y;
+        return settled;
+      },
+      { timeout: 10000, intervals: [100] },
+    )
+    .toBe(true);
+}
+
 async function swipeDrawerDown(page: Page, drawer: Locator) {
+  await waitForDrawerSettled(drawer);
+
   const box = await drawer.boundingBox();
   if (!box) {
     throw new Error("Drawer bounding box was not available");
   }
 
+  // Start on the drag handle (mt-3 + h-1.5) rather than on drawer content.
   const startX = box.x + box.width / 2;
-  const startY = box.y + 24;
+  const startY = box.y + 15;
   const endY = Math.min(box.y + box.height - 8, startY + 260);
 
   await page.mouse.move(startX, startY);

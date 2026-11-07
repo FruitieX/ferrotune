@@ -38,11 +38,12 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 12.16.1
+      # No pnpm cache here: backend CI never installs client dependencies, so
+      # on a cache miss the store path does not exist and the cache save in
+      # setup-node's post step fails the job.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "lts/*"
-          cache: "pnpm"
-          cache-dependency-path: client/pnpm-lock.yaml
       - name: Install Hurl
         run: |
           curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/8.1.0/hurl_8.1.0_amd64.deb
