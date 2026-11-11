@@ -26,9 +26,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
 
-    kotlinOptions {
-        jvmTarget = "17"
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -49,7 +51,7 @@ dependencies {
 
     // Google Cast sender support for Android WebView/Tauri builds.
     implementation("androidx.mediarouter:mediarouter:1.8.1")
-    implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
+    implementation("com.google.android.gms:play-services-cast-framework:23.0.0")
 
     // OkHttp for API calls + SSE for session events
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
