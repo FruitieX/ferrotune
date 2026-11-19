@@ -1,5 +1,8 @@
 package com.ferrotune.feature.player
 
+import com.ferrotune.core.designsystem.components.ListReorderState
+import com.ferrotune.core.designsystem.components.ReorderPreview
+import com.ferrotune.core.designsystem.components.reorderAutoScrollSpeed
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -157,7 +160,7 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val entries = viewModel.entries.collectAsLazyPagingItems()
     val listState = rememberLazyListState()
-    val reorder = remember { QueueReorderState() }
+    val reorder = remember { ListReorderState<QueueEntry>() }
     val scope = rememberCoroutineScope()
     val songMenu = rememberSongMenuState()
     var menuEntry by remember { mutableStateOf<QueueEntry?>(null) }
@@ -209,7 +212,7 @@ private fun QueuePanel(onDismiss: () -> Unit, viewModel: QueueSheetViewModel) {
         val maxSpeed = with(density) { 18.dp.toPx() }
         while (reorder.preview?.settled == false) {
             withFrameNanos { }
-            val speed = queueAutoScrollSpeed(reorder.pointerY, listTop, listBottom, edgePx, maxSpeed)
+            val speed = reorderAutoScrollSpeed(reorder.pointerY, listTop, listBottom, edgePx, maxSpeed)
             if (speed != 0f) {
                 val scrolled = listState.scrollBy(speed)
                 if (scrolled != 0f) {
@@ -611,13 +614,13 @@ internal fun QueueRow(
     onPlay: () -> Unit,
     onLongPress: () -> Unit,
     onMove: (Int) -> Unit,
-    reorderState: QueueReorderState? = null,
-    preview: QueueReorderPreview? = reorderState?.preview,
+    reorderState: ListReorderState<QueueEntry>? = null,
+    preview: ReorderPreview? = reorderState?.preview,
     queueSize: Int = Int.MAX_VALUE,
     floating: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val reorder = reorderState ?: remember { QueueReorderState() }
+    val reorder = reorderState ?: remember { ListReorderState<QueueEntry>() }
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(8.dp)
     val density = LocalDensity.current

@@ -1,13 +1,13 @@
-package com.ferrotune.feature.player
+package com.ferrotune.core.designsystem.components
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class QueueReorderStateTest {
+class ListReorderStateTest {
     @Test fun `dragging down opens the target slot by shifting intervening rows up`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("entry", 1)
         state.dragBy(128f, 64f, 6)
         val preview = state.preview!!
@@ -17,7 +17,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `a released move stays at its target until the reloaded queue shows it`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("moved", 1)
         state.dragBy(150f, 64f, 6)
 
@@ -32,7 +32,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `dragging up shifts intervening rows down`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("entry", 4)
         state.dragBy(-192f, 64f, 6)
         val preview = state.preview!!
@@ -42,7 +42,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `preview clamps to queue ends while the item follows the pointer`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("entry", 1)
         state.dragBy(-1000f, 64f, 3)
         assertEquals(0, state.preview!!.target)
@@ -52,7 +52,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `reversing a drag restores rows that no longer need to shift`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("entry", 1)
         state.dragBy(128f, 64f, 5)
         state.dragBy(-192f, 64f, 5)
@@ -61,7 +61,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `small drag and cancellation do not move the song`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("entry", 1)
         state.dragBy(20f, 64f, 5)
         assertEquals(0, state.finish(64f))
@@ -73,7 +73,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `auto-scroll ramps up near the edges and stops in the middle`() {
-        fun speed(y: Float) = queueAutoScrollSpeed(y, top = 100f, bottom = 1100f, edgePx = 100f, maxSpeed = 20f)
+        fun speed(y: Float) = reorderAutoScrollSpeed(y, top = 100f, bottom = 1100f, edgePx = 100f, maxSpeed = 20f)
 
         assertEquals(0f, speed(600f), 0f)
         assertEquals(-10f, speed(150f), 0.001f)
@@ -84,7 +84,7 @@ class QueueReorderStateTest {
     }
 
     @Test fun `ending a drag forgets the pointer`() {
-        val state = QueueReorderState()
+        val state = ListReorderState<String>()
         state.start("entry", 1)
         state.pointerY = 500f
         state.finish(64f)

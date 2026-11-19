@@ -1,19 +1,19 @@
-package com.ferrotune.feature.player
+package com.ferrotune.core.designsystem.components
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.ferrotune.feature.player.data.QueueEntry
 import kotlin.math.roundToInt
 
 /**
- * A visual insertion preview; server queue positions change only when the
- * drag ends. After release the preview stays [settled] at its target until
- * the reloaded queue shows the entry there, so the row doesn't snap back.
+ * A visual insertion preview for drag-to-reorder lists whose order lives on
+ * the server (queue, playlist): positions change only when the drag ends.
+ * After release the preview stays [settled] at its target until the reloaded
+ * rows show the entry there, so the row doesn't snap back.
  */
-data class QueueReorderPreview(
+data class ReorderPreview(
     val entryId: String,
     val from: Int,
     val target: Int,
@@ -27,9 +27,10 @@ data class QueueReorderPreview(
     }
 }
 
+/** Drag state for one reorderable list of [T] rows; see [ReorderPreview]. */
 @Stable
-class QueueReorderState {
-    var preview by mutableStateOf<QueueReorderPreview?>(null)
+class ListReorderState<T : Any> {
+    var preview by mutableStateOf<ReorderPreview?>(null)
         private set
 
     /** The finger's root Y while dragging, for scrolling near the list edges. */
@@ -40,19 +41,19 @@ class QueueReorderState {
      * so the panel can draw the row floating under the finger even after
      * edge scrolling carries its list slot off screen.
      */
-    var held by mutableStateOf<QueueEntry?>(null)
+    var held by mutableStateOf<T?>(null)
         private set
     var grabOffset = 0f
         private set
 
-    fun grab(entry: QueueEntry, pointerRootY: Float, rowTopRootY: Float) {
+    fun grab(entry: T, pointerRootY: Float, rowTopRootY: Float) {
         held = entry
         pointerY = pointerRootY
         grabOffset = pointerRootY - rowTopRootY
     }
 
     fun start(entryId: String, position: Int) {
-        preview = QueueReorderPreview(entryId, position, position)
+        preview = ReorderPreview(entryId, position, position)
     }
 
     fun dragBy(
@@ -86,9 +87,9 @@ class QueueReorderState {
 
     /**
      * The preview to draw: a settled move is dropped once [entryIdAt] shows
-     * the moved entry at its target, i.e. the reloaded queue has it.
+     * the moved entry at its target, i.e. the reloaded list has it.
      */
-    fun visiblePreview(entryIdAt: (Int) -> String?): QueueReorderPreview? =
+    fun visiblePreview(entryIdAt: (Int) -> String?): ReorderPreview? =
         preview?.takeUnless { it.settled && entryIdAt(it.target) == it.entryId }
 
     fun cancel() {
@@ -107,7 +108,7 @@ class QueueReorderState {
  * [top]..[bottom]: zero away from the edges, ramping up to [maxSpeed] as the
  * finger reaches or passes an edge within [edgePx].
  */
-fun queueAutoScrollSpeed(pointerY: Float, top: Float, bottom: Float, edgePx: Float, maxSpeed: Float): Float {
+fun reorderAutoScrollSpeed(pointerY: Float, top: Float, bottom: Float, edgePx: Float, maxSpeed: Float): Float {
     if (pointerY.isNaN() || edgePx <= 0f || bottom <= top) return 0f
     return when {
         pointerY < top + edgePx -> -maxSpeed * ((top + edgePx - pointerY) / edgePx).coerceIn(0f, 1f)

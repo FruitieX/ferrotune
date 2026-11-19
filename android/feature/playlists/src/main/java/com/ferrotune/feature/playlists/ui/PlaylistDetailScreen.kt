@@ -1,5 +1,41 @@
 package com.ferrotune.feature.playlists.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.LocalPinnableContainer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
+import com.ferrotune.core.designsystem.components.ListReorderState
+import com.ferrotune.core.designsystem.components.ReorderPreview
+import com.ferrotune.core.designsystem.components.reorderAutoScrollSpeed
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import com.ferrotune.core.actions.SongColumnsSheet
 import com.ferrotune.core.actions.SongColumnsMenuRow
 import com.ferrotune.core.actions.rememberSongColumnsState
@@ -138,6 +174,9 @@ fun PlaylistDetailScreen(
     val playlist = state.playlist
     val canEdit = playlist?.canEdit == true
     val customOrder = state.sort == PlaylistRepository.PLAYLIST_SORT_CUSTOM && state.filter.isBlank()
+    val reordering = state.reordering && canEdit && customOrder
+    val reorder = remember { ListReorderState<PlaylistSongEntry>() }
+    val density = LocalDensity.current
 
     fun loadedEntriesForSelection(): List<PlaylistSongEntry> {
         val selectedIds = selection.selectedIds
@@ -150,12 +189,18 @@ fun PlaylistDetailScreen(
     LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
     }
+    LaunchedEffect(reordering) {
+        if (reordering) selection.clear() else reorder.cancel()
+    }
+    BackHandler(enabled = reordering) { viewModel.stopReordering() }
 
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            if (selection.isActive) {
+            if (reordering) {
+                ReorderTopBar(onDone = viewModel::stopReordering)
+            } else if (selection.isActive) {
                 SongSelectionTopBar(
                     selectedCount = selection.count,
                     onClose = selection::clear,
@@ -227,12 +272,106 @@ fun PlaylistDetailScreen(
         }
         val listState = rememberLazyListState()
         val actionBarPinned by rememberActionBarPinned(listState)
-        Box(modifier = Modifier.fillMaxSize()) {
+        var listTop by remember { mutableFloatStateOf(0f) }
+        var listBottom by remember { mutableFloatStateOf(0f) }
+        // Slot height for the insertion preview: rows share one height (the
+        // chosen columns decide it), measured from the held row.
+        var slotPx by remember { mutableFloatStateOf(with(density) { TrackRowHeight.toPx() }) }
+
+        fun entryIndexAtPointer(pointerRootY: Float): Int? {
+            val rows = listState.layoutInfo.visibleItemsInfo.filter { it.contentType == ENTRY_CONTENT_TYPE }
+            if (rows.isEmpty()) return null
+            val localY = pointerRootY - listTop
+            val row = rows.firstOrNull { localY < it.offset + it.size } ?: rows.last()
+            return (row.index - ENTRY_ITEM_OFFSET).coerceIn(0, entries.itemCount - 1)
+        }
+
+        // A released move keeps its preview until the reloaded rows show it.
+        val preview = reorder.visiblePreview { entries.peek(it)?.entryId }
+        val pendingMove = reorder.preview?.takeIf { it.settled }
+        val holding = reorder.preview?.settled == false
+        LaunchedEffect(entries.itemCount) { if (!holding) reorder.cancel() }
+        // Scroll while the held row is near the list's top or bottom edge.
+        LaunchedEffect(holding) {
+            if (!holding) return@LaunchedEffect
+            val edgePx = with(density) { 72.dp.toPx() }
+            val maxSpeed = with(density) { 18.dp.toPx() }
+            while (reorder.preview?.settled == false) {
+                withFrameNanos { }
+                val speed = reorderAutoScrollSpeed(reorder.pointerY, listTop, listBottom, edgePx, maxSpeed)
+                if (speed != 0f) {
+                    val scrolled = listState.scrollBy(speed)
+                    if (scrolled != 0f) {
+                        reorder.dragBy(
+                            scrolled,
+                            slotPx,
+                            entries.itemCount,
+                            entryIndexAtPointer(reorder.pointerY),
+                        )
+                    }
+                }
+            }
+        }
+        // The list keeps its first visible row in place by key when the
+        // reloaded rows arrive; undo the preview's shift of that row by
+        // scrolling, so nothing jumps when the move lands.
+        var anchorShift by remember { mutableIntStateOf(0) }
+        LaunchedEffect(pendingMove) {
+            anchorShift = pendingMove?.displacement(listState.firstVisibleItemIndex - ENTRY_ITEM_OFFSET) ?: 0
+        }
+        LaunchedEffect(pendingMove, preview == null) {
+            if (pendingMove == null) return@LaunchedEffect
+            if (preview == null) {
+                if (anchorShift != 0) listState.scrollBy(-anchorShift * slotPx)
+                reorder.cancel()
+            } else {
+                delay(5_000)
+                reorder.cancel()
+            }
+        }
+
+        @Composable
+        fun EntryContent(entry: PlaylistSongEntry, index: Int, modifier: Modifier = Modifier) {
+            val song = entry.song
+            if (song != null) {
+                SongListRow(
+                    song = song,
+                    nowPlaying = nowPlaying,
+                    menu = songMenu,
+                    selection = selection,
+                    index = entry.position + 1,
+                    onPlay = {
+                        viewModel.play(
+                            startSongId = song.id,
+                            startIndex = entry.songIndex ?: index,
+                        )
+                    },
+                    onLongPress = { menuEntry = entry },
+                    columns = songColumns.visible,
+                    modifier = modifier,
+                )
+            } else {
+                MissingEntryRow(
+                    entry = entry,
+                    canEdit = canEdit,
+                    onRemove = { viewModel.removeEntry(entry) },
+                    modifier = modifier,
+                )
+            }
+        }
+
+        var boxTop by remember { mutableFloatStateOf(0f) }
+        Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { boxTop = it.positionInRoot().y }) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
+                    .padding(padding)
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInRoot()
+                        listTop = bounds.top
+                        listBottom = bounds.bottom
+                    },
             ) {
                 item(key = "hero") {
                     DetailHero(
@@ -278,36 +417,30 @@ fun PlaylistDetailScreen(
                     }
 
                     else -> {
+                        // Keep ENTRY_ITEM_OFFSET in sync with the items above the entries.
                         item(key = "columns") { SongColumnsHeader(songColumns) }
                         items(
                             count = entries.itemCount,
                             key = entries.itemKey { it.entryId },
-                            contentType = { "entry" },
+                            contentType = { ENTRY_CONTENT_TYPE },
                         ) { index ->
                             val entry = entries[index] ?: return@items
-                            val song = entry.song
-                            if (song != null) {
-                                SongListRow(
-                                    song = song,
-                                    nowPlaying = nowPlaying,
-                                    menu = songMenu,
-                                    selection = selection,
-                                    index = entry.position + 1,
-                                    onPlay = {
-                                        viewModel.play(
-                                            startSongId = song.id,
-                                            startIndex = entry.songIndex ?: index,
-                                        )
-                                    },
-                                    onLongPress = { menuEntry = entry },
-                                    columns = songColumns.visible,
-                                )
-                            } else {
-                                MissingEntryRow(
+                            if (reordering) {
+                                ReorderableEntryRow(
                                     entry = entry,
-                                    canEdit = canEdit,
-                                    onRemove = { viewModel.removeEntry(entry) },
-                                )
+                                    index = index,
+                                    count = entries.itemCount,
+                                    reorder = reorder,
+                                    preview = preview,
+                                    slotPx = slotPx,
+                                    onSlotMeasured = { slotPx = it },
+                                    targetIndexAtPointer = ::entryIndexAtPointer,
+                                    onMove = { slots -> viewModel.moveEntry(entry, entry.position.toInt() + slots) },
+                                ) {
+                                    EntryContent(entry, index, Modifier.weight(1f))
+                                }
+                            } else {
+                                EntryContent(entry, index)
                             }
                         }
                         item(key = "footer") {
@@ -316,7 +449,23 @@ fun PlaylistDetailScreen(
                     }
                 }
             }
-            PinnedActionBar(visible = actionBarPinned) { actionBar() }
+            PinnedActionBar(visible = actionBarPinned && !reordering) { actionBar() }
+            // The held row, floating under the finger above the list.
+            val floating = reorder.held
+            val pointerY = reorder.pointerY
+            if (reordering && floating != null && !pointerY.isNaN()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset { IntOffset(0, (pointerY - reorder.grabOffset - boxTop).roundToInt()) }
+                        .graphicsLayer { shadowElevation = 8.dp.toPx() }
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    EntryContent(floating, floating.position.toInt(), Modifier.weight(1f))
+                    DragHandleIcon(title = null)
+                }
+            }
         }
     }
 
@@ -363,6 +512,7 @@ fun PlaylistDetailScreen(
             } else {
                 listOf(
                     MediaAction("Add songs", Icons.Filled.Add, separatorBefore = true) { showAddSongs = true },
+                    MediaAction("Reorder songs", Icons.Filled.SwapVert) { viewModel.startReordering() },
                     MediaAction("Edit details", Icons.Filled.Edit) { showEditDialog = true },
                     MediaAction("Sharing", Icons.Filled.Share) {
                         showShareDialog = true
@@ -459,16 +609,157 @@ private fun PlaylistHeader(
     )
 }
 
+/** Items emitted before the entries in the playlist list: hero, action bar, columns header. */
+private const val ENTRY_ITEM_OFFSET = 3
+private const val ENTRY_CONTENT_TYPE = "entry"
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReorderTopBar(onDone: () -> Unit) {
+    TopAppBar(
+        title = { Text("Reorder songs") },
+        navigationIcon = {
+            IconButton(onClick = onDone) {
+                Icon(Icons.Filled.Close, contentDescription = "Stop reordering")
+            }
+        },
+        actions = {
+            TextButton(onClick = onDone) { Text("Done") }
+        },
+    )
+}
+
+@Composable
+private fun DragHandleIcon(title: String?, modifier: Modifier = Modifier) {
+    Icon(
+        imageVector = Icons.Filled.DragHandle,
+        contentDescription = title?.let { "Reorder $it" },
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+            .size(48.dp)
+            .padding(12.dp),
+    )
+}
+
+/**
+ * A playlist row in reorder mode: the row [content] plus a drag handle that
+ * picks the entry up on touch (the row keeps tap-to-play and its long-press
+ * menu). While held the row is drawn floating by the screen, its slot shows
+ * the insertion target, and the server move runs on release.
+ */
+@Composable
+private fun LazyItemScope.ReorderableEntryRow(
+    entry: PlaylistSongEntry,
+    index: Int,
+    count: Int,
+    reorder: ListReorderState<PlaylistSongEntry>,
+    preview: ReorderPreview?,
+    slotPx: Float,
+    onSlotMeasured: (Float) -> Unit,
+    targetIndexAtPointer: (Float) -> Int?,
+    onMove: (slots: Int) -> Unit,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val dragging = preview?.entryId == entry.entryId
+    val held = dragging && !preview.settled
+    // Held: the slot follows the target; released: it springs into place.
+    // Other rows shift to open the target slot.
+    val translation by animateFloatAsState(
+        targetValue = when {
+            dragging -> (preview.target - preview.from) * slotPx
+            else -> (preview?.displacement(index) ?: 0) * slotPx
+        },
+        animationSpec = if (held || preview == null) snap() else spring(),
+        label = "Playlist insertion preview",
+    )
+    val move by rememberUpdatedState(onMove)
+    val targetAt by rememberUpdatedState(targetIndexAtPointer)
+    // Keep the held row composed while edge scrolling carries it off screen,
+    // or the drag gesture would be cancelled.
+    val pinnable = LocalPinnableContainer.current
+    DisposableEffect(held, pinnable) {
+        val handle = if (held) pinnable?.pin() else null
+        onDispose { handle?.release() }
+    }
+    var rowCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var handleCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    Box(
+        modifier = Modifier
+            .animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = null)
+            .fillMaxWidth()
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer { translationY = translation }
+            .onGloballyPositioned {
+                rowCoordinates = it
+                if (it.size.height > 0) onSlotMeasured(it.size.height.toFloat())
+            },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { alpha = if (held) 0f else 1f },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            content()
+            DragHandleIcon(
+                title = entry.song?.title ?: entry.missing?.title ?: "missing track",
+                modifier = Modifier
+                    .onGloballyPositioned { handleCoordinates = it }
+                    .pointerInput(entry.entryId, index, count) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                reorder.start(entry.entryId, index)
+                                val handle = handleCoordinates?.takeIf { it.isAttached }
+                                val row = rowCoordinates?.takeIf { it.isAttached }
+                                if (handle != null && row != null) {
+                                    reorder.grab(entry, handle.localToRoot(offset).y, row.positionInRoot().y)
+                                }
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                val pointerY = handleCoordinates
+                                    ?.takeIf { it.isAttached }
+                                    ?.localToRoot(change.position)?.y
+                                val target = if (pointerY != null && !pointerY.isNaN()) {
+                                    reorder.pointerY = pointerY
+                                    targetAt(pointerY)
+                                } else {
+                                    null
+                                }
+                                reorder.dragBy(amount.y, slotPx, count, target)
+                            },
+                            onDragEnd = {
+                                val slots = reorder.finish(slotPx)
+                                if (slots != 0) move(slots)
+                            },
+                            onDragCancel = { reorder.cancel() },
+                        )
+                    },
+            )
+        }
+        if (held) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(colors.primary.copy(alpha = 0.08f))
+                    .border(1.dp, colors.primary.copy(alpha = 0.4f)),
+            )
+        }
+    }
+}
+
 /** Web `MissingEntryRow`: a warning row for a track no longer in the library. */
 @Composable
 private fun MissingEntryRow(
     entry: PlaylistSongEntry,
     canEdit: Boolean,
     onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val missing = entry.missing
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .heightIn(min = TrackRowHeight)
             .padding(start = 16.dp, end = 8.dp),

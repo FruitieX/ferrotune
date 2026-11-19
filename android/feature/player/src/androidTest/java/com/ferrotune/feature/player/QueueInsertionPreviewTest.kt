@@ -1,5 +1,8 @@
 package com.ferrotune.feature.player
 
+import com.ferrotune.core.designsystem.components.ListReorderState
+import com.ferrotune.core.designsystem.components.ReorderPreview
+import com.ferrotune.core.designsystem.components.reorderAutoScrollSpeed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
@@ -20,7 +23,7 @@ class QueueInsertionPreviewTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun draggingShowsAnimatedInsertionBeforeCommittingMove() {
-        val reorder = QueueReorderState()
+        val reorder = ListReorderState<QueueEntry>()
         var moves = 0
         var menus = 0
         var slots = 0

@@ -3,6 +3,7 @@ package com.ferrotune.feature.playlists.ui
 import androidx.lifecycle.SavedStateHandle
 import com.ferrotune.core.actions.UserMessages
 import com.ferrotune.core.network.ViewSortKey
+import com.ferrotune.core.network.generated.PlaylistSongsResponse
 import com.ferrotune.core.network.ViewSortPreferencesRepository
 import com.ferrotune.core.testing.FakeApiProvider
 import com.ferrotune.core.testing.FakePlaybackStarter
@@ -17,6 +18,8 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -97,5 +100,44 @@ class PlaylistDetailViewModelTest {
         )
         val stored = api.preferenceValues[ViewSortKey.PLAYLIST_DETAIL.preferenceKey] as JsonPrimitive
         assertEquals("""{"field":"name","direction":"desc"}""", stored.content)
+    }
+
+    private class EditablePlaylistApi(private val canEdit: Boolean) : FakePreferencesApi() {
+        override suspend fun playlistSongs(id: String, params: Map<String, String>) = PlaylistSongsResponse(
+            id = id, name = "Mix", owner = "sam", public = false, totalEntries = 0, matchedCount = 0,
+            missingCount = 0, duration = 0, filteredCount = 0, created = "2026-01-01T00:00:00Z",
+            changed = "2026-01-01T00:00:00Z", sharedWithMe = false, canEdit = canEdit, entries = emptyList(),
+        )
+    }
+
+    @Test
+    fun `reordering switches to custom order without a filter and persists the sort`() {
+        val api = EditablePlaylistApi(canEdit = true)
+        val viewModel = viewModel(api)
+        viewModel.selectSort("name")
+        viewModel.toggleSortDir()
+        viewModel.setFilter("rock")
+
+        viewModel.startReordering()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.reordering)
+        assertEquals("custom", state.sort)
+        assertEquals("asc", state.sortDir)
+        assertEquals("", state.filter)
+        val stored = api.preferenceValues[ViewSortKey.PLAYLIST_DETAIL.preferenceKey] as JsonPrimitive
+        assertEquals("""{"field":"custom","direction":"asc"}""", stored.content)
+
+        viewModel.stopReordering()
+        assertFalse(viewModel.uiState.value.reordering)
+    }
+
+    @Test
+    fun `read-only playlists cannot enter reordering`() {
+        val viewModel = viewModel(EditablePlaylistApi(canEdit = false))
+
+        viewModel.startReordering()
+
+        assertFalse(viewModel.uiState.value.reordering)
     }
 }

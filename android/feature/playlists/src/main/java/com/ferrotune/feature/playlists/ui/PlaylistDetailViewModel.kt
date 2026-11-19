@@ -48,6 +48,8 @@ data class PlaylistDetailUiState(
     val filter: String = "",
     val revision: Int = 0,
     val deleted: Boolean = false,
+    /** Edit mode: rows show drag handles and the list is in custom order. */
+    val reordering: Boolean = false,
 )
 
 data class PlaylistSharesUiState(
@@ -205,6 +207,29 @@ class PlaylistDetailViewModel @Inject constructor(
     fun moveEntry(entry: PlaylistSongEntry, toPosition: Int) = mutate {
         repository.moveEntry(playlistId, entry.entryId, toPosition)
     }
+
+    /**
+     * Enters drag-to-reorder mode. Positions only mean something in the
+     * playlist's own order, so this switches to custom order and clears the
+     * filter first.
+     */
+    fun startReordering() {
+        val current = state.value
+        if (current.playlist?.canEdit != true) return
+        val sortChanged = current.sort != PlaylistRepository.PLAYLIST_SORT_CUSTOM || current.sortDir != "asc"
+        state.update {
+            it.copy(
+                reordering = true,
+                sort = PlaylistRepository.PLAYLIST_SORT_CUSTOM,
+                sortDir = "asc",
+                filter = "",
+            )
+        }
+        filter.value = ""
+        if (sortChanged) persistSort()
+    }
+
+    fun stopReordering() = state.update { it.copy(reordering = false) }
 
     fun deletePlaylist() {
         viewModelScope.launch {
