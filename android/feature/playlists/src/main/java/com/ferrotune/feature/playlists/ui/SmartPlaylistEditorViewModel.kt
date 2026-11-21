@@ -174,7 +174,7 @@ class SmartPlaylistEditorViewModel @Inject constructor(
                         operator = operatorsFor(field.type).first().value,
                         text = "",
                         number = "",
-                        boolean = false,
+                        boolean = true,
                         selected = emptySet(),
                     )
                 }

@@ -852,28 +852,52 @@ fn postgresize_smart_playlist_sql(sql: &str) -> String {
     postgres_sql
 }
 
-fn smart_playlist_text_order_by(
+/// Full ORDER BY expression for smart playlist songs. Deterministic sorts end
+/// with `s.id` so ties (e.g. the many songs with zero plays) keep one order
+/// across requests; without it, offset pages overlap and return a song twice.
+fn smart_playlist_order_by(
     dialect: SmartPlaylistSqlDialect,
     sort_field: Option<&str>,
-) -> &'static str {
-    match (dialect, sort_field) {
-        (SmartPlaylistSqlDialect::Sqlite, Some("title"))
-        | (SmartPlaylistSqlDialect::Sqlite, Some("name")) => "s.title COLLATE NOCASE",
-        (SmartPlaylistSqlDialect::Postgres, Some("title"))
-        | (SmartPlaylistSqlDialect::Postgres, Some("name")) => "LOWER(s.title), s.title",
-        (SmartPlaylistSqlDialect::Sqlite, Some("artist")) => "ar.name COLLATE NOCASE",
-        (SmartPlaylistSqlDialect::Postgres, Some("artist")) => "LOWER(ar.name), ar.name",
-        (SmartPlaylistSqlDialect::Sqlite, Some("album")) => "al.name COLLATE NOCASE",
-        (SmartPlaylistSqlDialect::Postgres, Some("album")) => "LOWER(al.name), al.name",
-        (_, Some("year")) => "s.year",
-        (_, Some("playCount")) => "pc.play_count",
-        (_, Some("playStarts")) => "ps.play_starts",
-        (_, Some("likes")) => "COALESCE(lk.like_count, 0)",
-        (_, Some("dateAdded")) | (_, Some("createdAt")) => "s.created_at",
-        (_, Some("lastPlayed")) => "pc.last_played",
-        (_, Some("duration")) => "s.duration",
-        _ => "RANDOM()",
-    }
+    sort_direction: Option<&str>,
+) -> String {
+    let Some(columns) = smart_playlist_sort_columns(dialect, sort_field) else {
+        return "RANDOM()".to_string();
+    };
+    let direction = match sort_direction {
+        Some("desc") => "DESC",
+        _ => "ASC",
+    };
+    let columns = columns
+        .iter()
+        .map(|column| format!("{column} {direction}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{columns}, s.id ASC")
+}
+
+/// Sort columns for a smart playlist sort field (text fields sort
+/// case-insensitively); `None` means random order.
+fn smart_playlist_sort_columns(
+    dialect: SmartPlaylistSqlDialect,
+    sort_field: Option<&str>,
+) -> Option<&'static [&'static str]> {
+    use SmartPlaylistSqlDialect::{Postgres, Sqlite};
+    Some(match (dialect, sort_field?) {
+        (Sqlite, "title" | "name") => &["s.title COLLATE NOCASE"],
+        (Postgres, "title" | "name") => &["LOWER(s.title)", "s.title"],
+        (Sqlite, "artist") => &["ar.name COLLATE NOCASE"],
+        (Postgres, "artist") => &["LOWER(ar.name)", "ar.name"],
+        (Sqlite, "album") => &["al.name COLLATE NOCASE"],
+        (Postgres, "album") => &["LOWER(al.name)", "al.name"],
+        (_, "year") => &["s.year"],
+        (_, "playCount") => &["pc.play_count"],
+        (_, "playStarts") => &["ps.play_starts"],
+        (_, "likes") => &["COALESCE(lk.like_count, 0)"],
+        (_, "dateAdded" | "createdAt") => &["s.created_at"],
+        (_, "lastPlayed") => &["pc.last_played"],
+        (_, "duration") => &["s.duration"],
+        _ => return None,
+    })
 }
 
 fn smart_playlist_limit_offset_clause(
@@ -944,13 +968,7 @@ pub async fn materialize_smart_playlist_songs(
     };
 
     // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
-    let order_by = smart_playlist_text_order_by(dialect, sort_field);
-
-    let direction = match sort_direction {
-        Some("desc") => "DESC",
-        Some("asc") => "ASC",
-        _ => "ASC",
-    };
+    let order_by = smart_playlist_order_by(dialect, sort_field, sort_direction);
 
     // Build LIMIT clause - consider both max_songs and pagination limit
     // If both are set, use the smaller effective limit
@@ -992,9 +1010,9 @@ pub async fn materialize_smart_playlist_songs(
             ON s.id = lk.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
-         ORDER BY {} {}
+         ORDER BY {}
          {}",
-        combined_where, order_by, direction, limit_offset_clause
+        combined_where, order_by, limit_offset_clause
     );
 
     execute_smart_playlist_song_query(database, &sqlite_query, where_args, user_id, 5).await
@@ -1097,12 +1115,7 @@ async fn sum_matching_songs_duration_filtered(
     let safe_max_songs = max_songs.filter(|value| *value > 0);
 
     let query = if let Some(max) = safe_max_songs {
-        let order_by = smart_playlist_text_order_by(dialect, sort_field);
-        let direction = match sort_direction {
-            Some("desc") => "DESC",
-            Some("asc") => "ASC",
-            _ => "ASC",
-        };
+        let order_by = smart_playlist_order_by(dialect, sort_field, sort_direction);
 
         format!(
             "SELECT CAST(COALESCE(SUM(duration), 0) AS BIGINT) FROM (
@@ -1122,10 +1135,10 @@ async fn sum_matching_songs_duration_filtered(
                    ON s.id = lk.song_id
                 LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
                 {}
-                ORDER BY {} {}
+                ORDER BY {}
                 LIMIT {}
             ) limited_songs",
-            combined_where, order_by, direction, max
+            combined_where, order_by, max
         )
     } else {
         format!(
@@ -1192,13 +1205,7 @@ async fn materialize_smart_playlist_songs_filtered(
     };
 
     // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
-    let order_by = smart_playlist_text_order_by(dialect, sort_field);
-
-    let direction = match sort_direction {
-        Some("desc") => "DESC",
-        Some("asc") => "ASC",
-        _ => "ASC",
-    };
+    let order_by = smart_playlist_order_by(dialect, sort_field, sort_direction);
 
     // Build LIMIT clause - consider both max_songs and pagination limit
     let effective_limit = match (safe_max_songs, safe_limit) {
@@ -1238,9 +1245,9 @@ async fn materialize_smart_playlist_songs_filtered(
             ON s.id = lk.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}
-         ORDER BY {} {}
+         ORDER BY {}
          {}",
-        combined_where, order_by, direction, limit_offset_clause
+        combined_where, order_by, limit_offset_clause
     );
 
     where_args.append(&mut filter_args);
@@ -1827,6 +1834,34 @@ fn parse_duration(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_order_by_breaks_ties_by_song_id() {
+        assert_eq!(
+            smart_playlist_order_by(
+                SmartPlaylistSqlDialect::Sqlite,
+                Some("playStarts"),
+                Some("asc")
+            ),
+            "ps.play_starts ASC, s.id ASC"
+        );
+        assert_eq!(
+            smart_playlist_order_by(
+                SmartPlaylistSqlDialect::Postgres,
+                Some("title"),
+                Some("desc")
+            ),
+            "LOWER(s.title) DESC, s.title DESC, s.id ASC"
+        );
+        assert_eq!(
+            smart_playlist_order_by(SmartPlaylistSqlDialect::Sqlite, Some("likes"), Some("desc")),
+            "COALESCE(lk.like_count, 0) DESC, s.id ASC"
+        );
+        assert_eq!(
+            smart_playlist_order_by(SmartPlaylistSqlDialect::Sqlite, None, None),
+            "RANDOM()"
+        );
+    }
 
     #[test]
     fn test_parse_duration() {

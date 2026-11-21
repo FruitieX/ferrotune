@@ -325,6 +325,10 @@ private fun ConditionValueEditor(
                 onCheckedChange = { onDraftChange(draft.copy(boolean = it)) },
                 modifier = Modifier.padding(start = 8.dp),
             )
+            Text(
+                text = if (draft.boolean) "Yes" else "No",
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
 
         RuleFieldType.ENUM -> DropdownField(

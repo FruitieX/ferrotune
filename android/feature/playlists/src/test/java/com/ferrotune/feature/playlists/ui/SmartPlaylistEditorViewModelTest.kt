@@ -174,6 +174,22 @@ class SmartPlaylistEditorViewModelTest {
     }
 
     @Test
+    fun `a new boolean condition means yes`() {
+        val api = FakeEditorApi()
+        val viewModel = viewModel(api)
+        viewModel.setName("Car")
+
+        val condition = viewModel.uiState.value.conditions.single().id
+        viewModel.changeConditionField(condition, "starred")
+        viewModel.save()
+
+        val saved = requireNotNull(api.created).rules.conditions.single()
+        assertEquals("starred", saved.field)
+        assertEquals("eq", saved.operator)
+        assertEquals(JsonPrimitive(true), saved.value)
+    }
+
+    @Test
     fun `incomplete conditions block saving`() {
         val viewModel = viewModel()
         viewModel.setName("Rainy day")

@@ -30,7 +30,8 @@ data class SmartConditionDraft(
     val operator: String,
     val text: String = "",
     val number: String = "",
-    val boolean: Boolean = false,
+    // Like the web editor: a new "Starred is" rule means starred, not unstarred.
+    val boolean: Boolean = true,
     val selected: Set<String> = emptySet(),
 )
 
@@ -187,7 +188,6 @@ fun newConditionDraft(fields: List<RuleField>, id: Long): SmartConditionDraft {
         id = id,
         field = field.apiName,
         operator = operator.value,
-        boolean = false,
     )
 }
 
@@ -211,7 +211,7 @@ fun SmartConditionDraft.toApiCondition(fields: List<RuleField>): SmartPlaylistCo
 fun SmartPlaylistConditionApi.toDraft(id: Long): SmartConditionDraft {
     var text = ""
     var number = ""
-    var boolean = false
+    var boolean = true
     var selected = emptySet<String>()
     when (val json = value) {
         is JsonArray -> selected = json.mapNotNull { (it as? JsonPrimitive)?.content }.toSet()

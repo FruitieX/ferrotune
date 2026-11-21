@@ -339,3 +339,59 @@ HTTP 204
 DELETE {{base_url}}/api/playlist-folders/{{test_folder_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
+
+# ============================================================================
+# PAGING WITH TIED SORT VALUES
+# ============================================================================
+
+# Every fixture song has zero play starts, so the sort value ties everywhere;
+# pages must still follow one order (the server breaks ties by song id).
+POST {{base_url}}/api/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Tied Sort Paging",
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      { "field": "playCount", "operator": "greaterOrEqual", "value": 0 }
+    ]
+  },
+  "sortField": "playStarts",
+  "sortDirection": "asc"
+}
+HTTP 201
+[Captures]
+tied_sp_id: jsonpath "$.id"
+
+GET {{base_url}}/api/smart-playlists/{{tied_sp_id}}/songs?offset=0&count=500
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+tied_first: jsonpath "$.songs[0].id"
+tied_second: jsonpath "$.songs[1].id"
+tied_third: jsonpath "$.songs[2].id"
+[Asserts]
+jsonpath "$.songs" count >= 3
+
+GET {{base_url}}/api/smart-playlists/{{tied_sp_id}}/songs?offset=0&count=1
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.songs[0].id" == "{{tied_first}}"
+
+GET {{base_url}}/api/smart-playlists/{{tied_sp_id}}/songs?offset=1&count=1
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.songs[0].id" == "{{tied_second}}"
+
+GET {{base_url}}/api/smart-playlists/{{tied_sp_id}}/songs?offset=2&count=1
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.songs[0].id" == "{{tied_third}}"
+
+DELETE {{base_url}}/api/smart-playlists/{{tied_sp_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
