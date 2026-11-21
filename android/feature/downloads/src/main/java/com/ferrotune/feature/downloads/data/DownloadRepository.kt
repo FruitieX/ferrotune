@@ -261,11 +261,18 @@ class DownloadRepository @Inject constructor(
     private suspend fun fetchSmartPlaylistSongs(smartPlaylistId: String): List<SongResponse> {
         val songs = mutableListOf<SongResponse>()
         var offset = 0
+        // A random order continues across pages with the first page's seed
+        var seed: Long? = null
         while (songs.size < MAX_CONTAINER_SONGS) {
             val page = apiProvider.requireApi().smartPlaylistSongs(
                 smartPlaylistId,
-                mapOf("offset" to offset.toString(), "count" to PAGE_SIZE.toString()),
+                buildMap {
+                    put("offset", offset.toString())
+                    put("count", PAGE_SIZE.toString())
+                    seed?.let { put("seed", it.toString()) }
+                },
             )
+            seed = page.seed
             songs += page.songs
             offset += page.songs.size
             if (page.songs.isEmpty() || songs.size >= page.totalCount) break

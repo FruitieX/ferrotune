@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.random.Random
 
 data class SmartPlaylistDetailUiState(
     val smartPlaylist: SmartPlaylistInfo? = null,
@@ -65,6 +66,9 @@ class SmartPlaylistDetailViewModel @Inject constructor(
     private val filter = MutableStateFlow("")
     private val sortReady = MutableStateFlow(false)
 
+    // A randomly sorted playlist shuffles with this seed, so pages continue one order
+    private val randomSeed = Random.nextLong(0, MAX_SAFE_SEED)
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val songs: Flow<PagingData<SongResponse>> = combine(
         state.map { it.sort to it.sortDir }.distinctUntilChanged(),
@@ -78,6 +82,7 @@ class SmartPlaylistDetailViewModel @Inject constructor(
                     filter = filter.ifBlank { null },
                     sortField = sort.takeIf { it != PlaylistRepository.PLAYLIST_SORT_CUSTOM },
                     sortDirection = sortDir,
+                    seed = randomSeed,
                 )
             }.flow
         }
@@ -198,3 +203,6 @@ class SmartPlaylistDetailViewModel @Inject constructor(
         const val SOURCE_TYPE_SMART_PLAYLIST = "smartPlaylist"
     }
 }
+
+/** Largest seed a JavaScript number holds exactly (the server's seed range). */
+private const val MAX_SAFE_SEED = 9_007_199_254_740_991L

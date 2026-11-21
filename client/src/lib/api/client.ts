@@ -2549,6 +2549,8 @@ export class FerrotuneClient {
       filter?: string;
       sortField?: string;
       sortDirection?: "asc" | "desc";
+      /** Seed from an earlier page, so random order continues across pages */
+      seed?: number | null;
     },
   ): Promise<SmartPlaylistSongsResponse> {
     const params = new URLSearchParams();
@@ -2561,6 +2563,7 @@ export class FerrotuneClient {
     if (options?.sortField) params.set("sortField", options.sortField);
     if (options?.sortDirection)
       params.set("sortDirection", options.sortDirection);
+    if (options?.seed != null) params.set("seed", String(options.seed));
     const queryStr = params.toString();
     return this.request(
       `/api/smart-playlists/${encodeURIComponent(id)}/songs${queryStr ? `?${queryStr}` : ""}`,

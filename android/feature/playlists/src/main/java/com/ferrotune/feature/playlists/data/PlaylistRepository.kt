@@ -189,12 +189,14 @@ class PlaylistRepository @Inject constructor(
         filter: String? = null,
         sortField: String? = null,
         sortDirection: String? = null,
+        seed: Long? = null,
     ) = SmartPlaylistSongsPagingSource(
         apiProvider = apiProvider,
         smartPlaylistId = smartPlaylistId,
         filter = filter,
         sortField = sortField,
         sortDirection = sortDirection,
+        seed = seed,
     )
 
     suspend fun materializeSmartPlaylist(

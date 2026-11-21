@@ -4875,6 +4875,7 @@ fn test_postgres_smart_playlist_read_handlers_work() {
                 filter: Some("Opening".to_string()),
                 sort_field: None,
                 sort_direction: None,
+                seed: None,
             }),
         )
         .await

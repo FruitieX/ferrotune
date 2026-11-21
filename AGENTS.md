@@ -411,6 +411,16 @@ the account-scoped IndexedDB cache. Increment it whenever a persisted response
 shape changes incompatibly; do not hydrate old DTOs and patch them with legacy
 field fallbacks in components.
 
+### Smart Playlist Random Order
+
+Randomly sorted smart playlists are a seeded shuffle (`seeded_random_songs()`
+in `src/api/smart_playlists.rs`): `GET /api/smart-playlists/{id}/songs` takes a
+`seed` and returns the one it used. Every page of a view must send the same
+seed, or pages reshuffle and repeat songs (web: `smartPlaylistSeed(id)` in
+`client/src/lib/utils/smart-playlist-seed.ts`; Android: one seed per
+`SmartPlaylistDetailViewModel`). Other sorts end with `s.id` so ties page
+stably.
+
 ### Frontend Hooks (`client/src/lib/hooks/`)
 
 | Hook | Purpose |

@@ -14,4 +14,5 @@ data class SmartPlaylistSongsResponse(
     val totalDuration: Long,
     val offset: Long,
     val songs: List<SongResponse>,
+    val seed: Long? = null,
 )

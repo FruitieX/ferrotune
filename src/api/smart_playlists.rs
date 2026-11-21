@@ -176,6 +176,10 @@ pub struct SmartPlaylistSongsResponse {
     pub offset: i64,
     /// Songs (potentially limited by max_songs and pagination)
     pub songs: Vec<crate::api::common::models::SongResponse>,
+    /// Seed of the random order, set when the playlist sorts randomly. Send it
+    /// back as `seed` for later pages so they continue the same order.
+    #[ts(type = "number | null")]
+    pub seed: Option<i64>,
 }
 
 /// Query parameters for smart playlist songs
@@ -198,6 +202,8 @@ pub struct SmartPlaylistSongsParams {
     /// Sort direction override (if None, uses playlist's defined sort)
     /// Valid values: asc, desc
     pub sort_direction: Option<String>,
+    /// Seed of a random order, from the first page's response (`seed`)
+    pub seed: Option<i64>,
 }
 
 fn default_page_size() -> i64 {
@@ -546,6 +552,11 @@ pub async fn get_smart_playlist_songs(
     )
     .await?;
 
+    // Random order is a seeded shuffle, so every page continues one order
+    let seed = smart_playlist_sort_columns(smart_playlist_sql_dialect(&state.database), sort_field)
+        .is_none()
+        .then(|| params.seed.unwrap_or_else(random_seed));
+
     // Build and execute materialization query with pagination
     let songs = materialize_smart_playlist_songs_filtered(
         &state.database,
@@ -557,6 +568,7 @@ pub async fn get_smart_playlist_songs(
         Some(params.offset),
         Some(params.count),
         params.filter.as_deref(),
+        seed,
     )
     .await?;
 
@@ -607,6 +619,7 @@ pub async fn get_smart_playlist_songs(
         total_duration,
         offset: params.offset,
         songs: song_responses,
+        seed,
     }))
 }
 
@@ -1167,6 +1180,112 @@ async fn sum_matching_songs_duration_filtered(
     execute_smart_playlist_scalar_query(database, &query, where_args, user_id, 5).await
 }
 
+/// Joins behind every smart playlist song query; binds five user ids (the
+/// four joins plus `ula.user_id = ?` in the WHERE clause).
+const SMART_PLAYLIST_SONG_SOURCES: &str = "FROM songs s
+         LEFT JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
+                    FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc
+            ON s.id = pc.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_starts
+                    FROM playback_starts WHERE user_id = ? AND explicit_start = 1 GROUP BY song_id) ps
+            ON s.id = ps.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as like_count, MAX(liked_at) as last_liked
+                    FROM song_likes WHERE user_id = ? GROUP BY song_id) lk
+            ON s.id = lk.song_id
+         LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?";
+
+/// A random seed that survives a JSON round trip through JavaScript numbers.
+fn random_seed() -> i64 {
+    use rand::RngExt;
+    rand::rng().random_range(0..=9_007_199_254_740_991i64)
+}
+
+/// The matching ids in seeded random order: shuffled, cut to `max_songs`,
+/// then paged. SQL `RANDOM()` reshuffles on every request, so offset pages
+/// of it overlap and repeat songs.
+fn seeded_random_page(
+    mut ids: Vec<String>,
+    seed: i64,
+    max_songs: Option<i64>,
+    offset: i64,
+    limit: Option<i64>,
+) -> Vec<String> {
+    use rand::rngs::StdRng;
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+
+    ids.sort_unstable();
+    ids.shuffle(&mut StdRng::seed_from_u64(seed as u64));
+    if let Some(max) = max_songs {
+        ids.truncate(max.max(0) as usize);
+    }
+    let start = (offset.max(0) as usize).min(ids.len());
+    let end = limit.map_or(ids.len(), |limit| {
+        start.saturating_add(limit.max(0) as usize).min(ids.len())
+    });
+    ids.drain(start..end).collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn seeded_random_songs(
+    database: &Database,
+    user_id: i64,
+    combined_where: &str,
+    where_args: Vec<SqlArg>,
+    seed: i64,
+    max_songs: Option<i64>,
+    offset: i64,
+    limit: Option<i64>,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    use sea_orm::{ConnectionTrait, Statement, Values};
+
+    let id_query = format!("SELECT s.id {SMART_PLAYLIST_SONG_SOURCES} {combined_where}");
+    let sql = match smart_playlist_sql_dialect(database) {
+        SmartPlaylistSqlDialect::Sqlite => id_query,
+        SmartPlaylistSqlDialect::Postgres => postgresize_smart_playlist_sql(&id_query),
+    };
+    let binds = build_scalar_binds(user_id, &where_args, 5);
+    let rows = database
+        .conn()
+        .query_all_raw(Statement::from_sql_and_values(
+            database.sea_backend(),
+            &sql,
+            Values(binds),
+        ))
+        .await?;
+    let ids = rows
+        .iter()
+        .map(|row| row.try_get_by_index::<String>(0))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let page = seeded_random_page(ids, seed, max_songs, offset, limit);
+    if page.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = vec!["?"; page.len()].join(", ");
+    let song_query = format!(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, COALESCE(ps.play_starts, 0) as play_starts,
+                lk.like_count, lk.last_liked, st.starred_at
+         {SMART_PLAYLIST_SONG_SOURCES}
+         WHERE ula.user_id = ? AND s.id IN ({placeholders})"
+    );
+    let id_args = page.iter().cloned().map(SqlArg::Text).collect::<Vec<_>>();
+    let songs =
+        execute_smart_playlist_song_query(database, &song_query, id_args, user_id, 5).await?;
+
+    let mut by_id: std::collections::HashMap<String, crate::db::models::Song> = songs
+        .into_iter()
+        .map(|song| (song.id.clone(), song))
+        .collect();
+    Ok(page.iter().filter_map(|id| by_id.remove(id)).collect())
+}
+
 /// Materialize songs matching the smart playlist rules with optional text filter
 #[allow(clippy::too_many_arguments)]
 async fn materialize_smart_playlist_songs_filtered(
@@ -1179,6 +1298,7 @@ async fn materialize_smart_playlist_songs_filtered(
     offset: Option<i64>,
     limit: Option<i64>,
     filter: Option<&str>,
+    seed: Option<i64>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     let dialect = smart_playlist_sql_dialect(database);
 
@@ -1203,6 +1323,21 @@ async fn materialize_smart_playlist_songs_filtered(
             enabled_filter, where_clause, filter_clause
         )
     };
+
+    if let (None, Some(seed)) = (smart_playlist_sort_columns(dialect, sort_field), seed) {
+        where_args.append(&mut filter_args);
+        return seeded_random_songs(
+            database,
+            user_id,
+            &combined_where,
+            where_args,
+            seed,
+            safe_max_songs,
+            safe_offset.unwrap_or(0),
+            safe_limit,
+        )
+        .await;
+    }
 
     // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
     let order_by = smart_playlist_order_by(dialect, sort_field, sort_direction);
@@ -1292,6 +1427,7 @@ pub async fn get_smart_playlist_songs_by_id(
         None, // No pagination offset
         None, // No pagination limit
         filter,
+        None,
     )
     .await
 }
@@ -1834,6 +1970,25 @@ fn parse_duration(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_seeded_random_pages_continue_one_order() {
+        let ids: Vec<String> = (0..120).map(|i| format!("so-{i:03}")).collect();
+        let whole = seeded_random_page(ids.clone(), 42, None, 0, None);
+        assert_ne!(whole, ids, "the order should be shuffled");
+
+        let mut paged = Vec::new();
+        for offset in (0..120).step_by(50) {
+            paged.extend(seeded_random_page(ids.clone(), 42, None, offset, Some(50)));
+        }
+        assert_eq!(paged, whole);
+
+        // Input order doesn't matter, and max_songs keeps the same prefix.
+        let mut reversed = ids.clone();
+        reversed.reverse();
+        let limited = seeded_random_page(reversed, 42, Some(30), 20, Some(50));
+        assert_eq!(limited, whole[20..30]);
+    }
 
     #[test]
     fn test_order_by_breaks_ties_by_song_id() {

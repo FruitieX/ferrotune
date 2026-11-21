@@ -24,4 +24,9 @@ offset: number,
 /**
  * Songs (potentially limited by max_songs and pagination)
  */
-songs: Array<SongResponse>, };
+songs: Array<SongResponse>, 
+/**
+ * Seed of the random order, set when the playlist sorts randomly. Send it
+ * back as `seed` for later pages so they continue the same order.
+ */
+seed: number | null, };

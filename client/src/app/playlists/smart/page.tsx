@@ -70,6 +70,7 @@ import {
   queueTextFilter,
 } from "@/lib/queue/source-filters";
 import type { Song } from "@/lib/api/types";
+import { smartPlaylistSeed } from "@/lib/utils/smart-playlist-seed";
 
 const PAGE_SIZE = 50;
 
@@ -95,6 +96,9 @@ function SmartPlaylistPageContent() {
     playlistColumnVisibilityAtom,
   );
 
+  // Random order continues across pages only with one seed for every page
+  const randomSeed = id ? smartPlaylistSeed(id) : undefined;
+
   // Fetch smart playlist with sparse pagination
   const {
     items: songs,
@@ -112,6 +116,7 @@ function SmartPlaylistPageContent() {
       debouncedFilter,
       sortConfig.field,
       sortConfig.direction,
+      randomSeed,
     ],
     pageSize: PAGE_SIZE,
     fetchPage: async (offset) => {
@@ -126,6 +131,7 @@ function SmartPlaylistPageContent() {
         filter: debouncedFilter || undefined,
         sortField: sortConfig.field,
         sortDirection: sortConfig.direction,
+        seed: randomSeed,
       });
       return {
         items: response.songs as Song[],

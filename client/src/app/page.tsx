@@ -97,6 +97,7 @@ import {
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
 import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
+import { smartPlaylistSeed } from "@/lib/utils/smart-playlist-seed";
 
 // Maximum items per home page section to avoid tiny scrollbars
 const MAX_SECTION_ITEMS = 100;
@@ -506,6 +507,11 @@ function HomePlaylistSongsSection({
   const playlistId = section.playlistId ?? "";
   const playlistType = section.playlistType ?? "playlist";
   const isConfigured = Boolean(section.playlistId && section.playlistType);
+  // Keeps a randomly sorted smart playlist in one order across pages
+  const randomSeed =
+    playlistType === "smartPlaylist" && playlistId
+      ? smartPlaylistSeed(playlistId)
+      : undefined;
 
   const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
     useInfiniteQuery({
@@ -516,6 +522,7 @@ function HomePlaylistSongsSection({
         playlistType,
         playlistId,
         pageSize,
+        randomSeed,
       ],
       queryFn: async ({ pageParam }) => {
         const client = getClient();
@@ -526,6 +533,7 @@ function HomePlaylistSongsSection({
             offset: pageParam,
             count: pageSize,
             inlineImages: "medium",
+            seed: randomSeed,
           });
           return {
             songs: response.songs,

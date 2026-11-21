@@ -46,4 +46,6 @@ data class SmartPlaylistSongsParams(
     val filter: String? = null,
     val sortField: String? = null,
     val sortDirection: String? = null,
+    /** Seed of a random order; one seed for every page keeps them in one order. */
+    val seed: Long? = null,
 )

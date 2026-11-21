@@ -395,3 +395,68 @@ jsonpath "$.songs[0].id" == "{{tied_third}}"
 DELETE {{base_url}}/api/smart-playlists/{{tied_sp_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 204
+
+# ============================================================================
+# RANDOM ORDER PAGING
+# ============================================================================
+
+# Random order is a seeded shuffle: the first page returns a seed, and pages
+# requested with it continue the same order instead of reshuffling.
+POST {{base_url}}/api/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Random Paging",
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      { "field": "playCount", "operator": "greaterOrEqual", "value": 0 }
+    ]
+  },
+  "sortField": null
+}
+HTTP 201
+[Captures]
+random_sp_id: jsonpath "$.id"
+
+GET {{base_url}}/api/smart-playlists/{{random_sp_id}}/songs?offset=0&count=500
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+random_seed: jsonpath "$.seed"
+random_first: jsonpath "$.songs[0].id"
+random_second: jsonpath "$.songs[1].id"
+random_third: jsonpath "$.songs[2].id"
+[Asserts]
+jsonpath "$.seed" isInteger
+jsonpath "$.songs" count >= 3
+
+GET {{base_url}}/api/smart-playlists/{{random_sp_id}}/songs?offset=0&count=1&seed={{random_seed}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.seed" == {{random_seed}}
+jsonpath "$.songs[0].id" == "{{random_first}}"
+
+GET {{base_url}}/api/smart-playlists/{{random_sp_id}}/songs?offset=1&count=1&seed={{random_seed}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.songs[0].id" == "{{random_second}}"
+
+GET {{base_url}}/api/smart-playlists/{{random_sp_id}}/songs?offset=2&count=1&seed={{random_seed}}
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.songs[0].id" == "{{random_third}}"
+
+# Sorted views carry no seed
+GET {{base_url}}/api/smart-playlists/{{random_sp_id}}/songs?offset=0&count=1&sortField=title&sortDirection=asc
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.seed" == null
+
+DELETE {{base_url}}/api/smart-playlists/{{random_sp_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204

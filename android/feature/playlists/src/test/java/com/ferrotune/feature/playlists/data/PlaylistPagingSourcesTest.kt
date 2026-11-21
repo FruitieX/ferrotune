@@ -106,6 +106,7 @@ class PlaylistPagingSourcesTest {
             filter = null,
             sortField = "playCount",
             sortDirection = "desc",
+            seed = 42,
             pageSize = 50,
         )
 
@@ -114,6 +115,7 @@ class PlaylistPagingSourcesTest {
         assertEquals(50, page.data.size)
         assertEquals("playCount", seenParams?.get("sortField"))
         assertEquals("desc", seenParams?.get("sortDirection"))
+        assertEquals("42", seenParams?.get("seed"))
         assertEquals("medium", seenParams?.get("inlineImages"))
     }
 

@@ -42,6 +42,7 @@ class SmartPlaylistSongsPagingSource(
     private val filter: String?,
     private val sortField: String?,
     private val sortDirection: String?,
+    private val seed: Long? = null,
     override val pageSize: Int = DEFAULT_PAGE_SIZE,
 ) : OffsetPagingSource<SongResponse>() {
     override suspend fun loadPage(offset: Int, count: Int): PageResult<SongResponse> {
@@ -54,6 +55,7 @@ class SmartPlaylistSongsPagingSource(
                 filter = filter,
                 sortField = sortField,
                 sortDirection = sortDirection,
+                seed = seed,
             ).toQueryMap(),
         )
         return PageResult(response.songs, response.totalCount)
