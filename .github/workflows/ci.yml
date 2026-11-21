@@ -103,7 +103,7 @@ jobs:
           fetch-depth: 0
       - name: Free runner disk space
         run: bash .github/scripts/free-runner-disk.sh
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Android unit tests and lint
@@ -132,7 +132,7 @@ jobs:
           fetch-depth: 0
       - name: Free runner disk space
         run: bash .github/scripts/free-runner-disk.sh
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Write Firebase config
@@ -349,7 +349,7 @@ jobs:
           fetch-depth: 0
       - name: Free runner disk space
         run: bash .github/scripts/free-runner-disk.sh
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare Tauri Android CI config
