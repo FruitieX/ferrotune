@@ -22,7 +22,7 @@ serde_json = "=1.0.154"
 serde = { version = "=1.0.229", features = ["derive"] }
 log = "=0.4.35"
 tauri = { version = "=2.12.5", features = [] }
-tauri-plugin-log = "=2.10.1"
+tauri-plugin-log = "=2.10.2"
 tauri-plugin-native-audio = { path = "../tauri-plugin-native-audio" }
 
 # Embedded server dependencies (desktop only)
