@@ -7,6 +7,7 @@ use crate::api::common::browse::song_to_response_with_stats;
 use crate::api::common::models::{AlbumResponse, ArtistResponse, SongPlayStats, SongResponse};
 use crate::api::common::utils::format_datetime_iso;
 use crate::db::models::ItemType;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 /// Get starred timestamps for multiple items of a given type for a user
@@ -173,9 +174,18 @@ pub async fn fetch_starred_content(
         starred_song_rows.iter().map(|(id, _)| id.clone()).collect();
     let song_rows =
         crate::db::repo::history::fetch_songs_by_ids(database.conn(), &ordered_song_ids).await?;
-    let play_stats =
-        crate::db::repo::starring::batch_song_play_stats(database, user_id, &ordered_song_ids)
-            .await?;
+    // Imported play counts carry `play_count > 1` and may have no `played_at`.
+    let play_stats: HashMap<String, (i64, Option<DateTime<Utc>>)> =
+        crate::db::repo::scrobbles::fetch_song_play_stats_rows(
+            database,
+            Some(user_id),
+            &ordered_song_ids,
+            crate::db::repo::scrobbles::PlayStatsAggregation::SumPlayCount,
+        )
+        .await?
+        .into_iter()
+        .map(|row| (row.song_id, (row.play_count, row.last_played)))
+        .collect();
     let mut song_by_id: HashMap<String, crate::db::models::Song> =
         song_rows.into_iter().map(|s| (s.id.clone(), s)).collect();
     let starred_songs: Vec<crate::db::models::Song> = starred_song_rows
@@ -184,7 +194,7 @@ pub async fn fetch_starred_content(
             song_by_id.remove(&song_id).map(|mut s| {
                 if let Some((pc, lp)) = play_stats.get(&song_id).copied() {
                     s.play_count = Some(pc);
-                    s.last_played = Some(lp);
+                    s.last_played = lp;
                 }
                 s.starred_at = Some(starred_at);
                 s
@@ -195,14 +205,18 @@ pub async fn fetch_starred_content(
     let song_ids: Vec<String> = starred_songs.iter().map(|s| s.id.clone()).collect();
     let song_ratings = get_ratings_map(database, user_id, ItemType::Song, &song_ids).await?;
 
+    let mut album_ids: Vec<String> = starred_songs
+        .iter()
+        .filter_map(|s| s.album_id.clone())
+        .collect();
+    album_ids.sort_unstable();
+    album_ids.dedup();
+    let albums = crate::db::repo::browse::get_albums_by_ids(database, &album_ids).await?;
+
     let mut song_responses = Vec::new();
     for song in starred_songs {
         let song_id = song.id.clone();
-        let album = if let Some(album_id) = &song.album_id {
-            crate::db::repo::browse::get_album_by_id(database, album_id).await?
-        } else {
-            None
-        };
+        let album = song.album_id.as_ref().and_then(|id| albums.get(id));
         let starred = song.starred_at.map(format_datetime_iso);
         let user_rating = song_ratings.get(&song_id).copied();
         let play_stats = SongPlayStats {
@@ -211,7 +225,7 @@ pub async fn fetch_starred_content(
         };
         song_responses.push(song_to_response_with_stats(
             song,
-            album.as_ref(),
+            album,
             starred,
             user_rating,
             Some(play_stats),

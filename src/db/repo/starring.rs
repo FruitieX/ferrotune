@@ -269,32 +269,3 @@ pub async fn list_starred_accessible_songs(
 
     Ok(rows)
 }
-
-/// Aggregate per-song play stats (play count + last played) for the given
-/// user. Only submission scrobbles count.
-pub async fn batch_song_play_stats(
-    database: &Database,
-    user_id: i64,
-    song_ids: &[String],
-) -> Result<HashMap<String, (i64, DateTime<Utc>)>> {
-    if song_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    use entity::scrobbles::Column as S;
-    let rows: Vec<(String, i64, DateTime<Utc>)> = entity::scrobbles::Entity::find()
-        .select_only()
-        .column(S::SongId)
-        .expr_as(S::Id.count(), "play_count")
-        .expr_as(S::PlayedAt.max(), "last_played")
-        .filter(S::Submission.eq(true))
-        .filter(S::UserId.eq(user_id))
-        .filter(S::SongId.is_in(song_ids.iter().cloned()))
-        .group_by(S::SongId)
-        .into_tuple()
-        .all(database.conn())
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, count, last)| (id, (count, last)))
-        .collect())
-}

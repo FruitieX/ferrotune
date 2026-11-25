@@ -411,6 +411,25 @@ pub async fn get_album_by_id(database: &Database, id: &str) -> Result<Option<Alb
         .map_err(Into::into)
 }
 
+/// Load several albums at once, keyed by id. Missing ids are absent.
+pub async fn get_albums_by_ids(
+    database: &Database,
+    ids: &[String],
+) -> Result<HashMap<String, Album>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let albums = album_select()
+        .filter(entity::albums::Column::Id.is_in(ids.iter().cloned()))
+        .into_model::<Album>()
+        .all(database.conn())
+        .await?;
+    Ok(albums
+        .into_iter()
+        .map(|album| (album.id.clone(), album))
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // Songs
 // ---------------------------------------------------------------------------
