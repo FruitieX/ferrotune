@@ -99,7 +99,28 @@ class LibraryPagingSourcesTest {
         assertEquals(50, page.nextKey)
     }
 
-    private fun refreshParams() = PagingSource.LoadParams.Refresh<Int>(
+    @Test
+    fun `album filter text is sent as the search query`() = runBlocking {
+        val sent = mutableListOf<Map<String, String>>()
+        val repository = LibraryRepository(
+            FakeApiProvider(
+                FakeFerrotuneApi(
+                    onSearch = { params ->
+                        sent += params
+                        FerrotuneSearchResponse(FerrotuneSearchContent(album = emptyList(), albumTotal = 0))
+                    }
+                )
+            )
+        )
+
+        repository.albums(query = " arne ".searchQuery()).load(refreshParams())
+        repository.albums(query = "  ".searchQuery()).load(refreshParams())
+
+        assertEquals(listOf("arne", "*"), sent.map { it["query"] })
+        assertNull(sent.first()["albumFilter"])
+    }
+
+    private fun refreshParams() =PagingSource.LoadParams.Refresh<Int>(
         key = null,
         loadSize = 50,
         placeholdersEnabled = false,

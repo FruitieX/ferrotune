@@ -24,6 +24,7 @@ import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryFilters
 import com.ferrotune.feature.library.data.LibraryRepository
+import com.ferrotune.feature.library.data.searchQuery
 import com.ferrotune.feature.library.data.LibraryViewPreferencesRepository
 import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir
@@ -105,7 +106,7 @@ class LibraryViewModel @Inject constructor(
         .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter, filters) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.songs(sort = sort, sortDir = dir, filter = filter.ifBlank { null }, filters = filters)
+                repository.songs(query = filter.searchQuery(), sort = sort, sortDir = dir, filters = filters)
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -120,7 +121,7 @@ class LibraryViewModel @Inject constructor(
         .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter, filters) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.albums(sort = sort, sortDir = dir, filter = filter.ifBlank { null }, filters = filters)
+                repository.albums(query = filter.searchQuery(), sort = sort, sortDir = dir, filters = filters)
             }.flow
         }
         .cachedIn(viewModelScope)
@@ -135,7 +136,7 @@ class LibraryViewModel @Inject constructor(
         .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter, filters) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.artists(sort = sort, sortDir = dir, filter = filter.ifBlank { null }, filters = filters)
+                repository.artists(query = filter.searchQuery(), sort = sort, sortDir = dir, filters = filters)
             }.flow
         }
         .cachedIn(viewModelScope)

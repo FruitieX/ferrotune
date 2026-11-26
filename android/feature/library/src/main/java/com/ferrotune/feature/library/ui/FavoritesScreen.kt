@@ -86,6 +86,7 @@ import com.ferrotune.feature.library.data.ArtistSort
 import com.ferrotune.feature.library.data.FavoritesCounts
 import com.ferrotune.feature.library.data.LIBRARY_PAGE_SIZE
 import com.ferrotune.feature.library.data.LibraryRepository
+import com.ferrotune.feature.library.data.searchQuery
 import com.ferrotune.feature.library.data.SongSort
 import com.ferrotune.feature.library.data.SortDir
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -172,7 +173,7 @@ class FavoritesViewModel @Inject constructor(
         .waitFor(sortReady)
         .flatMapLatest { (sort, dir, filter) ->
             Pager(PagingConfig(pageSize = LIBRARY_PAGE_SIZE)) {
-                repository.albums(sort = sort, sortDir = dir, starredOnly = true, filter = filter.ifBlank { null })
+                repository.albums(query = filter.searchQuery(), sort = sort, sortDir = dir, starredOnly = true)
             }.flow
         }
         .cachedIn(viewModelScope)

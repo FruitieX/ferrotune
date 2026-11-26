@@ -60,7 +60,6 @@ class LibraryRepository @Inject constructor(
         sort: AlbumSort = AlbumSort.NAME,
         sortDir: SortDir = SortDir.ASC,
         starredOnly: Boolean = false,
-        filter: String? = null,
         filters: LibraryFilters = LibraryFilters.NONE,
     ): PagingSource<Int, AlbumResponse> = SearchAlbumsPagingSource(
         apiProvider,
@@ -70,7 +69,6 @@ class LibraryRepository @Inject constructor(
             inlineImages = INLINE_IMAGES,
             albumSortDir = sortDir.apiValue,
             starredOnly = starredOnly.takeIf { it },
-            albumFilter = filter,
         ).let(filters.forAlbums()::applyTo),
     )
 
@@ -246,3 +244,10 @@ data class FavoritesCounts(
     val albums: Long,
     val artists: Long,
 )
+
+/**
+ * The search query for a list filter, like the web library and favorites
+ * pages: the typed text, or match-all when it is blank. Album searches have no
+ * title filter, so the text must go through the query.
+ */
+fun String.searchQuery(): String = trim().ifEmpty { LibraryRepository.MATCH_ALL }
